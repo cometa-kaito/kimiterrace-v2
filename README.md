@@ -32,6 +32,28 @@
 pnpm install
 ```
 
+### ローカル開発を始める
+
+ローカル DB（PostgreSQL 16 + pgvector）はコンテナで提供する。Cloud SQL と同等の image を使う。
+
+```bash
+# 1. PostgreSQL 起動 + pgvector 拡張有効化 + .env 生成（初回のみ）
+./scripts/dev-setup.sh
+
+# 2. 接続確認
+psql "$DATABASE_URL" -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+```
+
+手動で起動・停止する場合:
+
+```bash
+docker compose -f infrastructure/docker/docker-compose.dev.yml up -d   # 起動
+docker compose -f infrastructure/docker/docker-compose.dev.yml down    # 停止
+docker compose -f infrastructure/docker/docker-compose.dev.yml down -v # データ破棄
+```
+
+接続情報は [.env.example](.env.example) を参照。`.env` はコミットしない（[CLAUDE.md ルール5](CLAUDE.md)）。
+
 ### よく使うコマンド
 
 ```bash
