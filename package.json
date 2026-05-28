@@ -2,6 +2,7 @@
   "name": "kimiterrace-v2",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "キミテラス v2 — 学校サイネージ・校務 DX プラットフォーム (GCP ネイティブ)",
   "engines": {
     "node": ">=22",
