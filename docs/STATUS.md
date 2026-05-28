@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (W0 人間タスク大半完了)
+最終更新: 2026-05-28 (Orchestrator スモークテスト ✅)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -112,3 +112,8 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - **2026-05-28**: プロジェクト初期化、CLAUDE.md・STATUS.md・ROADMAP.md 作成完了、Issue 化はこれから
 - **2026-05-28**: 全基盤セットアップ完了。リポジトリ公開、CI/branch protection 設定、W0 Issue #11-#22 登録。次セッションは #11 から着手予定
 - **2026-05-28**: 人間タスク (#19-#21) 完了確認、GCP API 有効化、Wi-Fi/GCP/dev-tools の状態を docs/discovery/ に記録。ペネトレ (#22) は不実施判断が出たが要再検討
+- **2026-05-28**: Orchestrator スモークテスト ✅ **エンドツーエンド成功**。Mac Mini Worker が Issue #18 を spawn → 実装 → コミット → push → PR #26 自作成、CI 11/11 通過まで完走。Worker は CLAUDE.md ルール（1 PR=1機能、`.env.example` のみコミット、Conventional Commits、テスト計画記載）を全部守った。経路上の encoding バグ 2 件は PR #25 / #27 で修正済み:
+  - PR #25: SSH 非対話 PATH に `/opt/homebrew/bin` を補強（M1 Mac の bare `tmux` が見つからない）
+  - PR #27: state JSON / brief / driver script を base64 wrap、Get-Content に `-Encoding UTF8`、CRLF→LF 正規化（PowerShell 5.1 → ssh.exe で `"` 消失・mojibake・`\r` 混入が同時発生）
+  - 既知の小バグ: `worker-launcher.sh` の PR 番号抽出が macOS BSD `grep -P` 非対応で空。state.prNumber が常に null（機能には影響しない、後続課題）
+  - 残課題: Worker 完了の自動検出、Reviewer 自動 spawn は未実装（v0.3）
