@@ -45,7 +45,7 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - name: Run Biome
-        run: pnpm dlx @biomejs/biome ci .
+        run: pnpm exec biome ci .
 
   typecheck:
     name: Type Check
