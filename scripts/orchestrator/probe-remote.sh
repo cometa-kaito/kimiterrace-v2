@@ -15,13 +15,20 @@ if [ "$OS" = "Darwin" ]; then
   PAGE_SIZE=$(vm_stat | head -1 | tr -dc '0-9' || true)
   if [ -z "$PAGE_SIZE" ] || [ "$PAGE_SIZE" -lt 1024 ]; then PAGE_SIZE=16384; fi
 
+  # macOS "available" memory = free + inactive + speculative + purgeable.
+  # vm_stat's "Pages free" alone is misleadingly low because macOS aggressively
+  # uses RAM for inactive caches that can be reclaimed instantly.
   FREE_PAGES=$(vm_stat | grep '^Pages free' | tr -dc '0-9')
+  INACTIVE_PAGES=$(vm_stat | grep '^Pages inactive' | tr -dc '0-9')
   SPEC_PAGES=$(vm_stat | grep '^Pages speculative' | tr -dc '0-9')
+  PURGE_PAGES=$(vm_stat | grep '^Pages purgeable' | tr -dc '0-9')
   [ -z "$FREE_PAGES" ] && FREE_PAGES=0
+  [ -z "$INACTIVE_PAGES" ] && INACTIVE_PAGES=0
   [ -z "$SPEC_PAGES" ] && SPEC_PAGES=0
+  [ -z "$PURGE_PAGES" ] && PURGE_PAGES=0
 
-  FREE_BYTES=$(( (FREE_PAGES + SPEC_PAGES) * PAGE_SIZE ))
-  FREE_MB=$(( FREE_BYTES / 1024 / 1024 ))
+  AVAIL_BYTES=$(( (FREE_PAGES + INACTIVE_PAGES + SPEC_PAGES + PURGE_PAGES) * PAGE_SIZE ))
+  FREE_MB=$(( AVAIL_BYTES / 1024 / 1024 ))
 
   TOTAL_BYTES=$(sysctl -n hw.memsize)
   TOTAL_MB=$(( TOTAL_BYTES / 1024 / 1024 ))

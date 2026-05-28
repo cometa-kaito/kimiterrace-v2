@@ -62,27 +62,20 @@ function Invoke-SshCommand {
   $sshArgs = _Build-SshArgs -Machine $Machine
   $sshArgs += $Command
 
-  $outFile = [System.IO.Path]::GetTempFileName()
   $errFile = [System.IO.Path]::GetTempFileName()
   try {
-    $proc = Start-Process -FilePath "ssh" -ArgumentList $sshArgs `
-              -NoNewWindow -PassThru `
-              -RedirectStandardOutput $outFile `
-              -RedirectStandardError $errFile
-    $exited = $proc.WaitForExit($TimeoutSec * 1000)
-    if (-not $exited) {
-      $proc.Kill()
-      throw "SSH command timed out after ${TimeoutSec}s: $Command"
-    }
-    $stdout = Get-Content -LiteralPath $outFile -Raw -ErrorAction SilentlyContinue
+    $stdout = & ssh @sshArgs 2>$errFile
+    $exitCode = $LASTEXITCODE
     $stderr = Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue
+    if ($null -eq $stdout) { $stdout = "" }
+    if ($stdout -is [array]) { $stdout = $stdout -join "`n" }
     [PSCustomObject]@{
-      ExitCode = $proc.ExitCode
+      ExitCode = $exitCode
       Stdout   = $stdout
       Stderr   = $stderr
     }
   } finally {
-    Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -104,7 +97,7 @@ function Invoke-RemoteProbe {
   if ($result.ExitCode -ne 0) {
     return [PSCustomObject]@{
       Error  = "Remote probe failed (exit $($result.ExitCode))"
-      Stderr = $result.Stderr.Trim()
+      Stderr = $(if ($result.Stderr) { $result.Stderr.Trim() } else { "" })
     }
   }
   try {
@@ -114,7 +107,7 @@ function Invoke-RemoteProbe {
     return [PSCustomObject]@{
       Error  = "Failed to parse remote probe output"
       Raw    = $result.Stdout
-      Stderr = $result.Stderr.Trim()
+      Stderr = $(if ($result.Stderr) { $result.Stderr.Trim() } else { "" })
     }
   }
 }
