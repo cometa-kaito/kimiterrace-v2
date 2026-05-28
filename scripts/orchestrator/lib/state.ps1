@@ -40,7 +40,7 @@ function New-WorkerState {
     [Parameter(Mandatory)][string]$Branch,
     [Parameter(Mandatory)][string]$Worktree,
     [Parameter(Mandatory)][string]$LogPath,
-    [Parameter(Mandatory)][int]$Pid
+    [Parameter(Mandatory)][int]$ProcessId
   )
   $dirs = Get-StateDir
   $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
@@ -49,7 +49,7 @@ function New-WorkerState {
   $state = [PSCustomObject]@{
     id        = $id
     role      = $Role
-    pid       = $Pid
+    pid       = $ProcessId
     issue     = $Issue
     branch    = $Branch
     worktree  = $Worktree

@@ -227,7 +227,7 @@ function Spawn-LocalWorker {
 
   $state = New-WorkerState -Role $RoleArg -Issue $Issue `
     -Branch $branchName -Worktree $worktreePath `
-    -LogPath $logPath -Pid 0
+    -LogPath $logPath -ProcessId 0
 
   Push-Location $repoRoot
   try {
