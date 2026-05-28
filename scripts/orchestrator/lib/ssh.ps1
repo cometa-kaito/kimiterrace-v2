@@ -90,61 +90,17 @@ function Invoke-RemoteProbe {
   <#
     Probe macOS/Linux host for resource snapshot.
     Returns same schema as local probe.ps1 for uniform handling.
+
+    Implementation: invokes scripts/orchestrator/probe-remote.sh on the
+    remote host (the script must be checked into the repo at that path).
+    This avoids SSH quote-escaping hazards with inline scripts.
   #>
   param([Parameter(Mandatory)][PSCustomObject]$Machine)
 
-  # Single-shot remote script. macOS uses vm_stat / sysctl; Linux uses /proc.
-  $remoteScript = @'
-set -e
-OS="$(uname -s)"
+  $repoPath = $Machine.remoteRepoPath
+  $probeCmd = "bash $repoPath/scripts/orchestrator/probe-remote.sh"
 
-if [ "$OS" = "Darwin" ]; then
-  PAGE_SIZE=$(vm_stat | awk '/page size/ {print $8}')
-  if [ -z "$PAGE_SIZE" ]; then PAGE_SIZE=4096; fi
-  FREE_PAGES=$(vm_stat | awk '/Pages free/ {gsub("[^0-9]","",$3); print $3}')
-  SPECULATIVE=$(vm_stat | awk '/Pages speculative/ {gsub("[^0-9]","",$3); print $3}')
-  if [ -z "$SPECULATIVE" ]; then SPECULATIVE=0; fi
-  FREE_BYTES=$(( (FREE_PAGES + SPECULATIVE) * PAGE_SIZE ))
-  FREE_MB=$(( FREE_BYTES / 1024 / 1024 ))
-  TOTAL_BYTES=$(sysctl -n hw.memsize)
-  TOTAL_MB=$(( TOTAL_BYTES / 1024 / 1024 ))
-  CORES=$(sysctl -n hw.logicalcpu)
-  LOAD=$(sysctl -n vm.loadavg | awk '{print $2}')
-  CORE_F=$(echo "$CORES" | awk '{print $1+0}')
-  CPU_PCT=$(awk -v l="$LOAD" -v c="$CORE_F" 'BEGIN{printf "%.1f", (l/c)*100}')
-  DISK_FREE_KB=$(df -k ~ | awk 'NR==2 {print $4}')
-  DISK_FREE_MB=$(( DISK_FREE_KB / 1024 ))
-elif [ "$OS" = "Linux" ]; then
-  TOTAL_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-  FREE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
-  CORES=$(nproc)
-  LOAD=$(awk '{print $1}' /proc/loadavg)
-  CPU_PCT=$(awk -v l="$LOAD" -v c="$CORES" 'BEGIN{printf "%.1f", (l/c)*100}')
-  DISK_FREE_KB=$(df -k ~ | awk 'NR==2 {print $4}')
-  DISK_FREE_MB=$(( DISK_FREE_KB / 1024 ))
-else
-  echo "{\"error\":\"unsupported OS: $OS\"}"
-  exit 1
-fi
-
-CLAUDE_COUNT=$(pgrep -f 'claude' 2>/dev/null | wc -l | tr -d ' ')
-NODE_COUNT=$(pgrep -f 'node' 2>/dev/null | wc -l | tr -d ' ')
-
-cat <<JSON
-{
-  "Timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "TotalRamMb": $TOTAL_MB,
-  "FreeRamMb": $FREE_MB,
-  "FreeDiskMb": $DISK_FREE_MB,
-  "CpuLogicalCores": $CORES,
-  "CpuLoadPct": $CPU_PCT,
-  "ClaudeProcessCount": $CLAUDE_COUNT,
-  "NodeProcessCount": $NODE_COUNT
-}
-JSON
-'@
-
-  $result = Invoke-SshCommand -Machine $Machine -Command $remoteScript -TimeoutSec 15
+  $result = Invoke-SshCommand -Machine $Machine -Command $probeCmd -TimeoutSec 15
   if ($result.ExitCode -ne 0) {
     return [PSCustomObject]@{
       Error  = "Remote probe failed (exit $($result.ExitCode))"
@@ -175,12 +131,73 @@ function Get-RemoteWorkerStates {
   if ($result.ExitCode -ne 0) { return @() }
   $blobs = $result.Stdout -split '---STATE-SEP---' | Where-Object { $_.Trim() -ne "" }
   $states = foreach ($blob in $blobs) {
-    try { $blob | ConvertFrom-Json } catch { }
+    try {
+      $s = $blob | ConvertFrom-Json
+      # Augment with StatePath for later updates
+      $s | Add-Member -NotePropertyName StatePath -NotePropertyValue "$stateDir/workers/$($s.id).json" -Force
+      $s
+    } catch { }
   }
   if ($StatusFilter -ne "*") {
     $states = $states | Where-Object { $_.status -eq $StatusFilter }
   }
   return @($states)
+}
+
+function Test-RemoteTmuxSession {
+  <#
+    Returns $true if the named tmux session exists on the remote host.
+    The orchestrator depends on this session being started from a Mac
+    Terminal.app (so it has Keychain access for claude/gh credentials).
+  #>
+  param(
+    [Parameter(Mandatory)][PSCustomObject]$Machine,
+    [string]$SessionName = "workers"
+  )
+  $cmd = "tmux has-session -t '$SessionName' 2>/dev/null && echo OK || echo MISSING"
+  $r = Invoke-SshCommand -Machine $Machine -Command $cmd -TimeoutSec 5
+  return ($r.ExitCode -eq 0 -and $r.Stdout.Trim() -eq "OK")
+}
+
+function Get-RemoteTmuxWindows {
+  <#
+    Lists active tmux window names in the workers session.
+    Used to detect which workers are still alive (window exists = process alive).
+  #>
+  param(
+    [Parameter(Mandatory)][PSCustomObject]$Machine,
+    [string]$SessionName = "workers"
+  )
+  $cmd = "tmux list-windows -t '$SessionName' -F '#{window_name}' 2>/dev/null || true"
+  $r = Invoke-SshCommand -Machine $Machine -Command $cmd -TimeoutSec 5
+  if ($r.ExitCode -ne 0) { return @() }
+  return @($r.Stdout -split "`n" | Where-Object { $_.Trim() -ne "" })
+}
+
+function Sync-RemoteWorkerStatuses {
+  <#
+    For each "running" remote worker, check if its tmux window still exists.
+    If window is gone but state says "running", mark as "failed" (orphan).
+    The launcher's trap should update state on clean exit; this catches crashes.
+  #>
+  param([Parameter(Mandatory)][PSCustomObject]$Machine)
+
+  $running = Get-RemoteWorkerStates -Machine $Machine -StatusFilter "running"
+  if ($running.Count -eq 0) { return }
+
+  $session = $Machine.tmuxSession
+  if (-not $session) { $session = "workers" }
+  $aliveWindows = Get-RemoteTmuxWindows -Machine $Machine -SessionName $session
+
+  foreach ($s in $running) {
+    $winName = if ($s.tmuxWindow) { $s.tmuxWindow } else { $s.id }
+    if ($aliveWindows -notcontains $winName) {
+      # Worker no longer in tmux; mark as failed (launcher's trap should have
+      # updated it; if we get here, it crashed without running the trap)
+      $patchCmd = "tmp=`$(mktemp) && jq '.status=`"failed`" | .exitCode=-1' '$($s.StatePath)' > `$tmp && mv `$tmp '$($s.StatePath)'"
+      Invoke-SshCommand -Machine $Machine -Command $patchCmd -TimeoutSec 5 | Out-Null
+    }
+  }
 }
 
 function Start-RemoteWorker {
@@ -238,33 +255,39 @@ function Start-RemoteWorker {
   $writeBriefCmd = "cat > $briefPath <<'BRIEF_EOF'`n$BriefContent`nBRIEF_EOF"
   Invoke-SshCommand -Machine $Machine -Command $writeBriefCmd -TimeoutSec 10 | Out-Null
 
-  # 4. Run worker-launcher.sh with nohup
-  $launcher = "$repoPath/scripts/orchestrator/worker-launcher.sh"
-  $launchCmd = @"
-cd $repoPath && \
-nohup bash $launcher $Role $Issue $WorkerId $statePath $logPath $worktreePath $BranchName $briefPath \
-  > /dev/null 2>&1 &
-echo `$!
-"@
-  $result = Invoke-SshCommand -Machine $Machine -Command $launchCmd -TimeoutSec 15
-  if ($result.ExitCode -ne 0) {
-    throw "Remote worker spawn failed: $($result.Stderr)"
-  }
-  $remotePid = $result.Stdout.Trim()
+  # 4. Run worker-launcher.sh inside a tmux window.
+  # CRITICAL: tmux session "workers" must be started from a Mac Terminal.app
+  # (interactive shell) so it inherits Keychain access for the user's
+  # subscription credentials. SSH-spawned processes cannot access the
+  # locked Keychain otherwise. See README "Multi-Machine" section.
+  $tmuxSession = $Machine.tmuxSession
+  if (-not $tmuxSession) { $tmuxSession = "workers" }
 
-  # 5. Update state with PID via jq (Mac setup script installs jq)
-  $jqArg = "--arg p $remotePid"
-  $jqExpr = "'.pid=(`$p|tonumber)'"
-  $patchCmd = "tmp=`$(mktemp) && jq $jqArg $jqExpr $statePath > `$tmp && mv `$tmp $statePath"
+  $launcher = "$repoPath/scripts/orchestrator/worker-launcher.sh"
+  # Build the inner shell command: load Node/PATH, run launcher
+  $innerCmd = "export PATH=/opt/homebrew/bin:\`$PATH; export NVM_DIR=\`$HOME/.nvm; [ -s \`$NVM_DIR/nvm.sh ] && . \`$NVM_DIR/nvm.sh; cd $repoPath && bash $launcher $Role $Issue $WorkerId $statePath $logPath $worktreePath $BranchName $briefPath"
+  # tmux new-window -d (detached) -n <name> -t <session>: <command>
+  $tmuxCmd = "tmux new-window -d -n '$WorkerId' -t '${tmuxSession}:' `"$innerCmd`""
+
+  $result = Invoke-SshCommand -Machine $Machine -Command $tmuxCmd -TimeoutSec 15
+  if ($result.ExitCode -ne 0) {
+    throw "Remote worker spawn failed (is tmux session '$tmuxSession' running on $($Machine.host)?): $($result.Stderr)"
+  }
+
+  # PID is not directly observable from tmux new-window; we track via tmux
+  # window name (= WorkerId) and state JSON instead. Mark pid = -1 sentinel
+  # meaning "tracked via tmux window, not pid".
+  $patchCmd = "tmp=`$(mktemp) && jq '.pid=-1 | .tmuxWindow=`"$WorkerId`" | .tmuxSession=`"$tmuxSession`"' $statePath > `$tmp && mv `$tmp $statePath"
   Invoke-SshCommand -Machine $Machine -Command $patchCmd -TimeoutSec 10 | Out-Null
 
   [PSCustomObject]@{
-    Id          = $WorkerId
-    RemoteHost  = $Machine.host
-    RemotePid   = $remotePid
-    StatePath   = $statePath
-    LogPath     = $logPath
-    Worktree    = $worktreePath
-    BranchName  = $BranchName
+    Id           = $WorkerId
+    RemoteHost   = $Machine.host
+    TmuxSession  = $tmuxSession
+    TmuxWindow   = $WorkerId
+    StatePath    = $statePath
+    LogPath      = $logPath
+    Worktree     = $worktreePath
+    BranchName   = $BranchName
   }
 }

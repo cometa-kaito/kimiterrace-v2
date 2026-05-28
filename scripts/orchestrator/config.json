@@ -18,14 +18,15 @@
     },
     "mac-mini": {
       "kind": "ssh",
-      "enabled": false,
-      "_enable_when": "SSH 接続が確立し setup-mac-worker.sh が成功してから true に",
-      "host": "mac-mini.local",
-      "user": "kaito",
+      "enabled": true,
+      "_keychain_note": "tmux session 'workers' must be running on Mac (started from Terminal.app) for Keychain access to claude.ai subscription credentials. See README Multi-Machine section.",
+      "host": "Kaitos-Mac-mini.local",
+      "user": "kaitookumura",
       "sshKey": "~/.ssh/id_kimiterrace",
       "sshPort": 22,
-      "remoteRepoPath": "~/work/kimiterrace-v2",
-      "remoteStateDir": "~/.kimiterrace-orchestrator",
+      "tmuxSession": "workers",
+      "remoteRepoPath": "/Users/kaitookumura/work/kimiterrace-v2",
+      "remoteStateDir": "/Users/kaitookumura/.kimiterrace-orchestrator",
       "ramPerWorkerMb": 1000,
       "diskPerWorktreeMb": 2500,
       "desktopReserveMb": 1500,
@@ -34,7 +35,7 @@
       "workerHardCap": 5,
       "reviewerHardCap": 3,
       "cpuLoadMaxPct": 80,
-      "worktreeBaseDir": "~/work/.kimiterrace-workers"
+      "worktreeBaseDir": "/Users/kaitookumura/work/.kimiterrace-workers"
     }
   },
 
