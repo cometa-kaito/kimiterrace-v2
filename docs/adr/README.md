@@ -45,6 +45,11 @@
 | 012 | テストは Vitest + Playwright + Testcontainers | Proposed |
 | 013 | エラー追跡は Sentry | Proposed |
 | 014 | 観測は Cloud Logging + Cloud Trace + OTel | Proposed |
+| 015 | [即公開 + 安全網 4 種](015-instant-publish-with-safety-nets.md)（承認フロー非採用） | Proposed |
+| 016 | [クラス magic link 匿名アクセス](016-class-magic-link-anonymous-access.md)（個別アカウント非採用） | Proposed |
+| 017 | [Gemini で AI 構造化 + confidence_score 必須化](017-gemini-ai-structuring-with-confidence.md) | Proposed |
+| 018 | [CRM 機能の独自設計](018-custom-crm-design.md)（既存 SaaS 連携非採用） | Proposed |
+| 019 | [RLS 二層分離](019-rls-two-layer-tenant-isolation.md)（school_id テナント + system_admin cross-tenant） | Proposed |
 
 ## ルール
 

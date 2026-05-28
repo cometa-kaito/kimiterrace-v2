@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (要件 19 ファイル分割完了、ADR 5 本起票が次タスク)
+最終更新: 2026-05-28 (ADR-015〜019 起票完了、次は Drizzle DDL Worker spawn)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -46,6 +46,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - 2026-05-28: Mac Mini Worker 健全性確認（RAM 3.4G/Disk 261G/CPU 28%、Claude プロセス 0、spawn 余裕あり）
 - 2026-05-28: **`docs/requirements/v2-mvp.md` ドラフト起草完了**（機能要件 F01-F12、非機能要件 NFR01-NFR07、ロール設計、データモデル概念設計、RLS ポリシー、AI 安全網 4 種、PII マスキング戦略、将来追加・未決定事項を一本化）
 - 2026-05-28: **要件個別ファイル分割完了**（functional/F01-F12 12 本 + non-functional/NFR01-NFR07 7 本 + 索引 README 2 本 = 21 ファイル新規作成）。v2-mvp.md は概観・横断要素の参照源として維持
+- 2026-05-28: **ADR-015〜019 起草完了**（即公開+安全網 / magic link 匿名 / Gemini + confidence / CRM 独自 / RLS 二層）。各 ADR は文脈・決定・代替案・トレードオフのフォーマット遵守、関連 F・NFR・memory への双方向リンク含む
 
 ---
 
@@ -56,8 +57,8 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #11 | 既存システム棚卸し | ✅ 完了（V1 機能インベントリ取得） |
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
-| Claude | #14 | ADR 群初稿 | **次着手**（5 本: ADR-015 即公開+安全網 / 016 magic link / 017 Gemini 抽出 / 018 CRM 独自 / 019 RLS 二層） |
-| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | 未着手（v2-mvp.md §6 のデータモデル概念設計を基に Drizzle 化、Worker spawn 想定） |
+| Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
+| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | **次着手**（v2-mvp.md §6 → Drizzle schema、Worker spawn 必須＝アプリコード） |
 | Claude | #16 | C4 図 + シーケンス図 | 未着手 |
 | Claude | #17 | 脅威モデル STRIDE | 未着手 |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
@@ -70,18 +71,19 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（優先順）
 
-1. **新規 ADR 5 本起票**（Desktop で書ける、docs/adr/）:
-   - ADR-015 即公開+安全網 4 種（承認フロー非採用の根拠）
-   - ADR-016 クラス magic link による匿名アクセス
-   - ADR-017 AI 構造化への Gemini 採用（confidence_score 必須化含む）
-   - ADR-018 CRM 機能の独自設計（既存 SaaS 連携を採用しなかった理由）
-   - ADR-019 RLS 二層分離（school_id テナント + system_admin cross-tenant）
-2. PostgreSQL スキーマ DDL（Drizzle, v2-mvp.md §6 → `packages/db/schema/*.ts`）— **Worker spawn 必須**（アプリケーションコード）
-3. C4 図 + シーケンス図（Mermaid, v2-mvp.md §3 ロール + §6 データ + §7 RLS を基に、Desktop）
-4. 脅威モデル（STRIDE, v2-mvp.md §3 ロール + §7 RLS を基に、Desktop）
-5. F01-F12 を GitHub Issue 化 → 優先順位付け
-6. Terraform 雛形（modules + dev environment, Worker spawn）
-7. Worker spawn で並列実装開始（probe で確認、tmux 儀式実施後）
+1. **PostgreSQL スキーマ DDL（Drizzle）** — **Worker spawn 必須**（packages/db/schema/*.ts はアプリコード）
+   - 入力: [v2-mvp.md §6](../requirements/v2-mvp.md)、[ADR-019 RLS 二層](../adr/019-rls-two-layer-tenant-isolation.md)
+   - 期待出力: 17 テーブル分の Drizzle schema + 監査カラム + RLS ENABLE + 単体テスト
+   - Mac Mini Worker に spawn（probe 健全性確認済）
+2. C4 図 + シーケンス図（Mermaid, Desktop で書ける）
+   - 入力: [v2-mvp.md §3 ロール + §6 データ + §7 RLS](../requirements/v2-mvp.md)
+   - 出力: docs/architecture/c4-context.md, c4-container.md, c4-component.md, sequence-diagrams/*.md
+3. 脅威モデル STRIDE（Desktop）
+   - 入力: [v2-mvp.md §3 ロール + §7 RLS](../requirements/v2-mvp.md)
+   - 出力: docs/architecture/threat-model.md
+4. F01-F12 を GitHub Issue 化 → 優先順位付け
+5. Terraform 雛形（modules + dev environment, Worker spawn）
+6. Worker spawn で並列実装開始（probe で確認、tmux 儀式実施後）
 
 ---
 
@@ -166,4 +168,11 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
     - 削除: `project_signage_deployment_milestones.md` / `feedback_signage_verify_preview_channel.md`（旧 Firebase プロジェクトの陳腐化メモ）
   - **次セッション entry point**: **`docs/requirements/v2-mvp.md` 起草**（このセッションの議論結果を 1 ファイルにまとめる）から再開。タスクトラッキング（TaskCreate）はセッション間で持ち越されないため、再開時に上記「次にやるべき」優先順をもとに TaskCreate で再構築する
 - **2026-05-28**: **`docs/requirements/v2-mvp.md` ドラフト起草完了**。前セッションで確定した AI MVP スコープを 1 ファイルに集約: §1 概要 / §2 設計原則 / §3 ロール設計（権限マトリクス含む）/ §4 機能要件 F01-F12 / §5 非機能要件 NFR01-NFR07 / §6 データモデル概念設計（テーブル分類 + 主要 17 テーブル）/ §7 RLS ポリシー設計（単層 + system_admin cross-tenant）/ §8 AI 安全網 4 種詳細 / §9 PII マスキング戦略 / §10 将来追加機能 / §11 未決定事項 / §12 関連 ADR・Issue。末尾に「レビュー観点（ユーザー向け）」セクションを追加し、レビューポイント 6 件を明示
-- **2026-05-28**: **要件個別ファイル分割完了**。v2-mvp.md から `docs/requirements/functional/F01-F12.md`（12 本）と `docs/requirements/non-functional/NFR01-NFR07.md`（7 本）に分割。索引 README 2 本も作成。v2-mvp.md は概観・横断要素（ロール / データモデル / RLS / 安全網詳細 / PII / 関連 ADR）の参照源として維持。NFR07 (コンプライアンス) を v2-mvp.md §5 から個別ファイルに昇格（元 issue #13 は NFR01-NFR06 を想定していたが、コンプライアンスを独立化）。次セッション entry point: **ADR 5 本起票 (Desktop) → Drizzle DDL (Worker spawn) → C4 + STRIDE (Desktop)**
+- **2026-05-28**: **要件個別ファイル分割完了**。v2-mvp.md から `docs/requirements/functional/F01-F12.md`（12 本）と `docs/requirements/non-functional/NFR01-NFR07.md`（7 本）に分割。索引 README 2 本も作成。v2-mvp.md は概観・横断要素（ロール / データモデル / RLS / 安全網詳細 / PII / 関連 ADR）の参照源として維持。NFR07 (コンプライアンス) を v2-mvp.md §5 から個別ファイルに昇格（元 issue #13 は NFR01-NFR06 を想定していたが、コンプライアンスを独立化）
+- **2026-05-28**: **ADR-015〜019 起草完了**（5 本）。各 ADR は README フォーマット（文脈・決定・検討した代替案・結果/トレードオフ）に厳格準拠。トレードオフ節を必ず明記。詳細:
+  - [ADR-015](../adr/015-instant-publish-with-safety-nets.md): 即公開 + 安全網 4 種。承認フロー非採用の根拠（公立校階層特性 + 紙時代慣例 + AI 抽出は教員一次レビュー前提）。代替案 4 件却下
+  - [ADR-016](../adr/016-class-magic-link-anonymous-access.md): クラス magic link 匿名アクセス。個別アカウント・学校 SSO・OTP メール・アクセス自由を却下。漏洩リスクは cryptographic randomness + 90 日デフォルト + 即時失効フローで抑制
+  - [ADR-017](../adr/017-gemini-ai-structuring-with-confidence.md): Gemini Pro 固定 + native JSON mode + Zod validate + リトライ最大 2 回 + confidence_score 必須化 + evidence 引用。Claude/GPT/Azure を却下（GCP 内完結優先）
+  - [ADR-018](../adr/018-custom-crm-design.md): CRM 独自設計（HubSpot / Salesforce / Notion / スプレッドシート却下）。広告主 20 社規模に SaaS コストは過剰、F09 月次レポートとの JOIN が同一 DB で完結する利点
+  - [ADR-019](../adr/019-rls-two-layer-tenant-isolation.md): RLS 二層分離。レイヤー 1: school_id テナント分離、レイヤー 2: system_admin cross-tenant policy。アプリ層フィルタ・スキーマ分離・物理分離・SECURITY DEFINER を却下。CRM テーブルは RLS 対象外（middleware で system_admin チェック）
+  - 次セッション entry point: **Drizzle DDL (Worker spawn 必須) → C4 図 + STRIDE (Desktop) → Issue 化**
