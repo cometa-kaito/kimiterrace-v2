@@ -3,8 +3,11 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28
+最終更新: 2026-05-28 (W0 基盤完了)
 更新者: Claude Code
+
+リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
+Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
 
 ---
 
@@ -21,21 +24,33 @@
 ## 直近の完了
 
 - 2026-05-28: 移行方針確定（GCP ネイティブへ全改修、12週計画）
-- 2026-05-28: kimiterrace-v2 リポジトリ初期化
-- 2026-05-28: CLAUDE.md 作成
-- 2026-05-28: docs/ 構造作成
+- 2026-05-28: kimiterrace-v2 リポジトリ初期化 + GitHub 公開
+- 2026-05-28: CLAUDE.md 作成（8つの開発規律）
+- 2026-05-28: docs/ 構造作成（STATUS, ROADMAP, adr, requirements, architecture, compliance, runbooks）
+- 2026-05-28: pnpm + Turborepo + Biome + TypeScript strict 設定
+- 2026-05-28: husky + lint-staged + commitlint (Conventional Commits)
+- 2026-05-28: CI ワークフロー（lint, typecheck, test, build, security scan）
+- 2026-05-28: branch protection 設定（CI 必須・linear history・force push 禁止）
+- 2026-05-28: W0 Issue 作成完了 (#11〜#22)
 
 ---
 
 ## 今やっているもの
 
-| 担当 | タスク | 進捗 |
-|---|---|---|
-| Claude | リポジトリ基盤セットアップ（CI・hooks・templates） | 進行中 |
-| 人間 | gcloud SDK / Terraform インストール | 未着手 |
-| 人間 | GCP プロジェクト `signage-v2-prod` 作成 | 未着手 |
-| 人間 | 県教委 Wi-Fi フィルタ方式問合せ | 未着手 |
-| 人間 | ペネトレ業者3社見積依頼 | 未着手 |
+| 担当 | Issue | タスク | 進捗 |
+|---|---|---|---|
+| Claude | #11 | 既存システム棚卸し | 未着手 |
+| Claude | #12 | 機能要件 F01-F07 ドラフト | 未着手 |
+| Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | 未着手 |
+| Claude | #14 | ADR 001-014 初稿 | 未着手 |
+| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | 未着手 |
+| Claude | #16 | C4 図 + シーケンス図 | 未着手 |
+| Claude | #17 | 脅威モデル STRIDE | 未着手 |
+| Claude | #18 | ローカル開発環境 docker-compose | 未着手 |
+| 人間 | #19 | gcloud SDK / Terraform インストール | 未着手 |
+| 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | 未着手 |
+| 人間 | #21 | 県教委 Wi-Fi フィルタ方式問合せ | 未着手 |
+| 人間 | #22 | ペネトレ業者3社見積依頼 | 未着手 |
 
 ---
 
@@ -85,3 +100,4 @@
 > 各セッションでこの欄に追記する。形式: `YYYY-MM-DD: 何をやったか / 何を残したか`
 
 - **2026-05-28**: プロジェクト初期化、CLAUDE.md・STATUS.md・ROADMAP.md 作成完了、Issue 化はこれから
+- **2026-05-28**: 全基盤セットアップ完了。リポジトリ公開、CI/branch protection 設定、W0 Issue #11-#22 登録。次セッションは #11 から着手予定
