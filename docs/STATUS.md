@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (Worker spawn 半失敗、rate_limit 待ち → 次セッションで細分化再 spawn)
+最終更新: 2026-05-28 (Issue 細分化 + 再 spawn 成功、PR #52 / #53 着地、PR #51 spawn 中、Reviewer 着手)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -58,6 +58,14 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
   - memory `feedback_worker_review_discipline.md` を新規追加（CI 確認 → /code-review → CLAUDE.md 8 ルール の手順）
   - `scripts/orchestrator/templates/reviewer-brief.md.template` を新フローで全面改稿
 - 2026-05-28: **Worker spawn 半失敗** — Issue #15 (DDL) が `workerMaxBudgetUsd=5` で停止（17 テーブル一気は粒度過大）、Issue #17 (STRIDE) が spawn 漏れ、Issue #16 (C4) が走行中。教訓を新規 memory [[worker-task-granularity]] に保存（Worker 用 Issue は budget 5 USD = ≒500 行で完走できる粒度に Desktop 事前分割）。rate_limit utilization 91% でユーザー報告により 4 分後リセット → 次セッションで Issue 細分化 + 再 spawn する流れ
+- 2026-05-28: **Issue 細分化 + 再 spawn 成功**:
+  - Issue #15 / #16 / #17 を Part A/B/C に分割する方針確定。本サイクルでは Part A だけ作成: **#49** (DDL Part A = テナント分離 9 テーブル + 共通基盤、salvage ヒント付き) / **#50** (C4 Part A = Context/Container/Component + ER) / **#51** (STRIDE Part A = Spoofing + Tampering)
+  - Worker #50 が初回 spawn で完走 → **PR #52** 着地 (C4 + ER Mermaid)、CI 全 green
+  - Worker #49 初回 spawn は `$5` budget 枯渇で uncommit（pnpm install + lint/typecheck の setup コスト過大）→ **`workerMaxBudgetUsd` を 5 → 8 にチューニング** (`scripts/orchestrator/config.json`)
+  - Worker #49 再 spawn は `$3.86` で完走 → **PR #53** 着地。ただし CI で `Dependency Review` 失敗あり（drizzle-orm / postgres-js のライセンス確認要、Reviewer 判断）
+  - Worker #51 (STRIDE) は **2 連続 spawn の 2 番目で hang する症状**を 2 回再現（state JSON は作成されるが launcher 起動せず、log なし）。SSH 多重化由来の疑い → **当面 spawn は solo で運用**。本サイクル末で #51 単独 spawn 中
+  - 反映先 memory: [[worker-task-granularity]] と新規 [[worker-budget-by-task-type]]（setup-heavy=$8、prose=$5）
+  - 反映先 template: `scripts/orchestrator/templates/reviewer-brief.md.template` の `{{PR_NUMBER}}` → `{{ISSUE_NUMBER}}` トークン名修正（orchestrator.ps1 が substitution する変数名と不一致だったバグ）
 
 ---
 
@@ -69,9 +77,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | ⚠️ **budget 5 USD 枯渇で停止、PR 無し**。worktree `/Users/kaitookumura/work/.kimiterrace-workers/worker-issue-15/` に enums.ts + 数テーブル分の部分実装あり |
-| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔄 **走行中**（次セッション時に状態確認必須） |
-| Worker(Mac) | #17 | 脅威モデル STRIDE | ❌ **spawn 漏れ**（state にすら未記録、原因不明） |
+| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C に分割**。Part A は #49 として完走、PR #53 着地 |
+| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔀 **Part A/B/C に分割**。Part A は #50 として完走、PR #52 着地 |
+| Worker(Mac) | #17 | 脅威モデル STRIDE | 🔀 **Part A/B/C に分割**。Part A は #51 として spawn 中 |
+| Worker(Mac) | #49 | DDL Part A (9 テナント表) | ✅ **PR #53** 着地（CI Dependency Review fail → Reviewer 確認待ち） |
+| Worker(Mac) | #50 | C4 Part A (Context/Container/Component+ER) | ✅ **PR #52** 着地（CI 全 green） |
+| Worker(Mac) | #51 | STRIDE Part A (Spoofing+Tampering) | 🔄 単独 spawn 中（2 並列で hang 症状のため solo 運用） |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -82,25 +93,25 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **重要**: 直前の Worker spawn で Issue #15 が budget 5 USD で力尽きた。新規 memory [[worker-task-granularity]] を読み、**Issue を事前に細分化してから spawn する**こと。
+> **重要**: 本サイクルで Part A 群（#49 / #50 / #51）を spawn。`workerMaxBudgetUsd` は **8 USD** に引き上げ済（setup-heavy タスク対策）。2 並列 spawn の 2 番目が hang する症状あり → **当面 solo spawn** で運用。
 
-1. **rate_limit 回復確認**: ユーザー報告では「4 分後（≒2026-05-28 19:35 頃）」にリセット予定だった。`scripts/orchestrator/orchestrator.ps1 probe` で Mac の状態を見る + Worker log の `rate_limit_event` を確認
-2. **Worker #16 (C4) の最終状態確認**:
-   - `scripts/orchestrator/orchestrator.ps1 sync` でリモート state 同期
-   - completed + PR あり → Reviewer spawn
-   - completed + PR 無し → worktree 確認（budget 枯渇の可能性）
-   - failed → ログ tail -30 で原因確認
-3. **Issue #15 / #17 を細分化** ([[worker-task-granularity]] の経験則に従う):
-   - #15 DDL → 子 Issue 3 本（テナント分離 5-6 テーブル / CRM + システム横断 5 テーブル / 監査 + RLS 適用 + テスト）
-   - #17 STRIDE → 子 Issue 3 本（Spoofing+Tampering / Repudiation+InfoDisclosure / DoS+EoP+v2 固有）
-   - 親 Issue は close せず、子 Issue で `Refs #15` / `Refs #17`
-4. **#15 worktree の部分実装の扱い**:
-   - Mac の `/Users/kaitookumura/work/.kimiterrace-workers/worker-issue-15/` を確認
-   - 使える部分があれば子 Issue の Worker が `git fetch origin && git checkout -b ...` で取り込むか、捨てて作り直し
-5. **再 spawn**: 子 Issue を 2-3 並列で（rate_limit 余裕を見ながら）
-6. **Reviewer spawn**（PR ごとに、[[worker-review-discipline]] の手順で）
-7. **F01-F12 着手は #15 (DDL) 完了後**（スキーマ確定が前提）
-8. Terraform 雛形・実装フェーズへ
+1. **Reviewer spawn**（本サイクル末でやる）:
+   - PR #52 (C4 Part A) → 単独 spawn (`-Role reviewer -Issues 52`)
+   - PR #53 (DDL Part A) → 単独 spawn (`-Role reviewer -Issues 53`)。**CI 一部 fail (`Dependency Review`) を含むため REQUEST_CHANGES の可能性高い**
+   - 既知バグ修正済: `reviewer-brief.md.template` の `{{PR_NUMBER}}` → `{{ISSUE_NUMBER}}` トークン名統一（orchestrator.ps1 の substitution 変数と一致するように）
+2. **Reviewer 判定後の Desktop 動き**:
+   - APPROVE + CI green → Desktop が merge
+   - REQUEST_CHANGES → 該当 Worker を該当 issue で再 spawn（修正版）
+   - PR #53 Dependency Review fail の根本原因（drizzle-orm / postgres-js / drizzle-zod の dep review fail）は Reviewer が一次切り分け → 必要なら子 Issue で修正版 Worker spawn
+3. **次サイクル: Part B / C を作成 + spawn**:
+   - **#15** Part B（AI 系: `ai_extractions` / `ai_chat_sessions` / `ai_chat_messages`）+ Part C（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log + RLS migration + tests）
+   - **#16** Part B（auth / file-extraction / voice / instant-publish / rollback シーケンス図）+ Part C（magic-link / student-qa / event-logging / monthly-report シーケンス図）
+   - **#17** Part B（Repudiation + Info Disclosure）+ Part C（DoS + EoP + 即公開フロー特有）
+   - **必ず solo spawn**（2 連続 spawn の 2 番目 hang 問題が解消するまで）
+4. **F01-F12 着手は #15 Part C (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
+5. **解決すべき orchestrator バグ**:
+   - 2 連続 spawn の 2 番目が hang（SSH 多重化由来の疑い）→ `Start-RemoteWorker` 内で SSH 接続を独立化する PR を別途
+6. Terraform 雛形・実装フェーズへ
 
 ## 詰まり / 確認待ち
 
