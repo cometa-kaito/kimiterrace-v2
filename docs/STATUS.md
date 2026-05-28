@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (Orchestrator 規律厳格化、Worker spawn 準備中)
+最終更新: 2026-05-28 (Worker spawn 半失敗、rate_limit 待ち → 次セッションで細分化再 spawn)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -57,6 +57,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
   - memory `feedback_orchestrator_commit_authority.md` を「docs hygiene 全部 OK」→「メタ規律のみ OK」に範囲縮小
   - memory `feedback_worker_review_discipline.md` を新規追加（CI 確認 → /code-review → CLAUDE.md 8 ルール の手順）
   - `scripts/orchestrator/templates/reviewer-brief.md.template` を新フローで全面改稿
+- 2026-05-28: **Worker spawn 半失敗** — Issue #15 (DDL) が `workerMaxBudgetUsd=5` で停止（17 テーブル一気は粒度過大）、Issue #17 (STRIDE) が spawn 漏れ、Issue #16 (C4) が走行中。教訓を新規 memory [[worker-task-granularity]] に保存（Worker 用 Issue は budget 5 USD = ≒500 行で完走できる粒度に Desktop 事前分割）。rate_limit utilization 91% でユーザー報告により 4 分後リセット → 次セッションで Issue 細分化 + 再 spawn する流れ
 
 ---
 
@@ -68,9 +69,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | **次着手**（v2-mvp.md §6 → Drizzle schema、Worker spawn 必須＝アプリコード） |
-| Claude | #16 | C4 図 + シーケンス図 | 未着手 |
-| Claude | #17 | 脅威モデル STRIDE | 未着手 |
+| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | ⚠️ **budget 5 USD 枯渇で停止、PR 無し**。worktree `/Users/kaitookumura/work/.kimiterrace-workers/worker-issue-15/` に enums.ts + 数テーブル分の部分実装あり |
+| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔄 **走行中**（次セッション時に状態確認必須） |
+| Worker(Mac) | #17 | 脅威モデル STRIDE | ❌ **spawn 漏れ**（state にすら未記録、原因不明） |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -79,25 +80,38 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ---
 
-## 次にやるべき（優先順）
+## 次にやるべき（次セッション entry point）
 
-1. **PostgreSQL スキーマ DDL（Drizzle）** — **Worker spawn 必須**（packages/db/schema/*.ts はアプリコード）
-   - 入力: [v2-mvp.md §6](../requirements/v2-mvp.md)、[ADR-019 RLS 二層](../adr/019-rls-two-layer-tenant-isolation.md)
-   - 期待出力: 17 テーブル分の Drizzle schema + 監査カラム + RLS ENABLE + 単体テスト
-   - Mac Mini Worker に spawn（probe 健全性確認済）
-2. C4 図 + シーケンス図（Mermaid, Desktop で書ける）
-   - 入力: [v2-mvp.md §3 ロール + §6 データ + §7 RLS](../requirements/v2-mvp.md)
-   - 出力: docs/architecture/c4-context.md, c4-container.md, c4-component.md, sequence-diagrams/*.md
-3. 脅威モデル STRIDE（Desktop）
-   - 入力: [v2-mvp.md §3 ロール + §7 RLS](../requirements/v2-mvp.md)
-   - 出力: docs/architecture/threat-model.md
-4. F01-F12 を GitHub Issue 化 → 優先順位付け
-5. Terraform 雛形（modules + dev environment, Worker spawn）
-6. Worker spawn で並列実装開始（probe で確認、tmux 儀式実施後）
+> **重要**: 直前の Worker spawn で Issue #15 が budget 5 USD で力尽きた。新規 memory [[worker-task-granularity]] を読み、**Issue を事前に細分化してから spawn する**こと。
+
+1. **rate_limit 回復確認**: ユーザー報告では「4 分後（≒2026-05-28 19:35 頃）」にリセット予定だった。`scripts/orchestrator/orchestrator.ps1 probe` で Mac の状態を見る + Worker log の `rate_limit_event` を確認
+2. **Worker #16 (C4) の最終状態確認**:
+   - `scripts/orchestrator/orchestrator.ps1 sync` でリモート state 同期
+   - completed + PR あり → Reviewer spawn
+   - completed + PR 無し → worktree 確認（budget 枯渇の可能性）
+   - failed → ログ tail -30 で原因確認
+3. **Issue #15 / #17 を細分化** ([[worker-task-granularity]] の経験則に従う):
+   - #15 DDL → 子 Issue 3 本（テナント分離 5-6 テーブル / CRM + システム横断 5 テーブル / 監査 + RLS 適用 + テスト）
+   - #17 STRIDE → 子 Issue 3 本（Spoofing+Tampering / Repudiation+InfoDisclosure / DoS+EoP+v2 固有）
+   - 親 Issue は close せず、子 Issue で `Refs #15` / `Refs #17`
+4. **#15 worktree の部分実装の扱い**:
+   - Mac の `/Users/kaitookumura/work/.kimiterrace-workers/worker-issue-15/` を確認
+   - 使える部分があれば子 Issue の Worker が `git fetch origin && git checkout -b ...` で取り込むか、捨てて作り直し
+5. **再 spawn**: 子 Issue を 2-3 並列で（rate_limit 余裕を見ながら）
+6. **Reviewer spawn**（PR ごとに、[[worker-review-discipline]] の手順で）
+7. **F01-F12 着手は #15 (DDL) 完了後**（スキーマ確定が前提）
+8. Terraform 雛形・実装フェーズへ
+
+## 詰まり / 確認待ち
+
+- **rate_limit utilization 91%**（2026-05-28 19:30 頃のセッション中の値、ユーザー報告で 4 分後リセット予定）
+- **Worker #16 の最終結果**（次セッション開始時に確認）
+- **Worker #17 spawn 漏れの原因**: PowerShell spawn output が空でログが取れていない。次回 spawn 時は `orchestrator.ps1 spawn ... | Tee-Object spawn.log` で出力を保存
+- **worker-launcher.sh の prNumber 抽出バグ**: macOS BSD `grep -P` 非対応で state.prNumber が常に null（既知、後続課題）
 
 ---
 
-## 詰まり / 確認待ち
+## 詰まり / 確認待ち (旧版、新規は「次にやるべき」直下)
 
 - なし（外部要因の詰まりは解消）
 
