@@ -1,0 +1,11 @@
+# すべての変更に対するデフォルトレビュアー
+* @cometa-kaito
+
+# セキュリティ・認可周りは特に注意
+/packages/db/schema/             @cometa-kaito
+/packages/db/rls/                @cometa-kaito
+/apps/web/middleware/auth*       @cometa-kaito
+/infrastructure/terraform/       @cometa-kaito
+/docs/compliance/                @cometa-kaito
+/docs/adr/                       @cometa-kaito
+CLAUDE.md                        @cometa-kaito
