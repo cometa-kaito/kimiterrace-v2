@@ -1,13 +1,17 @@
 # キミテラス v2 MVP 要件定義
 
-- 状態: **Draft (ユーザーレビュー待ち)**
+- 状態: **Draft（個別ファイル分割済、ユーザーレビュー継続中）**
 - 最終更新: 2026-05-28
 - 起草者: Claude Code (orchestrator)
 - 関連: [docs/STATUS.md](../STATUS.md), [docs/ROADMAP.md](../ROADMAP.md), [CLAUDE.md](../../CLAUDE.md)
 - 関連 issue: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12) (機能要件), [#13](https://github.com/cometa-kaito/kimiterrace-v2/issues/13) (非機能要件), [#14](https://github.com/cometa-kaito/kimiterrace-v2/issues/14) (ADR 群), [#15](https://github.com/cometa-kaito/kimiterrace-v2/issues/15) (DDL)
 
 > このドキュメントは MVP 全体像の **一本化ドラフト**。
-> ユーザーレビュー完了後、`docs/requirements/functional/F01-F12.md` および `docs/requirements/non-functional/NFR01-NFR07.md` に分割する（[STATUS.md "次にやるべき"](../STATUS.md#次にやるべき優先順) の 2 番目）。
+> 個別ファイルへ分割済（2026-05-28）:
+> - 機能要件: [functional/F01-F12](functional/README.md)
+> - 非機能要件: [non-functional/NFR01-NFR07](non-functional/README.md)
+>
+> 本ファイルは **概観・横断要素（ロール / データモデル / RLS / 安全網詳細 / PII / 関連 ADR）の参照源**として維持する。詳細は個別ファイルを正とする。
 
 ---
 
