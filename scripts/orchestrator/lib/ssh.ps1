@@ -137,6 +137,11 @@ function Get-RemoteWorkerStates {
   return @($states)
 }
 
+# Homebrew bin paths (ARM Mac / Intel Mac / Linux) — prepended so bare `tmux`
+# resolves under SSH non-interactive sessions where /opt/homebrew/bin is not
+# in PATH by default.
+$Script:RemotePathPrefix = 'export PATH=/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH; '
+
 function Test-RemoteTmuxSession {
   <#
     Returns $true if the named tmux session exists on the remote host.
@@ -147,7 +152,7 @@ function Test-RemoteTmuxSession {
     [Parameter(Mandatory)][PSCustomObject]$Machine,
     [string]$SessionName = "workers"
   )
-  $cmd = "tmux has-session -t '$SessionName' 2>/dev/null && echo OK || echo MISSING"
+  $cmd = "$Script:RemotePathPrefix" + "tmux has-session -t '$SessionName' 2>/dev/null && echo OK || echo MISSING"
   $r = Invoke-SshCommand -Machine $Machine -Command $cmd -TimeoutSec 5
   return ($r.ExitCode -eq 0 -and $r.Stdout.Trim() -eq "OK")
 }
@@ -161,7 +166,7 @@ function Get-RemoteTmuxWindows {
     [Parameter(Mandatory)][PSCustomObject]$Machine,
     [string]$SessionName = "workers"
   )
-  $cmd = "tmux list-windows -t '$SessionName' -F '#{window_name}' 2>/dev/null || true"
+  $cmd = "$Script:RemotePathPrefix" + "tmux list-windows -t '$SessionName' -F '#{window_name}' 2>/dev/null || true"
   $r = Invoke-SshCommand -Machine $Machine -Command $cmd -TimeoutSec 5
   if ($r.ExitCode -ne 0) { return @() }
   return @($r.Stdout -split "`n" | Where-Object { $_.Trim() -ne "" })
@@ -260,7 +265,7 @@ function Start-RemoteWorker {
   # Build the inner shell command: load Node/PATH, run launcher
   $innerCmd = "export PATH=/opt/homebrew/bin:\`$PATH; export NVM_DIR=\`$HOME/.nvm; [ -s \`$NVM_DIR/nvm.sh ] && . \`$NVM_DIR/nvm.sh; cd $repoPath && bash $launcher $Role $Issue $WorkerId $statePath $logPath $worktreePath $BranchName $briefPath"
   # tmux new-window -d (detached) -n <name> -t <session>: <command>
-  $tmuxCmd = "tmux new-window -d -n '$WorkerId' -t '${tmuxSession}:' `"$innerCmd`""
+  $tmuxCmd = "$Script:RemotePathPrefix" + "tmux new-window -d -n '$WorkerId' -t '${tmuxSession}:' `"$innerCmd`""
 
   $result = Invoke-SshCommand -Machine $Machine -Command $tmuxCmd -TimeoutSec 15
   if ($result.ExitCode -ne 0) {
