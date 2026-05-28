@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (Issue 細分化 + 再 spawn 成功、PR #52 / #53 着地、PR #51 spawn 中、Reviewer 着手)
+最終更新: 2026-05-29 (Part A/B 着地、Terraform PR #66 draft、Reviewer #66 spawn 中、Mac mini 一時 disable)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **Part B 群完走 + Terraform PR 着地サイクル**: PR #54 (STRIDE Part A merged)、PR #63 (シーケンス Part B 教員系 5 種 merged)、PR #64 (STRIDE Part B Repudiation+InfoDisclosure merged)、PR #66 (Terraform 雛形 873 行追加 draft, CI 11/11 green)。Reviewer #66 spawn 中
+- 2026-05-29: **orchestrator バグ修正**: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable と衝突 → `$ProcessId` リネーム (`orchestrator.ps1:230` 呼出側も合わせて修正)
+- 2026-05-29: **Mac mini 一時 disable**: SSH 解決不可のため `config.json` で disable、local Windows 単独運用へ。RAM 5GB しか空きなく Reviewer/Worker は逐次運用
 - 2026-05-28: 移行方針確定（GCP ネイティブへ全改修）
 - 2026-05-28: kimiterrace-v2 リポジトリ初期化 + GitHub 公開
 - 2026-05-28: CLAUDE.md 作成（8つの開発規律）
@@ -77,12 +80,15 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C に分割**。Part A は #49 として完走、PR #53 着地 |
-| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔀 **Part A/B/C に分割**。Part A は #50 として完走、PR #52 着地 |
-| Worker(Mac) | #17 | 脅威モデル STRIDE | 🔀 **Part A/B/C に分割**。Part A は #51 として spawn 中 |
-| Worker(Mac) | #49 | DDL Part A (9 テナント表) | ✅ **PR #53** 着地（CI Dependency Review fail → Reviewer 確認待ち） |
-| Worker(Mac) | #50 | C4 Part A (Context/Container/Component+ER) | ✅ **PR #52** 着地（CI 全 green） |
-| Worker(Mac) | #51 | STRIDE Part A (Spoofing+Tampering) | 🔄 単独 spawn 中（2 並列で hang 症状のため solo 運用） |
+| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #53 merged)、Part B (#55) / Part C (#58, #59) 未着手 |
+| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #52 merged)、Part B 完走 (PR #63 merged)、Part C (#60) 未着手 |
+| Worker(Mac) | #17 | 脅威モデル STRIDE | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #54 merged)、Part B 完走 (PR #64 merged)、Part C (#61) 未着手 |
+| Worker(Mac) | #49 | DDL Part A (9 テナント表 + 共通基盤) | ✅ **PR #53** merged |
+| Worker(Mac) | #50 | C4 Part A (Context/Container/Component+ER) | ✅ **PR #52** merged |
+| Worker(Mac) | #51 | STRIDE Part A (Spoofing+Tampering) | ✅ **PR #54** merged |
+| Worker(Mac) | #56 | シーケンス Part B (教員系 5 種) | ✅ **PR #63** merged |
+| Worker(Mac) | #57? | STRIDE Part B (Repudiation+InfoDisclosure) | ✅ **PR #64** merged |
+| Worker(Local) | #65 | Terraform 雛形 (providers + GCS state + 5 modules + 3 envs) | 🔄 **PR #66** draft、CI 11/11 green、Reviewer spawn 済 |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -93,31 +99,27 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **重要**: 本サイクルで Part A 群（#49 / #50 / #51）を spawn。`workerMaxBudgetUsd` は **8 USD** に引き上げ済（setup-heavy タスク対策）。2 並列 spawn の 2 番目が hang する症状あり → **当面 solo spawn** で運用。
+> **重要 (2026-05-29)**: Mac mini が SSH 到達不可（Tailscale / 電源 / tmux 儀式どれか）→ `config.json` で **一時 disable**（次回ユーザー Mac 起動時に re-enable）。local Windows のキャパは **RAM 5GB しか空きがなく Reviewer/Worker 各 1 slot のみ** → 並列不可、シーケンシャル運用。
 
-1. **Reviewer spawn**（本サイクル末でやる）:
-   - PR #52 (C4 Part A) → 単独 spawn (`-Role reviewer -Issues 52`)
-   - PR #53 (DDL Part A) → 単独 spawn (`-Role reviewer -Issues 53`)。**CI 一部 fail (`Dependency Review`) を含むため REQUEST_CHANGES の可能性高い**
-   - 既知バグ修正済: `reviewer-brief.md.template` の `{{PR_NUMBER}}` → `{{ISSUE_NUMBER}}` トークン名統一（orchestrator.ps1 の substitution 変数と一致するように）
-2. **Reviewer 判定後の Desktop 動き**:
-   - APPROVE + CI green → Desktop が merge
-   - REQUEST_CHANGES → 該当 Worker を該当 issue で再 spawn（修正版）
-   - PR #53 Dependency Review fail の根本原因（drizzle-orm / postgres-js / drizzle-zod の dep review fail）は Reviewer が一次切り分け → 必要なら子 Issue で修正版 Worker spawn
-3. **次サイクル: Part B / C を作成 + spawn**:
-   - **#15** Part B（AI 系: `ai_extractions` / `ai_chat_sessions` / `ai_chat_messages`）+ Part C（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log + RLS migration + tests）
-   - **#16** Part B（auth / file-extraction / voice / instant-publish / rollback シーケンス図）+ Part C（magic-link / student-qa / event-logging / monthly-report シーケンス図）
-   - **#17** Part B（Repudiation + Info Disclosure）+ Part C（DoS + EoP + 即公開フロー特有）
-   - **必ず solo spawn**（2 連続 spawn の 2 番目 hang 問題が解消するまで）
-4. **F01-F12 着手は #15 Part C (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
-5. **解決すべき orchestrator バグ**:
+1. **Reviewer #66 (Terraform skeleton) 完了確認** → APPROVE/CI green なら Desktop が draft 解除 + merge、REQUEST_CHANGES なら Worker #65 を修正再 spawn
+2. **Worker #60 (シーケンス Part C: 生徒系・分析系) を spawn**（Reviewer #66 完了後、local Windows）
+3. **次サイクル: 残 Part B / C を順次**:
+   - **#55** DDL Part B（AI/RAG 系: `ai_extractions` / `ai_chat_sessions` / `ai_chat_messages` / pgvector index）
+   - **#58** DDL Part C1（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log）
+   - **#59** DDL Part C2（RLS migration + audit_log trigger + RLS tests）
+   - **#61** STRIDE Part C（DoS + EoP + 即公開フロー特有）
+4. **F01-F12 着手は #59 (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
+5. **Mac mini 復活**:
+   - ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
+   - SSH 解決 fallback 試行: `Kaitos-Mac-mini.local` (LAN) or Tailscale IP
+6. **解決すべき orchestrator バグ**:
    - 2 連続 spawn の 2 番目が hang（SSH 多重化由来の疑い）→ `Start-RemoteWorker` 内で SSH 接続を独立化する PR を別途
-6. Terraform 雛形・実装フェーズへ
+   - ✅ **修正済 (2026-05-29)**: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable `$PID` と衝突して spawn 起動不可 → `$ProcessId` にリネーム
 
 ## 詰まり / 確認待ち
 
-- **rate_limit utilization 91%**（2026-05-28 19:30 頃のセッション中の値、ユーザー報告で 4 分後リセット予定）
-- **Worker #16 の最終結果**（次セッション開始時に確認）
-- **Worker #17 spawn 漏れの原因**: PowerShell spawn output が空でログが取れていない。次回 spawn 時は `orchestrator.ps1 spawn ... | Tee-Object spawn.log` で出力を保存
+- **Mac mini SSH 到達不可** (`ssh: Could not resolve hostname kaitos-mac-mini`): Tailscale / 電源 / tmux 儀式の確認待ち。当面 local Windows のみで運用
+- **local Windows RAM 不足** (FreeRam 5GB → reviewer/worker 各 1 slot のみ): 並列性に上限。Desktop 起動 Claude プロセス 10 個分が常駐していることが影響。Desktop 終了 or RAM 増設で改善
 - **worker-launcher.sh の prNumber 抽出バグ**: macOS BSD `grep -P` 非対応で state.prNumber が常に null（既知、後続課題）
 
 ---
@@ -211,3 +213,8 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
   - [ADR-018](../adr/018-custom-crm-design.md): CRM 独自設計（HubSpot / Salesforce / Notion / スプレッドシート却下）。広告主 20 社規模に SaaS コストは過剰、F09 月次レポートとの JOIN が同一 DB で完結する利点
   - [ADR-019](../adr/019-rls-two-layer-tenant-isolation.md): RLS 二層分離。レイヤー 1: school_id テナント分離、レイヤー 2: system_admin cross-tenant policy。アプリ層フィルタ・スキーマ分離・物理分離・SECURITY DEFINER を却下。CRM テーブルは RLS 対象外（middleware で system_admin チェック）
   - 次セッション entry point: **Drizzle DDL (Worker spawn 必須) → C4 図 + STRIDE (Desktop) → Issue 化**
+- **2026-05-29**: **Part B + Terraform サイクル完走**。直前セッションで Part A 群 (#52/#53/#54) を merge、本セッション開始時には Part B 群 (#63 シーケンス教員系 / #64 STRIDE Repudiation+InfoDisclosure) と Terraform PR #66 (draft, CI 11/11 green) が着地済み。
+  - Mac mini SSH 解決不可 (`kaitos-mac-mini`) → `config.json` で `mac-mini.enabled=false` に一時切替、local Windows 単独運用
+  - orchestrator spawn 起動バグ修正: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable と衝突 → `$ProcessId` リネーム
+  - Reviewer Claude を **PR #66 (Terraform)** に spawn (PID 10276, local Windows)。完了通知待ち
+  - 残: Worker #60 (シーケンス Part C 生徒系・分析系) は Reviewer #66 完了後に逐次 spawn（local RAM 5GB 制約で並列不可）
