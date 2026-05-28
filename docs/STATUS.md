@@ -3,11 +3,12 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (W0 基盤完了)
+最終更新: 2026-05-28 (W0 人間タスク大半完了)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
 Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
+GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ---
 
@@ -32,6 +33,8 @@ Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
 - 2026-05-28: CI ワークフロー（lint, typecheck, test, build, security scan）
 - 2026-05-28: branch protection 設定（CI 必須・linear history・force push 禁止）
 - 2026-05-28: W0 Issue 作成完了 (#11〜#22)
+- 2026-05-28: **人間タスク完了** — gcloud SDK / Terraform インストール、GCP プロジェクト作成、課金紐付け、Sentry アカウント、Wi-Fi 方式確認（ドメインベースで OK）
+- 2026-05-28: 必須 GCP API 有効化（Cloud Run / Cloud SQL / Identity Platform / Vertex AI / Secret Manager / VPC など）
 
 ---
 
@@ -47,10 +50,10 @@ Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
 | Claude | #16 | C4 図 + シーケンス図 | 未着手 |
 | Claude | #17 | 脅威モデル STRIDE | 未着手 |
 | Claude | #18 | ローカル開発環境 docker-compose | 未着手 |
-| 人間 | #19 | gcloud SDK / Terraform インストール | 未着手 |
-| 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | 未着手 |
-| 人間 | #21 | 県教委 Wi-Fi フィルタ方式問合せ | 未着手 |
-| 人間 | #22 | ペネトレ業者3社見積依頼 | 未着手 |
+| 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
+| 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
+| 人間 | #21 | 県教委 Wi-Fi フィルタ方式問合せ | ✅ 完了（ドメインベース） |
+| 人間 | #22 | ペネトレ業者3社見積依頼 | ❌ **実施しない判断（要再検討）** |
 
 ---
 
@@ -71,8 +74,15 @@ Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
 
 ## 詰まり / 確認待ち
 
-- [人間タスク] 県教委: Wi-Fi フィルタが IP ベースか SNI/DNS ベースか確認待ち
-- [人間タスク] ペネトレ業者見積回収中
+- なし（外部要因の詰まりは解消）
+
+## 重要な未決定事項
+
+- **第三者セキュリティ診断（ペネトレ）の代替策**:
+  ユーザー判断で従来型ペネトレは実施しない。
+  公立校データを扱う SaaS としては**第三者検証ゼロは推奨できない**。
+  代替案（SaaS 型診断、簡易診断、内部チェックリスト、バグバウンティ）を検討する必要あり。
+  詳細議論は次セッション。
 
 ---
 
@@ -101,3 +111,4 @@ Issue 一覧: https://github.com/cometa-kaito/kimiterrace-v2/issues
 
 - **2026-05-28**: プロジェクト初期化、CLAUDE.md・STATUS.md・ROADMAP.md 作成完了、Issue 化はこれから
 - **2026-05-28**: 全基盤セットアップ完了。リポジトリ公開、CI/branch protection 設定、W0 Issue #11-#22 登録。次セッションは #11 から着手予定
+- **2026-05-28**: 人間タスク (#19-#21) 完了確認、GCP API 有効化、Wi-Fi/GCP/dev-tools の状態を docs/discovery/ に記録。ペネトレ (#22) は不実施判断が出たが要再検討
