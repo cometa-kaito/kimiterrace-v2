@@ -219,19 +219,49 @@ tmux list-sessions           # 「workers: 1 windows ...」と表示されれば
 #### 2. SSH 設定（Windows 側）
 
 ```powershell
-# 鍵生成
+# 鍵生成（passphrase 付き推奨。Windows ssh-agent が unlock 状態を保持）
 ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\id_kimiterrace -C "kimiterrace"
 
-# 公開鍵を Mac に登録
-type $env:USERPROFILE\.ssh\id_kimiterrace.pub | ssh kaito@mac-mini.local "cat >> ~/.ssh/authorized_keys"
+# ssh-agent 有効化（Windows 起動毎に自動起動、鍵 unlock 1回で永続）
+Get-Service ssh-agent | Set-Service -StartupType Automatic
+Start-Service ssh-agent
+ssh-add $env:USERPROFILE\.ssh\id_kimiterrace
+
+# 公開鍵を Mac に登録（Tailscale 名 or LAN 名どちらでも）
+type $env:USERPROFILE\.ssh\id_kimiterrace.pub | ssh kaitookumura@kaitos-mac-mini "cat >> ~/.ssh/authorized_keys"
 
 # 動作確認
-ssh -i $env:USERPROFILE\.ssh\id_kimiterrace kaito@mac-mini.local "uname -a"
+ssh kaitookumura@kaitos-mac-mini "uname -a"
 ```
 
 Mac 側でリモートログインを有効化:
 - System Settings → 一般 → 共有 → リモートログイン を ON
 - 許可するユーザー: 自分のアカウントのみ
+
+⚠️ **Git Bash 経由の SSH は ssh-agent と通信できない**ため、passphrase 付き鍵だと non-interactive で失敗します。Orchestrator は PowerShell から ssh.exe を呼ぶので問題なし。手動テストする時は PowerShell から実行してください。
+
+#### 2.5. Tailscale 経由接続（LAN 外でも Worker 使う場合）
+
+両機が Tailscale で同じ tailnet に入っていれば、**LAN 外でも MagicDNS 名で接続できます**:
+
+```powershell
+# Windows / Mac 両方で Tailscale ログイン（同じアカウント）
+# Mac の Tailscale.app は Preferences → Run at startup ON 推奨
+
+# 接続確認（自宅外からでも）
+tailscale status   # Mac が online であること確認
+ssh kaitookumura@kaitos-mac-mini "echo hello"
+```
+
+config.json の `host` は **MagicDNS 短縮名**を使うのが推奨:
+
+| host 設定 | 動作範囲 | 備考 |
+|---|---|---|
+| `kaitos-mac-mini` (MagicDNS) | LAN / 外出先 / VPN いずれでも | **推奨**、Tailscale が経路を自動最適化 |
+| `Kaitos-Mac-mini.local` (mDNS) | 同一 LAN のみ | Tailscale 未起動時のフォールバック |
+| `100.124.63.27` (Tailscale IP) | LAN / 外出先（Tailscale 必須） | IP は変わりにくいが MagicDNS 名の方が安定 |
+
+LAN 内にいる時、Tailscale は自動で **P2P 直接接続**（DERP 経由しない）するので、性能ペナルティは実質ゼロです。
 
 #### 3. config.json 更新
 
