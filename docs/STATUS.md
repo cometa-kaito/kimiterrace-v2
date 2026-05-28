@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (キミテラス v2 AI 機能群 MVP スコープ確定 + V1 棚卸し)
+最終更新: 2026-05-28 (v2-mvp.md ドラフト起草完了、ユーザーレビュー待ち)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -44,6 +44,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - 2026-05-28: **V1（旧 Firebase 版）機能棚卸し完了**（本セッション、Explore agent + 追検証で訂正）
 - 2026-05-28: ブランド表記訂正 — 公式名は「キミテラス」で統一（LP の「Edix」表記は誤り）
 - 2026-05-28: Mac Mini Worker 健全性確認（RAM 3.4G/Disk 261G/CPU 28%、Claude プロセス 0、spawn 余裕あり）
+- 2026-05-28: **`docs/requirements/v2-mvp.md` ドラフト起草完了**（機能要件 F01-F12、非機能要件 NFR01-NFR07、ロール設計、データモデル概念設計、RLS ポリシー、AI 安全網 4 種、PII マスキング戦略、将来追加・未決定事項を一本化）— ユーザーレビュー待ち
 
 ---
 
@@ -51,11 +52,11 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 | 担当 | Issue | タスク | 進捗 |
 |---|---|---|---|
-| Claude | #11 | 既存システム棚卸し | ✅ 完了（V1 機能インベントリ取得、本セッション） |
-| Claude | #12 | 機能要件 F01-F0X ドラフト | **次着手**（`docs/requirements/v2-mvp.md` 起草） |
-| Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | 未着手（#12 後） |
-| Claude | #14 | ADR 群初稿 | 未着手（#12 後） |
-| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | 未着手 |
+| Claude | #11 | 既存システム棚卸し | ✅ 完了（V1 機能インベントリ取得） |
+| Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **v2-mvp.md §4 に集約**（レビュー待ち、その後個別ファイル分割） |
+| Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **v2-mvp.md §5 に集約**（レビュー待ち、その後個別ファイル分割） |
+| Claude | #14 | ADR 群初稿 | 未着手（v2-mvp.md §12.2 に必要な新規 ADR を 5 本リスト化済） |
+| Claude | #15 | PostgreSQL スキーマ DDL 初稿 | 未着手（v2-mvp.md §6 のデータモデル概念設計を基に Drizzle 化） |
 | Claude | #16 | C4 図 + シーケンス図 | 未着手 |
 | Claude | #17 | 脅威モデル STRIDE | 未着手 |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
@@ -68,13 +69,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（優先順）
 
-1. **`docs/requirements/v2-mvp.md` 起草**: 本セッションで確定した AI 機能 MVP スコープを機能要件・非機能要件・データモデル概念設計・ロール設計・RLS ポリシーまで一本にまとめる（orchestrator brief として私が書ける）
-2. ユーザーレビュー後、F01-F0X 個別ファイルに分割
-3. 各機能を GitHub Issue 化 → 優先順位付け
-4. ADR 群（即公開+安全網、magic link、AI 抽出に Gemini、CRM 設計、二層分離 RLS など）
-5. PostgreSQL スキーマ DDL（Drizzle）
-6. C4 図 + シーケンス図（Mermaid）
-7. 脅威モデル（STRIDE）
+1. **ユーザーレビュー: `docs/requirements/v2-mvp.md`** — レビュー観点はファイル末尾「レビュー観点（ユーザー向け）」参照。確定/修正点を反映してから次へ
+2. レビュー反映 → F01-F12 / NFR01-NFR07 個別ファイル分割
+3. 新規 ADR 5 本起票（v2-mvp.md §12.2: ADR-015 即公開+安全網、ADR-016 magic link 匿名、ADR-017 Gemini 抽出、ADR-018 CRM 独自、ADR-019 RLS 二層）
+4. PostgreSQL スキーマ DDL（Drizzle, v2-mvp.md §6 → `packages/db/schema/*.ts`）
+5. C4 図 + シーケンス図（Mermaid, v2-mvp.md §3 ロール + §6 データ + §7 RLS を基に）
+6. 脅威モデル（STRIDE, v2-mvp.md §3 ロール + §7 RLS を基に）
+7. 各機能を GitHub Issue 化 → 優先順位付け
 8. Terraform 雛形（modules + dev environment）
 9. Worker spawn で並列実装開始（probe で確認、tmux 儀式実施後）
 
@@ -160,3 +161,4 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
     - 新規: `feedback_closed_system_security.md`（外部連携より自校内完結を優先）
     - 削除: `project_signage_deployment_milestones.md` / `feedback_signage_verify_preview_channel.md`（旧 Firebase プロジェクトの陳腐化メモ）
   - **次セッション entry point**: **`docs/requirements/v2-mvp.md` 起草**（このセッションの議論結果を 1 ファイルにまとめる）から再開。タスクトラッキング（TaskCreate）はセッション間で持ち越されないため、再開時に上記「次にやるべき」優先順をもとに TaskCreate で再構築する
+- **2026-05-28**: **`docs/requirements/v2-mvp.md` ドラフト起草完了**。前セッションで確定した AI MVP スコープを 1 ファイルに集約: §1 概要 / §2 設計原則 / §3 ロール設計（権限マトリクス含む）/ §4 機能要件 F01-F12 / §5 非機能要件 NFR01-NFR07 / §6 データモデル概念設計（テーブル分類 + 主要 17 テーブル）/ §7 RLS ポリシー設計（単層 + system_admin cross-tenant）/ §8 AI 安全網 4 種詳細 / §9 PII マスキング戦略 / §10 将来追加機能 / §11 未決定事項 / §12 関連 ADR・Issue。末尾に「レビュー観点（ユーザー向け）」セクションを追加し、レビューポイント 6 件を明示。次セッション entry point: **ユーザーレビュー結果の反映 → F01-F12 / NFR01-NFR07 個別ファイル分割 → ADR 5 本起票**
