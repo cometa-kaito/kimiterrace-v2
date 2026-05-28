@@ -20,6 +20,41 @@
 
 ---
 
+## Orchestrator Mode（Desktop セッションの規律）
+
+Desktop Claude は **orchestrator として動作する**。「進めて」と言われたら
+[scripts/orchestrator/](scripts/orchestrator/README.md) を介して並列 Worker を起動する。
+
+### Desktop がやること
+
+- `docs/STATUS.md` / `docs/ROADMAP.md` / 関連 ADR を読む
+- タスク選定（優先順位ルール）
+- `scripts/orchestrator/orchestrator.ps1 probe` で容量確認
+- `scripts/orchestrator/orchestrator.ps1 spawn -Issues N1,N2` で Worker 起動
+- `gh pr view <N> --json title,body,statusCheckRollup` で完了確認（メタデータのみ）
+- Reviewer Claude を spawn して PR レビューを委譲
+- 集約報告をユーザーに返す
+- `docs/STATUS.md` 更新
+
+### Desktop が **絶対にしない** こと
+
+- ❌ `Edit` / `Write` でアプリケーションコードを直接編集（orchestrator brief は例外）
+- ❌ `git commit` / `git push`
+- ❌ `pnpm install` などの環境変更コマンド
+- ❌ PR の `git diff` 全文を context に読み込む
+- ❌ テスト・ビルドの長大ログを context に取り込む
+- ❌ PR の `merge` ボタン（最終承認は人間）
+
+### コンテキスト経済性の方針
+
+- Worker / Reviewer の log は **異常時のみ** `tail -30` で確認
+- PR メタデータは `--json title,body,additions,deletions,statusCheckRollup` で取得
+- Reviewer の総合判定は**数百トークン以内に要約**させる
+
+→ Desktop の context は1日中使ってもほぼ枯れないことが設計目標。
+
+---
+
 ## 必読フロー: セッション終了時
 
 1. [docs/STATUS.md](docs/STATUS.md) を更新（次セッションが迷子にならないため）

@@ -1,0 +1,64 @@
+{
+  "$schema": "./config.schema.json",
+  "_comment": "Multi-machine orchestrator config. Add a machine entry under `machines` for each worker host. Set `enabled: false` to disable a machine without removing it.",
+
+  "machines": {
+    "local-windows": {
+      "kind": "local",
+      "enabled": true,
+      "ramPerWorkerMb": 1200,
+      "diskPerWorktreeMb": 2500,
+      "desktopReserveMb": 2500,
+      "minFreeDiskMb": 10000,
+      "safetyMargin": 1.2,
+      "workerHardCap": 3,
+      "reviewerHardCap": 2,
+      "cpuLoadMaxPct": 75,
+      "worktreeBaseDir": "../.kimiterrace-workers"
+    },
+    "mac-mini": {
+      "kind": "ssh",
+      "enabled": true,
+      "_keychain_note": "tmux session 'workers' must be running on Mac (started from Terminal.app) for Keychain access to claude.ai subscription credentials. See README Multi-Machine section.",
+      "host": "Kaitos-Mac-mini.local",
+      "user": "kaitookumura",
+      "sshKey": "~/.ssh/id_kimiterrace",
+      "sshPort": 22,
+      "tmuxSession": "workers",
+      "remoteRepoPath": "/Users/kaitookumura/work/kimiterrace-v2",
+      "remoteStateDir": "/Users/kaitookumura/.kimiterrace-orchestrator",
+      "ramPerWorkerMb": 1000,
+      "diskPerWorktreeMb": 2500,
+      "desktopReserveMb": 1500,
+      "minFreeDiskMb": 10000,
+      "safetyMargin": 1.2,
+      "workerHardCap": 5,
+      "reviewerHardCap": 3,
+      "cpuLoadMaxPct": 80,
+      "worktreeBaseDir": "/Users/kaitookumura/work/.kimiterrace-workers"
+    }
+  },
+
+  "routing": {
+    "preferRemote": true,
+    "_comment": "preferRemote=true: enabled な remote マシンを優先、空きがなければ local。false なら逆"
+  },
+
+  "workerTimeoutSec": 1800,
+  "reviewerTimeoutSec": 900,
+  "workerMaxBudgetUsd": 5.0,
+  "reviewerMaxBudgetUsd": 2.0,
+
+  "stateDir": "~/.kimiterrace-orchestrator",
+  "logRetentionDays": 7,
+
+  "claudeBin": "claude",
+  "claudeModel": "claude-opus-4-7",
+  "claudeEffort": "medium",
+  "claudePermissionMode": "acceptEdits",
+  "claudeAllowedTools": "Bash(git *) Bash(gh *) Bash(pnpm *) Bash(npx *) Edit Write Read Glob Grep Agent WebFetch WebSearch",
+  "claudeDisallowedTools": "Bash(rm *) Bash(sudo *) Bash(curl *) Bash(wget *) Bash(npm install -g *)",
+
+  "_unsafeAutoApprove_comment": "Set to true ONLY if you accept the risk of workers running without permission prompts. Required for fully unattended overnight runs. Read CLAUDE.md ルール5 before enabling.",
+  "unsafeAutoApprove": false
+}
