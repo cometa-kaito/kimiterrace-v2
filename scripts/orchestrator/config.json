@@ -1,0 +1,33 @@
+{
+  "$schema": "./config.schema.json",
+  "_comment": "Per-machine tunables for the orchestrator. Adjust based on actual resource consumption.",
+
+  "ramPerWorkerMb": 1200,
+  "diskPerWorktreeMb": 2500,
+  "desktopReserveMb": 2500,
+  "minFreeDiskMb": 10000,
+  "safetyMargin": 1.2,
+
+  "workerHardCap": 5,
+  "reviewerHardCap": 2,
+  "cpuLoadMaxPct": 75,
+
+  "workerTimeoutSec": 1800,
+  "reviewerTimeoutSec": 900,
+  "workerMaxBudgetUsd": 5.0,
+  "reviewerMaxBudgetUsd": 2.0,
+
+  "stateDir": "~/.kimiterrace-orchestrator",
+  "worktreeBaseDir": "../.kimiterrace-workers",
+  "logRetentionDays": 7,
+
+  "claudeBin": "claude",
+  "claudeModel": "claude-opus-4-7",
+  "claudeEffort": "medium",
+  "claudePermissionMode": "acceptEdits",
+  "claudeAllowedTools": "Bash(git *) Bash(gh *) Bash(pnpm *) Bash(npx *) Edit Write Read Glob Grep Agent WebFetch WebSearch",
+  "claudeDisallowedTools": "Bash(rm *) Bash(sudo *) Bash(curl *) Bash(wget *) Bash(npm install -g *)",
+
+  "_unsafeAutoApprove_comment": "Set to true ONLY if you accept the risk of workers running without permission prompts. Required for fully unattended overnight runs. Read CLAUDE.md ルール5 before enabling.",
+  "unsafeAutoApprove": false
+}

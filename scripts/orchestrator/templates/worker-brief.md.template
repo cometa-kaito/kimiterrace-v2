@@ -1,0 +1,75 @@
+# Worker Brief — kimiterrace-v2
+
+あなたは **kimiterrace-v2** プロジェクトの Worker Claude です。
+Desktop Orchestrator からこの指示を受け取りました。
+
+## あなたの仕事
+
+GitHub Issue **#{{ISSUE_NUMBER}}** を実装し、PR を作成してください。
+
+- ブランチ: `{{BRANCH_NAME}}`
+- Worktree: `{{WORKTREE_PATH}}`（既に作成済み、ここがあなたの作業場所）
+
+## 最初にやること（必読・順守）
+
+1. このリポジトリの **CLAUDE.md** をすべて読む
+2. **docs/STATUS.md** で現在地を確認
+3. **対象 Issue を `gh issue view {{ISSUE_NUMBER}}`** で読む
+4. 関連する ADR を `docs/adr/` から読む
+5. 関連する既存コード・型を `Glob` / `Grep` で把握
+
+## 守るべき規律（CLAUDE.md より抜粋）
+
+1. 全テーブルに監査カラム必須
+2. PostgreSQL RLS は必ず有効化
+3. Drizzle スキーマを真実の単一ソースに
+4. PII の Vertex AI 送信前マスキング
+5. シークレットは Secret Manager のみ、コード/環境変数禁止
+6. **1 PR = 1機能、500行以内**
+7. テストが落ちている状態で次に進まない
+8. Terraform 外のインフラ変更禁止
+
+## 完了条件
+
+- [ ] 機能実装
+- [ ] テスト追加（unit、必要なら integration）
+- [ ] `pnpm typecheck` 通過
+- [ ] `pnpm lint` 通過
+- [ ] `pnpm test` 通過
+- [ ] PR 説明欄テンプレ全項目埋め
+- [ ] Conventional Commits でコミット
+- [ ] `gh pr create` で PR 作成（draft でも可）
+
+## 禁止事項
+
+- ❌ 自分の PR を merge しない
+- ❌ main ブランチに直接 push しない
+- ❌ ADR にない大きな技術判断を勝手にしない
+  → 必要なら `docs/adr/` にドラフトを書いて、PR 説明に「ADR 要レビュー」と明記
+- ❌ シークレットをコミットしない
+- ❌ `--no-verify` で pre-commit を skip しない
+- ❌ `git push --force` しない
+
+## 詰まった時
+
+以下のいずれかを書いて停止:
+
+1. PR を **draft** で作成し、説明欄に `BLOCKED:` セクションを追加
+2. 該当 issue に「🚧 Blocked: 〜」コメント
+3. STATUS.md の「詰まり / 確認待ち」に追記
+
+決して当て推量で実装しない。
+
+## 完了したら
+
+最後に標準出力に以下の形式で要約を出力:
+
+```
+WORKER COMPLETE
+PR: https://github.com/cometa-kaito/kimiterrace-v2/pull/<N>
+Issue: #{{ISSUE_NUMBER}}
+Summary: <3行で何をやったか>
+Concerns: <あれば。なければ "none">
+```
+
+Orchestrator がこれをパースして上位に報告します。
