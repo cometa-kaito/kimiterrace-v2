@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (Part A/B 着地、Terraform PR #66 draft、Reviewer #66 spawn 中、Mac mini 一時 disable)
+最終更新: 2026-05-29 (Part A/B 着地、Terraform PR #66 draft、orchestrator local-windows ブロッカー連発で停止中)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -31,6 +31,10 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - 2026-05-29: **Part B 群完走 + Terraform PR 着地サイクル**: PR #54 (STRIDE Part A merged)、PR #63 (シーケンス Part B 教員系 5 種 merged)、PR #64 (STRIDE Part B Repudiation+InfoDisclosure merged)、PR #66 (Terraform 雛形 873 行追加 draft, CI 11/11 green)。Reviewer #66 spawn 中
 - 2026-05-29: **orchestrator バグ修正**: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable と衝突 → `$ProcessId` リネーム (`orchestrator.ps1:230` 呼出側も合わせて修正)
 - 2026-05-29: **Mac mini 一時 disable**: SSH 解決不可のため `config.json` で disable、local Windows 単独運用へ。RAM 5GB しか空きなく Reviewer/Worker は逐次運用
+- 2026-05-29: **orchestrator local-windows ブロッカー連発**:
+  - **bash 解決バグ (修正済)**: `Start-Process "bash"` が Windows の WSL launcher (`C:\Windows\System32\bash.exe`) を起動し WSL 未インストールで即死 → log 一切なし → Sync が PID dead を `completed` と誤判定。修正: `config.json` に `bashPath` を追加 (`C:\Program Files\Git\bin\bash.exe` 直指定)、`orchestrator.ps1` でこれを参照。
+  - **Sync 誤判定バグ (修正済)**: log が存在しなくても `completed` 扱いだった → log 不在は launcher 起動失敗の証拠として `failed (-1)` に変更 (`lib/state.ps1`)。
+  - **🚨 残ブロッカー: `claude` CLI 401**: launcher 起動後、`claude` が `API Error: 401 Invalid authentication credentials` で即死。Worker / Reviewer spawn 不能。Mac は Keychain 経由でサブスク認証していたが、local Windows ではその経路がない / Start-Process hidden で TTY なし → interactive auth が走らない。次セッションでユーザーが claude login 状態確認 + Worker 起動方式（API key 経由 or 別 user session）の見直しが必要。
 - 2026-05-28: 移行方針確定（GCP ネイティブへ全改修）
 - 2026-05-28: kimiterrace-v2 リポジトリ初期化 + GitHub 公開
 - 2026-05-28: CLAUDE.md 作成（8つの開発規律）
@@ -118,8 +122,11 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 詰まり / 確認待ち
 
-- **Mac mini SSH 到達不可** (`ssh: Could not resolve hostname kaitos-mac-mini`): Tailscale / 電源 / tmux 儀式の確認待ち。当面 local Windows のみで運用
-- **local Windows RAM 不足** (FreeRam 5GB → reviewer/worker 各 1 slot のみ): 並列性に上限。Desktop 起動 Claude プロセス 10 個分が常駐していることが影響。Desktop 終了 or RAM 増設で改善
+- **🚨 [BLOCKER] local Windows での `claude` CLI 401**: Start-Process で起動した launcher 経由の `claude` が `API Error: 401 Invalid authentication credentials` で即死。サブスク認証が hidden process に伝わらない可能性。Mac は Keychain で解決していたが Windows 経路は未確立。**Worker spawn 全停止**。要対応:
+  1. `claude` CLI が現在の Windows user で対話的にログイン済か確認 (`claude` 起動 → / コマンドで session 確認)
+  2. Hidden process でも認証が拾える設定 (例: `ANTHROPIC_API_KEY` 環境変数 or Workload identity) の確立
+  3. または Mac mini 復活でこの問題を一旦回避
+- **Mac mini SSH 到達不可** (`ssh: Could not resolve hostname kaitos-mac-mini`): Tailscale / 電源 / tmux 儀式の確認待ち
 - **worker-launcher.sh の prNumber 抽出バグ**: macOS BSD `grep -P` 非対応で state.prNumber が常に null（既知、後続課題）
 
 ---

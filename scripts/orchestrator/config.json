@@ -55,6 +55,8 @@
   "logRetentionDays": 7,
 
   "claudeBin": "claude",
+  "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe",
+  "_bashPath_note": "Full path to Git Bash on Windows. Plain 'bash' resolves to C:\\Windows\\System32\\bash.exe (WSL launcher) which exits immediately when WSL is not installed, leaving no log and tricking Sync into marking the worker 'completed'. Resolved 2026-05-29.",
   "claudeModel": "claude-opus-4-7",
   "claudeEffort": "medium",
   "claudePermissionMode": "acceptEdits",

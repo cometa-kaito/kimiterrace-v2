@@ -229,9 +229,13 @@ function Spawn-LocalWorker {
     -Branch $branchName -Worktree $worktreePath `
     -LogPath $logPath -ProcessId 0
 
+  $bashPath = if ($Config.bashPath) { $Config.bashPath } else { "bash" }
+  if (-not (Test-Path $bashPath)) {
+    throw "Configured bashPath does not exist: $bashPath. On Windows, point this at Git Bash (e.g. 'C:\Program Files\Git\bin\bash.exe'); plain 'bash' resolves to the WSL launcher which silently exits."
+  }
   Push-Location $repoRoot
   try {
-    $proc = Start-Process -FilePath "bash" -ArgumentList @(
+    $proc = Start-Process -FilePath $bashPath -ArgumentList @(
       "scripts/orchestrator/worker-launcher.sh",
       $RoleArg, $Issue, $state.id,
       "`"$($state.StatePath)`"",
