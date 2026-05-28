@@ -14,10 +14,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 現在のフェーズ
 
-**W0: 準備フェーズ（リポジトリ初期化・要件・設計ドラフト）**
+**Phase 調査 → Phase 設計 (移行中)**
 
-- プロジェクト方針確定: [memory: GCP 全改修方針](../../.claude/projects/.../memory/project_kimiterrace_stack.md)
-- 12週計画: [ROADMAP.md](ROADMAP.md)
+ロードマップは 4 Phase 構成（調査・設計・開発・導入）に再設計済 (2026-05-28)。
+**Claude は調査〜開発を全力で進める。導入は人間担当**。
+
+- プロジェクト方針: [memory: GCP 全改修方針](../../.claude/projects/.../memory/project_kimiterrace_stack.md)
+- 4 Phase 計画: [ROADMAP.md](ROADMAP.md)
 - 規律: [CLAUDE.md](../CLAUDE.md)
 
 ---
@@ -92,6 +95,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - **2026-05-28**: API 層は Next.js Route Handlers に統合（Hono 非採用） → ADR-008 ドラフト要
 - **2026-05-28**: API 層に tRPC は使わず、`zod` + REST に統一する暫定方針 → 要 ADR
 - **2026-05-28**: **ロードマップを Phase 1 (技術開発) / Phase 2 (校務統合) に分離**。学校現場立ち会い・サイバー保険・委託先管理表・学校説明資料などの外部調整は Phase 2 へ後ろ送り。Phase 1 (W0-W12) は純技術開発に集中し、staging 完成までを最速で進める方針
+- **2026-05-28**: ロードマップを **4 Phase 構成 (調査→設計→開発→導入)** に再設計。「W」表記廃止。Claude 担当 = 調査〜開発（staging 完成まで）、導入は人間担当。Phase 名は調査・設計・開発・導入の固有名で扱う（番号付けしない）
 
 ---
 

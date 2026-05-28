@@ -1,212 +1,207 @@
-# キミテラス v2 ロードマップ（Phase 1: 開発12週 + 準備1週 / Phase 2: 校務統合）
+# キミテラス v2 ロードマップ
 
-旧 Firebase 構成から GCP ネイティブへの全改修。詳細は [CLAUDE.md](../CLAUDE.md) 参照。
+旧 Firebase 構成から GCP ネイティブへの全改修。
 
-**方針 (2026-05-28 更新)**: アプリ開発を一気に進めるため、外部調整系の人間タスク（学校現場立ち会い、保険、委託先管理、ペネトレ等）は Phase 2 へ後ろ送り。**W0-W12 は純技術開発に集中**する。
-
----
-
-## 全体マップ
+## 構成
 
 ```
-Phase 1: 技術開発 (W0-W12)        ← 一気に進める
-  └─ Staging で全機能動く状態まで
-
-Phase 2: 校務統合 (W13+)           ← 後ろ送り
-  ├─ 学校説明資料・現場立ち会い
-  ├─ 保険・委託先管理・規程最終化
-  ├─ ペネトレ（2027 実施）
-  └─ 本番切替（学校受入後）
+Phase 調査 → Phase 設計 → Phase 開発 → Phase 導入
+─────────  ─────────  ─────────  ─────────
+1 週         2〜3 週     8〜9 週     人間担当
+                                         （Claude は staging までを完成）
 ```
 
+**Claude は調査〜開発を全力で進める。導入は人間が学校・契約・現場運用と並行で進める。**
+
 ---
 
-## Phase 1: 技術開発（W0-W12）
+## Phase 調査 (Investigation)
 
-| 週 | フェーズ | 主な成果物 |
+**目的**: 既存システムと制約条件を把握し、設計の前提を固める。
+
+**やること**:
+- 旧 Firebase 構成の棚卸し（コレクション・Functions・UI ルート・firmware・Auth claims・Storage）
+- 既存運用パターンの把握（学校・端末・ユーザー導線）
+- 外部制約の確認（県教委 Wi-Fi、ISMAP 要件、文科省 GL）
+
+**成果物**: `docs/discovery/*.md`
+
+**関連 issue**: [#11](https://github.com/cometa-kaito/kimiterrace-v2/issues/11) 既存システム棚卸し
+
+**期間**: 1 週
+
+---
+
+## Phase 設計 (Design)
+
+**目的**: 要件・アーキテクチャ・データモデル・脅威を文書化し、後続開発の地盤を作る。
+
+**やること**:
+
+| 領域 | 成果物 | 関連 issue |
 |---|---|---|
-| W0 | 準備 | 要件・ADR・スキーマ初稿（**現在進行中**） |
-| W1 | インフラ起動 | GCP プロジェクト、Terraform 雛形、Cloud SQL 起動 |
-| W2-3 | データ基盤 | PostgreSQL スキーマ確定、RLS、マイグレーション |
-| W4 | 認証基盤 | Identity Platform、ユーザー移行スクリプト |
-| W5-6 | API 層 | Next.js Route Handlers、Drizzle 接続、認可ミドルウェア |
-| W7-8 | フロント | UI 接続、SSE ストリーミング、サイネージ表示ページ |
-| W9 | サイネージ端末 | firmware 更新、JSON 配信切替、**実機確認は Phase 2** |
-| W10 | AI 機能 | pgvector embedding、Gemini チャット、RAG |
-| W11 | 運用基盤 | 監査ログ、バックアップ、BigQuery、監視 |
-| W12 | 内部受入・staging 完成 | staging に全機能、内部 UAT、切替手順書化 |
+| 機能要件 | `docs/requirements/functional/F01-F07.md` | [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12) |
+| 非機能要件 | `docs/requirements/non-functional/NFR01-NFR06.md` | [#13](https://github.com/cometa-kaito/kimiterrace-v2/issues/13) |
+| アーキ判断 | `docs/adr/001-014.md` | [#14](https://github.com/cometa-kaito/kimiterrace-v2/issues/14) |
+| データモデル | `packages/db/schema/*.ts` (DDL 初稿) | [#15](https://github.com/cometa-kaito/kimiterrace-v2/issues/15) |
+| C4 図・シーケンス | `docs/architecture/c4-*.md`, `sequence-diagrams/*.md` | [#16](https://github.com/cometa-kaito/kimiterrace-v2/issues/16) |
+| 脅威モデル | `docs/architecture/threat-model.md` (STRIDE) | [#17](https://github.com/cometa-kaito/kimiterrace-v2/issues/17) |
+| API 契約 | `docs/architecture/api-contracts.openapi.yaml` | 派生 |
+| 移行計画 | `docs/runbooks/data-migration.md` | 派生 |
 
-### Phase 1 の人間タスク（最小限）
-
-| 週 | タスク |
-|---|---|
-| W0 | gcloud/Terraform インストール ✅、GCP プロジェクト作成 ✅、Wi-Fi 方式問合せ ✅ |
-| W1-2 | GCP 課金監視設定、IAM 設計レビュー |
-| W2-3 | スキーマレビュー（特に PII フィールド） |
-| W4 | ユーザー移行ドライランの結果確認 |
-| W5-6 | 認可ロジック PR の精査 |
-| W7-8 | UI 動作確認（Playwright + 必要なら手動） |
-| W10 | **AI チャットボット仕様決定**（誰向け・何を答えるか・トーン） |
-| W11 | DR 演習判断 |
-| W12 | staging 内部受入チェック |
-
-→ **Phase 1 のあなたの関わりは原則 PR レビューと数点の仕様判断のみ**。
-平均 **2〜6 時間/週**、W10 の仕様検討で 8 時間/週程度のピーク。
-
-### Phase 1 完了基準
-
-- [ ] staging URL から全機能アクセス可能
-- [ ] 旧 Firebase からのデータ移行スクリプト dry-run 成功
-- [ ] CI/監視/バックアップ自動化
-- [ ] AI チャットが staging データで動作
-- [ ] 切替手順書（runbook）完成
-
-完了予想: **2026-08-20 頃**
+**期間**: 2〜3 週
 
 ---
 
-## Phase 2: 校務統合（W13+、Phase 1 完了後に開始）
+## Phase 開発 (Development)
 
-技術開発と独立して並行可能だが、本番投入には全て必要。
-**Phase 1 が完了してから集中的に進める**ことで、技術と並行作業のスイッチコストを減らす。
+**目的**: 設計を実装に変換、staging で全機能が動くまで持っていく。
 
-### 2A. コンプライアンス書類最終化
+サブストリームに分割。**依存順** で並べたが、Claude は依存解消され次第並列起動する:
 
-| タスク | 担当 | 備考 |
-|---|---|---|
-| 個人情報取扱規程 最終化 | 人間 (Claude 初稿あり) | Phase 1 で initial draft 済の想定 |
-| プライバシーポリシー 最終化 | 人間 (Claude 初稿あり) | 同上 |
-| 委託先管理表 確定 | 人間 | GCP/Sentry/Vertex AI 等のリスト |
-| 文科省 GL 対応表 完成 | Claude | コンプライアンス文書 |
-| 自治体ポリシー対応表 | 人間 | 自治体ごとに異なる |
+### 開発: インフラ基盤
 
-### 2B. リスク移転・対外契約
+- Terraform 全モジュール（cloud-run / cloud-sql / identity-platform / vpc / cloud-armor / secret-manager）
+- dev / staging / prod 環境分離
+- VPC + Cloud SQL Private IP (PostgreSQL 16 + pgvector)
+- GitHub Actions CI に terraform plan, Cloud Run preview
+- Workload Identity Federation (GitHub Actions ↔ GCP)
+- 観測: Cloud Logging, Cloud Trace, Cloud Monitoring, Sentry 接続
 
-| タスク | 備考 |
-|---|---|
-| サイバー保険 加入 | 漏洩時の通知費用・損害賠償カバー、年数十万円〜 |
-| GCP との DPA 確認 | 標準 DPA で十分なはず、念のため最終確認 |
-| 学校との SaaS 利用契約書 | 自治体側書式に合わせる |
+### 開発: データ層
 
-### 2C. 学校との段階的統合
+- PostgreSQL スキーマ確定（設計フェーズの初稿を本番化）
+- 全テーブルに監査カラム (CLAUDE.md ルール1)
+- RLS ポリシー実装 + テスト（許可・拒否ケース両方）(ルール2)
+- Drizzle 型生成、`drizzle-zod` で validation 自動化 (ルール3)
+- migration 運用フロー
 
-| タスク | 備考 |
-|---|---|
-| 学校向け移行説明資料 作成 | Claude が初稿、人間が学校向けに調整 |
-| 教員説明会（必要なら） | 1校あたり1〜2時間 |
-| **岐南工業 実機確認 / 立ち会い** | サイネージ動作確認、教員操作確認 |
-| パイロット期間（1校 1〜2週間）| バグ・UX issue を回収 |
+### 開発: 認証
 
-### 2D. ペネトレ（**2027 実施**、Phase 2 とは独立）
+- Identity Platform セットアップ
+- Firebase Auth → Identity Platform ユーザー移行スクリプト
+- Custom Claims (systemRole / teacher / editor / schoolId) 引き継ぎ
+- Next.js middleware で JWT 検証 + RLS context 設定
+- MFA 強制ポリシー
 
-メモリに記録済の通り、ペネトレは 2027 年に延期。
-当面は CI 自動スキャン（Semgrep + CodeQL + gitleaks + Dependabot + RLS テスト）で代替。
+### 開発: API 層
 
-### 2E. 本番切替
+- Next.js Route Handlers で各機能 API（schools / schedules / notices / submissions / memberships / users / signage）
+- 認可ミドルウェア（漏れたら全テナント漏洩リスク）
+- 監査ログミドルウェア
+- Rate limit（Cloud Armor + アプリ層）
+- 統合テスト（Testcontainers で実 PostgreSQL）
 
-- 並行運用期間 2 週間確保
-- DNS 切替（最後）
-- 旧 Firebase 停止判断（切替+2週）
+### 開発: フロントエンド
 
-### Phase 2 完了予想
+- Next.js SSR + Server Actions
+- 旧 management UI コンポーネント移植
+- データ取得を Firestore SDK → Drizzle + Server Actions へ
+- アクセシビリティ (WCAG 2.2 AA)
+- E2E テスト (Playwright)
 
-Phase 1 完了後の状況次第。**最低 4〜6 週間**は見込むべき:
+### 開発: AI 機能
 
-- 書類仕事: 2〜3 週間
-- 学校パイロット: 2〜3 週間
-- 切替リハーサル + 切替: 1〜2 週間
+- pgvector embedding pipeline（夜間バッチ）
+- Vertex AI Gemini クライアント
+- PII マスキング (ルール4)
+- RAG クエリ（school_id スコープ）
+- Vercel AI SDK + SSE ストリーミング UI
+- プロンプトインジェクション対策
+- AI 利用ログを audit_log に
+- **チャットボット仕様は人間が決める**（誰向け・何を答えるか・トーン・予算枠）
 
-**合計**: 2026-08 末 〜 2026-10 中旬で本番稼働、が現実的な目処。
+### 開発: サイネージ統合
+
+- firmware の API エンドポイントを Cloud Run に切替
+- Cloud Storage の signage-json バケットへの配信
+- 端末ごとのサービスアカウント発行・失効フロー
+- ファームウェア更新の署名検証
+
+### 開発: 運用基盤
+
+- BigQuery 連携（Datastream で Cloud SQL → BQ 同期）
+- 文科省報告用集計クエリ
+- Cloud Logging 長期保管（コールド 7 年）
+- バックアップ自動化 + 復元演習
+- インシデント対応 playbook
+- ペネトレ代替 (Semgrep / CodeQL / gitleaks / Dependabot / RLS テスト) — 本格ペネトレは **2027 実施**
+
+### 開発: staging 内部受入
+
+- 全機能 staging で動作確認
+- データ移行スクリプトの dry-run（3 回）
+- 切替 runbook 完成
+- **Claude 担当範囲の完成宣言**（ここから先は人間に引き継ぎ）
+
+**期間**: 8〜9 週
 
 ---
 
-## W0 詳細（現在進行中）
+## Phase 導入 (Deployment, 人間担当)
 
-### Claude 担当 (open issue)
+Claude は staging までを完成。**本番稼働は人間が以下を整えてから判断**:
 
-| # | タスク |
+| カテゴリ | 内容 |
 |---|---|
-| #11 | 既存システム棚卸し |
-| #12 | 機能要件 F01-F07 ドラフト |
-| #13 | 非機能要件 NFR01-NFR06 |
-| #14 | ADR 001-014 初稿 |
-| #15 | PostgreSQL スキーマ DDL 初稿 |
-| #16 | C4 図 + シーケンス図 |
-| #17 | 脅威モデル STRIDE |
-| #30 | Orchestrator autoCycle 機能 |
-| #31 | Orchestrator 並列 spawn 検証 |
-| #32 | Orchestrator Reviewer Agent 自動連鎖 |
-| #33 | Orchestrator Worker 失敗 retry |
+| 契約・規程 | 個人情報取扱規程・プライバシーポリシー最終化、SaaS 利用契約 |
+| リスク移転 | サイバー保険加入、GCP DPA 確認 |
+| 委託先管理 | 委託先管理表確定 |
+| 学校統合 | 学校向け移行説明資料、教員説明会、岐南工業 実機確認 |
+| パイロット | 1校パイロット運用（1〜2 週間） |
+| 切替 | DNS 切替、並行運用、旧 Firebase 停止判断 |
 
-### 人間タスク（完了済）
+**Claude は技術 support のみ**（runbook 参照、トラブル時の修正 PR、AI 利用ログから挙動分析など）。
+調整・判断・対外コミュニケーションは人間。
 
-- ✅ gcloud / Terraform インストール
-- ✅ GCP プロジェクト作成 + API 有効化
-- ✅ Wi-Fi 方式確認（ドメインベース OK）
-- ✅ Tailscale 経由 Mac Worker 接続
-
-### W0 完了予想
-
-2 週間以内（Orchestrator extension #30-#33 含む）
+Phase 開発完了の節目で、Phase 導入用の issue を改めて起票する。
 
 ---
 
-## マイルストーン KPI
-
-### Phase 1（技術開発、staging 完成まで）
+## マイルストーン
 
 | マイルストーン | 目標日 | 達成基準 |
 |---|---|---|
-| W0 設計完了 | 2026-06-11 | 全 W0 issue merge |
-| 基盤構築完了 | 2026-06-25 (W4) | 認証＋DB＋API のスケルトンが staging 疎通 |
-| 機能実装完了 | 2026-07-30 (W9) | 全機能が staging で動く |
-| AI 機能完了 | 2026-08-06 (W10) | RAG チャットが staging で動く |
-| **Phase 1 完了** | **2026-08-20 (W12)** | **staging で全機能、内部受入 OK** |
+| Phase 調査 完了 | 2026-06-04 | discovery docs 一式 |
+| Phase 設計 完了 | 2026-06-25 | 要件・ADR・スキーマ・図 一式 |
+| Phase 開発 完了 (staging) | 2026-08-20 | staging で全機能、AI チャット動作、データ移行 dry-run OK |
+| Phase 導入 完了 (本番稼働) | 人間判断 | 学校 OK + 契約 OK + パイロット完了後 |
 
-### Phase 2（校務統合、本番稼働まで）
+---
 
-| マイルストーン | 目標日 (概算) | 達成基準 |
-|---|---|---|
-| 書類仕事完了 | 2026-09 上旬 | 全コンプライアンス文書最終化 |
-| 学校パイロット | 2026-09 中旬 | 岐南工業で実機運用 1〜2 週間 |
-| **本番切替** | **2026-10 中旬** | DNS 切替、並行運用開始 |
-| 旧 Firebase 停止 | 切替 +2 週 | 並行運用期間終了 |
+## ペネトレ計画
 
-### Phase 3（運用・拡張）
+ペネトレーションテストは **2027 年実施に延期** (確定)。
+Phase 開発内では CI 自動スキャンで代替:
+- Semgrep (SAST)
+- CodeQL
+- gitleaks (シークレットスキャン)
+- Dependabot (依存脆弱性)
+- RLS テスト (テナント分離検証)
 
-| マイルストーン | 時期 |
-|---|---|
-| 第2校オンボード | 本番稼働 +1 ヶ月 |
-| **ペネトレ実施** | **2027 年中** |
-| 機能拡張・改善 | 継続 |
+Phase 導入の本番判断は、この自動スキャン結果と内部受入で行う。
 
 ---
 
 ## スコープ調整方針
 
-工程遅延時に削る順序（守るべき優先度）:
+工程遅延時に削る順序:
 
 | 優先度 | カテゴリ | 削れる |
 |---|---|---|
-| 最優先（削らない） | セキュリティ・監査・データ移行・既存機能の完全互換 | × |
-| 優先 | AI チャット中核機能（RAG、ストリーミング） | △ MVP に縮める可 |
-| 通常 | AI 補助機能（要約、自動生成） | ○ |
-| 任意 | 高度な分析ダッシュボード、BigQuery 連携 | ○ Phase 3 へ |
+| 最優先 (削らない) | セキュリティ・監査・データ移行・既存機能の完全互換 | × |
+| 優先 | AI チャット中核 (RAG, ストリーミング) | △ MVP に縮める |
+| 通常 | AI 補助 (要約、自動生成) | ○ |
+| 任意 | 高度分析ダッシュボード、BigQuery 連携 | ○ ポストローンチへ |
 
 「速度のために安全を削る」は**絶対にしない**。
 
 ---
 
-## 後ろ送りした項目（後で忘れないため）
+## 関連ファイル
 
-Phase 2 で実施するために、別途タスク化 or 文書化が必要なもの:
-
-- [ ] 個人情報取扱規程・プライバシーポリシー最終化（Phase 1 で initial draft 作成、Phase 2 で社外確認）
-- [ ] サイバー保険申込
-- [ ] 委託先管理表確定
-- [ ] 学校向け移行説明資料
-- [ ] 岐南工業 実機確認 / 立ち会い
-- [ ] UAT 立ち会い（学校現場での）
-- [ ] ペネトレ業者発注（**2027**）
-
-これらは Phase 1 完了の節目で改めて issue 起票する。
+- 現在地: [docs/STATUS.md](STATUS.md)
+- 規律: [CLAUDE.md](../CLAUDE.md)
+- 意思決定: [docs/adr/](adr/)
+- 棚卸し: [docs/discovery/](discovery/)
+- 運用手順書: [docs/runbooks/](runbooks/)
