@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-28 (ADR-015〜019 起票完了、次は Drizzle DDL Worker spawn)
+最終更新: 2026-05-28 (Orchestrator 規律厳格化、Worker spawn 準備中)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -47,6 +47,16 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 - 2026-05-28: **`docs/requirements/v2-mvp.md` ドラフト起草完了**（機能要件 F01-F12、非機能要件 NFR01-NFR07、ロール設計、データモデル概念設計、RLS ポリシー、AI 安全網 4 種、PII マスキング戦略、将来追加・未決定事項を一本化）
 - 2026-05-28: **要件個別ファイル分割完了**（functional/F01-F12 12 本 + non-functional/NFR01-NFR07 7 本 + 索引 README 2 本 = 21 ファイル新規作成）。v2-mvp.md は概観・横断要素の参照源として維持
 - 2026-05-28: **ADR-015〜019 起草完了**（即公開+安全網 / magic link 匿名 / Gemini + confidence / CRM 独自 / RLS 二層）。各 ADR は文脈・決定・代替案・トレードオフのフォーマット遵守、関連 F・NFR・memory への双方向リンク含む
+- 2026-05-28: **Orchestrator 規律厳格化**（ユーザー提示の並列フロー + PR レビューフローを正式採用）:
+  - Desktop の Edit/Write は **メタ規律ドキュメント限定**（CLAUDE.md / STATUS.md / ROADMAP.md / runbooks / memory / scripts/orchestrator/templates）
+  - 運用 docs は **すべて Worker 経由**（docs/requirements / adr / architecture / compliance / apps / packages / infrastructure）
+  - Reviewer Claude を **PR ごとに別 spawn**、`/code-review` skill + CLAUDE.md 8 ルール + F/NFR/ADR + STRIDE
+  - Reviewer は `gh pr review --approve/--comment/--request-changes` で判定 submit、Desktop が CI green + APPROVE 確認後に merge
+  - STATUS.md / メタ規律ドキュメントは Desktop の責務、Worker / Reviewer は触らない
+  - 1サイクル Desktop context 消費 ~6,000 tokens 目標 → 1 セッション 50〜100 サイクル設計
+  - memory `feedback_orchestrator_commit_authority.md` を「docs hygiene 全部 OK」→「メタ規律のみ OK」に範囲縮小
+  - memory `feedback_worker_review_discipline.md` を新規追加（CI 確認 → /code-review → CLAUDE.md 8 ルール の手順）
+  - `scripts/orchestrator/templates/reviewer-brief.md.template` を新フローで全面改稿
 
 ---
 
