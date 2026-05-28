@@ -24,7 +24,7 @@
 
 function Get-StateDir {
   param([string]$ConfigPath = "$PSScriptRoot/../config.json")
-  $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+  $config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
   $dir = $config.stateDir -replace "^~", $env:USERPROFILE
   $workersDir = Join-Path $dir "workers"
   $logsDir = Join-Path $dir "logs"
@@ -71,7 +71,7 @@ function Get-WorkerStates {
   Get-ChildItem -LiteralPath $dirs.Workers -Filter "*.json" -ErrorAction SilentlyContinue |
     ForEach-Object {
       try {
-        $s = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+        $s = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         $s | Add-Member -NotePropertyName StatePath -NotePropertyValue $_.FullName -PassThru
       } catch {
         Write-Warning "Corrupt state file: $($_.FullName)"
@@ -90,7 +90,7 @@ function Update-WorkerState {
   if (-not (Test-Path $path)) {
     throw "State not found: $Id"
   }
-  $state = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+  $state = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
   foreach ($k in $Patch.Keys) {
     if ($state.PSObject.Properties.Name -contains $k) {
       $state.$k = $Patch[$k]
@@ -129,7 +129,7 @@ function Remove-StaleStates {
   Get-ChildItem -LiteralPath $dirs.Workers -Filter "*.json" -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt $cutoff } |
     ForEach-Object {
-      $s = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+      $s = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
       if ($s.status -ne "running") {
         Remove-Item -LiteralPath $_.FullName -Force
       }

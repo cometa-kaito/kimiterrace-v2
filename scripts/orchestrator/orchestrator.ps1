@@ -1,36 +1,20 @@
 <#
 .SYNOPSIS
-  Orchestrator entry point. Subcommands: probe, plan, spawn, status, cleanup, dry-run.
+  Multi-machine orchestrator. Subcommands: probe, plan, spawn, status, sync, cleanup, version.
 
 .DESCRIPTION
   Resource-aware scheduler for Worker / Reviewer Claude sessions.
+  Supports multiple machines (local + remote via SSH).
 
-  Typical usage:
-    # Show current capacity
+  Examples:
     .\orchestrator.ps1 probe
-
-    # Plan: what would be spawned for these issues (no actual spawn)
     .\orchestrator.ps1 plan -Issues 11,14,18
-
-    # Spawn workers (subject to capacity limits)
+    .\orchestrator.ps1 spawn -Issues 11,14,18 -DryRun
     .\orchestrator.ps1 spawn -Issues 11,14,18
-
-    # Show running workers
     .\orchestrator.ps1 status
-
-    # Sync state (mark exited workers as completed/failed)
     .\orchestrator.ps1 sync
-
-    # Cleanup finished worktrees + old state files
     .\orchestrator.ps1 cleanup
-
-.NOTES
-  This script does not actually invoke claude itself. It delegates to
-  scripts/orchestrator/worker-launcher.sh in detached subprocess.
-
-  The orchestrator is the Desktop Claude's interface for parallel work.
-  Desktop Claude should call this via Bash; it must not perform
-  implementation itself (Orchestrator Mode — see CLAUDE.md).
+    .\orchestrator.ps1 version
 #>
 
 [CmdletBinding()]
@@ -42,187 +26,290 @@ param(
   [int[]]$Issues = @(),
   [ValidateSet("worker", "reviewer")][string]$Role = "worker",
   [int]$MaxWorkers = 0,
-  [switch]$DryRun
+  [switch]$DryRun,
+  [string]$Machine = ""
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptRoot = $PSScriptRoot
 
-# Source libs
 . "$ScriptRoot/lib/state.ps1"
+. "$ScriptRoot/lib/ssh.ps1"
 
 $ConfigPath = "$ScriptRoot/config.json"
-$Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+$Config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
-function Format-Json {
-  param($Obj)
-  $Obj | ConvertTo-Json -Depth 10
+function Get-EnabledMachines {
+  $names = $Config.machines.PSObject.Properties.Name
+  $list = foreach ($n in $names) {
+    $m = $Config.machines.$n
+    if ($m.enabled) {
+      $m | Add-Member -NotePropertyName name -NotePropertyValue $n -Force -PassThru
+    }
+  }
+  return @($list)
+}
+
+function Probe-Machine {
+  param([Parameter(Mandatory)][PSCustomObject]$M)
+  switch ($M.kind) {
+    "local" { & "$ScriptRoot/lib/probe.ps1" }
+    "ssh"   { Invoke-RemoteProbe -Machine $M }
+    default { [PSCustomObject]@{ Error = "Unknown machine kind: $($M.kind)" } }
+  }
+}
+
+function Get-AllStates {
+  # Local states
+  $local = @(Get-WorkerStates)
+  # Remote states from each enabled ssh machine
+  $remoteMachines = Get-EnabledMachines | Where-Object { $_.kind -eq "ssh" }
+  $remote = foreach ($m in $remoteMachines) {
+    Get-RemoteWorkerStates -Machine $m | ForEach-Object {
+      $_ | Add-Member -NotePropertyName machine -NotePropertyValue $m.name -Force -PassThru
+    }
+  }
+  @($local) + @($remote) | Where-Object { $_ }
+}
+
+function Count-ActiveOnMachine {
+  param([string]$MachineName, [string]$RoleArg)
+  (Get-AllStates |
+    Where-Object { $_.status -eq "running" -and $_.role -eq $RoleArg -and
+                   (($MachineName -eq "local-windows" -and -not $_.machine) -or
+                    $_.machine -eq $MachineName) }
+  ).Count
+}
+
+function Write-JsonOut {
+  [CmdletBinding()]
+  param(
+    [Parameter(ValueFromPipeline = $true, Position = 0)]
+    $Obj
+  )
+  process {
+    $Obj | ConvertTo-Json -Depth 10
+  }
 }
 
 function Cmd-Probe {
-  $probe = & "$ScriptRoot/lib/probe.ps1"
-  Format-Json $probe
+  $machines = Get-EnabledMachines
+  $report = [ordered]@{}
+  foreach ($m in $machines) {
+    $report[$m.name] = Probe-Machine -M $m
+  }
+  Write-JsonOut $report
+}
+
+function Compute-Plan {
+  param([string]$RoleArg, [int[]]$IssueList)
+
+  Sync-WorkerStatuses
+  $machines = Get-EnabledMachines
+
+  $perMachine = foreach ($m in $machines) {
+    $p = Probe-Machine -M $m
+    $active = Count-ActiveOnMachine -MachineName $m.name -RoleArg $RoleArg
+    $cap = & "$ScriptRoot/lib/capacity.ps1" -Probe $p -Machine $m -ActiveWorkers $active -Role $RoleArg
+    [PSCustomObject]@{
+      Name     = $m.name
+      Kind     = $m.kind
+      Probe    = $p
+      Capacity = $cap
+    }
+  }
+
+  # Routing: preferRemote → remote first, then local
+  if ($Config.routing.preferRemote) {
+    $ordered = @($perMachine | Where-Object { $_.Kind -eq "ssh" }) +
+               @($perMachine | Where-Object { $_.Kind -eq "local" })
+  } else {
+    $ordered = @($perMachine | Where-Object { $_.Kind -eq "local" }) +
+               @($perMachine | Where-Object { $_.Kind -eq "ssh" })
+  }
+
+  $totalAvailable = 0
+  foreach ($mp in $ordered) { $totalAvailable += $mp.Capacity.MaxConcurrent }
+
+  # Greedy assign issues to machines with capacity
+  $assignments = New-Object System.Collections.Generic.List[object]
+  $remainingByMachine = @{}
+  foreach ($mp in $ordered) { $remainingByMachine[$mp.Name] = $mp.Capacity.MaxConcurrent }
+
+  foreach ($issue in $IssueList) {
+    $target = $ordered | Where-Object { $remainingByMachine[$_.Name] -gt 0 } | Select-Object -First 1
+    if ($target) {
+      $assignments.Add([PSCustomObject]@{
+        Issue   = $issue
+        Machine = $target.Name
+        Kind    = $target.Kind
+      })
+      $remainingByMachine[$target.Name] -= 1
+    }
+  }
+
+  $deferred = $IssueList | Where-Object { -not ($assignments | Where-Object { $_.Issue -eq $_ }) }
+  # Simpler: deferred = issues that didn't get assigned
+  $assignedIssues = $assignments | ForEach-Object { $_.Issue }
+  $deferred = $IssueList | Where-Object { $_ -notin $assignedIssues }
+
+  [PSCustomObject]@{
+    PerMachine     = $perMachine
+    TotalAvailable = $totalAvailable
+    Assignments    = $assignments.ToArray()
+    Deferred       = @($deferred)
+    Notes          = if ($totalAvailable -eq 0) {
+      "No capacity on any enabled machine."
+    } else {
+      "Will spawn $($assignments.Count) of $($IssueList.Count) requested across $((($assignments | ForEach-Object { $_.Machine }) | Sort-Object -Unique).Count) machine(s)."
+    }
+  }
 }
 
 function Cmd-Plan {
-  param([int[]]$IssueList, [string]$RoleArg)
+  $plan = Compute-Plan -RoleArg $Role -IssueList $Issues
+  Write-JsonOut $plan
+}
 
-  $probe = & "$ScriptRoot/lib/probe.ps1"
-  Sync-WorkerStatuses
-  $active = (Get-WorkerStates -StatusFilter "running" | Where-Object { $_.role -eq $RoleArg }).Count
-  $cap = & "$ScriptRoot/lib/capacity.ps1" -Probe $probe -ActiveWorkers $active -Role $RoleArg
-
-  $available = $cap.MaxConcurrent
-  $toSpawn = if ($IssueList.Count -gt 0) {
-    $IssueList | Select-Object -First $available
-  } else {
-    @()
+function Render-WorkerBrief {
+  param([int]$Issue, [string]$Branch, [string]$Worktree)
+  $template = "$ScriptRoot/templates/worker-brief.md.template"
+  if (-not (Test-Path $template)) {
+    return "Implement issue #$Issue. See CLAUDE.md for rules."
   }
-  $deferred = if ($IssueList.Count -gt $available) {
-    $IssueList | Select-Object -Skip $available
-  } else {
-    @()
+  $brief = Get-Content -LiteralPath $template -Raw
+  $brief = $brief -replace '\{\{ISSUE_NUMBER\}\}', $Issue
+  $brief = $brief -replace '\{\{BRANCH_NAME\}\}', $Branch
+  $brief = $brief -replace '\{\{WORKTREE_PATH\}\}', ($Worktree -replace '\\', '/')
+  return $brief
+}
+
+function Spawn-LocalWorker {
+  param([PSCustomObject]$M, [int]$Issue, [string]$RoleArg, [switch]$DryRunFlag)
+
+  $repoRoot = (git rev-parse --show-toplevel).Trim()
+  $worktreeBase = $M.worktreeBaseDir
+  if ($worktreeBase -notmatch '^[A-Za-z]:|^/') {
+    $worktreeBase = Join-Path $repoRoot $worktreeBase
+  }
+  if (-not (Test-Path $worktreeBase) -and -not $DryRunFlag) {
+    New-Item -ItemType Directory -Path $worktreeBase -Force | Out-Null
   }
 
-  $plan = [PSCustomObject]@{
-    Probe         = $probe
-    Capacity      = $cap
-    RequestedIssues = $IssueList
-    WillSpawn     = $toSpawn
-    Deferred      = $deferred
-    Notes         = if ($cap.CpuBlocked) {
-      "CPU load above threshold ($($probe.CpuLoadPct)%). No workers will spawn now."
-    } elseif ($available -eq 0) {
-      "No capacity. Wait for active workers to finish or free resources."
-    } else {
-      "Ready to spawn $($toSpawn.Count) of $($IssueList.Count) requested."
+  $shortName = "issue-$Issue"
+  $worktreePath = Join-Path $worktreeBase "worker-$shortName"
+  $branchName = "feat/$Issue-orchestrated"
+  $dirs = Get-StateDir
+  $logPath = Join-Path $dirs.Logs "worker-issue-$Issue-$(Get-Date -Format 'yyyyMMddTHHmmss').log"
+  $briefPath = Join-Path $dirs.Logs "worker-issue-$Issue-brief.md"
+
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+  if (-not $DryRunFlag) {
+    $briefContent | Out-File -LiteralPath $briefPath -Encoding utf8
+  }
+
+  if ($DryRunFlag) {
+    return [PSCustomObject]@{
+      DryRun = $true
+      Machine = $M.name
+      Issue = $Issue
+      Worktree = $worktreePath
+      Branch = $branchName
+      Log = $logPath
     }
   }
-  Format-Json $plan
+
+  $state = New-WorkerState -Role $RoleArg -Issue $Issue `
+    -Branch $branchName -Worktree $worktreePath `
+    -LogPath $logPath -Pid 0
+
+  Push-Location $repoRoot
+  try {
+    $proc = Start-Process -FilePath "bash" -ArgumentList @(
+      "scripts/orchestrator/worker-launcher.sh",
+      $RoleArg, $Issue, $state.id,
+      "`"$($state.StatePath)`"",
+      "`"$logPath`"",
+      "`"$worktreePath`"",
+      $branchName,
+      "`"$briefPath`""
+    ) -PassThru -WindowStyle Hidden
+    Update-WorkerState -Id $state.id -Patch @{ pid = $proc.Id } | Out-Null
+    return [PSCustomObject]@{
+      Id = $state.id
+      Machine = $M.name
+      Pid = $proc.Id
+      Issue = $Issue
+      Branch = $branchName
+      Log = $logPath
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
+function Spawn-RemoteWorker {
+  param([PSCustomObject]$M, [int]$Issue, [string]$RoleArg, [switch]$DryRunFlag)
+
+  $workerId = "worker-$(Get-Date -Format 'yyyyMMddTHHmmss')-issue-$Issue"
+  $branchName = "feat/$Issue-orchestrated"
+  $worktreePath = "$($M.worktreeBaseDir)/worker-issue-$Issue"
+
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+
+  if ($DryRunFlag) {
+    return [PSCustomObject]@{
+      DryRun = $true
+      Machine = $M.name
+      Issue = $Issue
+      Worktree = $worktreePath
+      Branch = $branchName
+    }
+  }
+
+  $r = Start-RemoteWorker -Machine $M -Role $RoleArg -Issue $Issue `
+         -WorkerId $workerId -BranchName $branchName -BriefContent $briefContent
+  $r
 }
 
 function Cmd-Spawn {
-  param([int[]]$IssueList, [string]$RoleArg, [switch]$DryRunFlag)
-
-  $probe = & "$ScriptRoot/lib/probe.ps1"
-  Sync-WorkerStatuses
-  $active = (Get-WorkerStates -StatusFilter "running" | Where-Object { $_.role -eq $RoleArg }).Count
-  $cap = & "$ScriptRoot/lib/capacity.ps1" -Probe $probe -ActiveWorkers $active -Role $RoleArg
-
-  if ($cap.MaxConcurrent -eq 0) {
-    Write-Host "No capacity available. Reason:"
-    $cap.Reasoning | ForEach-Object { Write-Host "  $_" }
+  $plan = Compute-Plan -RoleArg $Role -IssueList $Issues
+  if ($plan.Assignments.Count -eq 0) {
+    Write-Host "No capacity. Reasoning:"
+    foreach ($pm in $plan.PerMachine) {
+      Write-Host "  [$($pm.Name)] $($pm.Capacity.Reasoning -join '; ')"
+    }
+    Write-JsonOut $plan
     return
   }
 
-  $issuesToSpawn = $IssueList | Select-Object -First $cap.MaxConcurrent
-  $spawned = @()
+  $machinesByName = @{}
+  foreach ($pm in $plan.PerMachine) { $machinesByName[$pm.Name] = $pm }
 
-  foreach ($issue in $issuesToSpawn) {
-    $worktreeBase = $Config.worktreeBaseDir
-    if ($worktreeBase -notmatch '^[A-Za-z]:|^/') {
-      # Relative path: resolve against repo root
-      $repoRoot = (git rev-parse --show-toplevel).Trim()
-      $worktreeBase = Join-Path $repoRoot $worktreeBase
-    }
-    if (-not (Test-Path $worktreeBase)) {
-      New-Item -ItemType Directory -Path $worktreeBase -Force | Out-Null
-    }
-
-    $shortName = "issue-$issue"
-    $worktreePath = Join-Path $worktreeBase "worker-$shortName"
-    $branchName = "feat/$issue-orchestrated"
-
-    $dirs = Get-StateDir
-    $logPath = Join-Path $dirs.Logs "worker-issue-$issue-$(Get-Date -Format 'yyyyMMddTHHmmss').log"
-
-    $briefPath = Join-Path $dirs.Logs "worker-issue-$issue-brief.md"
-    # Brief content is rendered separately; for now place a placeholder if missing
-    if (-not (Test-Path $briefPath)) {
-      $template = "$ScriptRoot/templates/worker-brief.md.template"
-      if (Test-Path $template) {
-        $brief = Get-Content -LiteralPath $template -Raw
-        $brief = $brief -replace '\{\{ISSUE_NUMBER\}\}', $issue
-        $brief = $brief -replace '\{\{BRANCH_NAME\}\}', $branchName
-        $brief = $brief -replace '\{\{WORKTREE_PATH\}\}', ($worktreePath -replace '\\', '/')
-        $brief | Out-File -LiteralPath $briefPath -Encoding utf8
-      } else {
-        "Implement issue #$issue. See CLAUDE.md for rules." |
-          Out-File -LiteralPath $briefPath -Encoding utf8
-      }
-    }
-
-    if ($DryRunFlag) {
-      Write-Host "DRY-RUN: would spawn $RoleArg for issue #$issue"
-      Write-Host "  Worktree: $worktreePath"
-      Write-Host "  Branch:   $branchName"
-      Write-Host "  Log:      $logPath"
-      Write-Host "  Brief:    $briefPath"
-      continue
-    }
-
-    # Pre-create state file with placeholder PID
-    $state = New-WorkerState -Role $RoleArg -Issue $issue `
-      -Branch $branchName -Worktree $worktreePath `
-      -LogPath $logPath -Pid 0
-
-    # Spawn the launcher in detached bash
-    $bashCmd = @(
-      "bash",
-      "scripts/orchestrator/worker-launcher.sh",
-      $RoleArg,
-      $issue,
-      $state.id,
-      $state.StatePath,
-      $logPath,
-      $worktreePath,
-      $branchName,
-      $briefPath
-    ) -join " "
-
-    Push-Location (git rev-parse --show-toplevel).Trim()
-    try {
-      $proc = Start-Process -FilePath "bash" `
-        -ArgumentList @(
-          "scripts/orchestrator/worker-launcher.sh",
-          $RoleArg,
-          $issue,
-          $state.id,
-          "`"$($state.StatePath)`"",
-          "`"$logPath`"",
-          "`"$worktreePath`"",
-          $branchName,
-          "`"$briefPath`""
-        ) `
-        -PassThru -NoNewWindow:$false -WindowStyle Hidden
-
-      Update-WorkerState -Id $state.id -Patch @{ pid = $proc.Id } | Out-Null
-      Write-Host "Spawned $RoleArg-$($state.id) (PID $($proc.Id)) for issue #$issue"
-      $spawned += [PSCustomObject]@{
-        Id     = $state.id
-        Pid    = $proc.Id
-        Issue  = $issue
-        Branch = $branchName
-        Log    = $logPath
-      }
-    } finally {
-      Pop-Location
+  $results = foreach ($a in $plan.Assignments) {
+    $m = (Get-EnabledMachines | Where-Object { $_.name -eq $a.Machine })
+    if ($a.Kind -eq "local") {
+      Spawn-LocalWorker -M $m -Issue $a.Issue -RoleArg $Role -DryRunFlag:$DryRun
+    } else {
+      Spawn-RemoteWorker -M $m -Issue $a.Issue -RoleArg $Role -DryRunFlag:$DryRun
     }
   }
 
-  Format-Json $spawned
+  [PSCustomObject]@{
+    Spawned  = $results
+    Deferred = $plan.Deferred
+  } | Write-JsonOut
 }
 
 function Cmd-Status {
   Sync-WorkerStatuses
-  $all = Get-WorkerStates
-  $summary = [PSCustomObject]@{
+  $all = Get-AllStates
+  [PSCustomObject]@{
     Running    = @($all | Where-Object { $_.status -eq "running" })
     Completed  = @($all | Where-Object { $_.status -eq "completed" })
     Failed     = @($all | Where-Object { $_.status -eq "failed" })
     Total      = $all.Count
-  }
-  Format-Json $summary
+  } | Write-JsonOut
 }
 
 function Cmd-Sync {
@@ -232,48 +319,64 @@ function Cmd-Sync {
 
 function Cmd-Cleanup {
   Sync-WorkerStatuses
+  $removed = New-Object System.Collections.Generic.List[string]
 
-  # Remove worktrees of merged/closed PRs
+  # Local worktree cleanup: remove worktrees for merged branches
   $repoRoot = (git rev-parse --show-toplevel).Trim()
-  $worktrees = git -C $repoRoot worktree list --porcelain | Out-String
-  $removed = @()
+  Get-WorkerStates | Where-Object {
+    $_.status -in @("completed", "failed") -and $_.worktree -and (Test-Path $_.worktree)
+  } | ForEach-Object {
+    $s = $_
+    $merged = git -C $repoRoot branch --merged main 2>$null | Out-String
+    if ($merged -match [regex]::Escape($s.branch)) {
+      Write-Host "[local] Removing merged worktree: $($s.worktree)"
+      git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
+      $removed.Add("local:$($s.worktree)")
+    }
+  }
 
-  Get-WorkerStates | Where-Object { $_.status -in @("completed", "failed") -and $_.worktree -and (Test-Path $_.worktree) } |
-    ForEach-Object {
-      $s = $_
-      # If the branch has been merged or PR closed, remove the worktree
-      $isMerged = $false
-      if ($s.branch) {
-        $mergeCheck = git -C $repoRoot branch --merged main 2>$null | Out-String
-        if ($mergeCheck -match [regex]::Escape($s.branch)) { $isMerged = $true }
-      }
-      if ($isMerged) {
-        Write-Host "Removing merged worktree: $($s.worktree)"
-        git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
-        $removed += $s.worktree
+  # Remote cleanup via SSH
+  Get-EnabledMachines | Where-Object { $_.kind -eq "ssh" } | ForEach-Object {
+    $m = $_
+    $cmd = @"
+cd $($m.remoteRepoPath) && \
+git fetch origin && \
+for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | grep -v "$($m.remoteRepoPath)$"); do
+  br=`$(git -C "`$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; then
+    echo "removing: `$wt"
+    git worktree remove "`$wt" --force
+  fi
+done
+"@
+    $r = Invoke-SshCommand -Machine $m -Command $cmd -TimeoutSec 30
+    if ($r.Stdout) {
+      $r.Stdout -split "`n" | Where-Object { $_ -match "removing:" } | ForEach-Object {
+        $removed.Add("$($m.name):$_")
       }
     }
+  }
 
-  # Prune old state files
   Remove-StaleStates -OlderThanDays $Config.logRetentionDays
 
-  Format-Json @{ RemovedWorktrees = $removed }
+  [PSCustomObject]@{ Removed = $removed.ToArray() } | Write-JsonOut
 }
 
 function Cmd-Version {
   [PSCustomObject]@{
-    OrchestratorVersion = "0.1.0"
+    OrchestratorVersion = "0.2.0"
     ConfigPath          = $ConfigPath
     ClaudeBin           = $Config.claudeBin
-    ClaudeVersion       = (& claude --version 2>&1 | Out-String).Trim()
-  } | Format-Json
+    Machines            = (Get-EnabledMachines | ForEach-Object {
+      [PSCustomObject]@{ Name = $_.name; Kind = $_.kind; Host = $_.host }
+    })
+  } | Write-JsonOut
 }
 
-# Dispatch
 switch ($Command) {
   "probe"   { Cmd-Probe }
-  "plan"    { Cmd-Plan -IssueList $Issues -RoleArg $Role }
-  "spawn"   { Cmd-Spawn -IssueList $Issues -RoleArg $Role -DryRunFlag:$DryRun }
+  "plan"    { Cmd-Plan }
+  "spawn"   { Cmd-Spawn }
   "status"  { Cmd-Status }
   "sync"    { Cmd-Sync }
   "cleanup" { Cmd-Cleanup }

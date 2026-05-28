@@ -155,22 +155,138 @@ CLAUDE.md にも書きますが、Desktop 側の規律:
 
 Desktop の context を軽く保つことが**長期セッション維持の鍵**です。
 
+## Multi-Machine (リモート Worker)
+
+Worker を別マシン（Mac Mini / 余り PC / Cloud VM）に分散して、ローカル PC の RAM 圧迫を回避できます。
+
+### アーキテクチャ
+
+```
+Windows Desktop (Orchestrator)
+  └─ SSH ──→ Mac Mini (Worker 専用機)
+                ↓
+             claude -p < brief
+                ↓
+             git push → GitHub
+                ↑
+Orchestrator が gh pr で完了確認
+```
+
+通信は **SSH のみ**。共有ストレージや MQ 不要。
+
+### Mac Mini を Worker として追加する手順
+
+#### 1. Mac 側セットアップ
+
+Mac Mini のターミナルで：
+
+```bash
+# リポジトリを clone してセットアップスクリプトを実行
+git clone https://github.com/cometa-kaito/kimiterrace-v2.git ~/work/kimiterrace-v2
+bash ~/work/kimiterrace-v2/scripts/orchestrator/setup-mac-worker.sh
+```
+
+- Xcode CLI / Homebrew / Node 22 / pnpm / gh / claude / jq を idempotent にインストール
+- `~/work/kimiterrace-v2/` に repo を配置
+- `~/.kimiterrace-orchestrator/{workers,logs}/` を作成
+
+セットアップ後、**対話的に**:
+
+```bash
+gh auth login       # GitHub.com / HTTPS / login with browser
+claude auth login   # ブラウザで claude.ai サインイン
+```
+
+`claude auth login` は同じ claude.ai アカウントで OK（並列制限の懸念は config の `workerHardCap` でコントロール）。
+
+#### 2. SSH 設定（Windows 側）
+
+```powershell
+# 鍵生成
+ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\id_kimiterrace -C "kimiterrace"
+
+# 公開鍵を Mac に登録
+type $env:USERPROFILE\.ssh\id_kimiterrace.pub | ssh kaito@mac-mini.local "cat >> ~/.ssh/authorized_keys"
+
+# 動作確認
+ssh -i $env:USERPROFILE\.ssh\id_kimiterrace kaito@mac-mini.local "uname -a"
+```
+
+Mac 側でリモートログインを有効化:
+- System Settings → 一般 → 共有 → リモートログイン を ON
+- 許可するユーザー: 自分のアカウントのみ
+
+#### 3. config.json 更新
+
+```json
+{
+  "machines": {
+    "mac-mini": {
+      "enabled": true,                     ← false から true に
+      "host": "mac-mini.local",            ← 実際の hostname
+      "user": "kaito",                     ← Mac のユーザー名
+      "sshKey": "~/.ssh/id_kimiterrace"
+    }
+  }
+}
+```
+
+#### 4. 動作確認
+
+```powershell
+# 両マシンが見えるか
+powershell scripts/orchestrator/orchestrator.ps1 probe
+
+# 並列度合計
+powershell scripts/orchestrator/orchestrator.ps1 plan -Issues 11,14,18
+```
+
+### 期待される効果
+
+Apple Silicon Mac Mini (16GB RAM) を追加すると:
+
+| 構成 | local 並列 (Windows) | remote 並列 (Mac) | 合計 |
+|---|---|---|---|
+| Windows のみ（現在） | 2〜3 | — | 2〜3 |
+| **+ Mac 16GB** | 2 (RAM 圧迫解消) | **4〜5** | **6〜7** |
+
+Worker は Mac で動くので **Windows の RAM が圧迫されない**ことが大きい。
+
+### サブスク並列制限
+
+`claude.ai` サブスクは「同時 5 セッション程度」が経験則上の上限です。
+Windows + Mac で合計 5 並列を超えると rate limit に当たる可能性があります。
+
+回避策（必要時）：
+
+```bash
+# Mac の Worker だけ API key 課金にする
+echo 'export ANTHROPIC_API_KEY=sk-ant-...' >> ~/.zshrc
+```
+
+→ Windows はサブスク（Desktop interactive）、Mac は API key（Worker）の組み合わせが現実的。
+
+---
+
 ## 既知の制約
 
-1. **Windows + Git Bash 前提**
+1. **Windows + Git Bash 前提（Orchestrator 側）**
    - `bash`、`timeout` (coreutils)、`grep -oP` (PCRE) が必要
    - 通常 Git for Windows に含まれる
 2. **`claude.ai` サブスクの並列制限は未測定**
-   - 並列 3 以上で rate limit に当たる可能性
+   - 並列 5 以上で rate limit に当たる可能性
    - 必要時は API key 課金へ
 3. **`claude agents` サブコマンド（TUI）未対応**
    - Claude Code のネイティブ background agents は対話 TUI のため orchestrator から直接呼べない
    - 将来 SDK API が出たら統合検討
 4. **Worker 失敗時の retry なし**
    - Manual に再 spawn 必要
-   - 自動 retry は v0.2 で検討
+   - 自動 retry は v0.3 で検討
+5. **Remote Worker の state file は SSH で取得**
+   - 状態確認のたびに SSH 接続が走るので、ネットワーク遅延がそのまま反映される
+   - LAN 内なら問題なし、Internet 経由なら数秒の遅延
 
-## 次に追加したい機能 (v0.2+)
+## 次に追加したい機能 (v0.3+)
 
 - [ ] Worker 完了の自動検出（PR 作成イベントポーリング）
 - [ ] Reviewer 自動 spawn（Worker 完了 → Reviewer を即 spawn）
@@ -178,3 +294,4 @@ Desktop の context を軽く保つことが**長期セッション維持の鍵*
 - [ ] `claude agents` (TUI) との連携検討
 - [ ] Cron からの夜間無人実行（unsafeAutoApprove + 範囲限定）
 - [ ] Cloud Run / GitHub Codespaces で Worker を走らせる選択肢
+- [ ] 機械間ロードバランス（routing.preferRemote 以外の戦略：min-load 等）

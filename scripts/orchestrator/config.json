@@ -1,16 +1,47 @@
 {
   "$schema": "./config.schema.json",
-  "_comment": "Per-machine tunables for the orchestrator. Adjust based on actual resource consumption.",
+  "_comment": "Multi-machine orchestrator config. Add a machine entry under `machines` for each worker host. Set `enabled: false` to disable a machine without removing it.",
 
-  "ramPerWorkerMb": 1200,
-  "diskPerWorktreeMb": 2500,
-  "desktopReserveMb": 2500,
-  "minFreeDiskMb": 10000,
-  "safetyMargin": 1.2,
+  "machines": {
+    "local-windows": {
+      "kind": "local",
+      "enabled": true,
+      "ramPerWorkerMb": 1200,
+      "diskPerWorktreeMb": 2500,
+      "desktopReserveMb": 2500,
+      "minFreeDiskMb": 10000,
+      "safetyMargin": 1.2,
+      "workerHardCap": 3,
+      "reviewerHardCap": 2,
+      "cpuLoadMaxPct": 75,
+      "worktreeBaseDir": "../.kimiterrace-workers"
+    },
+    "mac-mini": {
+      "kind": "ssh",
+      "enabled": false,
+      "_enable_when": "SSH 接続が確立し setup-mac-worker.sh が成功してから true に",
+      "host": "mac-mini.local",
+      "user": "kaito",
+      "sshKey": "~/.ssh/id_kimiterrace",
+      "sshPort": 22,
+      "remoteRepoPath": "~/work/kimiterrace-v2",
+      "remoteStateDir": "~/.kimiterrace-orchestrator",
+      "ramPerWorkerMb": 1000,
+      "diskPerWorktreeMb": 2500,
+      "desktopReserveMb": 1500,
+      "minFreeDiskMb": 10000,
+      "safetyMargin": 1.2,
+      "workerHardCap": 5,
+      "reviewerHardCap": 3,
+      "cpuLoadMaxPct": 80,
+      "worktreeBaseDir": "~/work/.kimiterrace-workers"
+    }
+  },
 
-  "workerHardCap": 5,
-  "reviewerHardCap": 2,
-  "cpuLoadMaxPct": 75,
+  "routing": {
+    "preferRemote": true,
+    "_comment": "preferRemote=true: enabled な remote マシンを優先、空きがなければ local。false なら逆"
+  },
 
   "workerTimeoutSec": 1800,
   "reviewerTimeoutSec": 900,
@@ -18,7 +49,6 @@
   "reviewerMaxBudgetUsd": 2.0,
 
   "stateDir": "~/.kimiterrace-orchestrator",
-  "worktreeBaseDir": "../.kimiterrace-workers",
   "logRetentionDays": 7,
 
   "claudeBin": "claude",

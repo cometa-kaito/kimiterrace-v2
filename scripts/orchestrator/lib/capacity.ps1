@@ -1,30 +1,31 @@
 <#
 .SYNOPSIS
-  Calculate how many parallel Worker / Reviewer Claude processes can be
-  safely spawned given current machine resources and orchestrator config.
+  Calculate parallel worker capacity for a single machine.
 
 .DESCRIPTION
-  Decision rules (each is a hard ceiling):
-    1. RAM:    free RAM minus desktop reserve, divided by (ram_per_worker * safetyMargin)
-    2. Disk:   (free disk - min_free_disk_headroom) / disk_per_worktree
-    3. CPU:    if current load >= cpuLoadMaxPct, returns 0 (don't spawn now)
-    4. HardCap: workerHardCap from config (absolute upper bound)
-    5. ActiveWorkers: subtract currently running workers from State store
+  Per-machine capacity calculation. Caller (orchestrator.ps1) iterates over
+  config.machines and aggregates results.
 
-  The final answer is the floor of (1..4) minus (5).
+  Decision rules (each is a hard ceiling):
+    1. RAM:    free RAM minus reserve, divided by (ram_per_worker * safetyMargin)
+    2. Disk:   (free disk - min_free_disk) / disk_per_worktree
+    3. CPU:    if current load >= cpuLoadMaxPct, returns 0
+    4. HardCap: workerHardCap (or reviewerHardCap) from machine config
+    5. ActiveWorkers: subtract currently running workers on this machine
+
+  Final = floor(min(1..4)) - (5), clamped to 0+.
 
 .PARAMETER Probe
-  Output object from probe.ps1. If omitted, probe is called.
+  Output object from probe.ps1 (local) or Invoke-RemoteProbe (remote).
 
-.PARAMETER ConfigPath
-  Path to config.json. Defaults to ../config.json relative to this script.
+.PARAMETER Machine
+  Per-machine config object (one entry from config.machines.<name>).
 
 .PARAMETER ActiveWorkers
-  Count of currently running workers (from State). Default 0.
+  Count of currently running workers on this machine.
 
 .PARAMETER Role
-  "worker" or "reviewer". Selects the appropriate hard cap and per-process
-  resource estimate from config.
+  "worker" or "reviewer" — selects appropriate hard cap.
 
 .OUTPUTS
   PSCustomObject with: MaxConcurrent, RamLimited, DiskLimited, CpuBlocked,
@@ -33,62 +34,62 @@
 
 [CmdletBinding()]
 param(
-  [PSCustomObject]$Probe,
-  [string]$ConfigPath = "$PSScriptRoot/../config.json",
+  [Parameter(Mandatory)][PSCustomObject]$Probe,
+  [Parameter(Mandatory)][PSCustomObject]$Machine,
   [int]$ActiveWorkers = 0,
-  [ValidateSet("worker", "reviewer")]
-  [string]$Role = "worker"
+  [ValidateSet("worker", "reviewer")][string]$Role = "worker"
 )
 
 $ErrorActionPreference = "Stop"
 
-if (-not $Probe) {
-  $Probe = & "$PSScriptRoot/probe.ps1"
+# If probe failed (remote unreachable), return 0 capacity with reason
+if ($Probe.PSObject.Properties.Name -contains "Error") {
+  return [PSCustomObject]@{
+    MaxConcurrent = 0
+    RamLimited    = 0
+    DiskLimited   = 0
+    CpuBlocked    = $false
+    HardCapped    = 0
+    ActiveWorkers = $ActiveWorkers
+    Unreachable   = $true
+    Reasoning     = @("Machine unreachable: $($Probe.Error)")
+  }
 }
 
-$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-
-# Per-role per-process resource estimates
-$ramPerProc = $config.ramPerWorkerMb
-$diskPerProc = $config.diskPerWorktreeMb
-$hardCap = if ($Role -eq "reviewer") { $config.reviewerHardCap } else { $config.workerHardCap }
+$ramPerProc = $Machine.ramPerWorkerMb
+$diskPerProc = $Machine.diskPerWorktreeMb
+$reserve = $Machine.desktopReserveMb
+$minFreeDisk = $Machine.minFreeDiskMb
+$margin = $Machine.safetyMargin
+$cpuMax = $Machine.cpuLoadMaxPct
+$hardCap = if ($Role -eq "reviewer") { $Machine.reviewerHardCap } else { $Machine.workerHardCap }
 
 # 1. RAM ceiling
-$ramBudget = $Probe.FreeRamMb - $config.desktopReserveMb
-$ramSlots = if ($ramBudget -le 0) {
-  0
-} else {
-  [math]::Floor($ramBudget / ($ramPerProc * $config.safetyMargin))
-}
+$ramBudget = $Probe.FreeRamMb - $reserve
+$ramSlots = if ($ramBudget -le 0) { 0 } else { [math]::Floor($ramBudget / ($ramPerProc * $margin)) }
 
 # 2. Disk ceiling
-$diskBudget = $Probe.FreeDiskMb - $config.minFreeDiskMb
-$diskSlots = if ($diskBudget -le 0) {
-  0
-} else {
-  [math]::Floor($diskBudget / $diskPerProc)
-}
+$diskBudget = $Probe.FreeDiskMb - $minFreeDisk
+$diskSlots = if ($diskBudget -le 0) { 0 } else { [math]::Floor($diskBudget / $diskPerProc) }
 
 # 3. CPU blocker
-$cpuBlocked = $Probe.CpuLoadPct -ge $config.cpuLoadMaxPct
+$cpuBlocked = $Probe.CpuLoadPct -ge $cpuMax
 
-# 4. Hard cap
-
-# 5. Subtract active
+# 4 & 5
 $rawMax = [math]::Min([math]::Min($ramSlots, $diskSlots), $hardCap)
 $available = [math]::Max(0, $rawMax - $ActiveWorkers)
 if ($cpuBlocked) { $available = 0 }
 
-# Build human-readable reasoning
-$reasoning = New-Object System.Collections.Generic.List[string]
-$reasoning.Add("Role: $Role")
-$reasoning.Add("Free RAM: $($Probe.FreeRamMb) MB | reserved $($config.desktopReserveMb) MB -> budget $ramBudget MB | per-proc $ramPerProc * $($config.safetyMargin) = $($ramPerProc * $config.safetyMargin) MB -> ${ramSlots} slots")
-$reasoning.Add("Free disk: $($Probe.FreeDiskMb) MB | headroom $($config.minFreeDiskMb) MB -> budget $diskBudget MB | per-worktree $diskPerProc MB -> ${diskSlots} slots")
-$reasoning.Add("CPU load: $($Probe.CpuLoadPct)% (threshold $($config.cpuLoadMaxPct)%) -> blocked=$cpuBlocked")
-$reasoning.Add("Hard cap ($Role): $hardCap")
-$reasoning.Add("Active $($Role)s: $ActiveWorkers")
-$reasoning.Add("Raw max = min(ram=$ramSlots, disk=$diskSlots, cap=$hardCap) = $rawMax")
-$reasoning.Add("Available = max(0, $rawMax - $ActiveWorkers) = $available" + $(if ($cpuBlocked) { " -> 0 (CPU blocked)" } else { "" }))
+$reasoning = @(
+  "Role: $Role",
+  "Free RAM: $($Probe.FreeRamMb) MB | reserve $reserve MB -> budget $ramBudget MB | per-proc $ramPerProc * $margin = $($ramPerProc * $margin) MB -> $ramSlots slots",
+  "Free disk: $($Probe.FreeDiskMb) MB | headroom $minFreeDisk MB -> budget $diskBudget MB | per-worktree $diskPerProc MB -> $diskSlots slots",
+  "CPU load: $($Probe.CpuLoadPct)% (threshold $cpuMax%) -> blocked=$cpuBlocked",
+  "Hard cap ($Role): $hardCap",
+  "Active ${Role}s on this machine: $ActiveWorkers",
+  "Raw max = min(ram=$ramSlots, disk=$diskSlots, cap=$hardCap) = $rawMax",
+  "Available = max(0, $rawMax - $ActiveWorkers) = $available" + $(if ($cpuBlocked) { " -> 0 (CPU blocked)" } else { "" })
+)
 
 [PSCustomObject]@{
   MaxConcurrent = $available
@@ -97,5 +98,6 @@ $reasoning.Add("Available = max(0, $rawMax - $ActiveWorkers) = $available" + $(i
   CpuBlocked    = $cpuBlocked
   HardCapped    = $hardCap
   ActiveWorkers = $ActiveWorkers
-  Reasoning     = $reasoning.ToArray()
+  Unreachable   = $false
+  Reasoning     = $reasoning
 }
