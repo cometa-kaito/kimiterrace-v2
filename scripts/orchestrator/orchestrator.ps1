@@ -177,7 +177,10 @@ function Render-WorkerBrief {
   if (-not (Test-Path $template)) {
     return "Implement issue #$Issue. See CLAUDE.md for rules."
   }
-  $brief = Get-Content -LiteralPath $template -Raw
+  # -Encoding UTF8 is required on Windows PowerShell 5.1 — default is the
+  # system code page (CP932 on Japanese Windows), which mojibake-corrupts
+  # the UTF-8 template content.
+  $brief = Get-Content -LiteralPath $template -Raw -Encoding UTF8
   $brief = $brief -replace '\{\{ISSUE_NUMBER\}\}', $Issue
   $brief = $brief -replace '\{\{BRANCH_NAME\}\}', $Branch
   $brief = $brief -replace '\{\{WORKTREE_PATH\}\}', ($Worktree -replace '\\', '/')

@@ -142,6 +142,30 @@ function Get-RemoteWorkerStates {
 # in PATH by default.
 $Script:RemotePathPrefix = 'export PATH=/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$PATH; '
 
+function _Encode-Utf8Base64 {
+  # Base64-encode a string as UTF-8 bytes, normalizing CRLF → LF first.
+  # Used to safely round-trip payloads (JSON, multi-line briefs, shell scripts)
+  # through ssh.exe — Windows PowerShell 5.1 mangles embedded `"` and non-ASCII
+  # bytes in native-command args, but base64 [A-Za-z0-9+/=] survives untouched.
+  # CRLF normalization matters for shell scripts: bash treats `\r` as part of
+  # the surrounding token (so `cd /foo\r` looks like a path that doesn't exist).
+  param([Parameter(Mandatory)][string]$Text)
+  $normalized = $Text -replace "`r`n", "`n"
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+  return [Convert]::ToBase64String($bytes)
+}
+
+function _Wrap-AsBase64Bash {
+  # Wrap a shell script payload so it can survive ssh.exe arg handling intact.
+  # Returns a single-line command of the form:
+  #   <PATH-prefix>echo BASE64 | base64 -d | bash
+  # The wrapped payload may contain any chars (quotes, $vars, newlines, UTF-8);
+  # only the base64 ciphertext is in the ssh arg, which round-trips cleanly.
+  param([Parameter(Mandatory)][string]$Script)
+  $b64 = _Encode-Utf8Base64 -Text $Script
+  return "$Script:RemotePathPrefix" + "echo $b64 | base64 -d | bash"
+}
+
 function Test-RemoteTmuxSession {
   <#
     Returns $true if the named tmux session exists on the remote host.
@@ -190,9 +214,11 @@ function Sync-RemoteWorkerStatuses {
   foreach ($s in $running) {
     $winName = if ($s.tmuxWindow) { $s.tmuxWindow } else { $s.id }
     if ($aliveWindows -notcontains $winName) {
-      # Worker no longer in tmux; mark as failed (launcher's trap should have
-      # updated it; if we get here, it crashed without running the trap)
-      $patchCmd = "tmp=`$(mktemp) && jq '.status=`"failed`" | .exitCode=-1' '$($s.StatePath)' > `$tmp && mv `$tmp '$($s.StatePath)'"
+      # Worker no longer in tmux; mark as failed. jq filter base64-encoded
+      # because raw `"` and `|` get mangled through ssh.exe arg handling.
+      $jqFilter = '.status="failed" | .exitCode=-1'
+      $jqB64 = _Encode-Utf8Base64 -Text $jqFilter
+      $patchCmd = "tmp=`$(mktemp) && jq `"`$(echo $jqB64 | base64 -d)`" '$($s.StatePath)' > `$tmp && mv `$tmp '$($s.StatePath)'"
       Invoke-SshCommand -Machine $Machine -Command $patchCmd -TimeoutSec 5 | Out-Null
     }
   }
@@ -226,11 +252,12 @@ function Start-RemoteWorker {
   $statePath = "$stateDir/workers/$WorkerId.json"
   $briefPath = "$stateDir/logs/$WorkerId.brief.md"
 
-  # 1. Ensure state dir exists, write brief file
+  # 1. Ensure state dir exists. mkdir args are ASCII paths, safe inline.
   $setupCmd = "mkdir -p $stateDir/workers $stateDir/logs $worktreeBase"
   Invoke-SshCommand -Machine $Machine -Command $setupCmd -TimeoutSec 10 | Out-Null
 
-  # 2. Pre-create state JSON (status=running, pid=0 - will be set by launcher)
+  # 2. Pre-create state JSON. Payload contains `"`, which ssh.exe arg handling
+  # would strip — base64-wrap a full shell snippet so nothing leaks into args.
   $statePayload = @{
     id = $WorkerId
     role = $Role
@@ -245,12 +272,14 @@ function Start-RemoteWorker {
     exitCode = $null
     machine = $Machine.host
   } | ConvertTo-Json -Compress -Depth 5
-  $writeStateCmd = "cat > $statePath <<'STATE_EOF'`n$statePayload`nSTATE_EOF"
+  $stateB64 = _Encode-Utf8Base64 -Text $statePayload
+  $writeStateCmd = "echo $stateB64 | base64 -d > '$statePath'"
   Invoke-SshCommand -Machine $Machine -Command $writeStateCmd -TimeoutSec 10 | Out-Null
 
-  # 3. Write brief content via heredoc (escape single quotes carefully)
-  $briefEscaped = $BriefContent -replace "'", "'\''"
-  $writeBriefCmd = "cat > $briefPath <<'BRIEF_EOF'`n$BriefContent`nBRIEF_EOF"
+  # 3. Write brief content. Brief is UTF-8 Japanese; ssh.exe mojibake-corrupts
+  # native non-ASCII args. base64 round-trip keeps bytes intact.
+  $briefB64 = _Encode-Utf8Base64 -Text $BriefContent
+  $writeBriefCmd = "echo $briefB64 | base64 -d > '$briefPath'"
   Invoke-SshCommand -Machine $Machine -Command $writeBriefCmd -TimeoutSec 10 | Out-Null
 
   # 4. Run worker-launcher.sh inside a tmux window.
@@ -262,10 +291,25 @@ function Start-RemoteWorker {
   if (-not $tmuxSession) { $tmuxSession = "workers" }
 
   $launcher = "$repoPath/scripts/orchestrator/worker-launcher.sh"
-  # Build the inner shell command: load Node/PATH, run launcher
-  $innerCmd = "export PATH=/opt/homebrew/bin:\`$PATH; export NVM_DIR=\`$HOME/.nvm; [ -s \`$NVM_DIR/nvm.sh ] && . \`$NVM_DIR/nvm.sh; cd $repoPath && bash $launcher $Role $Issue $WorkerId $statePath $logPath $worktreePath $BranchName $briefPath"
+  # Build the launcher invocation. Write it as a small driver script on the
+  # remote side (base64 round-trip) and have tmux exec the script — avoids
+  # nested-quoting hazards across PowerShell → ssh.exe → zsh → tmux → sh.
+  $driverScript = @"
+#!/bin/bash
+export PATH=/opt/homebrew/bin:`$PATH
+export NVM_DIR=`$HOME/.nvm
+[ -s "`$NVM_DIR/nvm.sh" ] && . "`$NVM_DIR/nvm.sh"
+cd '$repoPath'
+exec bash '$launcher' '$Role' '$Issue' '$WorkerId' '$statePath' '$logPath' '$worktreePath' '$BranchName' '$briefPath'
+"@
+  $driverPath = "$stateDir/logs/$WorkerId.driver.sh"
+  $driverB64 = _Encode-Utf8Base64 -Text $driverScript
+  $writeDriverCmd = "echo $driverB64 | base64 -d > '$driverPath' && chmod +x '$driverPath'"
+  Invoke-SshCommand -Machine $Machine -Command $writeDriverCmd -TimeoutSec 10 | Out-Null
+
   # tmux new-window -d (detached) -n <name> -t <session>: <command>
-  $tmuxCmd = "$Script:RemotePathPrefix" + "tmux new-window -d -n '$WorkerId' -t '${tmuxSession}:' `"$innerCmd`""
+  # The shell-command arg is just `bash <driver-path>` — pure ASCII, safe.
+  $tmuxCmd = "$Script:RemotePathPrefix" + "tmux new-window -d -n '$WorkerId' -t '${tmuxSession}:' 'bash $driverPath'"
 
   $result = Invoke-SshCommand -Machine $Machine -Command $tmuxCmd -TimeoutSec 15
   if ($result.ExitCode -ne 0) {
@@ -274,8 +318,15 @@ function Start-RemoteWorker {
 
   # PID is not directly observable from tmux new-window; we track via tmux
   # window name (= WorkerId) and state JSON instead. Mark pid = -1 sentinel
-  # meaning "tracked via tmux window, not pid".
-  $patchCmd = "tmp=`$(mktemp) && jq '.pid=-1 | .tmuxWindow=`"$WorkerId`" | .tmuxSession=`"$tmuxSession`"' $statePath > `$tmp && mv `$tmp $statePath"
+  # meaning "tracked via tmux window, not pid". Base64-wrap the jq filter so
+  # the `"` chars survive ssh.exe.
+  $jqFilter = '.pid = -1 | .tmuxWindow = "' + $WorkerId + '" | .tmuxSession = "' + $tmuxSession + '"'
+  $patchScript = @"
+tmp=`$(mktemp)
+jq '$jqFilter' '$statePath' > "`$tmp" && mv "`$tmp" '$statePath'
+"@
+  $patchB64 = _Encode-Utf8Base64 -Text $patchScript
+  $patchCmd = "echo $patchB64 | base64 -d | bash"
   Invoke-SshCommand -Machine $Machine -Command $patchCmd -TimeoutSec 10 | Out-Null
 
   [PSCustomObject]@{
