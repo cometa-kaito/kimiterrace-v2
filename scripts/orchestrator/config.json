@@ -47,8 +47,9 @@
 
   "workerTimeoutSec": 1800,
   "reviewerTimeoutSec": 900,
-  "workerMaxBudgetUsd": 5.0,
+  "workerMaxBudgetUsd": 8.0,
   "reviewerMaxBudgetUsd": 2.0,
+  "_budget_note": "worker budget bumped 5→8 (2026-05-28) after Worker #15/#49 (DDL setup+pnpm-install heavy) hit $5 limit before commit/push. C4-style writeup tasks succeeded at $5 (see PR #52). Re-tighten if other heavy categories stabilize.",
 
   "stateDir": "~/.kimiterrace-orchestrator",
   "logRetentionDays": 7,

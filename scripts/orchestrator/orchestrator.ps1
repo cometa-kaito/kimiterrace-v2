@@ -172,8 +172,11 @@ function Cmd-Plan {
 }
 
 function Render-WorkerBrief {
-  param([int]$Issue, [string]$Branch, [string]$Worktree)
-  $template = "$ScriptRoot/templates/worker-brief.md.template"
+  param([int]$Issue, [string]$Branch, [string]$Worktree, [string]$RoleArg = "worker")
+  # Reviewer uses a different brief template (PR review instructions, not implementation).
+  # The Issue parameter is interpreted as PR number for reviewer.
+  $templateName = if ($RoleArg -eq "reviewer") { "reviewer-brief.md.template" } else { "worker-brief.md.template" }
+  $template = "$ScriptRoot/templates/$templateName"
   if (-not (Test-Path $template)) {
     return "Implement issue #$Issue. See CLAUDE.md for rules."
   }
@@ -206,7 +209,7 @@ function Spawn-LocalWorker {
   $logPath = Join-Path $dirs.Logs "worker-issue-$Issue-$(Get-Date -Format 'yyyyMMddTHHmmss').log"
   $briefPath = Join-Path $dirs.Logs "worker-issue-$Issue-brief.md"
 
-  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath -RoleArg $RoleArg
   if (-not $DryRunFlag) {
     $briefContent | Out-File -LiteralPath $briefPath -Encoding utf8
   }
@@ -258,7 +261,7 @@ function Spawn-RemoteWorker {
   $branchName = "feat/$Issue-orchestrated"
   $worktreePath = "$($M.worktreeBaseDir)/worker-issue-$Issue"
 
-  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath -RoleArg $RoleArg
 
   if ($DryRunFlag) {
     return [PSCustomObject]@{
