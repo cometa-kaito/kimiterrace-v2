@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (F0 着手前の security + cleanup サイクル: PR #103 schools tenant_isolation FOR ALL + audit_log actor 詐称防止 / PR #104 drizzle meta enums merged。Issue #100 / #101 / #16 close、Issue #105 起票)
+最終更新: 2026-05-30 (PR #102 F13 SwitchBot Webhook + ADR-020 自律 merge、Issue #106 起票。Reviewer Agent stdin 投稿パターン成功)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **PR #102 (F13 SwitchBot Webhook + ADR-020) 自律 merge サイクル (Issue #106 起票)**:
+  - **PR #102 (ユーザー並行作成 docs PR、+276 / -6、CI 12/12 green、commit `08c59e2`)**: cometa-kaito 本人が前セッション末に作成済の docs PR。来場検知センサーを **自作 LiDAR (VL53L8CX + ESP32) → 市販 SwitchBot 人感センサ (PIR) + Hub 2 + Webhook 方式** に切替。新規 **F13** (来場検知 Webhook 受信＋集計＋管理UI、128 行) + **ADR-020** (HW/受信方式/所在/DB/認可/透明性の 6 決定 + 代替案 A-F 却下理由、135 行) + 既存 F07 (presence vs dwell 区別) / F08 (旧 LiDAR 滞留ヒートマップ採用しない) / F12 (LiDAR Deprecated 打消線) / v2-mvp §1.2 更新
+  - **Reviewer Agent (Agent + worktree isolation) APPROVE 相当 (Critical 0 / High 0 / Medium 2 / Low 4)**: CLAUDE.md 8 ルール全準拠、ADR-020 フォーマット全項目あり、[[closed-system-security]] memory との緊張関係は ADR-020 §文脈 + §代替案 A で「PoC リードタイム 3 日 + 自作筐体保守リスク + Phase 2 で LiDAR 再導入余地」として体系的に妥当化済。Reviewer は `gh pr review 102 --comment --body-file -` で **stdin 投稿成功** ([review URL](https://github.com/cometa-kaito/kimiterrace-v2/pull/102#pullrequestreview-4390680524))、過去 2 PR (#71 / #93) の投稿スキップ問題が今回は再発せず (`@-` 経路の安定化が効いた)
+  - **Busy CEO 自律 squash merge** (`gh pr merge 102 --squash --delete-branch --admin`、commit `08c59e2`)
+  - **Issue #106 起票** (Reviewer Low 2 + Low 4 統合 follow-up): F13 Windows 絶対パス相対化 + ADR-019 policy 名規約追記 (`tenant_isolation` / `_modify` / `_delete` / `system_admin_only` / `audit_log_insert` を PR #103 パターンから ADR レベルで規約化)。Reviewer Medium 1 (ADR-012 ファイル不在) は既存 [Issue #94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94) でカバー済のため重複起票せず
+  - **本サイクル成果**: 1 PR (#102) merged、Issue #106 起票、Busy CEO 自律 merge 連続 3 回目成功 (PR #103 / #104 / #102)、Desktop context 消費 軽量 (~15k tokens、docs only PR + Reviewer 1 巡で完結)
+  - **学び**: ユーザーが並行で作る docs PR は busy CEO mode で「Desktop は新規タスクに飛びつかず、まず open PR を Reviewer Agent + 自律 merge で片付ける」のが正しい順序。前セッション末の重複 spawn 事故 ([[orchestrator-pr-dedup-check]]) と同じ教訓
 - 2026-05-29: **F0 (V1 移植) 着手前の security + cleanup サイクル (Issue #100 / #101 / #16 close、Issue #105 起票)**:
   - **PR #103 (schools FOR UPDATE/DELETE + audit_log actor 詐称防止、+184 / -8、CI 12/12 green、Reviewer APPROVE 相当、commit `da0605a`)**: PR #93 Reviewer 一巡目 High 4 + High 5 の解消。schools に `tenant_isolation_modify` (FOR UPDATE) と `tenant_isolation_delete` (FOR DELETE) policy 追加で silent 0-row UPDATE を防止 (NFR04 Information Disclosure)。`audit_log_insert` WITH CHECK に `actor_user_id` 詐称防止条件を追加 (NFR04 Repudiation)。`app.current_user_id` SET LOCAL helper は F0 (認証実装) で追加予定、本 PR は DB policy のみで強制。テスト 8 件追加 (tenant-isolation に schools UPDATE/DELETE 4 件 + 新規 `audit-log-actor-spoofing.test.ts` に 4 件)。**Issue #100 close**
   - **PR #104 (drizzle meta snapshot enums 補完、+42 / -1、CI 12/12 green、Reviewer APPROVE 相当、commit `f9b721b`)**: PR #93 で baseline SQL に手動追加した 8 enum (`user_role` / `publish_scope` / `content_status` / `event_type` / `ai_extraction_kind` / `audit_op` / `contract_status` / `communication_channel`) が drizzle meta snapshot 側に未反映だった (PR #99 Reviewer 二巡目 nit) → drizzle-kit format (短配列 inline) を保持しつつ最小 diff で挿入。これで `drizzle-kit generate` 実行が no-op になり、F0 着手後のスキーマ変更時に正しい差分のみが migration 化される。**Issue #101 close**
@@ -143,7 +150,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #53)、Part B 完走 (PR #71)、Part C1 完走 (PR #77)、Part C2 (#59) 未着手 |
+| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | ✅ **全完結**。Part A (PR #53) + Part B (PR #71) + Part C1 (PR #77) + Part C2 (PR #93, Desktop Worker mode) merged。後続 PR #97 (dormant bug fix) / PR #99 (CI RLS 実走化) / PR #103 (schools FOR UPDATE/DELETE + audit_log 詐称防止) / PR #104 (drizzle meta enums) で hardening 完了 |
 | Worker(Mac) | #16 | C4 図 + シーケンス図 | ✅ **完結**。Part A (PR #52 merged) + Part B (PR #63 merged) + Part C (PR #68 merged, Desktop Worker mode) |
 | Worker(Mac) | #17 | 脅威モデル STRIDE | ✅ **完結**。Part A (PR #54 merged) + Part B (PR #64 merged) + Part C (PR #72 merged, Desktop Worker mode) — STRIDE 6 カテゴリ全件 3 件以上 + 即公開特有 2 件 = 29 件 |
 | Worker(Mac) | #49 | DDL Part A (9 テナント表 + 共通基盤) | ✅ **PR #53** merged |
@@ -158,6 +165,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Worker(Desktop) | #58 | DDL Part C1 (CRM + 横断系 6 テーブル) | ✅ **PR #77** merged (squash, commit 223736a)。Desktop Worker mode 並列実装、Reviewer 実質 APPROVE。Medium 3 / Low 4 は #59 Part C2 で吸収予定 |
 | Worker(Desktop) | #74 | pgvector customType hoist | ✅ **PR #76** merged (squash, commit 42b54f6)。軽量 refactor、Reviewer APPROVE。Issue #74 自動 close |
 | 人間 | #70 | cloud_sql deletion_protection 変数化 | ✅ **PR #80** merged (ユーザー直接実装、commit 1adfd1b)。Issue #70 close |
+| 人間 | (PR #102) | F13 SwitchBot Webhook + ADR-020 docs | ✅ **PR #102** merged (Reviewer Agent APPROVE 相当 → 自律 squash merge、commit 08c59e2)。Issue #106 起票 (Low follow-up) |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -168,33 +176,48 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-29 サイクル末状態 (更新)**: **#59 DDL Part C2 完走 → F01-F12 解禁**。ただし RLS テストは CI 上 DATABASE_URL 未設定で全 skip 状態のため、実 DB 検証は CI に postgres service container 追加後に初めて意味を持つ。並行ユーザーが PR #90 (WIF) / #91 (observability) / #92 (apps/web Next.js scaffold) を着地済、F01-F12 着手の環境はおおむね整った。
+> **2026-05-30 サイクル末状態 (更新)**: **PR #102 (F13 + ADR-020) merged → F0 着手の準備完了**。CI 上 RLS テスト 24 件は PR #99 / #103 で実走化済 (postgres service container + DATABASE_URL + NULLIF ラップ + schools FOR UPDATE/DELETE + audit_log actor 詐称防止)。**STATUS.md 旧記述の「CI postgres 未追加」「High 4/5/7 残」は誤り、全て解消済**。F0 (V1 移植) / F01-F12 着手の環境完備。
 
-1. **CI に postgres service container 追加 (新規 Issue 起票推奨、最優先)**:
-   - `.github/workflows/ci.yml` の test job に `postgres:16` service 追加 + `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/kimiterrace_test` 設定
-   - **重要**: `turbo.json` の `passThroughEnv` に `DATABASE_URL` + `KIMITERRACE_TEST_DB_OK` を追加しないと turbo がフィルタして vitest に渡らない (PR #93 Reviewer 指摘 High 7)
-   - 初回適用で RLS テスト 24 件が実走し、本サイクルで #96 fix 済の Critical 1-3 + High 1-2 が緑になることを確認
-2. **PR #93 Reviewer の残指摘を別 Issue 起票 (#96 で扱わなかった分)**:
-   - **High 4**: schools に `tenant_isolation` FOR ALL policy 追加 (silent 0-row UPDATE 回避)
-   - **High 5**: `audit_log_insert` WITH CHECK に `actor_user_id` 詐称防止 (NFR04 Repudiation)
-   - Medium 8-12 / Low 13-15: 順次 (advisory lock hash 衝突、jsonb canonical 化、credential ログ漏出など)
-3. **F01-F12 着手** (gate 解禁、CI 化 + High 4-5 修正と並行可):
-   - 優先順は F01 (教員ファイル抽出) / F03 (Gemini 構造化) / F04 (即公開 + 安全網) あたりから
-4. **#73 (composite FK で cross-tenant 整合 DB 強制)**: 本 PR で RLS 完備したので着手可能
-5. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
-6. **Reviewer worktree バグ (#67)**: 解決方針 C (テンプレ禁止 + worktree 化) を実装
-7. **memory 候補 (本サイクル学び)**:
-   - 並行ユーザーセッション前提では Desktop の `git checkout` 頻度を最小化、untracked file 中心の操作にする
-   - Worker hang 時の Desktop Worker mode 引継ルート (SendMessage tool 不在前提)
-   - Reviewer Agent の `gh pr review` 投稿スキップ問題 (PR #71 / #93 で再発、Reviewer brief Step 4-A を最重要マイルストーンとして再強調しても 1/3 失敗率)
-6. **Mac mini 復活**:
-   - ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
-   - SSH 解決 fallback 試行: `Kaitos-Mac-mini.local` (LAN) or Tailscale IP
-7. **Reviewer brief template の改善** (本サイクルで発覚):
-   - Reviewer Agent #71 が `gh pr review` 投稿スキップして分析返却のみで完了。Desktop が代理投稿で迂回。template の Step 4/5/6 (`gh pr review` 実行 + 標準フォーマット出力) を **失敗時警告付きで強調**する改稿候補
-8. **解決すべき orchestrator バグ**:
-   - 2 連続 spawn の 2 番目が hang（SSH 多重化由来の疑い）→ `Start-RemoteWorker` 内で SSH 接続を独立化する PR を別途
-   - ✅ **修正済 (2026-05-29)**: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable `$PID` と衝突して spawn 起動不可 → `$ProcessId` にリネーム
+### 最優先 (F0 着手の準備)
+
+1. **#48 F12 V1 機能移植 (F0 サブタスク分割)**:
+   - V1 (`management/src/`) の管理 UI + サイネージ表示エンジン (`management/src/components/signage/`) を `apps/web` 配下の Next.js Server Component に移植
+   - 着手前に **画面マッピング表** (`docs/architecture/v1-v2-mapping.md`) を Desktop 起草、各画面を Issue 分割
+   - 1 Issue ≤500 行に収まる粒度で分割 (sub-Issue として #48-A / #48-B... 命名規約)
+2. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
+   - **F01** 教員ファイル抽出 (PDF/Word/Excel/画像 → Gemini 構造化)
+   - **F03** AI 構造化 (Gemini Pro + confidence_score、ADR-017 準拠)
+   - **F04** 即公開 + 安全網 4 種 (audit_log・1-click rollback・AI 確信度フラグ・公開先明示、ADR-015 準拠)
+   - F02 (音声/チャット) は F01 完了後に依存実装
+
+### 次優先 (security / tech-debt cleanup)
+
+3. **#73 composite FK で cross-tenant 整合を DB 強制**: PR #103 で RLS 完備したので着手可能
+4. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
+5. **#105 audit_log_insert で school_admin context の actor_user_id=NULL 拒否** (PR #103 Reviewer Medium 1 follow-up)
+6. **#106 F13/ADR-020 follow-up** (Windows 絶対パス相対化 + ADR-019 policy 名規約追記、docs only ~50 行)
+7. **#94 ADR-001〜014 ファイル不在** (CLAUDE.md スタック表のリンク死、Tech-debt) — F0 着手と独立に並行可、ADR-012 起草 (Reviewer M-1) もここに集約
+8. **#95 observability follow-up** (tracer.test.ts + README PII 警告補完 + LogLevel 型)
+9. **#67 Reviewer worktree バグ** (解決方針 C: テンプレ禁止 + worktree 化)
+
+### memory 候補 (本サイクル学び)
+
+- **Reviewer Agent stdin 投稿パターン**: `gh pr review N --comment --body-file -` (`@-` で stdin) + ファイル一時保存パターンが成功率高い。過去 2 PR (#71 / #93) で発生した「Reviewer 返却だけで GitHub 投稿 skip」問題が PR #84 / #102 では再発せず。Reviewer brief で `--body-file -` パターンを明示すれば 1/3 失敗率を改善可能 (memory 化候補)
+- **ユーザー並行 docs PR の処理順**: ユーザーが並行で作る docs PR は busy CEO mode で「Desktop は新規タスクに飛びつかず、まず open PR を Reviewer Agent → 自律 merge で片付ける」が正しい。前セッション末の重複 spawn 事故 ([[orchestrator-pr-dedup-check]]) と同じ教訓を再確認
+
+### Mac mini 復活 (任意、Phase 設計までは local 単独で十分)
+
+- ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
+- SSH 解決 fallback 試行: `Kaitos-Mac-mini.local` (LAN) or Tailscale IP
+- busy CEO mode で Agent + worktree isolation 並列に切替済なので Mac Worker は **当面不要** (F0 着手で大量並列が必要になったら検討)
+
+### Reviewer brief template の改善候補 (本セッション学び)
+
+- Reviewer Agent の `gh pr review` 投稿成功率改善: `gh pr review N --comment --body-file -` (stdin から body 流し込み) + 一時ファイル経由パターンが PR #84 / #102 で連続成功。Reviewer brief template (`scripts/orchestrator/templates/reviewer-brief.md.template`) に明示すれば 1/3 失敗率の改善見込み
+
+### 解決すべき orchestrator バグ (低優先、busy CEO mode で迂回中)
+
+- 2 連続 spawn の 2 番目が hang（SSH 多重化由来の疑い）→ `Start-RemoteWorker` 内で SSH 接続を独立化する PR を別途。**Agent + worktree isolation 並列に移行済なのでこのバグは現在ブロックしていない**
 
 ## 詰まり / 確認待ち
 
