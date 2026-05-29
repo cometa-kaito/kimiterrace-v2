@@ -49,74 +49,74 @@ $$;
 -- users
 DROP POLICY IF EXISTS tenant_isolation ON users;
 CREATE POLICY tenant_isolation ON users FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- classes
 DROP POLICY IF EXISTS tenant_isolation ON classes;
 CREATE POLICY tenant_isolation ON classes FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- memberships
 DROP POLICY IF EXISTS tenant_isolation ON memberships;
 CREATE POLICY tenant_isolation ON memberships FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- magic_links
 DROP POLICY IF EXISTS tenant_isolation ON magic_links;
 CREATE POLICY tenant_isolation ON magic_links FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- contents
 DROP POLICY IF EXISTS tenant_isolation ON contents;
 CREATE POLICY tenant_isolation ON contents FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- content_versions
 DROP POLICY IF EXISTS tenant_isolation ON content_versions;
 CREATE POLICY tenant_isolation ON content_versions FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- publishes
 DROP POLICY IF EXISTS tenant_isolation ON publishes;
 CREATE POLICY tenant_isolation ON publishes FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- events
 DROP POLICY IF EXISTS tenant_isolation ON events;
 CREATE POLICY tenant_isolation ON events FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ai_extractions
 DROP POLICY IF EXISTS tenant_isolation ON ai_extractions;
 CREATE POLICY tenant_isolation ON ai_extractions FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ai_chat_sessions
 DROP POLICY IF EXISTS tenant_isolation ON ai_chat_sessions;
 CREATE POLICY tenant_isolation ON ai_chat_sessions FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ai_chat_messages
 DROP POLICY IF EXISTS tenant_isolation ON ai_chat_messages;
 CREATE POLICY tenant_isolation ON ai_chat_messages FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- monthly_reports
 DROP POLICY IF EXISTS tenant_isolation ON monthly_reports;
 CREATE POLICY tenant_isolation ON monthly_reports FOR ALL
-  USING (school_id = current_setting('app.current_school_id', true)::uuid)
-  WITH CHECK (school_id = current_setting('app.current_school_id', true)::uuid);
+  USING (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ---------------------------------------------------------------------
 -- system_admin_full_access policy (全 RLS テーブルに付与)
@@ -217,7 +217,7 @@ CREATE POLICY system_admin_full_access ON system_admins FOR ALL
 -- ---------------------------------------------------------------------
 DROP POLICY IF EXISTS tenant_self_read ON schools;
 CREATE POLICY tenant_self_read ON schools FOR SELECT
-  USING (id = current_setting('app.current_school_id', true)::uuid);
+  USING (id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ---------------------------------------------------------------------
 -- audit_log: 読み取りは自テナント or system_admin、書き込みは INSERT のみ
@@ -226,7 +226,7 @@ CREATE POLICY tenant_self_read ON schools FOR SELECT
 DROP POLICY IF EXISTS audit_log_tenant_read ON audit_log;
 CREATE POLICY audit_log_tenant_read ON audit_log FOR SELECT
   USING (
-    school_id = current_setting('app.current_school_id', true)::uuid
+    school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid
     OR current_setting('app.current_user_role', true) = 'system_admin'
   );
 
@@ -236,7 +236,7 @@ CREATE POLICY audit_log_insert ON audit_log FOR INSERT
     -- 任意のセッションが INSERT 可能 (誰がやったかは actor_user_id / actor_identity_uid に記録)
     -- school_id は null (cross-tenant 操作) または現在の school_id に一致のみ許可
     school_id IS NULL
-    OR school_id = current_setting('app.current_school_id', true)::uuid
+    OR school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid
     OR current_setting('app.current_user_role', true) = 'system_admin'
   );
 
