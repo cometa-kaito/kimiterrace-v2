@@ -11,3 +11,11 @@ allowBuilds:
   ssh2: false
   # protobufjs は型生成のみで動作には必須でない。
   protobufjs: false
+
+# transitive 依存の脆弱性対策。
+# testcontainers (@testcontainers/postgresql) → undici@5.29.0 が High severity 2 件:
+#   - GHSA-v9p9-hfj2-hcw8 (DoS via leaking credentials)
+#   - GHSA-vrm6-8vpv-qv8q (use of insufficiently random values)
+# 5.30.0 以降で fix 済 → minor 互換範囲で強制 bump。
+overrides:
+  undici: ">=5.30.0"

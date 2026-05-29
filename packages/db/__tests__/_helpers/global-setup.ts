@@ -12,6 +12,7 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import postgres from "postgres";
 import { runMigrations } from "../../src/migrate.js";
+import { closeConnections } from "./postgres.js";
 
 let container: StartedPostgreSqlContainer | null = null;
 
@@ -42,6 +43,9 @@ export async function setup(): Promise<void> {
 }
 
 export async function teardown(): Promise<void> {
+  // テスト用 lazy 接続を明示的に閉じないと postgres-js が Node の
+  // イベントループを keep-alive させ、vitest プロセスが exit せず hang する。
+  await closeConnections();
   if (container) {
     await container.stop();
     container = null;

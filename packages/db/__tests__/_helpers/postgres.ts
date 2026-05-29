@@ -39,6 +39,26 @@ export function getApp(): postgres.Sql {
   return app;
 }
 
+/**
+ * テスト終了時に lazy 接続をすべてクローズする。
+ *
+ * `getAdmin()` / `getApp()` が module scope に持つ `postgres-js` クライアントは
+ * 明示的に `end()` しない限り Node のイベントループを keep-alive させ、
+ * vitest が exit せず hang する。globalSetup の `teardown()` から呼び出すこと。
+ */
+export async function closeConnections(): Promise<void> {
+  const tasks: Promise<unknown>[] = [];
+  if (admin) {
+    tasks.push(admin.end({ timeout: 5 }));
+    admin = null;
+  }
+  if (app) {
+    tasks.push(app.end({ timeout: 5 }));
+    app = null;
+  }
+  await Promise.all(tasks);
+}
+
 export interface TestPg {
   admin: postgres.Sql;
   app: postgres.Sql;
