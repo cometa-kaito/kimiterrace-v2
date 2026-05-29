@@ -103,3 +103,38 @@ jobs:
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  # ---------------------------------------------------------------------------
+  # GCP auth smoke test via Workload Identity Federation.
+  #
+  # Verifies the WIF path provisioned by
+  # infrastructure/terraform/modules/workload_identity_federation/ is reachable
+  # from this workflow without a service account JSON key (CLAUDE.md rule 5).
+  #
+  # The job is skipped on forks and until the repo vars `WIF_PROVIDER` and
+  # `WIF_SA_PLAN` are configured (see docs/runbooks/github-actions-auth.md).
+  # Once configured it MUST stay green.
+  # ---------------------------------------------------------------------------
+  gcp-auth:
+    name: GCP Auth (WIF)
+    runs-on: ubuntu-latest
+    if: ${{ vars.WIF_PROVIDER != '' && vars.WIF_SA_PLAN != '' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SA_PLAN }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Verify identity
+        run: |
+          gcloud auth list
+          gcloud config list
