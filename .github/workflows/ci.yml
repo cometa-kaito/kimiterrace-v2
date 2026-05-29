@@ -89,6 +89,8 @@ jobs:
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
+          # packages/db の RLS テストはこの env を見て CI services postgres を再利用する
+          TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
 
   build:
     name: Build

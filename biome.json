@@ -16,7 +16,8 @@
       "**/coverage",
       "**/.terraform",
       "**/*.tfstate*",
-      "pnpm-lock.yaml"
+      "pnpm-lock.yaml",
+      "packages/db/drizzle/**"
     ]
   },
   "formatter": {

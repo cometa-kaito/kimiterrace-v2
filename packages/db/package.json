@@ -11,9 +11,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src",
+    "lint": "biome check src __tests__",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
@@ -24,8 +26,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@testcontainers/postgresql": "^10.16.0",
     "@types/node": "^22.10.1",
     "drizzle-kit": "^0.31.10",
-    "typescript": "^5.7.2"
+    "testcontainers": "^10.16.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
   }
 }

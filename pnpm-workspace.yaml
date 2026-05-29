@@ -5,3 +5,9 @@ packages:
 allowBuilds:
   "@biomejs/biome": true
   esbuild: true
+  # testcontainers (@testcontainers/postgresql) が依存。
+  # cpu-features / ssh2 は SSH 経由 Docker socket を使うとき以外不要なので native build を skip。
+  cpu-features: false
+  ssh2: false
+  # protobufjs は型生成のみで動作には必須でない。
+  protobufjs: false
