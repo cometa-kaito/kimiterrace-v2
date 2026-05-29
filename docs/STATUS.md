@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #85 Terraform root cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル merged。Issue #59 / #69 / #96 close。**Operating Mode を Busy CEO に切替** — orchestrator + Worker 兼任、Reviewer/CI 経由の意思決定は自律実行 OK、詳細は [CLAUDE.md](../CLAUDE.md) Operating Mode セクション + [[busy-ceo-mode]] memory)
+最終更新: 2026-05-29 (Operating Mode → **Busy CEO** 切替 + PR #99 CI RLS テスト実走化 merged。Issue #98 close、Issue #100 / #101 起票)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,20 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **Operating Mode → Busy CEO 切替 + PR #99 CI RLS テスト実走化サイクル (Issue #98 close、Issue #100 / #101 起票)**:
+  - **方針変更**: CLAUDE.md の「Orchestrator Mode」セクションを「**Operating Mode (Busy CEO)**」に置換 (commit `9b0512f`)。Desktop が orchestrator と Worker を兼任、客観検証 (Reviewer + CI) 経由の意思決定は自律実行 OK (破壊的変更含めて)。memory `feedback_busy_ceo_mode.md` 新規作成、`desktop_as_worker_authorized` / `orchestrator_commit_authority` / `pr_merge_authority` を統合・範囲拡張。MEMORY.md インデックス + STATUS.md 反映。**判断マトリクス** 確立: 軽量 fix / 緊急 / 設計と実装が一体 → Desktop 直接、並列度 N → spawn、客観レビュー → Reviewer Agent spawn 必須 (self-review 制約 + 客観性、本サイクル先例で証明)
+  - **PR #99 (CI RLS テスト実走化、+42 / -32、commit `3c747af`、CI 12/12 green、Reviewer 二巡目 APPROVE 相当)**: Desktop Worker mode で完走。
+    - 初期 scope: `turbo.json` に `passThroughEnv` 追加で `DATABASE_URL` を vitest に届ける (PR #93 Reviewer High 7)
+    - Reviewer 一巡目 (`a6631dedb3a5309f5`) で **Critical 1** (baseline SQL に 8 enum CREATE TYPE 不在) + **High 1** (`KIMITERRACE_TEST_DB_OK=1` で H1 ガード bypass) + **Medium 1** (turbo env hash key) を指摘 → 同梱 fix (commit `2d64312`)
+    - CI 実走で **dormant bug 2 件** 発覚 — `tenant-isolation.test.ts` の `publish_scope='school_wide'` が schema 不整合、`audit-log-hash-chain.test.ts` の `ANY($1)` で uuid[] キャスト漏れ → 同梱 fix (commit `6cff4e5`)
+    - 二度目の CI 実走で **RLS policy 自体の dormant bug** 発覚 — `current_setting(..., true)` の missing_ok モードが NULL ではなく空文字列を返し `''::uuid` でキャストエラー (fail-closed が fail-loud に化けていた) → 全 27 箇所に `NULLIF(..., '')` ラップ追加 (commit `56a4dd2`)
+    - 三度目の CI で **12/12 green**、RLS テスト 24 件すべて pass
+    - Reviewer 二巡目 (`a281061a7d046c30c`) APPROVE 相当 (self-review 制約で `--comment` フォールバック) → Busy CEO 自律 merge (commit `3c747af`)
+    - **学び**: 1 個の小さな PR (passThroughEnv 追加だけ) のつもりが、CI 実走で連鎖的に 6 件の dormant bug が顕在化。「テストを走らせて初めて分かる」性質のバグは PR スコープに同梱して green まで持っていくのが最も筋良い (+42/-32 で 500 行制限内に収まる範囲)
+  - **Issue #100 起票** (PR #93 Reviewer High 4-5 follow-up): schools に tenant_isolation FOR ALL policy 追加 + audit_log_insert WITH CHECK で actor_user_id 詐称防止。NFR04 (Repudiation) 強化、PR #99 で導入した `NULLIF` パターン適用前提
+  - **Issue #101 起票** (PR #99 Reviewer 二巡目 nit): `0000_snapshot.json` の `enums` が空のまま (drizzle-kit 再生成で重複 migration が出る可能性)
+  - **branch 整理**: `feat/59-ddl-part-c2-v3` ローカル削除完了。`feat/59-ddl-part-c2` / `v2` は worktree 使用中で削除不可 (`.claude/worktrees/agent-*` 配下、無害な残骸、後で `git worktree prune` で整理可)。remote 残骸は merge 時に自動削除済 (chore/98-ci-rls-passthrough / feat/59-ddl-part-c2-v4 / feat/11-orchestrated / feat/49-orchestrated / feat/65-orchestrated / feat/87-orchestrated / feat/88-orchestrated / feat/89-orchestrated / fix/96-rls-test-dormant-bugs)
+  - **本サイクル成果**: 1 PR (#99) merged、Issue #98 close、Issue #100 / #101 新規起票、Operating Mode を Busy CEO に切替、Desktop context 消費 中 (~50k tokens、Reviewer 2 巡目 + 4 commit + Issue 起票 + メタ規律改訂)
 - 2026-05-29: **PR #85 Terraform cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル (Worker → Reviewer → Worker mode 引継 → 修正 PR の 3 段リレー)**:
   - **PR #85 (Worker #69 Terraform root cleanup、+5 / -105、CI 11/11 green)**: Agent + worktree isolation で spawn した Worker が方針 A (root .tf 群 5 ファイル削除 + envs/*/main.tf 一本化) を ~4 分で完走。Reviewer Agent APPROVE / Critical 0 / High 0 → admin squash merge (commit `9357b5d`)。**Issue #69 close**
   - **PR #93 (Desktop Worker mode #59 DDL Part C2、+4156 / -2、CI 12/12 green、ただし RLS テスト全 skip)**: 並列で spawn した Worker (Agent + worktree isolation) が **ローカル Docker 不在で Testcontainers 起動できず ~23 分停滞** → ユーザー判断で「Desktop が Worker mode で引き継ぎ」。Worker 成果物 (migration 3 + テスト 2 + setup 3) を流用、残り 3 テスト (audit-columns / audit-log-append-only / audit-log-hash-chain) を Desktop が実装。設計は **Testcontainers 採用せず DATABASE_URL 環境変数で実 PG に接続、未設定なら skip** に切替 (CI で実 PG 起動は別 Issue で対応推奨)。`feat/59-ddl-part-c2` / `v2` は過去 spawn 残骸の branch、`v3` は並行ユーザーの branch hijack 経路、最終的に **`v4` で完走 + 並行ユーザー停止依頼後に commit**。Reviewer Agent が Critical 2 (test の schema 不整合) + High 2 (RLS policy 不足) を指摘 → ユーザーが Issue #96 として別 PR スコープに切り出し、**PR #93 は merge** (commit `e3d5791`)。**Issue #59 close**
