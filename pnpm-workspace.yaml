@@ -6,3 +6,4 @@ allowBuilds:
   "@biomejs/biome": true
   esbuild: true
   protobufjs: true
+  sharp: true
