@@ -12,6 +12,7 @@ RLS / トリガ等、**drizzle-kit generate では生成できない手書き SQ
 | `0001_enable_rls.sql` | テナント分離テーブル + CRM テーブル + audit_log に `ENABLE ROW LEVEL SECURITY` |
 | `0002_rls_policies.sql` | tenant_isolation policy + system_admin_full_access policy + ロール権限 (BYPASSRLS は migrator のみ) |
 | `0003_audit_trigger.sql` | audit_log の append-only 強制 + `prev_hash`/`row_hash` 自動計算トリガ |
+| `0004_audit_fk.sql` | 全 18 テーブルの `created_by`/`updated_by` に `users(id)` FK 追加 (`ON DELETE SET NULL`)。`_shared/audit.ts` は循環依存回避のため drizzle 側で FK を付けず、本 migration で物理 FK を付与する設計 |
 
 ## 適用方法
 
@@ -21,12 +22,30 @@ docker compose -f infrastructure/docker/docker-compose.dev.yml up -d postgres
 psql "$DATABASE_URL" -f packages/db/migrations/0001_enable_rls.sql
 psql "$DATABASE_URL" -f packages/db/migrations/0002_rls_policies.sql
 psql "$DATABASE_URL" -f packages/db/migrations/0003_audit_trigger.sql
+psql "$DATABASE_URL" -f packages/db/migrations/0004_audit_fk.sql
 ```
 
-テスト (vitest が `__tests__/rls/_setup/db.ts` 経由で自動適用):
+テスト (vitest が `__tests__/_setup/global-setup.ts` 経由で自動適用):
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/kimiterrace_test pnpm -F db test
 ```
+
+### test-DB ガード (Issue #96 H1)
+
+`global-setup.ts` は `DROP SCHEMA public CASCADE` を実行するため、prod / staging DB に
+誤接続すると即時に schema 全消失する。以下のいずれかを満たさない場合は **abort** する:
+
+1. 環境変数 `KIMITERRACE_TEST_DB_OK=1` が明示設定されている (CI で正攻法)
+2. ホストが `localhost` / `127.0.0.1` / `::1` / `host.docker.internal`
+3. DB 名に `test` を含む
+
+### TRUNCATE 衝突防止 (Issue #96 H2)
+
+`seedBaseFixture` (`__tests__/_setup/db.ts`) は冒頭で 18 テーブルを TRUNCATE する。
+複数 test ファイルが並列実行されると data race が起こるため、`vitest.config.ts` で
+`fileParallelism: false` + `pool: 'forks'` + `singleFork: true` を **明示** している。
+将来 fileParallelism を有効化したい場合は、test ごとに独自 schema or savepoint へ
+切り替える設計変更が必要 (work expansion 大、別途 Issue 化推奨)。
 
 ## 設計
 

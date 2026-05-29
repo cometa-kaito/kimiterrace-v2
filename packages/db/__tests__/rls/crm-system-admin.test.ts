@@ -22,8 +22,8 @@ describeOrSkip("RLS CRM cross-tenant (system_admin 限定アクセス)", () => {
       VALUES (${adv.id}, 'active', now(), 50000)
     `;
     await sql`
-      INSERT INTO communications (advertiser_id, channel, subject)
-      VALUES (${adv.id}, 'email', '初回提案')
+      INSERT INTO communications (advertiser_id, channel, occurred_at, subject)
+      VALUES (${adv.id}, 'email', now(), '初回提案')
     `;
   });
 

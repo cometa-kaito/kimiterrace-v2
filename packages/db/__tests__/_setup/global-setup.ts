@@ -10,6 +10,7 @@ const BASELINE_SQL = join(packageRoot, "drizzle", "0000_initial_baseline.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
+const AUDIT_FK_SQL = join(packageRoot, "migrations", "0004_audit_fk.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -18,6 +19,43 @@ const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sq
  * - 拡張 → drizzle baseline DDL → RLS 有効化 → policy → audit trigger を順に流す
  * - DATABASE_URL 未設定の場合はテスト自体をスキップ (== 全テストが skip 扱い)
  */
+/**
+ * `DATABASE_URL` を test-DB として安全に使えるか検証する (H1 ガード)。
+ *
+ * `DROP SCHEMA public CASCADE` が prod / staging DB に間違って当たると 1 サイクルで
+ * 学校データが消える footgun。以下のいずれかを満たさない限り abort する:
+ *   1. 環境変数 `KIMITERRACE_TEST_DB_OK=1` が明示設定されている (CI で正攻法)
+ *   2. ホストが localhost / 127.0.0.1 / host.docker.internal (ローカル PG)
+ *   3. DB 名が "test" / "_test" / "kimiterrace_test" を含む (パターン)
+ *
+ * いずれも該当しない場合は throw して setup 失敗 → 全テストが abort する。
+ */
+function assertTestDatabase(url: string): void {
+  if (process.env.KIMITERRACE_TEST_DB_OK === "1") return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(
+      "[rls-tests] DATABASE_URL が URL として解釈できません。RLS テストを安全に走らせるには " +
+        "`postgresql://...` 形式の文字列が必要です。",
+    );
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const localHosts = new Set(["localhost", "127.0.0.1", "::1", "host.docker.internal"]);
+  if (localHosts.has(host)) return;
+
+  // path は "/dbname" — 先頭スラッシュを落として比較
+  const dbName = parsed.pathname.replace(/^\//, "").toLowerCase();
+  if (/test/.test(dbName)) return;
+
+  throw new Error(
+    `[rls-tests] DATABASE_URL が test-DB と判定できません (host=${host}, db=${dbName})。 DROP SCHEMA CASCADE 実行を拒否しました。 明示的に test DB であることを示すため、 (a) DB 名に 'test' を含める、(b) ホストを localhost 系にする、 (c) 環境変数 KIMITERRACE_TEST_DB_OK=1 を設定する、のいずれかを行ってください。`,
+  );
+}
+
 export async function setup(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -29,10 +67,13 @@ export async function setup(): Promise<void> {
     return;
   }
 
+  // H1: prod / staging DB 誤接続防止ガード (Issue #96)
+  assertTestDatabase(url);
+
   // superuser 接続 (拡張作成と DROP SCHEMA を行うため)
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   try {
-    // 1) クリーンスレートにする (テスト用 DB 限定の前提)
+    // 1) クリーンスレートにする (テスト用 DB 限定の前提 — assertTestDatabase で保証済)
     await sql.unsafe("DROP SCHEMA IF EXISTS public CASCADE;");
     await sql.unsafe("CREATE SCHEMA public;");
     // pg 拡張は schema 横断なので明示再付与
@@ -45,10 +86,11 @@ export async function setup(): Promise<void> {
     // 3) DDL (drizzle 生成済の baseline)
     await runSqlFile(sql, BASELINE_SQL);
 
-    // 4) RLS 有効化 + policy + audit トリガ
+    // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     await runSqlFile(sql, RLS_ENABLE_SQL);
     await runSqlFile(sql, RLS_POLICIES_SQL);
     await runSqlFile(sql, AUDIT_TRIGGER_SQL);
+    await runSqlFile(sql, AUDIT_FK_SQL);
   } finally {
     await sql.end({ timeout: 5 });
   }
