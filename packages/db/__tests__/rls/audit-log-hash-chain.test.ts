@@ -54,7 +54,7 @@ describeOrSkip("audit_log: hash chain integrity", () => {
     const rows = await sql<{ id: string; prev_hash: string | null; row_hash: string }[]>`
       SELECT id, prev_hash, row_hash
         FROM audit_log
-       WHERE id = ANY(${sql.array(ids)})
+       WHERE id = ANY(${sql.array(ids)}::uuid[])
        ORDER BY occurred_at ASC, id ASC
     `;
     expect(rows[0].prev_hash).toBeNull();
