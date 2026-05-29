@@ -2468,7 +2468,48 @@
       "isRLSEnabled": false
     }
   },
-  "enums": {},
+  "enums": {
+    "public.user_role": {
+      "name": "user_role",
+      "schema": "public",
+      "values": ["school_admin", "teacher", "student", "guardian"]
+    },
+    "public.publish_scope": {
+      "name": "publish_scope",
+      "schema": "public",
+      "values": ["school", "class", "homeroom", "private"]
+    },
+    "public.content_status": {
+      "name": "content_status",
+      "schema": "public",
+      "values": ["draft", "published", "archived"]
+    },
+    "public.event_type": {
+      "name": "event_type",
+      "schema": "public",
+      "values": ["view", "tap", "dwell", "ask"]
+    },
+    "public.ai_extraction_kind": {
+      "name": "ai_extraction_kind",
+      "schema": "public",
+      "values": ["schedule", "announcement", "summary", "tag"]
+    },
+    "public.audit_op": {
+      "name": "audit_op",
+      "schema": "public",
+      "values": ["insert", "update", "delete"]
+    },
+    "public.contract_status": {
+      "name": "contract_status",
+      "schema": "public",
+      "values": ["draft", "active", "paused", "terminated"]
+    },
+    "public.communication_channel": {
+      "name": "communication_channel",
+      "schema": "public",
+      "values": ["email", "phone", "meeting", "other"]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "roles": {},
