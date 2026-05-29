@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #76 pgvector hoist + PR #77 DDL Part C1 + PR #80 cloud_sql var 並列 merge、Desktop Worker mode 連鎖 2 サイクル目)
+最終更新: 2026-05-29 (PR #76/#77/#80 連鎖 merge 後の追加サイクルで Desktop が open/merged PR 確認漏れ → 重複 spawn の反省。memory [[orchestrator-pr-dedup-check]] 追加)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -257,3 +257,4 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
   - 残: Worker #60 (シーケンス Part C 生徒系・分析系) は Reviewer #66 完了後に逐次 spawn（local RAM 5GB 制約で並列不可）
 - **2026-05-29 (続)**: **PR #66 + #68 連続 merge サイクル (Desktop Worker mode 初投入)**。OAuth refresh で 401 解消 → Reviewer #66 (COMMENT, Critical 0, High 2) → PR #66 admin merge (commit 5872223) → 並列で Desktop が Worker mode で Issue #60 を直接実装 (worktree 隔離、578 行 4 ファイル) → PR #68 → Reviewer #68 (APPROVE, Critical 0, High 0) → PR #68 merge (commit c28e488)。**親 Issue #16 完結** (Part A/B/C 全揃)。Follow-up Issue #67 (Reviewer worktree バグ) / #69 (Terraform root .tf 整理) / #70 (cloud_sql deletion_protection 変数化) 起票。次は DDL Part B/C1/C2 (Worker spawn, setup-heavy $8) + STRIDE Part C (Desktop Worker mode 候補, prose)。
 - **2026-05-29 (続々)**: **PR #71 DDL Part B + PR #72 STRIDE Part C 並列 merge (Desktop Worker mode 2 並列パターン確立)**。Worker spawn は RAM 3.7GB で 0 slot 判定 → Agent + worktree isolation で 2 task を並列実行。**PR #71** (167 行、AI/RAG 3 テーブル、CI 11/11 green、Reviewer COMMENT Critical 0 / High 2) + **PR #72** (253 行、STRIDE Part C 10 件、CI 11/11 green、Reviewer 実質 APPROVE Critical 0 / High 0) を同時 squash merge (commits 25bdc68, 64be2b1)。**親 Issue #17 自動 close** (STRIDE 6 カテゴリ全件 3 件以上、合計 29 件)。Follow-up Issue #73 (composite FK cross-tenant 強制) / #74 (pgvector hoist) / #75 (M-1〜M-4 bundle) 起票。Reviewer #71 が `gh pr review` 投稿スキップ問題発覚 → template 改稿候補。次サイクル: DDL Part C1 (#58) → DDL Part C2 (#59 = F01-F12 解禁) → F01-F12 着手。
+- **2026-05-29 (続々々)**: **Desktop 重複 spawn 反省サイクル**。前 conversation 末で PR #76 (#74) / #77 (#58) / #80 (#70) が cometa-kaito によって 01:05〜01:06 UTC に作成 → merge 済だったが、本 conversation 開始時 Desktop は **`gh pr list` を実行せず Issue 一覧のみで判断**して #58 / #70 / #74 を再選定 → 3 Worker (Agent + worktree isolation) を並列 spawn → 全部重複 PR (#79 / #81 / #82) を生成。3 PR は close + `worker/*` 3 branch 削除 + worktree cleanup で原状回復。**教訓**: 並行作業しているユーザー前提で動く必要があり、`gh pr list --state=all --search="<issue-num>"` を Worker spawn 前ルーチンに組み込む。新規 memory [[orchestrator-pr-dedup-check]] 追加、MEMORY.md 索引更新。本サイクルの net 成果は教訓のみ、新規 PR 着地なし。
