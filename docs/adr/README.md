@@ -42,7 +42,7 @@
 | 009 | Terraform を採用、Pulumi 不採用 | Proposed |
 | 010 | pnpm + Turborepo モノレポ | Proposed |
 | 011 | Biome を採用、ESLint + Prettier 不採用 | Proposed |
-| 012 | テストは Vitest + Playwright + Testcontainers | Proposed |
+| 012 | [テストは Vitest + Playwright + 実 PostgreSQL](012-testing-stack.md)（Testcontainers 不採用、CI 側 service container + DATABASE_URL env で実走） | Accepted |
 | 013 | エラー追跡は Sentry | Proposed |
 | 014 | 観測は Cloud Logging + Cloud Trace + OTel | Proposed |
 | 015 | [即公開 + 安全網 4 種](015-instant-publish-with-safety-nets.md)（承認フロー非採用） | Proposed |
