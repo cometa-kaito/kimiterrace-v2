@@ -13,12 +13,12 @@ describeOrSkip("RLS tenant_isolation (school_id ベースの分離)", () => {
     fx = await seedBaseFixture(sql);
     // school A / school B にコンテンツを 1 件ずつ入れる (BYPASSRLS 接続)
     await sql`
-      INSERT INTO contents (school_id, title, body_markdown, status)
-      VALUES (${fx.schoolA}, 'A の告知', 'A の本文', 'published')
+      INSERT INTO contents (school_id, title, body, publish_scope, status)
+      VALUES (${fx.schoolA}, 'A の告知', 'A の本文', 'school_wide', 'published')
     `;
     await sql`
-      INSERT INTO contents (school_id, title, body_markdown, status)
-      VALUES (${fx.schoolB}, 'B の告知', 'B の本文', 'published')
+      INSERT INTO contents (school_id, title, body, publish_scope, status)
+      VALUES (${fx.schoolB}, 'B の告知', 'B の本文', 'school_wide', 'published')
     `;
   });
 
@@ -75,8 +75,8 @@ describeOrSkip("RLS tenant_isolation (school_id ベースの分離)", () => {
         await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
         await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
         await tx`
-          INSERT INTO contents (school_id, title, body_markdown, status)
-          VALUES (${fx.schoolB}, 'B 詐称', 'noop', 'draft')
+          INSERT INTO contents (school_id, title, body, publish_scope, status)
+          VALUES (${fx.schoolB}, 'B 詐称', 'noop', 'school_wide', 'draft')
         `;
       }),
     ).rejects.toThrow(/row-level security|new row violates/i);
