@@ -3,7 +3,7 @@
 - 状態: Draft（初版）
 - 日付: 2026-05-30
 - 関連 Issue: [#48 F0/F12 V1 既存機能の Cloud Run 移植](https://github.com/cometa-kaito/kimiterrace-v2/issues/48)
-- 関連 ADR: [ADR-001 (PostgreSQL)](../adr/001-postgres-vs-firestore.md), [ADR-003 (Identity Platform)](../adr/003-identity-platform.md), [ADR-008 (Next.js Route Handlers)](../adr/008-nextjs-route-handlers.md), [ADR-019 (RLS 二層)](../adr/019-rls-two-layer-tenant-isolation.md)
+- 関連 ADR: ADR-001 (PostgreSQL、未作成 — [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)), ADR-003 (Identity Platform、未作成 — 同上), ADR-008 (Next.js Route Handlers、未作成 — 同上), [ADR-019 (RLS 二層)](../adr/019-rls-two-layer-tenant-isolation.md)
 - 関連要件: [F12 V1 機能移植](../requirements/functional/F12-v1-port.md)
 
 ## 目的
@@ -32,11 +32,11 @@ V1（旧 Firebase 版キミテラス、`../キミテラス/management/`）の既
 | `/manage` | 認証後リダイレクト | （routing only） | — | `/admin`（共通レイアウト） | Next.js App Router の layout で role 分岐 |
 | `/manage/editor` | スケジュール/連絡/宿題エディタ（PC） | `src/components/editor/EditorTargetMenu` 他 | 1,994 行 | `/admin/editor` | Server Action 主体、楽観 UI は localState、確定時に POST |
 | `/manage/editor-mobile` | エディタ（モバイル簡易版） | （editor 流用） | — | `/admin/editor`（同一ルート + viewport 分岐） | Tailwind / CSS で responsive、コードを一本化（V1 の二重実装を解消） |
-| `/manage/admin` | システム管理者ダッシュボード | `src/components/admin/SchoolListView` ほか | 4,463 行 | `/admin/system/*` | RLS bypass は不可、middleware で system_admin チェック ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md)) |
+| `/manage/admin` | システム管理者ダッシュボード | `src/components/admin/SchoolListView` ほか（うち `SchoolDetailView` 単独 2,282 行が圧倒、移植時は再分割必須） | 4,463 行 | `/admin/system/*` | RLS bypass は不可、middleware で system_admin チェック ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md)) |
 | `/manage/school-admin` | 学校管理者ハブ | `src/components/school-admin/SchoolAdminHub` | — | `/admin/school` | school_id スコープ |
 | `/manage/class-settings` | クラス設定（広告・静粛時間） | `src/components/class-settings/*` | 938 行 | `/admin/classes/[classId]` | Server Action、画像 upload は signed URL 経由 GCS 直接 PUT |
 | `/manage/guide` | ガイド + フィードバック（非認証） | （guide page） | — | `/guide` | Route Handler `POST /api/feedback` で受信、school 一覧は public read API |
-| `/manage/login` | ログイン | `src/components/auth/LoginPage` | 294 行 | `/login` | Identity Platform redirect + magic link ([ADR-003](../adr/003-identity-platform.md), [ADR-016](../adr/016-class-magic-link-anonymous-access.md)) |
+| `/manage/login` | ログイン | `src/components/auth/LoginPage` | 294 行 | `/login` | Identity Platform redirect (ADR-003 未作成、[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)) + magic link ([ADR-016](../adr/016-class-magic-link-anonymous-access.md)) |
 
 ## Firestore コレクション → PostgreSQL テーブル対応
 
@@ -58,24 +58,27 @@ V1（旧 Firebase 版キミテラス、`../キミテラス/management/`）の既
 
 | V1 機能 | V1 実装 | V2 置換 | 移植時の注意 |
 |---|---|---|---|
-| `onSnapshot` リアルタイム購読 | useSignageData / useEditorData 等 | (a) 5 秒短ポーリング (Server Action) または (b) LISTEN/NOTIFY + EventSource (SSE) | 初期実装は (a)、サイネージは描画頻度低いので 5-10 秒で十分。学習用にエディタ画面のみ (b) 検証 |
+| `onSnapshot` リアルタイム購読 | useSignageData / useEditorData 等 | (a) 5 秒短ポーリング (Server Action) または (b) LISTEN/NOTIFY + EventSource (SSE) | 初期実装は (a)、サイネージは描画頻度低いので 5-10 秒で十分。**ただし 50 台/校 × 5 秒 = 10 req/s/校で Cloud SQL コネクション圧迫の懸念**、#48-E 着手前に NFR (パフォーマンス) と突き合わせ要。学習用にエディタ画面のみ (b) 検証 |
 | `getDoc` / `getDocs` 単発取得 | SchoolDetailView 等 | Drizzle `select()` + RLS | RLS context (`SET LOCAL`) を必ず middleware で設定 |
 | `setDoc` / `updateDoc` 書込 | AdManager / QuietHoursConfig | Drizzle `insert()` / `update()` + audit_log trigger | NFR04 ハッシュチェーン対象、actor_user_id 必須 |
 | Firebase Storage upload | AdManager | GCS signed URL → ブラウザから直接 PUT | media-pipeline は別 PR、URL 形式は互換維持 |
-| Firebase Auth (UI + SDK) | LoginPage / AuthGuard | Identity Platform redirect ([ADR-003](../adr/003-identity-platform.md)) + Server Component で session cookie 検証 | magic link は別実装 ([ADR-016](../adr/016-class-magic-link-anonymous-access.md)) |
-| Cloud Functions `httpsCallable` | firebase-functions.ts (327 行) | Next.js Route Handlers ([ADR-008](../adr/008-nextjs-route-handlers.md)) | 1:1 で move、callable 名は `/api/admin/*` 等に namespace |
+| Firebase Auth (UI + SDK) | LoginPage / AuthGuard | Identity Platform redirect (ADR-003 未作成、[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)) + Server Component で session cookie 検証 | magic link は別実装 ([ADR-016](../adr/016-class-magic-link-anonymous-access.md)) |
+| Cloud Functions `httpsCallable` | firebase-functions.ts (327 行) | Next.js Route Handlers (ADR-008 未作成、[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)) | 1:1 で move、callable 名は `/api/admin/*` 等に namespace |
 
 ## 広告階層マージロジック
 
 V1 の特徴である「学校 → 学年 → クラス（→ 学科）」の **3-4 階層広告マージ** ロジック:
 
-- V1 ファイル: `HierarchicalAdsTab.tsx` (661 行) + `useAdRotation.ts` (191 行) + `AdDisplay.tsx` (107 行)
+- V1 ファイル (3 ディレクトリ分散):
+  - `src/components/admin/HierarchicalAdsTab.tsx` (661 行、編集 UI)
+  - `src/hooks/useAdRotation.ts` (191 行、再生制御)
+  - `src/components/signage/AdDisplay.tsx` (107 行、表示)
 - 動作: 親階層の広告を「編集不可」として子階層に伝搬、`isQuietTime` で再生/停止
 - V2 設計案:
   - `ads` テーブルに `school_id` (NOT NULL) + `grade_id` (nullable) + `class_id` (nullable) + `department_id` (nullable)
   - **Materialized View** `effective_ads_per_class` で 3 階層マージを SQL で実行（クエリ側で OR + display_order）
   - サイネージ Server Component で View を SELECT、Client Island で rotation
-  - 画像 prefetch (V1 の ImageCache 400 行) は Service Worker + Cache Storage に置換（オフライン耐性向上）
+  - 画像 prefetch (V1 の `src/lib/image-cache.ts` 400 行、`ImageCache` クラス) は Service Worker + Cache Storage に置換（オフライン耐性向上）
 
 ## 未移植機能（V2 で新規追加）
 
@@ -83,10 +86,10 @@ V1 に存在しないが V2 で追加する機能（[v2-mvp.md §1.2](../require
 
 | 機能 | V1 | V2 | 関連要件 |
 |---|---|---|---|
-| AI ファイル抽出 (PDF/Word/Excel/画像) | なし | Gemini 構造化 + confidence_score | [F01](../requirements/functional/F01-file-extraction.md) / [F03](../requirements/functional/F03-ai-structuring.md) / [ADR-017](../adr/017-gemini-ai-structuring-with-confidence.md) |
-| 音声/チャット入力 | なし | Gemini stream + Vercel AI SDK | [F02](../requirements/functional/F02-voice-chat-input.md) |
-| 即公開 + 安全網 4 種 | なし | audit_log・rollback・confidence flag・公開先明示 | [F04](../requirements/functional/F04-instant-publish.md) / [ADR-015](../adr/015-instant-publish-with-safety-nets.md) |
-| 生徒スマホ/タブレット対話 | なし | magic link + 掲示物 Q&A | [F05](../requirements/functional/F05-student-mobile-access.md) / [F06](../requirements/functional/F06-student-qa.md) / [ADR-016](../adr/016-class-magic-link-anonymous-access.md) |
+| AI ファイル抽出 (PDF/Word/Excel/画像) | なし | Gemini 構造化 + confidence_score | [F01](../requirements/functional/F01-teacher-file-extraction.md) / [F03](../requirements/functional/F03-ai-structuring.md) / [ADR-017](../adr/017-gemini-ai-structuring-with-confidence.md) |
+| 音声/チャット入力 | なし | Gemini stream + Vercel AI SDK | [F02](../requirements/functional/F02-teacher-voice-chat-input.md) |
+| 即公開 + 安全網 4 種 | なし | audit_log・rollback・confidence flag・公開先明示 | [F04](../requirements/functional/F04-instant-publish-safety-nets.md) / [ADR-015](../adr/015-instant-publish-with-safety-nets.md) |
+| 生徒スマホ/タブレット対話 | なし | magic link + 掲示物 Q&A | [F05](../requirements/functional/F05-class-magic-link.md) / [F06](../requirements/functional/F06-student-qa.md) / [ADR-016](../adr/016-class-magic-link-anonymous-access.md) |
 | イベントロギング | なし | view/tap/dwell/ask/presence | [F07](../requirements/functional/F07-event-logging.md) |
 | 効果ダッシュボード + AI コメント | なし | Recharts + Gemini 文章生成 | [F08](../requirements/functional/F08-effect-dashboard.md) |
 | 月次レポート PDF | なし | system_admin が手動 generate + 配布 | [F09](../requirements/functional/F09-monthly-report.md) |
@@ -105,7 +108,7 @@ V1 全機能を ≤500 行 / PR の粒度で分割した結果、**15 個の sub
 | Sub-Issue | スコープ | 推定行数 | 依存 |
 |---|---|---|---|
 | **#48-A** | DB スキーマ拡張 (grades / departments / school_configs / ads / daily_data) + drizzle migration | 400 行 | PR #93 (Part C2) merged 済 |
-| **#48-B** | Identity Platform 認証基盤 + middleware で RLS context SET LOCAL | 400 行 | #48-A、[ADR-003](../adr/003-identity-platform.md) |
+| **#48-B** | Identity Platform 認証基盤 + middleware で RLS context SET LOCAL | 400 行 | #48-A、ADR-003 未作成 |
 | **#48-C** | apps/web 共通レイアウト + role 別 navigation + 401/403 ハンドリング | 300 行 | #48-B |
 | **#48-D** | Firestore データ移行スクリプト (`scripts/migration/firestore-to-pg.ts`) | 500 行 | #48-A |
 
@@ -113,9 +116,9 @@ V1 全機能を ≤500 行 / PR の粒度で分割した結果、**15 個の sub
 
 | Sub-Issue | スコープ | 推定行数 | 依存 |
 |---|---|---|---|
-| **#48-E** | サイネージ表示 Server Component (schedule / notice / assignment 描画) | 500 行 | #48-A, #48-C |
-| **#48-F** | 広告階層マージ Materialized View + サイネージへの差し込み | 400 行 | #48-A, #48-E |
-| **#48-G** | 画像/動画 prefetch + Service Worker キャッシュ | 400 行 | #48-E, #48-F |
+| **#48-F** | 広告階層マージ Materialized View + 検索クエリ層 | 400 行 | #48-A |
+| **#48-E** | サイネージ表示 Server Component (schedule / notice / assignment 描画 + #48-F の View を SELECT) | 500 行（**要再分割保険**: V1 1,462 行を 500 行に圧縮するため Server Component 化と Client Island 分離で構造が変わる。500 行を厳守できない場合は #48-E1 (描画ロジック) / #48-E2 (再生制御 Client Island) に再分割推奨）| #48-A, #48-C, #48-F |
+| **#48-G** | 画像/動画 prefetch + Service Worker キャッシュ | 400 行 | #48-E |
 
 ### Phase 3: 教員エディタ（F0-H〜F0-J、PC + モバイル統合）
 
@@ -130,7 +133,7 @@ V1 全機能を ≤500 行 / PR の粒度で分割した結果、**15 個の sub
 | Sub-Issue | スコープ | 推定行数 | 依存 |
 |---|---|---|---|
 | **#48-K** | 学校管理者ハブ + 学年/クラス/学科 CRUD | 500 行 | #48-A, #48-C |
-| **#48-L** | システム管理者: 学校一覧 + 詳細 + 編集 | 500 行 | #48-A, #48-C |
+| **#48-L** | システム管理者: 学校一覧 + 詳細 + 編集（**要再分割保険**: V1 `SchoolDetailView` 単独 2,282 行を含むため、500 行を厳守できない場合は #48-L1 (学校一覧 + 編集) / #48-L2 (詳細ビュー) に再分割推奨）| 500 行 | #48-A, #48-C |
 | **#48-M** | システム管理者: フィードバック一覧 + ガイド画面 | 400 行 | #48-A, #48-C |
 
 ### Phase 5: 統合 / クリーンアップ（F0-N〜F0-O）
@@ -147,17 +150,17 @@ V1 全機能を ≤500 行 / PR の粒度で分割した結果、**15 個の sub
 | ルール | V1 移植時の適用 |
 |---|---|
 | 1. 監査カラム | V1 では `createdAt` のみだったが、V2 では `created_at` / `updated_at` / `created_by` / `updated_by` を全テーブルに追加 (PR #93 で baseline 確立) |
-| 2. RLS | Firestore Security Rules は V2 では PostgreSQL RLS に **完全に置換**。アプリ層フィルタは禁止 ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md)) |
+| 2. RLS | Firestore Security Rules は V2 では PostgreSQL RLS に **完全に置換**。アプリ層フィルタは禁止 ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md))、policy 命名規約も同 ADR §決定 参照 |
 | 3. 型単一ソース | V1 は手書き interface 多数だが、V2 では `drizzle-zod` 生成型を真実とする ([CLAUDE.md ルール 3](../../CLAUDE.md)) |
 | 4. PII マスキング | V1 は生徒氏名を直接表示する画面なし（クラス単位）だが、V2 でも引き続き個人特定なし維持 |
 | 5. Secret Manager | V1 の Firebase config は `.env.local` ベタ書きだったが、V2 は Secret Manager + Workload Identity 必須 |
 | 6. 1 PR ≤500 行 | 上記 sub-Issue 分割で達成 |
 | 7. テスト緑 | V1 の vitest 4 ファイルは移植せず、V2 で **新規に書き直し**（Drizzle スキーマ前提のため） |
-| 8. Terraform | Cloud Run / Cloud SQL / Identity Platform 設定は infrastructure/terraform 配下 ([ADR-009](../adr/009-terraform.md)) |
+| 8. Terraform | Cloud Run / Cloud SQL / Identity Platform 設定は infrastructure/terraform 配下 (ADR-009 未作成、[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)) |
 
 ## 切替プラン（cutover）
 
-[docs/runbooks/cutover.md](../runbooks/cutover.md) で別途定義予定。本マッピング表は **「何を移植するか」** のスコープ定義であり、**「いつ・どう切り替えるか」** は cutover runbook が担う。
+`docs/runbooks/cutover.md` (未作成、本マッピング merge 後に起票予定) で別途定義する。本マッピング表は **「何を移植するか」** のスコープ定義であり、**「いつ・どう切り替えるか」** は cutover runbook が担う。
 
 並行運用期間（2 週間想定）中は V1 を本番として残し、V2 は staging で動作確認 → 切替日に DNS のみ V2 へ変更（[STATUS.md 既知リスク](../STATUS.md) 参照）。
 
