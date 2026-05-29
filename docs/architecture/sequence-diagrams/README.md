@@ -12,9 +12,14 @@
 | [instant-publish.md](instant-publish.md) | F04 | 即公開 → audit_log → CDN |
 | [rollback.md](rollback.md) | F04.2 | 1-click rollback |
 
-## Part C: 生徒・分析系（別 PR で追加予定）
+## Part C: 生徒・分析系（このディレクトリ）
 
-`magic-link.md` / `student-qa.md` / `event-logging.md` / `monthly-report.md`
+| ファイル | F# | 内容 |
+|---|---|---|
+| [magic-link-issuance.md](magic-link-issuance.md) | F05 | クラス magic link 発行 → QR 配布 → 失効 |
+| [student-qa.md](student-qa.md) | F06 | 生徒 Q&A → PII mask → RAG → Gemini SSE → 監査 |
+| [event-logging.md](event-logging.md) | F07 | tap/view/dwell/ask → events → BigQuery |
+| [monthly-report.md](monthly-report.md) | F09 | Cloud Run Job → 集計 → PDF → system_admin DL |
 
 ## 図の作法
 
