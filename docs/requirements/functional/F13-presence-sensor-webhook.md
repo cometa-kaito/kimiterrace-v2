@@ -116,7 +116,7 @@
 
 ## 旧 LP リファレンス実装（移行元）
 
-PoC 期間中は本 v2 に先行して **LP リポジトリ（`C:\Users\20051\Desktop\学校DX事業\06_LP\edix-lp\`）に Turso（ホスト型 SQLite）で同等機能の素朴版**を 2026-05-29 に投入済み。
+PoC 期間中は本 v2 に先行して **別リポジトリ `edix-lp/`（ユーザー手元では `06_LP/edix-lp/` に配置）に Turso（ホスト型 SQLite）で同等機能の素朴版**を 2026-05-29 に投入済み。
 v2 への移植時は以下を参照しつつ、本 F13 の規律（RLS、監査、Drizzle、PII マスキング、テスト緑）に従って再実装する:
 
 - `app/api/switchbot-webhook/route.ts` — 受信ハンドラの最小実装
