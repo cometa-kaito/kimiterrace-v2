@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-30 (PR #107 F13/ADR-019 follow-up 自律 merge、Issue #106 close。busy CEO mode 連続 4 回目の Reviewer + 自律 merge サイクル成功)
+最終更新: 2026-05-30 (一晩自律サイクル: PR #107/#108/#109/#110/#111 連続 5 merge、Issue #106/#48 マッピング/#95/#105/#94 部分解消。Reviewer Agent file-based 投稿 7 連続成功、migration loader 配線漏れの dormant bug 1 件を Reviewer→自律修正で 1 サイクル内吸収)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,15 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **一晩自律実行サイクル (ユーザー就寝中、busy CEO mode 全力)**:
+  - **PR #108 (V1 → V2 画面マッピング表 + F0 sub-Issue 15 分割案、+178 / -0、CI 12/12 green、commit `b6c4623`)**: Issue #48 (F0/F12 V1 移植) の起点となる `docs/architecture/v1-v2-mapping.md` 起草。V1 (`../キミテラス/management/`) 全体像 (Next.js 16 App Router、Firebase SDK v12、85 コンポーネント約 8,500 行、Vitest 4) + V1 → V2 ルート対応表 (9 主要ルート、エディタ PC/モバイル統合) + Firestore→PostgreSQL マッピング (10 対応) + Firebase API → V2 置換マップ (onSnapshot/setDoc/Auth/Functions/Storage) + 広告階層マージ Materialized View 設計案 + 未移植機能 (V2 で新規追加) クロスリンク + **#48-A 〜 #48-O 15 分割案** (Phase 1-5 / 各 ≤500 行 / 依存順)。Reviewer Agent (Critical 0 / High 1 / Medium 3 / Low 3) → V1 実態整合性 9/9 完全一致、High 1 (F01/F02/F04/F05 ファイル名ずれ + ADR-001/003/008/009 未作成 broken link) は **同 PR 内で修正コミット吸収** (#48-E / #48-L 再分割保険、Phase 2 依存順反転 #48-F → #48-E、onSnapshot 5 秒ポーリング Cloud SQL 圧迫リスク注記、広告階層マージファイルパス 3 ディレクトリ分散明示)
+  - **PR #109 (observability follow-up tracer.test.ts + PII Error.message 警告 + LogLevel 拡張、+178 / -1、CI 11/11 green、commit `996cf25`)**: Issue #95 (PR #91 Reviewer Medium 2 + Low 1-3) follow-up。`tracer.test.ts` 10 ケース新規 (vi.hoisted + vi.mock で `@opentelemetry/sdk-node` stub、withSpan 成功/失敗/sync throw/finally end、initTracer idempotent/OTEL_SERVICE_NAME/OTEL_EXPORTER_ENABLED 各分岐) + README PII 警告に `Error.message → recordException → OTel span attribute` 経路注意 + `LogLevel` 型に `trace` / `fatal` 追加 (pino runtime + SEVERITY_MAP は既対応) + `initTracer` 2nd-call serviceName silently ignore 注記。Reviewer APPROVE 相当 (Critical 0 / High 0 / Medium 0 / Low 1 / nit 2)、`__resetTracerForTests` + `delete process.env` biome-ignore コメント付きの判断が秀逸と評価
+  - **PR #110 (Issue #105 audit_log_insert で school_admin の actor_user_id=NULL 拒否、+77 / -9 + migration 0005 配線 fix + ADR-019 規約表同期、CI 12/12 green、commit `f2e1a48`)**: PR #103 Reviewer Medium 1 follow-up。乗っ取られた school_admin が actor=NULL の監査ログを差し込んで操作痕跡を匿名化する攻撃 (NFR04 Repudiation) を policy 厳格化で防止。migration `0005_audit_log_actor_null_school_admin.sql` で WITH CHECK から `actor_user_id IS NULL` 句を削除、system_admin のみ NULL / 任意 uuid 許可 (cross-tenant 内部操作 / migrator INSERT のため必要)。テスト 5 ケース (school_admin NULL 拒否 + system_admin NULL 許可 新規 + 既存 4 件)。**Reviewer Agent Critical 1 で root cause 特定: `global-setup.ts` に migration 0005 が未登録 → CI test DB に旧 policy 残存 → 新テスト「school_admin NULL → reject」が `promise resolved "undefined"` で失敗**。Reviewer 提案通り 1 ファイル数行で fix (loader 配列に AUDIT_LOG_ACTOR_NULL_SQL 追加) → re-CI 12/12 green。同 PR 内で ADR-019 §Policy 命名規約 audit_log_insert 行 + 適用ルール 5 を新 policy 文面に同期 (Reviewer Medium 1/2)。busy CEO mode で Reviewer Critical 1 を「軽微指摘ではなく root-cause 指摘」として認識、1 PR 内で C1 修正→再 CI→自律 merge を完走
+  - **PR #111 (ADR-012 testing stack 起草、+132 / -2、CI 12/12 green、commit `87cfc7c`)**: Issue #94 (ADR-001〜014 不在) の 1 件解消 + PR #108 Reviewer M-1 (Testcontainers 表記不整合) 解消。決定: Vitest + DATABASE_URL env (実 PG) + Playwright e2e (Phase 1 では unit + integration のみ、e2e は #48-O で導入)。却下: Testcontainers (Docker 不在 hang、PR #93 実証) / pg-mem (RLS / pgvector 未対応) / Jest (ESM 二重 build) / Cypress (iframe 制約)。CLAUDE.md スタック表 Testcontainers → DATABASE_URL env (実 PG) に修正。Reviewer APPROVE 相当 (Critical 0 / High 0 / Medium 1 ADR-001/004/007/008 broken link は #94 で同期解消前提 / Low 2 / nit 3)
+  - **本サイクル成果**: 4 PR (#108 / #109 / #110 / #111) merged、Issue #95 / #105 close、#48 マッピング起草で sub-Issue 起票準備完了、#94 1 件解消 (ADR-012)、Busy CEO 自律 merge 連続 **8 回目** 成功 (PR #103/#104/#102/#107/#108/#109/#110/#111)
+  - **Reviewer Agent file-based 投稿 7 連続成功**: PR #84/#102/#107/#108/#109/#110/#111 すべて `gh pr review N --comment --body-file <path>` で投稿成功、PowerShell `@` 文字化け / 投稿スキップ問題が事実上ゼロに改善。memory `feedback_reviewer_agent_file_based_posting.md` 新規追加
+  - **migration loader 配線漏れ dormant bug 学習**: PR #110 で migration 0005 を作成したが `global-setup.ts` の loader 配列に追加し忘れ → CI で発覚 → 1 サイクル内で吸収。memory `feedback_migration_loader_pattern.md` 新規追加 (次回以降の同種事故防止)
+  - **Desktop context 消費**: ~80k tokens (5 PR + 4 Reviewer Agent spawn + 1 sub-cycle (PR #110 re-CI) + memory 追加)
 - 2026-05-30: **PR #107 (F13 LP パス相対化 + ADR-019 policy 命名規約) 自律 merge サイクル (Issue #106 close)**:
   - **PR #107 (+24 / -1、CI 12/12 green、commit `1c02dc1`)**: PR #102 Reviewer Low 2 + Low 4 の follow-up 統合 PR。F13 (`docs/requirements/functional/F13-presence-sensor-webhook.md`) 旧 LP リファレンス実装の Windows 絶対パス (`C:\Users\20051\Desktop\学校DX事業\06_LP\edix-lp\`) を相対表記 (`別リポジトリ edix-lp/、ユーザー手元 06_LP/edix-lp/`) に修正。ADR-019 (`docs/adr/019-rls-two-layer-tenant-isolation.md`) §決定 のテスト節直下に **Policy 命名規約** セクション追加 — PR #93 / #97 / #99 / #103 で実装した 8 種類の policy (`tenant_isolation` / `tenant_self_read` / `tenant_isolation_modify` / `tenant_isolation_delete` / `system_admin_full_access` / `system_admin_only` / `audit_log_tenant_read` / `audit_log_insert`) を表形式で規約化 + 適用ルール 5 項目 (NULLIF ラップ必須 / Issue #105 参照含む)
   - **Reviewer Agent (Agent + worktree isolation) APPROVE 相当 (Critical 0 / High 0 / Medium 2 / Low 3)**: `0002_rls_policies.sql` との照合で 7 種類は実装と一致、`system_admin_only` のみ「規約上の予約名」で実装未到達 (CRM は `system_admin_full_access` 流用、`sensor_webhook_failures` は F13 で要件化したがテーブル未作成) を Medium 1 で指摘、merge blocker ではない。`gh pr review 107 --comment --body-file body.md` で stdin/file 経路投稿成功 ([review URL](https://github.com/cometa-kaito/kimiterrace-v2/pull/107#pullrequestreview-4390851929))
@@ -182,28 +191,29 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 サイクル末状態 (更新)**: **PR #107 (F13/ADR-019 follow-up) merged → Issue #106 close**。前サイクル (PR #102 F13/ADR-020) の Reviewer Low 残はゼロ。CI 上 RLS テスト 24 件は PR #99 / #103 で実走化済 (postgres service container + DATABASE_URL + NULLIF ラップ + schools FOR UPDATE/DELETE + audit_log actor 詐称防止)。F0 (V1 移植) / F01-F12 着手の環境完備。次は最優先: **#48 F0 サブタスク分割** (画面マッピング表起草 → Issue 分割)、次優先: tech-debt cleanup (#105 / #94 / #95 / #75 / #73 / #67)。
+> **2026-05-30 一晩自律サイクル末状態**: **5 PR (#107/#108/#109/#110/#111) 連続 merge**。F0 着手準備完了 (画面マッピング `docs/architecture/v1-v2-mapping.md` 起草、sub-Issue #48-A 〜 #48-O 15 分割案あり)。security gap (#105) / observability tech-debt (#95) クローズ、#94 (ADR 不在) は ADR-012 で 1 件解消。次は最優先: **#48-A (DB スキーマ拡張) sub-Issue 起票 + 着手**、次優先: F01-F04 並行着手、tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
 
-### 最優先 (F0 着手の準備)
+### 最優先 (F0 移植 sub-Issue 起票 + 着手)
 
-1. **#48 F12 V1 機能移植 (F0 サブタスク分割)**:
-   - V1 (`management/src/`) の管理 UI + サイネージ表示エンジン (`management/src/components/signage/`) を `apps/web` 配下の Next.js Server Component に移植
-   - 着手前に **画面マッピング表** (`docs/architecture/v1-v2-mapping.md`) を Desktop 起草、各画面を Issue 分割
-   - 1 Issue ≤500 行に収まる粒度で分割 (sub-Issue として #48-A / #48-B... 命名規約)
-2. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
+1. **#48 sub-Issue 15 個起票** (`docs/architecture/v1-v2-mapping.md` の Sub-Issue 分割案セクション):
+   - Phase 1 基盤: #48-A (DB スキーマ拡張 grades/departments/school_configs/ads/daily_data + drizzle migration、400 行) / #48-B (Identity Platform 認証基盤 + middleware RLS context SET LOCAL、400 行) / #48-C (apps/web 共通レイアウト + role 別 navigation、300 行) / #48-D (Firestore データ移行スクリプト `scripts/migration/firestore-to-pg.ts`、500 行)
+   - Phase 2 サイネージ: #48-F (広告階層マージ Materialized View、400 行) → #48-E (サイネージ表示 Server Component、500 行 + 再分割保険 E1/E2) / #48-G (画像/動画 prefetch + Service Worker、400 行)
+   - Phase 3 エディタ: #48-H (Schedule セクション、500 行) / #48-I (Notice/Assignment、500 行) / #48-J (クラス設定、500 行)
+   - Phase 4 管理者: #48-K (学校管理者ハブ、500 行) / #48-L (system_admin 学校一覧+詳細+編集、500 行 + 再分割保険 L1/L2 SchoolDetailView 2282 行) / #48-M (フィードバック+ガイド、400 行)
+   - Phase 5 統合: #48-N (Functions 移植、400 行) / #48-O (e2e Playwright、300 行)
+2. **#48-A 着手 (Phase 1 起点)**: DB スキーマ拡張 + drizzle migration、PR #93 (Part C2) merged 済を前提に grades/departments 等を追加
+3. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
    - **F01** 教員ファイル抽出 (PDF/Word/Excel/画像 → Gemini 構造化)
    - **F03** AI 構造化 (Gemini Pro + confidence_score、ADR-017 準拠)
    - **F04** 即公開 + 安全網 4 種 (audit_log・1-click rollback・AI 確信度フラグ・公開先明示、ADR-015 準拠)
    - F02 (音声/チャット) は F01 完了後に依存実装
 
-### 次優先 (security / tech-debt cleanup)
+### 次優先 (tech-debt cleanup、F0 と並行可)
 
-3. **#73 composite FK で cross-tenant 整合を DB 強制**: PR #103 で RLS 完備したので着手可能
-4. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
-5. **#105 audit_log_insert で school_admin context の actor_user_id=NULL 拒否** (PR #103 Reviewer Medium 1 follow-up)
-6. **#94 ADR-001〜014 ファイル不在** (CLAUDE.md スタック表のリンク死、Tech-debt) — F0 着手と独立に並行可、ADR-012 起草 (Reviewer M-1) もここに集約
-7. **#95 observability follow-up** (tracer.test.ts + README PII 警告補完 + LogLevel 型)
-8. **#67 Reviewer worktree バグ** (解決方針 C: テンプレ禁止 + worktree 化)
+4. **#73 composite FK で cross-tenant 整合を DB 強制**: PR #103 で RLS 完備したので着手可能
+5. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
+6. **#94 残 13 ADR** (001/002/003/004/005/006/007/008/009/010/011/013/014): 順次起草、ADR-008 (Next.js Route Handlers) と ADR-003 (Identity Platform) は #48-B 着手前に欲しい
+7. **#67 Reviewer worktree バグ** (解決方針 C: テンプレ禁止 + worktree 化)
 
 ### memory 候補 (本サイクル学び)
 
