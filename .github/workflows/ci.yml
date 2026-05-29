@@ -89,6 +89,7 @@ jobs:
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
+          KIMITERRACE_TEST_DB_OK: "1"
 
   build:
     name: Build
