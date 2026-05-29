@@ -19,6 +19,24 @@ incident — see `docs/runbooks/incident-response.md` for rotation steps. This
 rule applies equally to Vertex AI prompts, embeddings, and downstream
 analytics; the masking policy upstream of the LLM is the source of truth.
 
+### Error.message leakage via `recordException`
+
+`withSpan` records thrown exceptions through `span.recordException(error)`
+and `span.setStatus({ code: ERROR, message: error.message })`. Both paths
+forward `error.message` to OpenTelemetry span attributes, which the Cloud
+Trace exporter will surface verbatim. **Construct errors with PII-free
+messages** — pass identifiers, not names, addresses, or pasted user input.
+A safe pattern:
+
+```ts
+throw new Error(`schedule update failed: scheduleId=${scheduleId}`);
+// NOT: throw new Error(`schedule update failed for ${studentFullName}`);
+```
+
+The same caution applies to any `try/catch` that wraps a domain error
+before re-throwing — sanitise the message at the wrap point, since
+downstream `withSpan` cannot tell what is inside.
+
 ## Usage
 
 ### Logger
@@ -55,6 +73,13 @@ await withSpan("schedules.create", async () => {
   `OTEL_EXPORTER_ENABLED=true` and add the exporter dependency at the
   marked wiring point in `src/tracer.ts` to enable export.
 - `withSpan` records exceptions and sets span status on failure.
+- **`initTracer` second-call name changes are silently ignored.** The first
+  call latches `OTEL_SERVICE_NAME` and constructs the singleton `NodeSDK`;
+  subsequent calls with a different `serviceName` return the cached SDK
+  without emitting a warning. If you genuinely need to re-target a process
+  to a different service, restart it. Tests can use
+  `__resetTracerForTests()` (export-only via `src/tracer.ts`) to clear the
+  singleton between cases.
 
 ## Scope
 

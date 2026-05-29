@@ -1,6 +1,6 @@
 import pino, { type DestinationStream, type Logger, type LoggerOptions } from "pino";
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 /**
  * pino level label → Cloud Logging `severity` mapping.
