@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-30 (PR #102 F13 SwitchBot Webhook + ADR-020 自律 merge、Issue #106 起票。Reviewer Agent stdin 投稿パターン成功)
+最終更新: 2026-05-30 (PR #107 F13/ADR-019 follow-up 自律 merge、Issue #106 close。busy CEO mode 連続 4 回目の Reviewer + 自律 merge サイクル成功)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **PR #107 (F13 LP パス相対化 + ADR-019 policy 命名規約) 自律 merge サイクル (Issue #106 close)**:
+  - **PR #107 (+24 / -1、CI 12/12 green、commit `1c02dc1`)**: PR #102 Reviewer Low 2 + Low 4 の follow-up 統合 PR。F13 (`docs/requirements/functional/F13-presence-sensor-webhook.md`) 旧 LP リファレンス実装の Windows 絶対パス (`C:\Users\20051\Desktop\学校DX事業\06_LP\edix-lp\`) を相対表記 (`別リポジトリ edix-lp/、ユーザー手元 06_LP/edix-lp/`) に修正。ADR-019 (`docs/adr/019-rls-two-layer-tenant-isolation.md`) §決定 のテスト節直下に **Policy 命名規約** セクション追加 — PR #93 / #97 / #99 / #103 で実装した 8 種類の policy (`tenant_isolation` / `tenant_self_read` / `tenant_isolation_modify` / `tenant_isolation_delete` / `system_admin_full_access` / `system_admin_only` / `audit_log_tenant_read` / `audit_log_insert`) を表形式で規約化 + 適用ルール 5 項目 (NULLIF ラップ必須 / Issue #105 参照含む)
+  - **Reviewer Agent (Agent + worktree isolation) APPROVE 相当 (Critical 0 / High 0 / Medium 2 / Low 3)**: `0002_rls_policies.sql` との照合で 7 種類は実装と一致、`system_admin_only` のみ「規約上の予約名」で実装未到達 (CRM は `system_admin_full_access` 流用、`sensor_webhook_failures` は F13 で要件化したがテーブル未作成) を Medium 1 で指摘、merge blocker ではない。`gh pr review 107 --comment --body-file body.md` で stdin/file 経路投稿成功 ([review URL](https://github.com/cometa-kaito/kimiterrace-v2/pull/107#pullrequestreview-4390851929))
+  - **Busy CEO 自律 squash merge** (`gh pr merge 107 --squash --delete-branch --admin`、commit `1c02dc1`、Issue #106 close)
+  - **本サイクル成果**: 1 PR (#107) merged、Issue #106 close、Busy CEO 自律 merge 連続 4 回目成功 (PR #103 / #104 / #102 / #107)、Desktop context 消費 軽量 (~10k tokens、docs only PR + Reviewer 1 巡で完結)
+  - **学び**: Reviewer Agent への brief で `gh pr review N --comment --body-file <path>` を明示 + PowerShell `@` 文字混入回避のためファイル経由を指示 → 投稿成功率 4/4 連続達成 (PR #84 / #102 / #107 + STATUS.md 履歴の #103/#104/#85)。`scripts/orchestrator/templates/reviewer-brief.md.template` への明示化 (次サイクルで実施推奨)
 - 2026-05-30: **PR #102 (F13 SwitchBot Webhook + ADR-020) 自律 merge サイクル (Issue #106 起票)**:
   - **PR #102 (ユーザー並行作成 docs PR、+276 / -6、CI 12/12 green、commit `08c59e2`)**: cometa-kaito 本人が前セッション末に作成済の docs PR。来場検知センサーを **自作 LiDAR (VL53L8CX + ESP32) → 市販 SwitchBot 人感センサ (PIR) + Hub 2 + Webhook 方式** に切替。新規 **F13** (来場検知 Webhook 受信＋集計＋管理UI、128 行) + **ADR-020** (HW/受信方式/所在/DB/認可/透明性の 6 決定 + 代替案 A-F 却下理由、135 行) + 既存 F07 (presence vs dwell 区別) / F08 (旧 LiDAR 滞留ヒートマップ採用しない) / F12 (LiDAR Deprecated 打消線) / v2-mvp §1.2 更新
   - **Reviewer Agent (Agent + worktree isolation) APPROVE 相当 (Critical 0 / High 0 / Medium 2 / Low 4)**: CLAUDE.md 8 ルール全準拠、ADR-020 フォーマット全項目あり、[[closed-system-security]] memory との緊張関係は ADR-020 §文脈 + §代替案 A で「PoC リードタイム 3 日 + 自作筐体保守リスク + Phase 2 で LiDAR 再導入余地」として体系的に妥当化済。Reviewer は `gh pr review 102 --comment --body-file -` で **stdin 投稿成功** ([review URL](https://github.com/cometa-kaito/kimiterrace-v2/pull/102#pullrequestreview-4390680524))、過去 2 PR (#71 / #93) の投稿スキップ問題が今回は再発せず (`@-` 経路の安定化が効いた)
@@ -176,7 +182,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 サイクル末状態 (更新)**: **PR #102 (F13 + ADR-020) merged → F0 着手の準備完了**。CI 上 RLS テスト 24 件は PR #99 / #103 で実走化済 (postgres service container + DATABASE_URL + NULLIF ラップ + schools FOR UPDATE/DELETE + audit_log actor 詐称防止)。**STATUS.md 旧記述の「CI postgres 未追加」「High 4/5/7 残」は誤り、全て解消済**。F0 (V1 移植) / F01-F12 着手の環境完備。
+> **2026-05-30 サイクル末状態 (更新)**: **PR #107 (F13/ADR-019 follow-up) merged → Issue #106 close**。前サイクル (PR #102 F13/ADR-020) の Reviewer Low 残はゼロ。CI 上 RLS テスト 24 件は PR #99 / #103 で実走化済 (postgres service container + DATABASE_URL + NULLIF ラップ + schools FOR UPDATE/DELETE + audit_log actor 詐称防止)。F0 (V1 移植) / F01-F12 着手の環境完備。次は最優先: **#48 F0 サブタスク分割** (画面マッピング表起草 → Issue 分割)、次優先: tech-debt cleanup (#105 / #94 / #95 / #75 / #73 / #67)。
 
 ### 最優先 (F0 着手の準備)
 
@@ -195,10 +201,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 3. **#73 composite FK で cross-tenant 整合を DB 強制**: PR #103 で RLS 完備したので着手可能
 4. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
 5. **#105 audit_log_insert で school_admin context の actor_user_id=NULL 拒否** (PR #103 Reviewer Medium 1 follow-up)
-6. **#106 F13/ADR-020 follow-up** (Windows 絶対パス相対化 + ADR-019 policy 名規約追記、docs only ~50 行)
-7. **#94 ADR-001〜014 ファイル不在** (CLAUDE.md スタック表のリンク死、Tech-debt) — F0 着手と独立に並行可、ADR-012 起草 (Reviewer M-1) もここに集約
-8. **#95 observability follow-up** (tracer.test.ts + README PII 警告補完 + LogLevel 型)
-9. **#67 Reviewer worktree バグ** (解決方針 C: テンプレ禁止 + worktree 化)
+6. **#94 ADR-001〜014 ファイル不在** (CLAUDE.md スタック表のリンク死、Tech-debt) — F0 着手と独立に並行可、ADR-012 起草 (Reviewer M-1) もここに集約
+7. **#95 observability follow-up** (tracer.test.ts + README PII 警告補完 + LogLevel 型)
+8. **#67 Reviewer worktree バグ** (解決方針 C: テンプレ禁止 + worktree 化)
 
 ### memory 候補 (本サイクル学び)
 
