@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #76/#77/#80 連鎖 merge 後の追加サイクルで Desktop が open/merged PR 確認漏れ → 重複 spawn の反省。memory [[orchestrator-pr-dedup-check]] 追加)
+最終更新: 2026-05-29 (PR #84 terraform fmt 1 ファイル微修正サイクル merged、Issue #83 close)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,14 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **PR #84 terraform fmt micro-fix サイクル (Issue #83 close)**:
+  - **検知経路**: ユーザーが `terraform fmt -recursive infrastructure/terraform/` 実行時に `infrastructure/terraform/modules/identity_platform/main.tf` の `google_identity_platform_tenant.school` リソース引数 alignment ずれを発見。`allow_password_signup` (21 文字) が他の引数より長いのに `=` が縦揃いしていなかった
+  - **規律遵守確認**: ユーザーは Desktop に「直接やる」選択肢を提示したが、Desktop 側で「`infrastructure/` は Worker 経由」(CLAUDE.md Orchestrator Mode) を flag → ユーザー判断で Worker spawn + 新規 Issue ルート選択 → Issue #83 起票 → Agent + worktree isolation で Worker spawn
+  - **PR #84 (+2 / -2、1 ファイルのみ)**: `terraform fmt -recursive` で `project` / `display_name` の `=` 直前 spaces を 1 ずつ増やし `allow_password_signup` の `=` 位置に揃え。semantics 変更ゼロ、他ファイル drift なし
+  - **Reviewer 規律も遵守 (whitespace-only PR でも skip しない選択)**: Reviewer Agent spawn → CI 11/11 green / Critical 0 / High 0 / Confidence 高 → 同一アカウント self-review 制約で `--comment` 投稿 (本文に「APPROVE 推奨」明記)。投稿時に PowerShell here-string の `@` 文字混入を `updatePullRequestReview` mutation で修正、本サイクルで投稿 hygiene の追加注意点として記録
+  - **merge**: `gh pr merge --squash --delete-branch --admin` で commit `5d09bf0` 着地。ローカル branch 削除は Worker worktree 参照中で失敗 (無害な残骸、後続セッションで掃除可)
+  - **本サイクル成果**: 1 PR (#84) / Issue #83 close / Desktop context 消費 軽量 (whitespace 1 ファイルにつき orchestrator サイクル目標 ~6,000 tokens 圏内)
+  - **学び**: 「tiny PR (whitespace fmt のみ)」でも infrastructure/ なら Worker 経由 + Reviewer skip しない、というユーザーの規律遵守判断を実装で確認。今後 fmt-only PR の例外ルール化は不要 (1 サイクル分のコストは許容範囲)
 - 2026-05-29: **PR #76 pgvector hoist + PR #77 DDL Part C1 + PR #80 cloud_sql var 連鎖 merge (Desktop Worker mode 連鎖 2 サイクル目)**:
   - **PR #76 (pgvector hoist、22 行追加 / 27 行削除、純減 -5 行)**: `_shared/pgvector.ts` に `VECTOR_DIM = 768` + `vector` customType を hoist。`content-versions.ts` / `ai-chat-messages.ts` のローカル重複宣言を削除し共有 module import に置換。drizzle-kit 生成 SQL は不変 (dimension 768 維持、マイグレーション差分なし)。Reviewer APPROVE (Critical 0 / High 0、CI 11/11 green)。**Issue #74 自動 close**
   - **PR #77 (DDL Part C1、277 行追加)**: CRM 系 3 + 横断系 3 = 6 テーブル (`advertisers` / `contracts` / `communications` / `monthly_reports` / `system_admins` / `audit_log`) を Drizzle スキーマに追加。`monthly_reports` のみ school_id (テナント分離)、他 5 テーブルは cross-tenant。既存 enum (`contractStatus` / `communicationChannel` / `auditOp`) 再利用、新規 enum なし (CLAUDE.md ルール 3)。`audit_log` は `prev_hash` / `row_hash` SHA-256 hash chain skeleton (NFR04、trigger 実装は #59 で同梱)。Reviewer 実質 APPROVE (Critical 0 / High 0、Medium 3 / Low 4 は #59 Part C2 で吸収可)。CI 11/11 green
