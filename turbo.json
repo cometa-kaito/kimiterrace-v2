@@ -19,7 +19,8 @@
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"],
-      "passThroughEnv": ["DATABASE_URL", "KIMITERRACE_TEST_DB_OK"]
+      "env": ["DATABASE_URL"],
+      "passThroughEnv": ["DATABASE_URL"]
     },
     "test:e2e": {
       "dependsOn": ["build"],
