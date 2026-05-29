@@ -11,3 +11,10 @@ export * from "./events.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
+// Part C1: CRM + cross-tenant
+export * from "./advertisers.js";
+export * from "./contracts.js";
+export * from "./communications.js";
+export * from "./monthly-reports.js";
+export * from "./system-admins.js";
+export * from "./audit-log.js";
