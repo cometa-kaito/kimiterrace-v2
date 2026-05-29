@@ -13,11 +13,6 @@ GCP インフラを Terraform で管理する。**本 PR は雛形のみ。`terr
 ```
 infrastructure/terraform/
 ├── README.md                      # このファイル
-├── versions.tf                    # terraform / provider バージョン制約
-├── providers.tf                   # google / google-beta provider
-├── backend.tf                     # GCS remote state (template)
-├── variables.tf                   # 共通入力変数
-├── outputs.tf                     # 共通 output
 ├── modules/
 │   ├── cloud_run/                 # Next.js web 用 (ADR-002, ADR-008)
 │   ├── cloud_sql/                 # PostgreSQL 16 + pgvector (ADR-001, ADR-007)
@@ -29,6 +24,11 @@ infrastructure/terraform/
     ├── staging/main.tf            # ステージング (project: signage-v2-staging)
     └── dev/main.tf                # 開発 (project: signage-v2-dev, Cloud SQL は docker-compose 代替)
 ```
+
+各 env (`envs/prod`, `envs/staging`, `envs/dev`) の `main.tf` は **self-contained な
+Terraform root** として動作する（`terraform { ... }` ブロック・provider 宣言・variable
+を各 main.tf 内に持つ）。`infrastructure/terraform/` 直下に root .tf は置かない
+（Issue #69 で整理済み。dead config 化を避けるため）。
 
 すべてのモジュールは `enabled = false` で雛形化されており、`terraform plan`
 しても**リソースは作られない**。Phase 開発で値を詰めて `enabled = true` に切り替える。
