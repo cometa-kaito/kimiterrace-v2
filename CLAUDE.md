@@ -150,7 +150,7 @@ flowchart TD
 | IaC | Terraform | [ADR-009](docs/adr/009-terraform.md) |
 | パッケージ管理 | pnpm + Turborepo | [ADR-010](docs/adr/010-pnpm-turborepo.md) |
 | コード品質 | Biome（ESLint+Prettier 統合） | [ADR-011](docs/adr/011-biome.md) |
-| テスト | Vitest + Playwright + Testcontainers | [ADR-012](docs/adr/012-testing-stack.md) |
+| テスト | Vitest + Playwright + DATABASE_URL env (実 PG) | [ADR-012](docs/adr/012-testing-stack.md) |
 | API | Next.js Route Handlers（Hono 非採用） | [ADR-008](docs/adr/008-nextjs-route-handlers.md) |
 | エラー追跡 | Sentry | [ADR-013](docs/adr/013-sentry.md) |
 | 観測 | Cloud Logging + Cloud Trace + OpenTelemetry | [ADR-014](docs/adr/014-observability.md) |
