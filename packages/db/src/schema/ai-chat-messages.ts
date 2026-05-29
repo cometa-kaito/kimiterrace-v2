@@ -1,26 +1,9 @@
 import { sql } from "drizzle-orm";
-import {
-  customType,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  real,
-  text,
-  uuid,
-  varchar,
-} from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
+import { vector } from "../_shared/pgvector.js";
 import { aiChatSessions } from "./ai-chat-sessions.js";
 import { schools } from "./schools.js";
-
-// pgvector の vector 型を Drizzle に教える（次元 768 = Gemini text-embedding-004）。
-// 既存 content-versions.ts の customType パターンを踏襲（ADR-007）。
-const vector = customType<{ data: number[]; driverData: string }>({
-  dataType() {
-    return "vector(768)";
-  },
-});
 
 /**
  * F06: 対話セッション内の個別メッセージ。
