@@ -2,9 +2,9 @@
 
 > kimiterrace-v2 の脅威モデル。STRIDE フレームワーク（Spoofing / Tampering / Repudiation / Information Disclosure / Denial of Service / Elevation of Privilege）に従い、想定攻撃と対策を網羅する。
 
-最終更新: 2026-05-28
+最終更新: 2026-05-29
 担当: Claude Code (orchestrated)
-ステータス: **Part A (Spoofing + Tampering) + Part B (Repudiation + Information Disclosure) 初稿** — Part C は別 PR で追記
+ステータス: **Part A (Spoofing + Tampering) + Part B (Repudiation + Information Disclosure) + Part C (DoS + Elevation of Privilege + 即公開フロー特有) 完結**
 
 ---
 
@@ -65,8 +65,9 @@
 | **T — Tampering**（改竄） | データ・コード・通信の改竄 | ✅ Part A（本書） |
 | **R — Repudiation**（否認） | 操作の事後否認 | ✅ Part B（本書） |
 | **I — Information Disclosure**（情報漏洩） | 機密情報の意図せぬ露出 | ✅ Part B（本書） |
-| **D — Denial of Service**（DoS） | サービス停止・性能劣化攻撃 | ⏳ Part C（別 PR） |
-| **E — Elevation of Privilege**（権限昇格） | 権限の不正取得 | ⏳ Part C（別 PR） |
+| **D — Denial of Service**（DoS） | サービス停止・性能劣化攻撃 | ✅ Part C（本書） |
+| **E — Elevation of Privilege**（権限昇格） | 権限の不正取得 | ✅ Part C（本書） |
+| **P — 即公開フロー特有**（プロダクト固有） | 教員の即公開判断にまつわる固有リスク | ✅ Part C（本書） |
 
 各脅威の記載項目（全カテゴリ共通）:
 
@@ -475,29 +476,249 @@
 
 ---
 
-## 9. Denial of Service（DoS） — Part C（別 PR）
+## 9. Denial of Service（DoS）
 
-このセクションは Part C で追記する。スコープ予約のみ。
+サービス可用性 / 性能 / コスト枠を意図的に枯渇させる攻撃。Vertex AI コスト膨張・対話 API 連投・DB コネクション枯渇・サイネージ更新 storm の 4 軸で防御する。コスト天井は意図的に設けない方針（重要近況: 2026-05-28 判断）だが、**不正利用に起因する膨張は必ず検知 + 自動絞り込みする**設計とする。
 
-- D-01: API レート超過（予定）
-- D-02: Vertex AI コスト爆発攻撃（予定）
-- D-03: DB クエリ過負荷（予定）
-- D-04: ファイルアップロード容量攻撃（予定）
+### D-01: AI 呼び出し悪用（Vertex AI コスト膨張 / rate limit 超過）
+
+- **概要**: F03（AI 構造化抽出）や F06（生徒 Q&A）のエンドポイントが Vertex AI / Gemini を呼び出す経路で、攻撃者が短時間に大量リクエストを送り、Vertex AI のクォータ枯渇 + 月額コストの異常膨張を引き起こす。また、巨大ファイルや巨大プロンプトを連投して、1 リクエストあたりのトークン消費を最大化する亜種もある。
+- **攻撃シナリオ**:
+  1. 攻撃者が magic_link 経由の F06 チャット API を発見、スクリプトで 1 秒間に数百クエリを連投。
+  2. もしくは教員アカウントを乗っ取り、F03 のファイル抽出 API に巨大 PDF（数百ページ × 高解像度画像）を繰り返しアップロード。
+  3. Vertex AI の region クォータが枯渇 → 正規教員の F03 / 生徒の F06 が連鎖的に 429 / 5xx で停止。
+  4. 月次請求で想定の 10〜100 倍のコストが発生し、運営の経営判断を圧迫。
+- **影響度**: **High**（サービス停止 + コスト膨張、PoC 期間中なら**Critical**に近い）
+- **対策**:
+  - **多段レート制限**: F06 は IP / magic_link / セッション fingerprint の 3 軸で「1 分あたり N 件」を強制（D-02 と整合）。F03 は教員ロール単位で「1 時間あたり M 件」、ファイルサイズ上限（NFR06 で別途定義）と最大入力トークン数 (`max_input_tokens`) を併用。
+  - **Cloud Armor / Cloud Run の per-route quota**: HTTP レイヤで `/api/ai/*` 系を burst protection 配下に置き、IP 単位の急激なスパイクを 429 で先に止める。
+  - **コスト予算アラート**: Cloud Billing Budget で「日次想定の 5 倍」「月次想定の 2 倍」を閾値に Slack + PagerDuty 通知、自動 cutoff はしない（教員業務を巻き添えにしないため）が、判断材料として即時可視化。
+  - **fail-closed な circuit breaker**: Vertex AI のエラー率が 5 分間で 20% を超えたら、F03 / F06 を一時 503 に落とし、教員ダッシュボードに「AI 障害中」を表示。攻撃 traffic を巻き込んだ巻き戻し被害を防ぐ。
+  - **PII マスキング後の embedding を再利用** (CLAUDE.md ルール 4 + I-02 / I-06 と整合): 同一プロンプトの重複呼び出しは結果キャッシュで返し、無駄な Vertex AI 呼び出しを発生させない。
+  - 関連: F03（AI 構造化抽出）、F06（生徒 Q&A）、NFR06（コスト方針）、CLAUDE.md ルール 4、ADR-005（Vertex AI）、ADR-017（Gemini + confidence）
+- **検知方法**:
+  - **メトリクス**: Cloud Monitoring で「Vertex AI 呼び出し数 / 分」「同一 IP からの `/api/ai/*` 呼び出し数 / 分」「平均入力トークン数」を時系列収集、3 シグマ超過で WARN、5 シグマ超過で Critical。
+  - **コスト**: Cloud Billing Budget の Pub/Sub 通知を別ワークロード（読み専用）で購読、日次予算 1.5 倍で Slack、3 倍で PagerDuty。
+  - **テスト**: 統合テストで「同一 IP から `/api/ai/qa` を 1 分間に 200 件送ると 100 件目以降は 429」を `__tests__/ratelimit/ai-qa.test.ts` で確認。
+  - **監査**: `audit_log.ai.call` の `actor_id` / `school_id` 別 24h 集計を日次バッチで生成、想定上限の 3 倍を超えるアクターを教員ダッシュボードと system_admin にハイライト。
+
+### D-02: 生徒対話の連投 attack（magic_link 経由の F06 過剰呼び出し）
+
+- **概要**: D-01 の特殊系として、**クラス magic_link 経由の生徒チャット (F06)** を対象に、1 端末から短時間で連投することで、(a) 該当クラスの正規生徒の応答遅延、(b) クラス内の F06 体験の劣化、(c) magic_link のレピュテーション低下を引き起こす。F06 は匿名アクセスのため認証単位での絞り込みが効きにくく、専用の対策が必要。
+- **攻撃シナリオ**:
+  1. 生徒（あるいは興味本位の生徒）が、手元の curl / 自作スクリプトで `/api/ai/qa` を秒間 10 件連投。
+  2. もしくは複数生徒が「同じ質問を 10 人で同時に投げる」遊びを始め、クラス単位で sustained load が発生。
+  3. 結果として、正規利用の生徒が応答待ちで離脱、F06 の体験を毀損。
+- **影響度**: **Medium**（PoC 期間中の生徒体験毀損は事業継続に直結するため、ケースによっては **High** ）
+- **対策**:
+  - **1 端末 / 分あたりのクエリ制限を必須化** (F06 要件): `magic_link_id + device_fingerprint + IP` の三つ組をキーに「1 分あたり 10 件」「1 時間あたり 60 件」を制限値とし、超過は 429 + `Retry-After` を返す。閾値は教員ダッシュボードからクラス単位でチューニング可（学園祭などの祭事に対応）。
+  - **クラス magic_link 単位の総量制限**: 「クラス全生徒数 × 5 / 時間」を上限に、それを超えるクエリは 503 + 教員通知。学級暴走（あるいは集団遊び）を検知する。
+  - **質問 dedupe**: 同一 magic_link 内で同一 normalized prompt（embedding cosine 類似度 >0.95）が 5 分以内に再投された場合、Vertex AI 呼び出しをスキップしてキャッシュ応答を返す（コスト + 負荷の二重防御）。
+  - **生徒側 UI スロットリング**: フロントエンドで送信ボタンを連投不可（送信中は disable、3 秒 cooldown）として正規利用を阻害しない範囲で人間操作の上限を導入。サーバ側絞り込みのバックアップではなく UX 配慮。
+  - 関連: F06（生徒 Q&A）、F05（クラス magic_link）、ADR-016（class-magic-link-anonymous-access）、NFR06、CLAUDE.md ルール 4
+- **検知方法**:
+  - **メトリクス**: `audit_log.ai.qa` の `magic_link_id` 別 1 分間集計を Cloud Monitoring に流し、閾値超過で `Throttled` カウンタを増やす。
+  - **教員ダッシュボード**: 「現在 throttle 中のクラス一覧」を可視化、いじめ・集団遊び・スクリプト乱用の早期発見に使う。
+  - **テスト**: 統合テストで「同一 magic_link から 1 分間に 15 件 → 11 件目以降 429」「同一質問の連投はキャッシュ応答（Vertex AI mock 呼び出し回数が 1）」を `__tests__/ai/qa-throttle.test.ts` で確認。
+  - **異常検知**: 1 magic_link の 1 日あたり質問数が「クラス全生徒数 × 30」を超えたら教員 + system_admin に通知。
+
+### D-03: Cloud SQL コネクション枯渇
+
+- **概要**: 攻撃者または不適切なアプリ実装が、Cloud SQL のコネクション上限（インスタンスサイズ依存、初期想定 100〜200）を枯渇させ、正規リクエストが「接続取得待ち」で堆積、最終的に Cloud Run コンテナが OOM / startup probe 失敗で再起動する状態を誘発する。RLS のために `SET LOCAL` を都度実行する設計（T-03 と整合）はコネクション再利用前提のため、プールが詰まると一気に詰まる。
+- **攻撃シナリオ**:
+  1. 攻撃者が `/api/schedules` のような重い SELECT を秒間 500 件連投（D-01 の rate limit が緩い経路を狙う）。
+  2. 各リクエストが Cloud SQL コネクションを 50ms 以上保持、コネクションプール（PgBouncer または app 内 pool）が上限到達。
+  3. 後続リクエストが「コネクション待ち」でタイムアウト、Cloud Run の `livenessProbe` 失敗 → コンテナ再起動 → 状態を保持していたセッションが破棄。
+  4. 教員の F03 アップロードが進行中だった場合、途中失敗 + 再アップロード待ちの混乱が拡大。
+- **影響度**: **High**（広域サービス停止、復旧に数分〜数十分）
+- **対策**:
+  - **コネクションプール統一**: 全 Cloud Run インスタンスは [PgBouncer (Cloud SQL Auth Proxy + pool)](https://cloud.google.com/sql/docs/postgres/connect-overview) 経由のみで接続、アプリ側プールサイズは `(max_connections / instances) × 0.7` で算出。
+  - **クエリ timeout 強制**: PostgreSQL の `statement_timeout` を 5 秒（管理操作以外）、`idle_in_transaction_session_timeout` を 10 秒に設定し、暴走クエリ / 放棄トランザクションがコネクションを掴み続けないようにする。
+  - **Cloud Run autoscale 上限**: `--max-instances` を有限値で設定し、無限スケールで Cloud SQL を圧迫しない。スケール上限を超えた traffic は 503 で返し、Cloud Armor 層で吸収。
+  - **クリティカルパス分離**: 管理操作 / バッチ (Cloud Run Jobs) と Web ハンドラを **別 SQL ユーザー** + 別プールにし、片方が枯渇しても他方が生存する。
+  - **`withTenantContext` ラッパの強制** (T-03 / I-01 と整合): 接続取得 → `RESET ALL` → `SET LOCAL` → 処理 → コネクション返却 を 100ms 以内で完結、長時間保持を禁止。
+  - 関連: ADR-001（PostgreSQL）、ADR-002（Cloud Run）、ADR-019（RLS 二層）、NFR06（コスト方針）、T-03、I-01
+- **検知方法**:
+  - **メトリクス**: Cloud SQL `pg_stat_activity` の `active` + `idle in transaction` 件数、PgBouncer の `wait_count` を Cloud Monitoring で時系列収集、コネクション利用率 80% で WARN、95% で Critical。
+  - **クエリ統計**: `pg_stat_statements` で平均実行時間が増加しているクエリを日次レポート化、`statement_timeout` 違反は audit_log にも記録。
+  - **テスト**: 負荷テスト（Playwright + k6 or Artillery）で「Cloud Run 2 instances + 同時 200 req で全リクエスト成功（429 含む）」を CI の手動承認ジョブで確認。常時走らせると CI コストが高いので weekly 実行。
+  - **アラート**: `livenessProbe` 失敗による再起動が 10 分間で 3 回以上発生したら Critical（PagerDuty）。
+
+### D-04: サイネージ表示の更新 storm（CDN キャッシュ無効化攻撃）
+
+- **概要**: サイネージ端末（数十校 × 数台 / 校）が短時間に集中して **同じコンテンツ** を再取得し、Cloud Run / Cloud SQL に集中アクセスが発生する状態。攻撃者の悪意による場合（教員アカウント乗っ取り後に大量の「臨時連絡」を投稿し、全端末を一斉再描画）と、運用ミスによる場合（一斉キャッシュ無効化スクリプトの誤実行）がある。T-04（公開コンテンツの不正書換）の DoS 亜種としても扱う。
+- **攻撃シナリオ**:
+  1. 攻撃者が教員アカウントを乗っ取り（S-04 等）、`/api/announcements` に大量の「緊急連絡」を 1 秒 1 件のペースで投稿。
+  2. サイネージ端末は「緊急」種別を即時表示する設計 (F04 / ADR-015) のため、各投稿で全端末がコンテンツを再取得。
+  3. 結果として、Cloud Run / Cloud SQL に短時間で N（投稿数）× M（端末数）= 数千 RPS の集中アクセス。
+  4. もしくは内部運用者が CDN キャッシュ全パージスクリプトを誤って本番で実行、全端末が一斉に再取得を試みる。
+- **影響度**: **High**（サイネージ表示の停止 + Web 教員操作の遅延、社会的影響あり）
+- **対策**:
+  - **CDN キャッシュ 60 秒を基本**: サイネージ向け `/api/signage/*` レスポンスは `Cache-Control: public, max-age=60, stale-while-revalidate=300` を付与。緊急連絡でも 60 秒以内の遅延は許容、その代わりサイネージ側は polling 間隔を 60s に固定。
+  - **緊急種別の rate limit**: 同一 school_id 内で「緊急」タグの投稿は 1 分あたり 1 件まで（実運用では複数の同時緊急は稀）、それを超える投稿は 429 + 教員 UI で確認ダイアログ。教員ダッシュボードからの上限緩和は system_admin 承認制。
+  - **端末側の jitter**: サイネージ firmware の polling に ±10 秒の jitter を入れ、N 台が同時にリクエストする状況を解消する。
+  - **CDN パージ操作の権限分離**: CDN キャッシュ全パージはコマンドラインから直接実行不可、専用 API + system_admin 承認 + 段階パージ（10% → 50% → 100%）を必須化。Terraform 管理下のスクリプトのみが実行可。
+  - **fail-safe な端末 UI**: バックエンド 5xx 時はサイネージ端末は **最後に正常取得したコンテンツを表示し続ける** 設計とし、5xx storm でも掲示物の真空状態を作らない（T-04 の虚偽情報リスクとは別軸）。
+  - 関連: F04（即時公開 + サイネージ表示）、ADR-015（instant-publish-with-safety-nets）、T-04（公開コンテンツの不正書換）、NFR06
+- **検知方法**:
+  - **メトリクス**: サイネージ系エンドポイントの RPS、Cloud CDN の `cache_hit_ratio`、Cloud Run の `request_count` を Cloud Monitoring で時系列収集。`cache_hit_ratio` が短時間で 90% → 30% に落ちたら Critical。
+  - **緊急種別の連投検知**: 1 分間に同一 school_id から 2 件以上の「緊急」投稿が発生したら教員 + system_admin に通知。
+  - **テスト**: 統合テストで「サイネージ系エンドポイントが `Cache-Control: max-age=60` を含むレスポンスヘッダを返す」「緊急タグの 1 分 2 件投稿が 429」を `__tests__/signage/cache-storm.test.ts` で確認。
+  - **runbook**: CDN キャッシュ全パージ手順は専用 runbook 化、操作ログを audit_log + Slack に同時記録。
 
 ---
 
-## 10. Elevation of Privilege（権限昇格） — Part C（別 PR）
+## 10. Elevation of Privilege（権限昇格）
 
-このセクションは Part C で追記する。スコープ予約のみ。
+権限境界の不正突破。SQL Injection / SECURITY DEFINER 誤用 / SA 鍵漏洩 / ロール任命の階層違反の 4 軸で防御する。Spoofing（S-04 custom claims 偽造）が「認証主体の偽装」であるのに対し、本セクションは **正規の認証主体が想定外の権限を取得する** 経路を扱う。
 
-- E-01: 教員 → system_admin 昇格（予定）
-- E-02: SECURITY DEFINER 関数経由の RLS バイパス（予定）
-- E-03: サービスアカウント鍵悪用（予定）
-- E-04: 委託先からの権限昇格（予定）
+### E-01: SQL Injection（Drizzle ORM + parameter binding で対策）
+
+- **概要**: 攻撃者がユーザー入力経由で任意の SQL を実行し、RLS を直接バイパス（`SET app.current_school_id = '...'` を任意設定、もしくは `SET ROLE` で migrator ロールに昇格）して全テナント PII を取得する。Drizzle ORM 採用の前提では parameter binding が標準だが、`db.execute(sql\`...${userInput}...\`)` のような raw SQL や、`orderBy` の column 名動的指定など **bind 外** の経路でリスクが残る。
+- **攻撃シナリオ**:
+  1. 教員が連絡投稿フォームに `'; SET app.current_school_id = '00000000-0000-0000-0000-000000000000'; --` のような payload を入力。
+  2. ハンドラが Drizzle の raw SQL builder で `sql\`UPDATE announcements SET body = ${input}\`` を組み立てている経路だと、`sql` テンプレートタグは parameter binding するため上記は通常無害だが、開発者が誤って `sql.raw(input)` を使うと一発で escape 外。
+  3. もしくは `orderBy: input` のような column 名動的指定で `1; DROP TABLE audit_log; --` を渡され、ステートメント 2 文目が実行可能になる経路。
+  4. RLS 設定変更 / migrator ロール昇格に成功すると、後続クエリで全校 PII を取得 + 監査痕跡を破壊。
+- **影響度**: **Critical**（全テナント漏洩 + audit_log 改竄、サービス継続不能）
+- **対策**:
+  - **Drizzle の parameter binding を全面採用** (CLAUDE.md ルール 3 / ADR-004): 全 SQL を `sql\`...\`` テンプレートタグまたは builder API（`db.select().from(...).where(eq(...))`）で組み立て、`sql.raw()` の使用は packages/db 配下に限定 + CODEOWNERS で必須レビュー。
+  - **Biome / lint ルールでの強制**: `sql.raw` の使用箇所を grep で検出する CI step、もしくは Biome の custom rule で `import { sql } from 'drizzle-orm'` した上で `.raw(` を呼ぶことを警告。
+  - **`orderBy` / `column` 動的指定の allowlist 化**: ソート可能カラム名は型レベルの union 型で明示し、文字列 → enum 変換でしか受け付けない（`z.enum(['created_at', 'updated_at'])` で Zod validate）。
+  - **DB ユーザーの最小権限**: アプリ用ロールは `SET ROLE` 不可、`BYPASSRLS` を持たない、`app.current_school_id` 以外の GUC は SET 不可（`pg_settings` で `context = 'user'` のみ許可）。Injection 成功時の影響範囲を最小化。
+  - **`statement_timeout` 5 秒** (D-03 と整合): Injection 成功しても長時間クエリは強制 abort、データ exfiltration を抑制。
+  - 関連: CLAUDE.md ルール 2（RLS）/ ルール 3（Drizzle 単一ソース）、ADR-004（Drizzle）、ADR-019（RLS 二層）、T-01、I-01
+- **検知方法**:
+  - **静的検査**: CI に `sql.raw` / `db.execute` 直接呼び出しの grep を含め、検出時は警告 + 該当 PR レビューで CODEOWNERS（security）必須化。
+  - **pgaudit**: `SET ROLE` / `SET SESSION AUTHORIZATION` / `pg_read_server_files` 系の試行を pgaudit で全件 Cloud Logging に送信、検出時に即 Critical。
+  - **テスト**: `__tests__/sql/injection-vectors.test.ts` で OWASP A03:2021 由来の典型 payload 集（`'; --`, `' OR 1=1 --`, `'; SET app.current_school_id ...`, `'; DROP TABLE ...`）を投入して全件「無害化された結果（0 行 or validation error）」を assert。
+  - **WAF**: Cloud Armor の OWASP CRS rule set を `/api/*` に適用、典型 payload を HTTP 層で先に block。
+
+### E-02: SECURITY DEFINER 関数経由の RLS バイパス
+
+- **概要**: PostgreSQL の `SECURITY DEFINER` 関数は、定義者の権限で実行される。これを **アプリ用ロールから呼び出せる関数として作成** すると、関数内のクエリは定義者（典型的には `BYPASSRLS` を持つ migrator 相当）の権限で動き、**呼び出し側ロールの RLS を意図せずバイパス** する。便利だからと採用すると、CLAUDE.md ルール 2 の「RLS を絶対に無効化しない」原則が静かに崩れる。
+- **攻撃シナリオ**:
+  1. 開発者が「集計クエリを高速化したい」「複数テーブルを跨ぐ複雑な計算を 1 関数にまとめたい」目的で `CREATE FUNCTION get_school_stats() RETURNS ... SECURITY DEFINER` を作成。
+  2. 関数は内部で `SELECT COUNT(*) FROM students WHERE school_id = ...` のようなクエリを実行するが、定義者権限なので RLS が外れ、`current_setting('app.current_school_id')` を参照しないコードパスがあれば**全校集計を返す**。
+  3. アプリ用ロールから `SELECT get_school_stats()` を呼べる状態だと、攻撃者は magic_link で侵入した後でも全校統計を取得。
+  4. もしくは関数内に `SET LOCAL app.current_school_id = ...` を任意設定するロジックがあると、E-01 と組み合わせて任意テナントの読み書きが可能になる。
+- **影響度**: **Critical**（テナント分離の意味的破壊、ADR-019 二層 RLS の根幹を突き崩す）
+- **対策**:
+  - **SECURITY DEFINER 関数を原則禁止** (ADR-019): 全 `CREATE FUNCTION` migration を CODEOWNERS で security レビュー必須化、`SECURITY DEFINER` を含む場合は ADR 起票を要求。
+  - **どうしても必要な場合の規律**: 関数定義に明示的に `SET search_path = pg_catalog, public` を付与（search_path attack 防止）、関数内で `current_setting('app.current_school_id')::uuid` を**必ず参照してから**クエリ実行、関数の所有者は `BYPASSRLS` を持たない専用ロールにする。
+  - **静的検査**: マイグレーションファイル中の `SECURITY DEFINER` を grep、検出時は CI で警告 + ADR-019 への参照 comment を必須化。
+  - **テスト**: `__tests__/rls/security-definer-functions.test.ts` で「関数経由でも他校データが読めない」「context 未設定で関数呼び出し → 例外」を全 SECURITY DEFINER 関数（存在する場合）で確認。
+  - **pgaudit**: 関数定義 / 変更 / 削除を全件 Cloud Logging に送信、`SECURITY DEFINER` 含むものは Critical。
+  - 関連: CLAUDE.md ルール 2（RLS）、ADR-019（RLS 二層テナント分離）、ADR-001（PostgreSQL）、T-01、T-03、I-01
+- **検知方法**:
+  - **静的**: CI で `grep -i 'SECURITY DEFINER' packages/db/migrations/` を実行、検出時は ADR-019 + security レビュー必須。
+  - **動的**: 日次バッチで `pg_proc` から `prosecdef = true` の関数を列挙、Terraform / migration 由来でない手動作成を検知して Critical。
+  - **テスト**: `__tests__/rls/` 全件で「全 SECURITY DEFINER 関数が他校データを返さない」マトリクスを必須化。
+  - **runbook**: SECURITY DEFINER 関数を追加する際の review checklist を runbook 化し、ADR-019 とリンクする。
+
+### E-03: service account JSON キー漏洩（Workload Identity 強制違反）
+
+- **概要**: CLAUDE.md ルール 5 で **JSON キーファイル禁止 / Workload Identity 強制** が定められているが、開発者が「ローカルで動かしたい」「CI で簡単に使いたい」目的で SA JSON キーを生成 / コミット / Slack 添付すると、漏洩経路が一気に拡大する。SA に Vertex AI / Cloud SQL / Secret Manager 権限が付いていれば、漏洩 1 件で全 PII + AI コスト + secrets が一気に持っていかれる。
+- **攻撃シナリオ**:
+  1. 開発者が gcloud で SA JSON キーを生成し、`apps/web/.env.local` や `infrastructure/.secrets/sa-key.json` に置く。
+  2. .gitignore に漏れがあったり、別ブランチで誤コミットしたものを後から削除しても、Git history に永久残存。
+  3. 公開リポジトリの場合、GitHub の secret scanning が遅れる + 攻撃者の bot が history を scan して数分で取得。
+  4. 攻撃者は SA で Cloud SQL Auth Proxy 経由で接続 + Vertex AI 呼び出し + Secret Manager から DB password 取得 → 全方位侵害。
+- **影響度**: **Critical**（公立校データ全テナント漏洩 + 不正コスト + secrets 全露出）
+- **対策**:
+  - **Workload Identity Federation を強制** (CLAUDE.md ルール 5, ADR-014 観測, ADR-009 Terraform): Cloud Run は GKE Workload Identity / Cloud Run runtime SA を直接 attach、JSON キー不要。CI (GitHub Actions) は Workload Identity Federation で OIDC 経由認証、SA キー JSON を Secret に置かない。
+  - **SA キー生成の組織ポリシー禁止**: `constraints/iam.disableServiceAccountKeyCreation` を組織レベルで `enforced = true` に設定（Terraform で管理、ADR-009）。例外申請は ADR + 期間限定。
+  - **ローカル開発は ADC**: 個人 gcloud アカウントの `gcloud auth application-default login` 経由で Vertex AI / Cloud SQL に接続、SA impersonation で必要権限のみ取得。SA JSON ファイルを発行しない。
+  - **gitleaks (pre-commit + CI)**: CLAUDE.md ルール 5 検知欄記載のとおり、commit 前 + CI 双方で SA JSON / API key / DB password を grep、検出時は commit / push 拒否。
+  - **GitHub secret scanning + push protection**: リポジトリ設定で `secret_scanning_push_protection` を有効化、漏洩前に push を拒否。
+  - **24h rotation runbook**: 万一漏洩した場合の rotation 手順を [secret-rotation runbook](../runbooks/secret-rotation.md) で 24h 以内対応として明文化。
+  - 関連: CLAUDE.md ルール 5（Secret Manager 限定）/ ルール 8（Terraform 強制）、ADR-009（Terraform）、ADR-014（観測）、I-07（バックアップ誤公開）、S-04
+- **検知方法**:
+  - **gitleaks**: pre-commit hook + CI で必須、検出時は merge 不可。
+  - **GitHub secret scanning**: organization 全体で有効化、検出時に security@ にメール通知。
+  - **GCP Audit Logs**: `serviceAccountKeys.create` を Cloud Logging で監視、組織ポリシーで禁止しているはずなので検出 = ポリシー違反 = Critical アラート。
+  - **テスト**: `__tests__/security/no-sa-keys.test.ts` で「リポジトリ全体に `service_account` で始まる JSON 文字列が含まれない」を assert（簡易だが false-positive 低い）。
+  - **runbook**: secret-rotation.md に「漏洩発覚 → 24h 以内 rotate + audit_log 全件チェック + 影響範囲特定」のフローチャート。
+
+### E-04: ロール任命の権限階層違反（school_admin が system_admin 任命など）
+
+- **概要**: F11（ロール管理）で定義する権限階層（生徒 < 教員 < school_admin < system_admin）に対し、**下位ロールが上位ロールを任命** できる経路があると、school_admin 1 件の侵害から system_admin 任命 → cross-tenant 全 PII というエスカレーションが成立する。R-04（ロール変更履歴の喪失）が「記録の欠落」に着目するのに対し、本項は「**任命行為そのものの権限境界破綻**」を扱う。
+- **攻撃シナリオ**:
+  1. 攻撃者が校内教員アカウントを乗っ取り（S-01 / S-04）、school_admin に昇格させる（F11 の自校内昇格フロー経由）。
+  2. F11 のロール管理 API (`/api/admin/roles`) が「任命者のロール >= 任命対象のロール」をチェックする実装になっておらず、school_admin が `target_role: system_admin` を指定して任命。
+  3. system_admin になった攻撃者は ADR-019 の cross-tenant policy 経由で全校データを読める。
+  4. もしくは bulk import / CSV 経由のロール一括変更 API が階層チェックを bypass している経路を悪用。
+- **影響度**: **Critical**（全テナント PII 漏洩 + 階層秩序破壊、F11 の信用失墜）
+- **対策**:
+  - **任命可能ロールの明示的階層定義** (F11): `canAssignRole(actor.role, target.role)` をドメイン関数として定義、`teacher` は何も任命不可、`school_admin` は教員のみ、`system_admin` のみが school_admin / system_admin を任命可能。階層は enum + 比較関数で型レベル強制。
+  - **API レイヤ + DB CHECK 制約の二重ガード**: `role_changes` テーブルに CHECK 制約として「`actor_role` >= `target_role`」を SQL レベルで定義（R-04 / ADR-019 と整合）。アプリのバグでも DB が拒否する。
+  - **system_admin 任命は Terraform 管理** (S-04 と整合): system_admin は Terraform の固定リストでのみ管理、API 経由で任命できない（API は school_admin 以下のみ）。固定リストとの差異を日次バッチで照合、差分検知で Critical。
+  - **bulk / CSV 経由でも階層チェック**: 一括変更 API も内部で `canAssignRole` を全件評価、1 件でも違反があれば全 transaction を rollback（部分適用禁止）。
+  - **MFA + IP allowlist**: system_admin への昇格操作は社内 IP allowlist + MFA 必須（CLAUDE.md ルール 5 と整合）。
+  - 関連: F11（ロール管理）、S-04（custom claims 偽造）、R-04（ロール変更履歴）、ADR-003（Identity Platform）、ADR-009（Terraform）、ADR-019（RLS 二層）
+- **検知方法**:
+  - **テスト**: `__tests__/admin/role-hierarchy.test.ts` で全 (actor_role, target_role) ペアに対する `canAssignRole` の期待値マトリクスを assert、新ロール追加時に必ず更新を要求。
+  - **DB**: `role_changes` への INSERT 試行で CHECK 制約違反が発生したら audit_log に `admin.role_hierarchy_violation` を記録 + Critical アラート（アプリのバグなので即修正が必要）。
+  - **日次差分**: R-04 と同じ仕組みで Identity Platform 上の現在 role と `role_changes` 累積結果を突合、`system_admin` の差異 = Terraform 管理リストとの差異を 0 件 assert。
+  - **監査**: `audit_log.admin.role_change` を月次でレビュー、school_admin 以上の任命件数 + 任命者リストを system_admin にレポート。
 
 ---
 
-## 11. レビューサイクル
+## 11. 即公開フロー特有の脅威（Product-specific: P-xx）
+
+ADR-015（instant-publish-with-safety-nets）で採用した **承認なしの即公開モデル** は、教員の業務体感を最優先しつつ、安全網 4 種（audit_log / 1-click rollback / AI 確信度フラグ / 公開先明示）で誤公開のリスクを抑制する設計である。本セクションは、その安全網が機能する前提と機能しない経路を脅威として整理する。STRIDE 6 カテゴリの分類軸（攻撃者の意図）とは別軸の **「教員自身の善意の操作ミス」「安全網の運用回避」** に着目する。
+
+### P-01: 教員の操作ミスでの誤公開（公開先間違い / 対象クラス間違い）
+
+- **概要**: 教員が連絡 / お知らせを投稿する際、本来 1 クラス向けに公開すべき内容を **学校全体や別クラスに公開** してしまうミスは、即公開モデルでは即座に全対象端末で表示される。匿名アクセス（magic_link）を介した生徒側影響と、公開先間違いに伴う **特定生徒の PII 露出**（個別連絡が誤って他クラスに見える等）が主リスク。
+- **攻撃シナリオ**:
+  1. 教員が「3-A クラス保護者会延期」連絡を作成、公開先選択 UI でデフォルトの「全校」を変更せず公開ボタンを押す。
+  2. 連絡が全クラスのサイネージと magic_link 配信で即時表示。
+  3. もしくは「3-A 田中さん体調不良で早退」のような個別連絡（本来 3-A の担任内部メモ）を、UI のクリックミスで「3-A クラス公開」してしまい、クラス内全員に該当生徒の体調状態が露出。
+  4. AI 構造化 (F03) の文書アップロード経由でも、抽出された「公開先候補」が誤って広範囲に設定されているのを教員が見落として公開ボタンを押すケース。
+- **影響度**: **High**（個別連絡の場合は PII 漏洩で **Critical** に近い）
+- **対策**:
+  - **公開先の明示表示** (ADR-015 安全網 #4): 投稿確認ダイアログで「**公開先: 3-A (生徒 28 名 + サイネージ 2 台)**」のような **対象数 + 範囲を具体的に表示**、教員が読み飛ばしにくい強調 UI とする（赤帯 + チェックボックス確認）。
+  - **デフォルト公開先を最狭スコープに**: 新規連絡の公開先デフォルトを「投稿者の担当クラス」とし、全校公開には**明示的アクション**（プルダウン変更 + 確認ダイアログ追加）を要求。
+  - **AI 確信度フラグ** (ADR-015 / ADR-017 + 安全網 #3): F03 経由の自動公開先推定で confidence_score < 0.8 の場合は **教員レビュー必須** に倒し、UI で warning バッジを表示。
+  - **1-click rollback** (ADR-015 安全網 #2): 公開直後 5 分間は「取り消し」ボタンを大きく表示、押下で audit_log に rollback 理由を記録しつつ即座に非公開化。
+  - **個別連絡 vs 全体連絡の構造分離**: スキーマレベルで「個別連絡（特定生徒名を含む）」と「全体連絡（PII 含まず）」を別エンティティとし、個別連絡は **そもそも magic_link 配信不可** を CHECK 制約 + ハンドラレベルで強制。
+  - **audit_log の即時記録** (ADR-015 安全網 #1, CLAUDE.md ルール 1): 公開操作は `who / what / when / 公開先 / クラス ID 一覧 / 端末 ID 一覧` を全件記録、誤公開時の影響範囲特定を可能にする。
+  - 関連: F04（即時公開 + サイネージ表示）、ADR-015（instant-publish-with-safety-nets）、ADR-017（Gemini + confidence）、CLAUDE.md ルール 1（監査）、NFR03、I-03（Cloud Logging への PII 出力）
+- **検知方法**:
+  - **rollback 率の監視**: 公開後 5 分以内の rollback 件数を日次集計、教員 / school 別の rollback 率を教員ダッシュボードと system_admin にレポート。閾値（例: rollback 率 > 5%）を超える教員には UX 改善の対象として通知。
+  - **公開範囲アラート**: 1 件の連絡が「複数クラス + サイネージ + magic_link」を同時に対象とする場合、確認ダイアログで赤帯警告 + 投稿後 audit_log に高優先度フラグ。
+  - **個別連絡 → magic_link 配信の試行を拒否**: CHECK 制約違反として記録、ハンドラレベルでも 400 を返し、教員には「個別連絡は magic_link 経由で公開できません」を明示。
+  - **テスト**: `__tests__/announcements/publish-scope.test.ts` で「個別連絡を magic_link 対象に設定すると 400」「公開先未選択は 400」「rollback 内で audit_log に rollback 理由が必須」を確認。
+  - **UX レビュー**: 四半期に 1 度、教員ダッシュボードの公開フロー UI を実際の教員にレビュー依頼、誤公開しやすい部分を継続改善。
+
+### P-02: 安全網（audit_log / rollback / 確信度 / 公開先明示）の運用回避
+
+- **概要**: ADR-015 の安全網 4 種は「機能する前提で設計されている」ため、運用上の都合（緊急対応・教員の慣れ・UI 簡略化要望）で **一部の安全網が無効化 / バイパスされる経路** が生まれると、即公開モデルの根幹が崩れる。R-01（audit_log 削除）は攻撃者の意図に焦点があるが、本項は **善意の運用判断による安全網の段階的形骸化** を扱う。
+- **攻撃シナリオ**:
+  1. 教員から「確認ダイアログが多くて面倒」とのフィードバックがあり、UI を簡略化する PR で確認ダイアログの一部をデフォルト OFF（あるいは 30 日間表示抑制 cookie）に変更。
+  2. もしくは AI 確信度フラグの閾値が「教員業務の効率」を理由に 0.8 → 0.5 に緩和され、低確信度の AI 抽出結果が無警告で公開されるようになる。
+  3. rollback 5 分の猶予を「気付かないうちに過ぎてしまう」フィードバックを受けて、5 分 → 1 分に短縮（UI の見映えを優先）。
+  4. audit_log の `publish_target_devices` カラムが「データ量削減」目的でサンプリングに変更され、誤公開時に影響端末を完全特定できなくなる。
+  5. これらは個別には「小さな改善」だが、累積すると安全網が形骸化し、ADR-015 の前提が崩れる。
+- **影響度**: **High**（安全網の段階的形骸化、誤公開発生時の影響範囲特定不能 + 法的責任説明不能）
+- **対策**:
+  - **安全網 4 種を ADR-015 で明文化された不変要件として扱う**: 各安全網の閾値・挙動を ADR-015 に **数値で明記**し、変更は ADR の更新（superseded → 新 ADR）を必須化。コード PR だけで挙動を変えない。
+  - **UI 簡略化の PR レビュー強制**: 公開フロー UI を変更する PR は CODEOWNERS で security + product owner レビュー必須、ADR-015 への影響を PR 説明に明記する欄を PULL_REQUEST_TEMPLATE に追加。
+  - **安全網の自己テスト**: 統合テストで「確認ダイアログが必ず表示される（disable オプションがコードに存在しない）」「AI confidence < 0.8 は warning UI が必ず表示される」「rollback 猶予が 5 分以上である」「audit_log に `publish_target_devices` 全件が記録される」を CI で継続検証。閾値変更が必要な場合は、テストも併せて更新する PR を通じて ADR-015 の整合性をレビュー対象に強制する。
+  - **メトリクス監視**: 「rollback 率」「AI confidence < 0.8 の公開件数」「確認ダイアログの skip 率」を Cloud Monitoring で時系列収集、想定値からの乖離を四半期レビューで検出。
+  - **安全網の年次レビュー**: ADR-015 を年 1 回明示的に再レビュー、現場運用との乖離があれば ADR を改訂（運用に合わせて緩めるのではなく、ADR の改訂理由を明文化して透明性を保つ）。
+  - 関連: ADR-015（instant-publish-with-safety-nets）、ADR-017（Gemini + confidence）、F04、R-01（audit_log 削除）、R-02（ハッシュチェーン）、CLAUDE.md ルール 1、NFR04
+- **検知方法**:
+  - **テスト**: `__tests__/announcements/safety-nets.test.ts` で 4 種安全網の存在を assert（CI で常時検証）。閾値を満たさない実装は CI fail。
+  - **PR レビュー**: 公開フロー関連ファイル (`apps/web/app/(teacher)/publish/**`, `packages/db/schema/announcements.ts` 等) を CODEOWNERS で security 必須レビュー対象に。
+  - **メトリクス監視**: rollback 率 / 確信度分布 / dialog skip 率を Cloud Monitoring の dashboard で可視化、四半期レビューに自動レポート。
+  - **ADR の年次レビュー**: ADR-015 の最終レビュー日を docs/adr/README.md に記録、1 年経過時に system_admin / product owner にリマインダ。
+  - **audit_log スキーマの不可逆性**: `audit_log` から既存カラムを削除する migration は CODEOWNERS で security + compliance レビュー必須、NFR07（コンプライアンス）と整合させる。
+
+---
+
+## 12. レビューサイクル
 
 - **四半期に 1 度** このドキュメント全体を読み直し、実装変更との整合をとる。
 - 新しい機能を追加するときは、その PR で関連する脅威項目を更新する（PR テンプレートにチェック項目あり）。
@@ -505,17 +726,28 @@
 
 ---
 
-## 12. 関連ドキュメント
+## 13. 関連ドキュメント
 
-- 機能要件: [docs/requirements/functional/](../requirements/functional/)（F01-F07、特に F05 magic_link）
-- 非機能要件: [docs/requirements/non-functional/](../requirements/non-functional/)（NFR03 セキュリティ、NFR04 監査ログ）
+- 機能要件: [docs/requirements/functional/](../requirements/functional/)（F01-F12、特に F04 即時公開、F05 magic_link、F06 生徒 Q&A、F11 ロール管理）
+- 非機能要件: [docs/requirements/non-functional/](../requirements/non-functional/)（NFR03 セキュリティ、NFR04 監査ログ、NFR06 コスト方針、NFR07 コンプライアンス）
 - 全体 MVP 要件: [docs/requirements/v2-mvp.md](../requirements/v2-mvp.md)
+- ADR-001: [PostgreSQL](../adr/001-postgres-vs-firestore.md)
+- ADR-002: [Cloud Run](../adr/002-cloud-run-vs-functions.md)
 - ADR-003: [Identity Platform](../adr/003-identity-platform.md)
+- ADR-004: [Drizzle ORM](../adr/004-drizzle-vs-prisma.md)
+- ADR-005: [Vertex AI](../adr/005-vertex-ai.md)
 - ADR-008: [Next.js Route Handlers](../adr/008-nextjs-route-handlers.md)
+- ADR-009: [Terraform](../adr/009-terraform.md)
+- ADR-013: [Sentry](../adr/013-sentry.md)
+- ADR-014: [Observability](../adr/014-observability.md)
 - ADR-015: [instant-publish-with-safety-nets](../adr/015-instant-publish-with-safety-nets.md)
 - ADR-016: [class-magic-link-anonymous-access](../adr/016-class-magic-link-anonymous-access.md)
+- ADR-017: [gemini-ai-structuring-with-confidence](../adr/017-gemini-ai-structuring-with-confidence.md)
 - ADR-018: [custom-crm-design](../adr/018-custom-crm-design.md)
 - ADR-019: [rls-two-layer-tenant-isolation](../adr/019-rls-two-layer-tenant-isolation.md)
-- CLAUDE.md ルール 1（監査）/ ルール 2（RLS）/ ルール 4（PII マスキング）/ ルール 5（Secret Manager）/ ルール 8（Terraform）
+- F04: [即時公開 + サイネージ表示](../requirements/functional/F04-instant-publish.md)
+- F11: [ロール管理](../requirements/functional/F11-role-management.md)
+- NFR06: [コスト方針](../requirements/non-functional/NFR06-cost-policy.md)
+- CLAUDE.md ルール 1（監査）/ ルール 2（RLS）/ ルール 3（Drizzle 単一ソース）/ ルール 4（PII マスキング）/ ルール 5（Secret Manager）/ ルール 8（Terraform）
 
 > **注記**: 一部の F / NFR / ADR / v2-mvp.md セクションは本 PR 時点では未存在 or ドラフト中。リンクは将来パスを予約する形で記載しており、各文書の初稿提出時に整合性を再確認する。
