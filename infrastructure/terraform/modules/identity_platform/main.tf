@@ -7,8 +7,8 @@
 resource "google_identity_platform_tenant" "school" {
   count = var.enabled ? 1 : 0
 
-  project              = var.project_id
-  display_name         = var.tenant_display_name
+  project               = var.project_id
+  display_name          = var.tenant_display_name
   allow_password_signup = false
   # TODO: enable_email_link_signin, mfa_config
 }
