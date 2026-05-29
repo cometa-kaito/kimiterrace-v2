@@ -62,6 +62,7 @@ module "cloud_sql" {
   env        = local.env
   enabled    = false # TODO(Phase 開発): true に切替
   tier       = "db-custom-2-7680"
+  # deletion_protection は default=true を採用（prod は誤削除防止のため有効化）
 }
 
 module "secret_manager" {

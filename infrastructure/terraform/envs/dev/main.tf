@@ -58,12 +58,13 @@ module "network" {
 }
 
 module "cloud_sql" {
-  source     = "../../modules/cloud_sql"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # dev は docker-compose で代替（infrastructure/docker/ 参照）
-  tier       = "db-f1-micro"
+  source              = "../../modules/cloud_sql"
+  project_id          = var.project_id
+  region              = var.region
+  env                 = local.env
+  enabled             = false # dev は docker-compose で代替（infrastructure/docker/ 参照）
+  tier                = "db-f1-micro"
+  deletion_protection = false # dev は recreate を容易にするため無効化
 }
 
 module "secret_manager" {

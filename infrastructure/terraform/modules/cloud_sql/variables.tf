@@ -40,3 +40,9 @@ variable "vpc_network_id" {
   type        = string
   default     = ""
 }
+
+variable "deletion_protection" {
+  description = "Cloud SQL インスタンスの削除保護。prod は true（誤削除防止）、dev/staging は false 推奨。"
+  type        = bool
+  default     = true
+}

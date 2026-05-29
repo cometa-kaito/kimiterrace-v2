@@ -56,12 +56,13 @@ module "network" {
 }
 
 module "cloud_sql" {
-  source     = "../../modules/cloud_sql"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false
-  tier       = "db-custom-1-3840"
+  source              = "../../modules/cloud_sql"
+  project_id          = var.project_id
+  region              = var.region
+  env                 = local.env
+  enabled             = false
+  tier                = "db-custom-1-3840"
+  deletion_protection = false # staging も recreate を許容（prod 切替検証用）
 }
 
 module "secret_manager" {
