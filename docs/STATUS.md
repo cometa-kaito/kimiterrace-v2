@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (Operating Mode → **Busy CEO** 切替 + PR #99 CI RLS テスト実走化 merged。Issue #98 close、Issue #100 / #101 起票)
+最終更新: 2026-05-29 (F0 着手前の security + cleanup サイクル: PR #103 schools tenant_isolation FOR ALL + audit_log actor 詐称防止 / PR #104 drizzle meta enums merged。Issue #100 / #101 / #16 close、Issue #105 起票)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **F0 (V1 移植) 着手前の security + cleanup サイクル (Issue #100 / #101 / #16 close、Issue #105 起票)**:
+  - **PR #103 (schools FOR UPDATE/DELETE + audit_log actor 詐称防止、+184 / -8、CI 12/12 green、Reviewer APPROVE 相当、commit `da0605a`)**: PR #93 Reviewer 一巡目 High 4 + High 5 の解消。schools に `tenant_isolation_modify` (FOR UPDATE) と `tenant_isolation_delete` (FOR DELETE) policy 追加で silent 0-row UPDATE を防止 (NFR04 Information Disclosure)。`audit_log_insert` WITH CHECK に `actor_user_id` 詐称防止条件を追加 (NFR04 Repudiation)。`app.current_user_id` SET LOCAL helper は F0 (認証実装) で追加予定、本 PR は DB policy のみで強制。テスト 8 件追加 (tenant-isolation に schools UPDATE/DELETE 4 件 + 新規 `audit-log-actor-spoofing.test.ts` に 4 件)。**Issue #100 close**
+  - **PR #104 (drizzle meta snapshot enums 補完、+42 / -1、CI 12/12 green、Reviewer APPROVE 相当、commit `f9b721b`)**: PR #93 で baseline SQL に手動追加した 8 enum (`user_role` / `publish_scope` / `content_status` / `event_type` / `ai_extraction_kind` / `audit_op` / `contract_status` / `communication_channel`) が drizzle meta snapshot 側に未反映だった (PR #99 Reviewer 二巡目 nit) → drizzle-kit format (短配列 inline) を保持しつつ最小 diff で挿入。これで `drizzle-kit generate` 実行が no-op になり、F0 着手後のスキーマ変更時に正しい差分のみが migration 化される。**Issue #101 close**
+  - **Issue #16 close**: C4 + シーケンス図 (Part A/B/C) は PR #52 / #63 / #68 で完結済だが Issue close を忘れていたため clean-up
+  - **Issue #105 起票** (PR #103 Reviewer Medium 1 follow-up): school_admin context で `actor_user_id=NULL` を許容しているため、乗っ取られた school_admin が actor を匿名化した監査ログを差し込める懸念。修正案 A (テナント内ロールは NULL 拒否) を推奨、別 PR で対応
+  - **本サイクル成果**: 2 PR (#103 / #104) merged、Issue #100 / #101 / #16 close、Issue #105 新規起票、Busy CEO 自律 merge を 2 回連続成功 (Reviewer Agent 別 spawn + APPROVE 相当 → 自律 merge)、Desktop context 消費 中 (~30k tokens、4 commit + 2 Reviewer + 1 follow-up Issue)
+  - **F0 着手の準備完了**: security gap (#100) と drizzle meta 整合 (#101) を閉じて、F0 (V1 移植) のスケッチ・サブタスク分割・着手に進める状態
 - 2026-05-29: **Operating Mode → Busy CEO 切替 + PR #99 CI RLS テスト実走化サイクル (Issue #98 close、Issue #100 / #101 起票)**:
   - **方針変更**: CLAUDE.md の「Orchestrator Mode」セクションを「**Operating Mode (Busy CEO)**」に置換 (commit `9b0512f`)。Desktop が orchestrator と Worker を兼任、客観検証 (Reviewer + CI) 経由の意思決定は自律実行 OK (破壊的変更含めて)。memory `feedback_busy_ceo_mode.md` 新規作成、`desktop_as_worker_authorized` / `orchestrator_commit_authority` / `pr_merge_authority` を統合・範囲拡張。MEMORY.md インデックス + STATUS.md 反映。**判断マトリクス** 確立: 軽量 fix / 緊急 / 設計と実装が一体 → Desktop 直接、並列度 N → spawn、客観レビュー → Reviewer Agent spawn 必須 (self-review 制約 + 客観性、本サイクル先例で証明)
   - **PR #99 (CI RLS テスト実走化、+42 / -32、commit `3c747af`、CI 12/12 green、Reviewer 二巡目 APPROVE 相当)**: Desktop Worker mode で完走。
