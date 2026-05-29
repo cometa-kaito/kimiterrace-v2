@@ -19,7 +19,7 @@
 - [ ] 管理 UI（学校・コンテンツ・端末・ユーザー）
 - [ ] サイネージ表示エンジン（`management/src/components/signage/` 一式 → `apps/web` 内に Server Component として）
 - [ ] 広告階層マージロジック（system → school → class の優先度マージ）
-- [ ] LiDAR センサー連携（滞留時間取得）
+- [ ] ~~LiDAR センサー連携（滞留時間取得）~~ **→ Deprecated**。来場検知は [F13](F13-presence-sensor-webhook.md) / [ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md) の SwitchBot Webhook 方式に置き換え。自作 LiDAR 案（VL53L8CX + ESP32）は `apps/firmware/` 想定だったが本 MVP では実装しない
 - [ ] firmware の API エンドポイント切替（旧 Firebase Functions → Cloud Run）
 
 ## 新規追加（V1 未実装）
@@ -31,12 +31,12 @@
 
 - [ ] 旧 management/src の各画面と V2 画面の機能等価性を「画面マッピング表」として `docs/architecture/v1-v2-mapping.md` に記録（次タスク）
 - [ ] firmware から V2 API への切替は段階的（DNS で 5% → 50% → 100%）
-- [ ] LiDAR データは F07 のイベントログに統合（`event_type='dwell'`）
+- [ ] ~~LiDAR データは F07 のイベントログに統合（`event_type='dwell'`）~~ **→ Deprecated**。PIR 由来の `event_type='presence'` で統合（[F13](F13-presence-sensor-webhook.md)）。`dwell` 列挙値はスキーマに保持するが Phase 2 まで書き込み無し
 - [ ] 旧 Firebase Hosting / Functions は移行完了確認後に停止（[docs/runbooks/cutover.md](../../runbooks/cutover.md)）
 
 ## 関連
 
 - 前段: 全機能（V1 移植は基盤）
-- 後段: [F07](F07-event-logging.md)（LiDAR 統合）, [F10](F10-crm.md)（広告主分離）
+- 後段: [F07](F07-event-logging.md)（イベント統合）, [F10](F10-crm.md)（広告主分離）, [F13](F13-presence-sensor-webhook.md)（来場検知の現行方式）
 - 移行: [docs/runbooks/cutover.md](../../runbooks/cutover.md)
 - テスト: `__tests__/migration/v1-parity/`, `__tests__/e2e/signage-display/`

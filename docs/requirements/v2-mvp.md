@@ -30,7 +30,8 @@
 - 即公開フロー + 安全網 4 種（audit_log・1-click rollback・AI 確信度フラグ・公開先明示）
 - 生徒のクラス magic link 経由匿名アクセス（個人特定なし、スマホ/タブレット）
 - 生徒の音声/チャット Q&A（掲示物に関する質問のみ）
-- サイネージ表示エンジンの V1 → Cloud Run 移植（広告階層マージ + LiDAR ヒートマップ含む）
+- サイネージ表示エンジンの V1 → Cloud Run 移植（広告階層マージ含む。LiDAR ヒートマップは [F13](functional/F13-presence-sensor-webhook.md) / [ADR-020](../adr/020-presence-sensor-switchbot-webhook.md) で SwitchBot PIR ベースの時間帯ヒートマップに置換）
+- 来場検知センサー Webhook（[F13](functional/F13-presence-sensor-webhook.md)）— SwitchBot 人感センサ (PIR) のクラウド Webhook 受信、events 統合、センサ管理 UI
 - イベントロギング（タップ・遷移）と効果可視化ダッシュボード
 - AI 効果コメント自動生成 + 月次レポート (PDF, **手動配布**)
 - CRM 機能（広告主マスタ・契約・コミュニケーション履歴、system_admin のみ）

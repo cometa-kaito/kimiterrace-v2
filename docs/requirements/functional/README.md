@@ -16,6 +16,7 @@
 | [F10](F10-crm.md) | CRM | 広告主・契約・コミュニケーション履歴、system_admin のみ |
 | [F11](F11-role-management.md) | ロール管理 | system_admin / school_admin / teacher 階層 |
 | [F12](F12-v1-port.md) | V1 機能移植 | 管理 UI・サイネージ表示・LiDAR を Cloud Run へ |
+| [F13](F13-presence-sensor-webhook.md) | 来場検知 Webhook | SwitchBot 人感センサ(PIR) Webhook 受信＋集計＋センサ管理UI ([ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md)) |
 
 ## 優先度
 

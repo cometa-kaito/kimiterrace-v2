@@ -20,7 +20,8 @@
 - [ ] 個人特定情報は記録しない（client_id は cookie の uuid のみ）
 - [ ] 集計クエリは BigQuery 連携で時系列ダッシュボード化（[NFR07](../non-functional/NFR07-compliance.md) 文科省報告も同じ経路）
 - [ ] イベント送信は beacon API でページ遷移時もロスなく送信
-- [ ] LiDAR センサーからの dwell 時間データもこのテーブルに統合（[F12](F12-v1-port.md)）
+- [ ] **来場検知センサーは PIR 方式の Webhook 受信に切替済**（[F13](F13-presence-sensor-webhook.md) / [ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md)）。`event_type='presence'` を新規追加し、旧 LiDAR 由来の `dwell` とは別物として扱う（PIR は瞬間検知、dwell は継続滞在）
+- [ ] `dwell` event_type は Phase 2 で滞留秒数の厳密計測手段が決まるまで使用しない（enum 値は保持、書き込みハンドラは不在で OK）
 
 ## 関連
 
