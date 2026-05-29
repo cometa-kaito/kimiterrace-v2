@@ -84,7 +84,7 @@ RLS policy 名は、grep 可能性・migration 追跡性・新規テーブル追
 | `system_admin_full_access` | `FOR ALL` | レイヤー 2: system_admin の cross-tenant 全権 | `USING (current_setting('app.current_user_role', true) = 'system_admin')` |
 | `system_admin_only` | `FOR ALL` | CRM 系（advertisers / contracts / communications / system_admins）など `school_id` を持たないテーブル、および schoolId nullable で **テナント帰属が解決できない可能性がある** テーブル（例: `sensor_webhook_failures` の `unknown_device` レコード [F13](../requirements/functional/F13-presence-sensor-webhook.md)） | `USING (current_setting('app.current_user_role', true) = 'system_admin')`（cross-tenant 版と意味は同じだが、テーブル属性として "system_admin 以外原則アクセスなし" を policy 名で明示） |
 | `audit_log_tenant_read` | `FOR SELECT` | `audit_log` をテナントスコープで読みたい場合 | `USING (school_id = current_setting('app.current_school_id', true)::uuid OR current_setting('app.current_user_role', true) = 'system_admin')` |
-| `audit_log_insert` | `FOR INSERT` | `audit_log` 書き込みで **actor_user_id 詐称防止** を WITH CHECK で強制 | `WITH CHECK (actor_user_id IS NULL OR actor_user_id = current_setting('app.current_user_id', true)::uuid)` |
+| `audit_log_insert` | `FOR INSERT` | `audit_log` 書き込みで **actor_user_id 詐称防止 + テナント内ロールの actor 匿名化封じ** を WITH CHECK で強制 | `WITH CHECK (current_setting('app.current_user_role', true) = 'system_admin' OR actor_user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)` — **テナント内ロール (school_admin / teacher 等) は actor=NULL も拒否**、system_admin のみ NULL / 任意 uuid 許可 (cross-tenant 内部操作 / migrator 経由 INSERT のため必要、[migration 0005](../../packages/db/migrations/0005_audit_log_actor_null_school_admin.sql)) |
 
 #### 適用ルール
 
@@ -92,7 +92,7 @@ RLS policy 名は、grep 可能性・migration 追跡性・新規テーブル追
 2. **`current_setting(..., true)` は必ず `NULLIF(..., '')` でラップ**: missing_ok モードが空文字列を返して `''::uuid` でキャストエラー → fail-closed が fail-loud に化ける既知バグの再発防止（PR #99 で全 27 箇所修正済）
 3. **`tenant_isolation` 系と `system_admin_full_access` は同じテーブル上で共存させる**: PostgreSQL の RLS は OR 結合なので、テナント条件と system_admin 条件のどちらかが true なら可視。アプリ側で `app.current_user_role` をテナントロールに切替えれば一般経路では system_admin policy が発火しない設計
 4. **`system_admin_only` は cross-tenant policy ではなく、そのテーブルが system_admin 専用であることを明示する命名**: `system_admin_full_access` と USING 句は同等だが、`tenant_isolation` 系と共存しないテーブルでは `system_admin_only` を使う（CRM、`sensor_webhook_failures` 等）
-5. **`audit_log_insert` の WITH CHECK は actor 詐称防止のため必須**: school_admin context での `actor_user_id=NULL` 許容問題は [#105](https://github.com/cometa-kaito/kimiterrace-v2/issues/105) で別 PR 対応予定
+5. **`audit_log_insert` の WITH CHECK は actor 詐称防止 + 匿名化封じのため必須**: テナント内ロール (school_admin / teacher 等) の `actor_user_id` は SET LOCAL された自分の user_id に完全一致のみ可、NULL も拒否 (NFR04 Repudiation 強化、乗っ取られた school_admin が actor を匿名化して操作痕跡を消す攻撃を policy 層で防止)。system_admin のみ `actor_user_id` NULL / 任意 uuid 許可 — これは cross-tenant 集計 (月次レポート生成等) / migrator 経由 bootstrap INSERT / 内部システムジョブで actor を持たない正当な書き込みのため必要 (migration 0005 / Issue #105 で確立)
 
 ## 検討した代替案
 
