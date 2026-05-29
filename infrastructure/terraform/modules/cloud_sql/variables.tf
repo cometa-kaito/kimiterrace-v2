@@ -40,3 +40,13 @@ variable "vpc_network_id" {
   type        = string
   default     = ""
 }
+
+# Cloud SQL の deletion_protection は env ごとに切替たい:
+#   - prod: true（誤削除防止、後方互換のため default=true）
+#   - dev / staging: false（recreate のたびに手動切替を不要化）
+# Issue #70 / PR #66 Reviewer H-2 対応
+variable "deletion_protection" {
+  description = "Cloud SQL instance の deletion_protection。prod は true、dev/staging は false 推奨。"
+  type        = bool
+  default     = true
+}

@@ -20,7 +20,7 @@ resource "google_sql_database_instance" "main" {
     # TODO: database_flags - pgvector 有効化
   }
 
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 }
 
 resource "google_sql_database" "app" {
