@@ -172,8 +172,11 @@ function Cmd-Plan {
 }
 
 function Render-WorkerBrief {
-  param([int]$Issue, [string]$Branch, [string]$Worktree)
-  $template = "$ScriptRoot/templates/worker-brief.md.template"
+  param([int]$Issue, [string]$Branch, [string]$Worktree, [string]$RoleArg = "worker")
+  # Reviewer uses a different brief template (PR review instructions, not implementation).
+  # The Issue parameter is interpreted as PR number for reviewer.
+  $templateName = if ($RoleArg -eq "reviewer") { "reviewer-brief.md.template" } else { "worker-brief.md.template" }
+  $template = "$ScriptRoot/templates/$templateName"
   if (-not (Test-Path $template)) {
     return "Implement issue #$Issue. See CLAUDE.md for rules."
   }
@@ -206,7 +209,7 @@ function Spawn-LocalWorker {
   $logPath = Join-Path $dirs.Logs "worker-issue-$Issue-$(Get-Date -Format 'yyyyMMddTHHmmss').log"
   $briefPath = Join-Path $dirs.Logs "worker-issue-$Issue-brief.md"
 
-  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath -RoleArg $RoleArg
   if (-not $DryRunFlag) {
     $briefContent | Out-File -LiteralPath $briefPath -Encoding utf8
   }
@@ -224,11 +227,15 @@ function Spawn-LocalWorker {
 
   $state = New-WorkerState -Role $RoleArg -Issue $Issue `
     -Branch $branchName -Worktree $worktreePath `
-    -LogPath $logPath -Pid 0
+    -LogPath $logPath -ProcessId 0
 
+  $bashPath = if ($Config.bashPath) { $Config.bashPath } else { "bash" }
+  if (-not (Test-Path $bashPath)) {
+    throw "Configured bashPath does not exist: $bashPath. On Windows, point this at Git Bash (e.g. 'C:\Program Files\Git\bin\bash.exe'); plain 'bash' resolves to the WSL launcher which silently exits."
+  }
   Push-Location $repoRoot
   try {
-    $proc = Start-Process -FilePath "bash" -ArgumentList @(
+    $proc = Start-Process -FilePath $bashPath -ArgumentList @(
       "scripts/orchestrator/worker-launcher.sh",
       $RoleArg, $Issue, $state.id,
       "`"$($state.StatePath)`"",
@@ -258,7 +265,7 @@ function Spawn-RemoteWorker {
   $branchName = "feat/$Issue-orchestrated"
   $worktreePath = "$($M.worktreeBaseDir)/worker-issue-$Issue"
 
-  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath
+  $briefContent = Render-WorkerBrief -Issue $Issue -Branch $branchName -Worktree $worktreePath -RoleArg $RoleArg
 
   if ($DryRunFlag) {
     return [PSCustomObject]@{

@@ -1,0 +1,31 @@
+{
+  "name": "@kimiterrace/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PostgreSQL + pgvector スキーマ（Drizzle）。テナント分離は RLS で強制 (CLAUDE.md ルール2)。",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "clean": "rm -rf .turbo dist"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "drizzle-zod": "^0.8.3",
+    "postgres": "^3.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.1",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.2"
+  }
+}

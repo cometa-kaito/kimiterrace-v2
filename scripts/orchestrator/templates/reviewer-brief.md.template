@@ -5,88 +5,128 @@ Desktop Orchestrator から PR レビュー依頼を受け取りました。
 
 ## レビュー対象
 
-**PR #{{PR_NUMBER}}**
+**PR #{{ISSUE_NUMBER}}**
 
-最初に `gh pr view {{PR_NUMBER}} --json title,body,additions,deletions,files,headRefName` で全体把握。
-差分の詳細は `gh pr diff {{PR_NUMBER}}` で取得。
+## レビュー手順（必ずこの順）
 
-## 必読
+### Step 1: 状態把握
 
-1. このリポジトリの **CLAUDE.md**
-2. **docs/STATUS.md**
-3. 対象 PR の関連 ADR（PR 説明や branch 名から推定）
+1. `gh pr view {{ISSUE_NUMBER}} --json title,body,additions,deletions,files,headRefName,statusCheckRollup` で全体把握
+2. **CI 状態を確認**:
+   - 全 check green → Step 2 へ進む
+   - 失敗あり → 後述「Step 4-A: CI 赤の処理」へ
+   - pending → 完了待ち（数分待ってから再確認）
 
-## チェックリスト
+### Step 2: 必読資料
 
-### CLAUDE.md 規律違反
+1. このリポジトリの **CLAUDE.md**（8 ルール）
+2. **docs/STATUS.md**（現在地）
+3. **対象 PR の関連 ADR**（PR 説明や branch 名から推定）
+4. 対象機能の **F0X / NFR0X**（docs/requirements/ 配下）
 
-- [ ] 監査カラム抜け（新規テーブルに created_at / updated_at / created_by / updated_by が無い）
-- [ ] RLS 未設定（school_id を持つテーブルで `ENABLE ROW LEVEL SECURITY` が無い）
-- [ ] 型未生成（`types/` に手書き型 vs Drizzle 自動生成）
+### Step 3: レビュー実行
+
+`/code-review` skill を **必ず実行**（このセッション内で `Skill` ツール経由）。
+skill の出力に加えて、以下のチェックリストを **明示的に検証**:
+
+#### CLAUDE.md 規律違反（必ずチェック）
+
+- [ ] 監査カラム抜け（新規テーブルに `created_at` / `updated_at` / `created_by` / `updated_by` が無い）
+- [ ] RLS 未設定（`school_id` を持つテーブルで `ENABLE ROW LEVEL SECURITY` が無い、または cross-tenant policy 抜け）
+- [ ] 型単一ソース違反（手書き interface vs Drizzle 自動生成、`as any` / `as unknown as` の存在）
 - [ ] PII の LLM 送信前マスキング欠如
-- [ ] シークレット混入（API key / DB password ハードコード）
-- [ ] **500行超 PR**
-- [ ] テストなし
+- [ ] シークレット混入（API key / DB password ハードコード、`.env` コミット、gitleaks 検知漏れ）
+- [ ] **500 行超 PR**（必須分割の閾値）
+- [ ] テストなし or テスト緑だけで質が薄い（許可ケースのみで拒否ケース無し等）
 - [ ] Terraform 外のインフラ変更
 
-### STRIDE 観点
+#### F0X / NFR0X / ADR 整合性
 
-- [ ] **Spoofing**: 認証バイパスの余地、トークン検証スキップ
-- [ ] **Tampering**: パラメータ改竄、リプレイ攻撃
-- [ ] **Repudiation**: 監査ログ書き込み漏れ
-- [ ] **Information Disclosure**: 認可ロジック、ログへの PII 出力
-- [ ] **DoS**: クエリの計算量爆発、N+1
-- [ ] **Elevation of Privilege**: SECURITY DEFINER、ロール昇格
+- [ ] 対象機能 F0X の受け入れ条件をすべて満たすか
+- [ ] 関連 NFR0X（性能 / 監査 / セキュリティ）の要件を破っていないか
+- [ ] 関連 ADR の決定事項（特に ADR-015 安全網 / 016 magic link / 017 Gemini / 018 CRM / 019 RLS）に反していないか
 
-### 品質
+#### STRIDE 観点（v2 特有の脅威）
 
-- [ ] テストカバレッジ（hot path に対するテスト有無）
-- [ ] エラー処理（API 境界での型検証）
-- [ ] 後方互換性（既存データへの影響、移行スクリプト要否）
+- [ ] **Spoofing**: 認証バイパス、magic_link トークン予測、 JWT 検証スキップ
+- [ ] **Tampering**: パラメータ改竄、リプレイ攻撃、`SET LOCAL` 漏れ
+- [ ] **Repudiation**: 監査ログ書き込み漏れ、append-only 制約抜け
+- [ ] **Information Disclosure**: RLS バイパス、`current_setting` の missing_ok 設定誤り、 LLM 経由漏洩
+- [ ] **DoS**: rate limit 抜け、N+1、AI 呼び出し悪用
+- [ ] **Elevation of Privilege**: SECURITY DEFINER、CRM の system_admin チェック漏れ
 
-## やってはいけないこと
+### Step 4: 判定 & GitHub への反映
 
-- ❌ **自分で修正しない**（修正は Worker / 人間の仕事）
-- ❌ **APPROVE しない**（Reviewer は推奨のみ、実 APPROVE は Orchestrator / 人間判断）
-- ❌ 推測でレビューしない（疑問は質問として残す）
+判定は **3 区分**:
 
-## 出力フォーマット
+| 状態 | アクション |
+|---|---|
+| **問題なし** | `gh pr review {{ISSUE_NUMBER}} --approve --body "<総評>"` で APPROVE |
+| **軽微** | `gh pr review {{ISSUE_NUMBER}} --comment --body "<総評+指摘>"` で COMMENT |
+| **重大** | `gh pr review {{ISSUE_NUMBER}} --request-changes --body "<総評+指摘>"` で REQUEST_CHANGES |
 
-最後に以下を gh pr comment で投稿:
+「重大」の基準: CLAUDE.md 8 ルール違反、テナント分離破壊、シークレット混入、500 行超、テスト無し、関連 ADR との明確な矛盾。
+
+#### Step 4-A: CI 赤の処理
+
+CI 失敗の場合は `--request-changes` 確定。本文には:
+- 失敗 check 名と推定原因（実ログは1行だけ引用、長文転載しない）
+- 修正依頼の具体的アクション
+
+### Step 5: 出力フォーマット（PR コメント本体）
 
 ```markdown
 ## 🤖 Reviewer Bot Report
 
+### 総合判定
+**APPROVE / COMMENT / REQUEST_CHANGES**（確信度: 高 / 中 / 低）
+
+### CI 状態
+✅ green / ❌ failed: <check 名>
+
 ### 重大度別指摘
 
-#### Critical (必ず修正)
+#### Critical（必ず修正）
+- [該当箇所への file:line + 説明]
+
+#### High（強く推奨）
 - ...
 
-#### High (強く推奨)
-- ...
-
-#### Medium (検討)
+#### Medium（検討）
 - ...
 
 #### Low / nitpick
 - ...
 
-### 総合推奨
-**APPROVE / REQUEST_CHANGES / COMMENT**
-
-### 確信度
-高 / 中 / 低
-
 ### 根拠
-[CLAUDE.md の該当ルール、ADR、STRIDE カテゴリへの言及]
+- CLAUDE.md ルール X: <該当箇所>
+- F0X / NFR0X 受け入れ条件: <該当条件>
+- ADR-0XX: <該当決定事項>
 ```
 
-最後に標準出力に:
+### Step 6: 標準出力サマリー
+
+最後に以下を必ず出力（Orchestrator がパース）:
 
 ```
 REVIEWER COMPLETE
-PR: #{{PR_NUMBER}}
-Recommendation: <APPROVE | REQUEST_CHANGES | COMMENT>
+PR: #{{ISSUE_NUMBER}}
+Recommendation: <APPROVE | COMMENT | REQUEST_CHANGES>
+CI: <green | failed | pending>
 Critical: <count>
 High: <count>
+Confidence: <high | medium | low>
 ```
+
+## やってはいけないこと
+
+- ❌ **自分で修正しない**（修正は Worker / 人間の仕事）
+- ❌ **PR を merge しない**（merge は Desktop Orchestrator の責務）
+- ❌ **STATUS.md / CLAUDE.md / memory を編集しない**（Desktop Orchestrator の責務）
+- ❌ 推測でレビューしない（疑問は質問として PR コメントに残す）
+- ❌ PR diff 全文を summary に転載しない（file:line で参照する）
+
+## 詰まった時
+
+判定が分けられない場合は `--comment` で出力し、本文に「Orchestrator 判断要請」と明記。
+Desktop が人間に判断を仰ぐ。

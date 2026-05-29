@@ -22,34 +22,95 @@
 
 ## Orchestrator Mode（Desktop セッションの規律）
 
-Desktop Claude は **orchestrator として動作する**。「進めて」と言われたら
-[scripts/orchestrator/](scripts/orchestrator/README.md) を介して並列 Worker を起動する。
+Desktop Claude は **orchestrator として動作する**。「進めて」と言われたら以下のフローを必ず守る。
+
+### タイムフロー（並列実行を前提）
+
+```
+[t=0]       ユーザー: 「進めて」
+[t=0:30]    Desktop:
+            - STATUS.md / open issue 確認 (~2000 tokens)
+            - 並列実行可能な独立タスクを N つ選定（probe で容量決定）
+            - Worker brief を一時ファイルに作成
+            - Terminal 経由で N 並列 spawn
+            - ユーザーに着手報告 (PR 番号は未確定、Issue 番号で言及)
+[~アイドル] Worker 1〜N が並列実行（各 fresh context、git worktree 隔離）
+[完了通知]  Desktop:
+            - gh pr list で新規 PR 検出
+            - 各 PR メタデータのみ取得 (--json title,body,statusCheckRollup)
+            - Reviewer Claude を PR ごとに spawn（並列）
+[~アイドル] Reviewer が PR コメント投稿
+[完了]      Desktop:
+            - gh pr view --json で Reviewer コメントを取得
+            - 各 PR の最終判定を集約（数百トークン要約）
+            - ユーザーに完了報告（PR URL ×N + 判定）
+            - OK + CI green は merge、要修正はユーザー判断
+```
+
+1サイクルの Desktop context 消費は **~6,000 tokens を目標**（1M context のうち 0.6%）。
+1 セッションで 50〜100 サイクル回せる設計。
+
+### 構造図
+
+```mermaid
+flowchart TD
+    User[ユーザー]
+    Desktop[Desktop Claude<br/>Orchestrator<br/>軽量 context]
+    User -->|進めて| Desktop
+
+    Desktop -->|spawn| W1[Worker 1<br/>fresh context<br/>worktree A]
+    Desktop -->|spawn| W2[Worker 2<br/>fresh context<br/>worktree B]
+    Desktop -->|spawn| W3[Worker 3<br/>fresh context<br/>worktree C]
+
+    W1 -->|push| PR1[PR #X]
+    W2 -->|push| PR2[PR #Y]
+    W3 -->|push| PR3[PR #Z]
+
+    PR1 --> R1[Reviewer 1<br/>fresh context]
+    PR2 --> R2[Reviewer 2<br/>fresh context]
+    PR3 --> R3[Reviewer 3<br/>fresh context]
+
+    R1 -->|comment| PR1
+    R2 -->|comment| PR2
+    R3 -->|comment| PR3
+
+    PR1 -.->|gh pr view --json| Desktop
+    PR2 -.->|gh pr view --json| Desktop
+    PR3 -.->|gh pr view --json| Desktop
+
+    Desktop -->|判定報告| User
+```
 
 ### Desktop がやること
 
-- `docs/STATUS.md` / `docs/ROADMAP.md` / 関連 ADR を読む
-- タスク選定（優先順位ルール）
-- `scripts/orchestrator/orchestrator.ps1 probe` で容量確認
-- `scripts/orchestrator/orchestrator.ps1 spawn -Issues N1,N2` で Worker 起動
-- `gh pr view <N> --json title,body,statusCheckRollup` で完了確認（メタデータのみ）
-- Reviewer Claude を spawn して PR レビューを委譲
-- 集約報告をユーザーに返す
-- `docs/STATUS.md` 更新
+- `CLAUDE.md` / `docs/STATUS.md` / `docs/ROADMAP.md` / 関連 ADR を読む
+- タスク選定（優先順位アルゴリズム）
+- Worker brief を一時ファイルに作成し、Terminal spawn（Mac Mini SSH/tmux 経由 + local fallback）
+- Worker 完了確認（`gh pr list` / `view --json` のみ、PR diff は読まない）
+- Reviewer Claude を **PR ごとに** spawn と結果集約（手順は [scripts/orchestrator/templates/reviewer-brief.md.template](scripts/orchestrator/templates/reviewer-brief.md.template) 参照: CI 確認 → `/code-review` skill → CLAUDE.md 8 ルール + F/NFR/ADR 整合 + STRIDE → `gh pr review --approve/--comment/--request-changes`）
+- ユーザーへの報告
+- メタ規律ドキュメントの更新（**Desktop 直接編集 OK のもの**: `CLAUDE.md` / `docs/STATUS.md` / `docs/ROADMAP.md` / `docs/runbooks/` / `~/.claude/projects/.../memory/`）
+- GitHub Issue の作成・更新（`gh issue create` / `edit`、ファイル編集ではない）
 
 ### Desktop が **絶対にしない** こと
 
-- ❌ `Edit` / `Write` でアプリケーションコードを直接編集（orchestrator brief は例外）
+- ❌ `Edit` / `Write` でアプリケーションコード・運用 docs を編集
+  - 例外: メタ規律ドキュメント（上記 Desktop OK リスト）と worker brief 一時ファイルのみ
+  - **`docs/requirements/`, `docs/adr/`, `docs/architecture/`, `docs/compliance/`, `packages/`, `apps/`, `infrastructure/` はすべて Worker 経由**
 - ❌ `git commit` / `git push`
-- ❌ `pnpm install` などの環境変更コマンド
-- ❌ PR の `git diff` 全文を context に読み込む
-- ❌ テスト・ビルドの長大ログを context に取り込む
-- ❌ PR の `merge` ボタン（最終承認は人間）
+  - 例外: メタ規律ドキュメントの hygiene 系コミットのみ（[[orchestrator-commit-push-authority]] 参照、範囲縮小済）
+- ❌ `pnpm install` / `npm install` などの環境変更コマンド
+- ❌ PR の `git diff` 全文を context に読み込む（要約のみ）
+- ❌ テスト・ビルドの実行
+- ❌ Reviewer をスキップして Worker PR を merge
+  - Reviewer の判定（OK / 要修正 / 却下）を読んでから判断（[[worker-review-discipline]]）
 
 ### コンテキスト経済性の方針
 
 - Worker / Reviewer の log は **異常時のみ** `tail -30` で確認
 - PR メタデータは `--json title,body,additions,deletions,statusCheckRollup` で取得
-- Reviewer の総合判定は**数百トークン以内に要約**させる
+- Reviewer の総合判定は **数百トークン以内に要約**させる
+- 進捗ポーリングはしない（Worker 完了は `gh pr list` で検出、自動 polling は v0.3）
 
 → Desktop の context は1日中使ってもほぼ枯れないことが設計目標。
 

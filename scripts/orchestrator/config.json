@@ -18,7 +18,7 @@
     },
     "mac-mini": {
       "kind": "ssh",
-      "enabled": true,
+      "enabled": false,
       "_keychain_note": "tmux session 'workers' must be running on Mac (started from Terminal.app) for Keychain access to claude.ai subscription credentials. See README Multi-Machine section.",
       "_host_note": "Tailscale MagicDNS short name. Resolves to LAN IP when on same network (P2P), or via Tailscale DERP when remote. Works anywhere both machines are on Tailscale. Fallback options if MagicDNS fails: 'Kaitos-Mac-mini.local' (LAN-only) or '100.124.63.27' (Tailscale IP, less stable).",
       "host": "kaitos-mac-mini",
@@ -47,13 +47,16 @@
 
   "workerTimeoutSec": 1800,
   "reviewerTimeoutSec": 900,
-  "workerMaxBudgetUsd": 5.0,
+  "workerMaxBudgetUsd": 8.0,
   "reviewerMaxBudgetUsd": 2.0,
+  "_budget_note": "worker budget bumped 5→8 (2026-05-28) after Worker #15/#49 (DDL setup+pnpm-install heavy) hit $5 limit before commit/push. C4-style writeup tasks succeeded at $5 (see PR #52). Re-tighten if other heavy categories stabilize.",
 
   "stateDir": "~/.kimiterrace-orchestrator",
   "logRetentionDays": 7,
 
   "claudeBin": "claude",
+  "bashPath": "C:\\Program Files\\Git\\bin\\bash.exe",
+  "_bashPath_note": "Full path to Git Bash on Windows. Plain 'bash' resolves to C:\\Windows\\System32\\bash.exe (WSL launcher) which exits immediately when WSL is not installed, leaving no log and tricking Sync into marking the worker 'completed'. Resolved 2026-05-29.",
   "claudeModel": "claude-opus-4-7",
   "claudeEffort": "medium",
   "claudePermissionMode": "acceptEdits",

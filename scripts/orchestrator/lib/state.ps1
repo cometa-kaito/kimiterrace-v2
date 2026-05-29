@@ -40,7 +40,7 @@ function New-WorkerState {
     [Parameter(Mandatory)][string]$Branch,
     [Parameter(Mandatory)][string]$Worktree,
     [Parameter(Mandatory)][string]$LogPath,
-    [Parameter(Mandatory)][int]$Pid
+    [Parameter(Mandatory)][int]$ProcessId
   )
   $dirs = Get-StateDir
   $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
@@ -49,7 +49,7 @@ function New-WorkerState {
   $state = [PSCustomObject]@{
     id        = $id
     role      = $Role
-    pid       = $Pid
+    pid       = $ProcessId
     issue     = $Issue
     branch    = $Branch
     worktree  = $Worktree
@@ -113,6 +113,12 @@ function Sync-WorkerStatuses {
       if (Test-Path $s.logPath) {
         $tail = Get-Content -LiteralPath $s.logPath -Tail 50 -ErrorAction SilentlyContinue
         if ($tail -match "ERROR|BLOCKED|FATAL") { $newStatus = "failed" }
+      } else {
+        # No log file at all means the launcher never started writing.
+        # That is launcher-side failure (e.g. wrong bash on PATH on Windows),
+        # not a successful no-op completion. Mark failed so the operator notices.
+        $newStatus = "failed"
+        $exitCode = -1
       }
       Update-WorkerState -Id $s.id -Patch @{
         status   = $newStatus

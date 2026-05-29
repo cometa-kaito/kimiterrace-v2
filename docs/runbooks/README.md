@@ -13,6 +13,7 @@
 - `secret-rotation.md` — シークレットローテーション
 - `backup-restore.md` — バックアップと復元
 - `oncall.md` — オンコール手順
+- `orchestrator-pipeline-pattern.md` — Desktop Claude を idle にしない並列 spawn パターン
 
 ## 書き方
 
