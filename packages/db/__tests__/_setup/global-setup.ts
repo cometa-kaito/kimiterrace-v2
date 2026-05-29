@@ -11,6 +11,11 @@ const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
 const AUDIT_FK_SQL = join(packageRoot, "migrations", "0004_audit_fk.sql");
+const AUDIT_LOG_ACTOR_NULL_SQL = join(
+  packageRoot,
+  "migrations",
+  "0005_audit_log_actor_null_school_admin.sql",
+);
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -87,10 +92,12 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, BASELINE_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
+    //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
     await runSqlFile(sql, RLS_ENABLE_SQL);
     await runSqlFile(sql, RLS_POLICIES_SQL);
     await runSqlFile(sql, AUDIT_TRIGGER_SQL);
     await runSqlFile(sql, AUDIT_FK_SQL);
+    await runSqlFile(sql, AUDIT_LOG_ACTOR_NULL_SQL);
   } finally {
     await sql.end({ timeout: 5 });
   }
