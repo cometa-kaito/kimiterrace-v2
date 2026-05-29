@@ -19,7 +19,10 @@
 - [ ] ダッシュボード（school_admin / teacher 閲覧、school_id スコープ）
 - [ ] system_admin 用 cross-tenant ビュー
 - [ ] AI コメントは月次バッチで生成、PII マスキング適用
-- [ ] グラフ: 時系列、コンテンツ別ランキング、Q&A 件数、滞留時間ヒートマップ（V1 LiDAR データと統合）
+- [ ] グラフ: 時系列、コンテンツ別ランキング、Q&A 件数
+- [ ] **人感センサー検知の時間帯別ヒートマップ**（5/15 分バケット × 平日/休日、データ源 `events.type='presence'`）。詳細仕様は [F13 §3.2](F13-presence-sensor-webhook.md) を参照
+- [ ] 「カメラ非使用」バッジを常時表示（[ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md) 公開透明性）
+- [ ] 旧 LiDAR 由来の「滞留時間ヒートマップ」は **採用しない**。PIR 方式は瞬間検知のため滞留秒数は計測できない（[ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md) トレードオフ参照）
 - [ ] グラフは Recharts または Visx を採用（React Server Component で SSR 描画）
 - [ ] WCAG 2.2 AA（[NFR05](../non-functional/NFR05-accessibility.md)）に従い、色だけに依存しない凡例
 
