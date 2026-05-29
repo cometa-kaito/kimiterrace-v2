@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (Part A/B 着地、Terraform PR #66 draft、orchestrator local-windows ブロッカー連発で停止中)
+最終更新: 2026-05-29 (PR #66 Terraform + PR #68 Part C 連続 merge、401 blocker 解消、親 Issue #16 完結)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **PR #66 + #68 連続 merge サイクル (Desktop Worker mode 初投入)**:
+  - **claude CLI 401 blocker 解消**: `~/.claude/.credentials.json` の OAuth token が古かった (2026-02-12)。ユーザーが別ターミナルで `claude` 起動 → 自動 refresh で credentials 更新 (5/29 8:59) → spawn 成功。原因は Claude Desktop (`%APPDATA%\Claude\config.json` の `oauth:tokenCache`) と claude CLI (`~/.claude/.credentials.json`) が**認証保存場所を別管理**しており、Desktop アプリ動作中でも CLI 側 token は別 lifecycle。
+  - **Reviewer #66 (Terraform PR) spawn → COMMENT 判定 → squash merge**: Critical 0, High 2 (root .tf 整理 → Issue #69 / cloud_sql deletion_protection 変数化 → Issue #70), Medium 3, Low 3, CI 11/11 green, Confidence 高 → admin merge (commit 5872223)
+  - **Desktop Worker mode で Issue #60 (シーケンス Part C 生徒系・分析系) 実装**: Reviewer #66 並列走行中の遊休時間を活用。worktree `../.kimiterrace-workers/desktop-issue-60` で隔離。4 ファイル + README 索引更新 = 578 行追加。**PR #68** 作成 → Reviewer #68 APPROVE (Critical 0 / High 0 / Confidence 高 / CI 11/11 green / 同一アカウントのため `--comment` 投稿) → squash merge (commit c28e488)
+  - **親 Issue #16 (C4 + シーケンス) 完結**: Part A (#52 C4 Context/Container/Component+ER) + Part B (#63 教員系 5 シーケンス) + Part C (#68 生徒系・分析系 4 シーケンス) すべて main 着地
+  - **Reviewer worktree バグ Issue #67 起票**: `worker-launcher.sh:71-86` で Reviewer は意図的に worktree なしで `$REPO_ROOT` で動く設計 (read-only + pnpm install スキップ軽量化)。だが Reviewer が `gh pr checkout` を呼ぶと Desktop の current branch を奪う副作用。修正方針 A (テンプレ修正のみ) / B (Reviewer も worktree 化) / C (両方) の選択肢を提示
+  - **本サイクル成果**: 5 PR (#66 / #68 直接、フォローアップ Issue #67 / #69 / #70)、Desktop context 消費 ~30,000 tokens (Worker mode で context 多めに消費、通常 orchestrator サイクル ~6,000 token 目標を超過)
 - 2026-05-29: **Part B 群完走 + Terraform PR 着地サイクル**: PR #54 (STRIDE Part A merged)、PR #63 (シーケンス Part B 教員系 5 種 merged)、PR #64 (STRIDE Part B Repudiation+InfoDisclosure merged)、PR #66 (Terraform 雛形 873 行追加 draft, CI 11/11 green)。Reviewer #66 spawn 中
 - 2026-05-29: **orchestrator バグ修正**: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable と衝突 → `$ProcessId` リネーム (`orchestrator.ps1:230` 呼出側も合わせて修正)
 - 2026-05-29: **Mac mini 一時 disable**: SSH 解決不可のため `config.json` で disable、local Windows 単独運用へ。RAM 5GB しか空きなく Reviewer/Worker は逐次運用
@@ -85,14 +92,15 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
 | Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #53 merged)、Part B (#55) / Part C (#58, #59) 未着手 |
-| Worker(Mac) | #16 | C4 図 + シーケンス図 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #52 merged)、Part B 完走 (PR #63 merged)、Part C (#60) 未着手 |
+| Worker(Mac) | #16 | C4 図 + シーケンス図 | ✅ **完結**。Part A (PR #52 merged) + Part B (PR #63 merged) + Part C (PR #68 merged, Desktop Worker mode) |
 | Worker(Mac) | #17 | 脅威モデル STRIDE | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #54 merged)、Part B 完走 (PR #64 merged)、Part C (#61) 未着手 |
 | Worker(Mac) | #49 | DDL Part A (9 テナント表 + 共通基盤) | ✅ **PR #53** merged |
 | Worker(Mac) | #50 | C4 Part A (Context/Container/Component+ER) | ✅ **PR #52** merged |
 | Worker(Mac) | #51 | STRIDE Part A (Spoofing+Tampering) | ✅ **PR #54** merged |
 | Worker(Mac) | #56 | シーケンス Part B (教員系 5 種) | ✅ **PR #63** merged |
 | Worker(Mac) | #57? | STRIDE Part B (Repudiation+InfoDisclosure) | ✅ **PR #64** merged |
-| Worker(Local) | #65 | Terraform 雛形 (providers + GCS state + 5 modules + 3 envs) | 🔄 **PR #66** draft、CI 11/11 green、Reviewer spawn 済 |
+| Worker(Local) | #65 | Terraform 雛形 (providers + GCS state + 5 modules + 3 envs) | ✅ **PR #66** merged (admin squash, commit 5872223)。High 2 件は #69 / #70 で follow-up |
+| Worker(Desktop) | #60 | シーケンス Part C (生徒系: F05/F06 + 分析系: F07/F09) | ✅ **PR #68** merged (squash, commit c28e488)。Desktop が Worker mode で実装 |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -103,16 +111,18 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **重要 (2026-05-29)**: Mac mini が SSH 到達不可（Tailscale / 電源 / tmux 儀式どれか）→ `config.json` で **一時 disable**（次回ユーザー Mac 起動時に re-enable）。local Windows のキャパは **RAM 5GB しか空きがなく Reviewer/Worker 各 1 slot のみ** → 並列不可、シーケンシャル運用。
+> **2026-05-29 サイクル末状態**: 401 blocker 解消済、orchestrator は local-windows で正常稼働。Mac mini は SSH 解決不可のまま `enabled=false`（次回 Mac 起動時に re-enable）。local Windows は RAM 5GB 程度で Reviewer/Worker 各 1 slot 並列可能、Desktop が Worker mode 兼務すれば実質 2 並列。
 
-1. **Reviewer #66 (Terraform skeleton) 完了確認** → APPROVE/CI green なら Desktop が draft 解除 + merge、REQUEST_CHANGES なら Worker #65 を修正再 spawn
-2. **Worker #60 (シーケンス Part C: 生徒系・分析系) を spawn**（Reviewer #66 完了後、local Windows）
-3. **次サイクル: 残 Part B / C を順次**:
-   - **#55** DDL Part B（AI/RAG 系: `ai_extractions` / `ai_chat_sessions` / `ai_chat_messages` / pgvector index）
-   - **#58** DDL Part C1（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log）
-   - **#59** DDL Part C2（RLS migration + audit_log trigger + RLS tests）
-   - **#61** STRIDE Part C（DoS + EoP + 即公開フロー特有）
-4. **F01-F12 着手は #59 (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
+1. **残 Part B / C を順次**:
+   - **#55** DDL Part B（AI/RAG 系: `ai_extractions` / `ai_chat_sessions` / `ai_chat_messages` / pgvector index）— Worker spawn 推奨 (DDL 系 setup-heavy, budget $8)
+   - **#58** DDL Part C1（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log）— Worker spawn (setup-heavy, $8)
+   - **#59** DDL Part C2（RLS migration + audit_log trigger + RLS tests）— Worker spawn (test 含む, $8)
+   - **#61** STRIDE Part C（DoS + EoP + 即公開フロー特有）— Desktop Worker mode 候補 (prose, 軽量)
+2. **F01-F12 着手は #59 (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
+3. **PR #66 follow-up (Phase 開発で `enabled=true` 切替前に対処)**:
+   - **#69** Terraform root 直下の浮いた .tf 群を整理 (A. 削除 / B. wrapper 化)
+   - **#70** cloud_sql `deletion_protection` を env 変数化 (dev/staging で false)
+4. **Reviewer worktree バグ (#67)**: Reviewer が Desktop の cwd で `gh pr checkout` し branch を奪う問題。修正方針 C 推奨 (テンプレ禁止 + worktree 化)
 5. **Mac mini 復活**:
    - ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
    - SSH 解決 fallback 試行: `Kaitos-Mac-mini.local` (LAN) or Tailscale IP
@@ -122,12 +132,10 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 詰まり / 確認待ち
 
-- **🚨 [BLOCKER] local Windows での `claude` CLI 401**: Start-Process で起動した launcher 経由の `claude` が `API Error: 401 Invalid authentication credentials` で即死。サブスク認証が hidden process に伝わらない可能性。Mac は Keychain で解決していたが Windows 経路は未確立。**Worker spawn 全停止**。要対応:
-  1. `claude` CLI が現在の Windows user で対話的にログイン済か確認 (`claude` 起動 → / コマンドで session 確認)
-  2. Hidden process でも認証が拾える設定 (例: `ANTHROPIC_API_KEY` 環境変数 or Workload identity) の確立
-  3. または Mac mini 復活でこの問題を一旦回避
+- ✅ **解消 (2026-05-29)**: claude CLI 401 → ユーザーが別ターミナルで claude 起動して OAuth refresh、`~/.claude/.credentials.json` 更新で復旧。次回以降、credentials.json の `LastWriteTime` が 30 日以上古かったら再 refresh が必要になる可能性
 - **Mac mini SSH 到達不可** (`ssh: Could not resolve hostname kaitos-mac-mini`): Tailscale / 電源 / tmux 儀式の確認待ち
 - **worker-launcher.sh の prNumber 抽出バグ**: macOS BSD `grep -P` 非対応で state.prNumber が常に null（既知、後続課題）
+- **Reviewer が Desktop cwd の branch を奪う** (#67): 当面の運用回避策は「Reviewer 走行中に Desktop は git 操作しない、完了後に main へ戻す」
 
 ---
 
@@ -225,3 +233,4 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
   - orchestrator spawn 起動バグ修正: `lib/state.ps1` の `[int]$Pid` param が PowerShell automatic variable と衝突 → `$ProcessId` リネーム
   - Reviewer Claude を **PR #66 (Terraform)** に spawn (PID 10276, local Windows)。完了通知待ち
   - 残: Worker #60 (シーケンス Part C 生徒系・分析系) は Reviewer #66 完了後に逐次 spawn（local RAM 5GB 制約で並列不可）
+- **2026-05-29 (続)**: **PR #66 + #68 連続 merge サイクル (Desktop Worker mode 初投入)**。OAuth refresh で 401 解消 → Reviewer #66 (COMMENT, Critical 0, High 2) → PR #66 admin merge (commit 5872223) → 並列で Desktop が Worker mode で Issue #60 を直接実装 (worktree 隔離、578 行 4 ファイル) → PR #68 → Reviewer #68 (APPROVE, Critical 0, High 0) → PR #68 merge (commit c28e488)。**親 Issue #16 完結** (Part A/B/C 全揃)。Follow-up Issue #67 (Reviewer worktree バグ) / #69 (Terraform root .tf 整理) / #70 (cloud_sql deletion_protection 変数化) 起票。次は DDL Part B/C1/C2 (Worker spawn, setup-heavy $8) + STRIDE Part C (Desktop Worker mode 候補, prose)。
