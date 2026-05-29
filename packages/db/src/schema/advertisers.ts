@@ -1,0 +1,33 @@
+import { sql } from "drizzle-orm";
+import { boolean, index, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { auditColumns } from "../_shared/audit.js";
+
+/**
+ * F10: 広告主マスタ（CRM）。
+ *
+ * **cross-tenant / RLS 対象外**。アクセス制御は middleware 層で `system_admin` を要件として
+ * 強制する（ADR-019 RLS 二層モデルの「アプリケーション層チェック」側）。
+ *
+ * - 営業上の連絡先・業種・備考を保持。請求や契約条件は contracts に分離する。
+ * - `is_active` で論理削除（過去契約のトレースを残すため物理 DELETE は推奨しない）。
+ *
+ * 関連: ADR-018 (CRM 独自設計), ADR-019 (RLS 二層), F10 (docs/requirements/functional/F10-crm.md)
+ */
+export const advertisers = pgTable(
+  "advertisers",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    companyName: varchar("company_name", { length: 200 }).notNull(),
+    industry: varchar("industry", { length: 100 }),
+    contactEmail: varchar("contact_email", { length: 320 }),
+    contactPhone: varchar("contact_phone", { length: 50 }),
+    address: text("address"),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    ...auditColumns,
+  },
+  (t) => ({
+    ixCompanyName: index("ix_advertisers_company_name").on(t.companyName),
+    ixActive: index("ix_advertisers_is_active").on(t.isActive),
+  }),
+);
