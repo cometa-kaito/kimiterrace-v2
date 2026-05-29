@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #71 DDL Part B + PR #72 STRIDE Part C 並列 merge、親 Issue #17 完結、Desktop Worker mode 2 並列パターン確立)
+最終更新: 2026-05-29 (PR #76 pgvector hoist + PR #77 DDL Part C1 + PR #80 cloud_sql var 並列 merge、Desktop Worker mode 連鎖 2 サイクル目)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **PR #76 pgvector hoist + PR #77 DDL Part C1 + PR #80 cloud_sql var 連鎖 merge (Desktop Worker mode 連鎖 2 サイクル目)**:
+  - **PR #76 (pgvector hoist、22 行追加 / 27 行削除、純減 -5 行)**: `_shared/pgvector.ts` に `VECTOR_DIM = 768` + `vector` customType を hoist。`content-versions.ts` / `ai-chat-messages.ts` のローカル重複宣言を削除し共有 module import に置換。drizzle-kit 生成 SQL は不変 (dimension 768 維持、マイグレーション差分なし)。Reviewer APPROVE (Critical 0 / High 0、CI 11/11 green)。**Issue #74 自動 close**
+  - **PR #77 (DDL Part C1、277 行追加)**: CRM 系 3 + 横断系 3 = 6 テーブル (`advertisers` / `contracts` / `communications` / `monthly_reports` / `system_admins` / `audit_log`) を Drizzle スキーマに追加。`monthly_reports` のみ school_id (テナント分離)、他 5 テーブルは cross-tenant。既存 enum (`contractStatus` / `communicationChannel` / `auditOp`) 再利用、新規 enum なし (CLAUDE.md ルール 3)。`audit_log` は `prev_hash` / `row_hash` SHA-256 hash chain skeleton (NFR04、trigger 実装は #59 で同梱)。Reviewer 実質 APPROVE (Critical 0 / High 0、Medium 3 / Low 4 は #59 Part C2 で吸収可)。CI 11/11 green
+  - **PR #80 (ユーザー直接実装、Issue #70 follow-up)**: `cloud_sql` module に `deletion_protection` bool variable 追加。Issue #70 closed
+  - **Reviewer 規律改善**: 前サイクルの「`gh pr review` 投稿スキップ」を Reviewer brief に明示警告として追加 (本サイクル分の Reviewer 2 体は両方とも投稿成功)
+  - **#67 branch 奪い症状再発**: PR #77 merge 後に Desktop が `worker/58-ddl-part-c1` ブランチに居る状態を発見、`git checkout main && pull` で復旧。Reviewer brief で `gh pr checkout 禁止` を明示済だが、Agent + worktree isolation 経路でも Desktop cwd に branch が作成される現象 → 別経路 (worktree post-cleanup？) を疑う、要追加調査
+  - **本サイクル成果**: 2 PR (#76 / #77)、1 ユーザー PR (#80)、Issue #74 / #58 / #70 close、Desktop context ~30k tokens
 - 2026-05-29: **PR #71 DDL Part B + PR #72 STRIDE Part C 並列 merge (Desktop Worker mode 2 並列パターン確立)**:
   - **Worker spawn 不可状態を Desktop Worker mode 2 並列で迂回**: local RAM 3.7GB → orchestrator plan で worker capacity 0 slot 判定 (1200×1.2=1440MB の per-proc budget が desktop reserve 2500MB 控除後 1245MB に届かず)。Agent tool + `isolation: worktree` で 2 task を並列実行
   - **PR #71 (DDL Part B、167 行追加、CI 11/11 green)**: AI/RAG 3 テーブル (`ai_extractions` / `ai_chat_sessions` / `ai_chat_messages`) を Drizzle スキーマに追加。confidence_score real NOT NULL + evidence jsonb (ADR-017)、pgvector(768) (ADR-007)、PII マスキング JSDoc 明記 (CLAUDE.md ルール 4)、school_id FK + auditColumns 全準拠。Reviewer COMMENT 判定 (Critical 0 / High 2 → follow-up Issue 化、Medium 4 / Low 1)
@@ -98,7 +105,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
 | Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
 | Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #53 merged)、Part B 完走 (PR #71 merged, Desktop Worker mode)、Part C (#58, #59) 未着手 |
+| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | 🔀 **Part A/B/C 分割**。Part A 完走 (PR #53)、Part B 完走 (PR #71)、Part C1 完走 (PR #77)、Part C2 (#59) 未着手 |
 | Worker(Mac) | #16 | C4 図 + シーケンス図 | ✅ **完結**。Part A (PR #52 merged) + Part B (PR #63 merged) + Part C (PR #68 merged, Desktop Worker mode) |
 | Worker(Mac) | #17 | 脅威モデル STRIDE | ✅ **完結**。Part A (PR #54 merged) + Part B (PR #64 merged) + Part C (PR #72 merged, Desktop Worker mode) — STRIDE 6 カテゴリ全件 3 件以上 + 即公開特有 2 件 = 29 件 |
 | Worker(Mac) | #49 | DDL Part A (9 テナント表 + 共通基盤) | ✅ **PR #53** merged |
@@ -110,6 +117,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 | Worker(Desktop) | #60 | シーケンス Part C (生徒系: F05/F06 + 分析系: F07/F09) | ✅ **PR #68** merged (squash, commit c28e488)。Desktop が Worker mode で実装 |
 | Worker(Desktop) | #55 | DDL Part B (AI/RAG 3 テーブル) | ✅ **PR #71** merged (squash, commit 25bdc68)。Desktop Worker mode 並列実装、Reviewer COMMENT 判定。Critical 0 / High 2 → #73 / #74、Medium 4 → #75 |
 | Worker(Desktop) | #61 | STRIDE Part C (DoS + EoP + 即公開特有) | ✅ **PR #72** merged (squash, commit 64be2b1)。Desktop Worker mode 並列実装、Reviewer 実質 APPROVE。親 Issue #17 自動 close |
+| Worker(Desktop) | #58 | DDL Part C1 (CRM + 横断系 6 テーブル) | ✅ **PR #77** merged (squash, commit 223736a)。Desktop Worker mode 並列実装、Reviewer 実質 APPROVE。Medium 3 / Low 4 は #59 Part C2 で吸収予定 |
+| Worker(Desktop) | #74 | pgvector customType hoist | ✅ **PR #76** merged (squash, commit 42b54f6)。軽量 refactor、Reviewer APPROVE。Issue #74 自動 close |
+| 人間 | #70 | cloud_sql deletion_protection 変数化 | ✅ **PR #80** merged (ユーザー直接実装、commit 1adfd1b)。Issue #70 close |
 | Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
 | 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
 | 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
@@ -120,19 +130,18 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-29 サイクル末状態**: Desktop Worker mode 2 並列パターン確立。local RAM 3.7GB で Worker spawn は 0 slot だが Agent + worktree isolation で並列 2 task 完走可。orchestrator spawn 経路は **RAM 拡張 (8GB free 目安) or Mac mini 復活**まで待機。
+> **2026-05-29 サイクル末状態**: DDL Part A/B/C1 完走、Part C2 (#59) のみが F01-F12 解禁の最終 gate。Desktop Worker mode 2 サイクル連鎖実績あり (1 サイクル 2 並列 → merge → 次サイクル)。local RAM 5GB 程度、Agent + worktree isolation で並列 2 task 完走可。
 
-1. **残 DDL Part C を順次** (RLS テスト Part C2 完走で F01-F12 解禁):
-   - **#58** DDL Part C1（CRM + 横断系: advertisers / contracts / communications / monthly_reports / system_admins / audit_log）— Desktop Worker mode 候補 or Worker spawn (setup-heavy, $8)
-   - **#59** DDL Part C2（RLS migration + audit_log trigger + RLS tests）— Worker spawn 推奨 (test 含む, $8) — **F01-F12 解禁の pre-req**
-2. **F01-F12 着手は #59 (RLS テスト) 完了後**（テナント漏れ防止の Critical pre-req）
-3. **PR #71 follow-up**:
-   - **#73** composite FK で cross-tenant 整合を DB 強制 (プロジェクト横断、#59 RLS 同時投入推奨)
-   - **#74** pgvector customType を `_shared/pgvector.ts` に hoist (5 分作業、Desktop Worker mode 軽量候補)
+1. **#59 DDL Part C2 (F01-F12 解禁の唯一の gate、500 行目安)**:
+   - RLS migration (`0001_enable_rls.sql` / `0002_rls_policies.sql`) + audit_log append-only trigger + `prev_hash` 自動計算 trigger
+   - Testcontainers + Vitest で 5 種 RLS テスト (tenant-isolation / crm-system-admin / audit-columns / audit-log-append-only / audit-log-hash-chain)
+   - Docker 必須 (local or CI)、setup-heavy
+2. **F01-F12 着手は #59 完走後**（テナント漏れ防止の Critical pre-req）
+3. **PR #71 follow-up (残)**:
+   - **#73** composite FK で cross-tenant 整合を DB 強制 (#59 RLS 同時投入推奨)
    - **#75** AI/RAG schema M-1〜M-4 bundle (status enum / raw_input_hash 整合 / composite index / class_id index)
-4. **PR #66 follow-up (Phase 開発で `enabled=true` 切替前に対処)**:
+4. **PR #66 follow-up (残)**:
    - **#69** Terraform root 直下の浮いた .tf 群を整理 (A. 削除 / B. wrapper 化)
-   - **#70** cloud_sql `deletion_protection` を env 変数化 (dev/staging で false)
 5. **Reviewer worktree バグ (#67)**: Reviewer が Desktop の cwd で `gh pr checkout` し branch を奪う問題。修正方針 C 推奨 (テンプレ禁止 + worktree 化)
 6. **Mac mini 復活**:
    - ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
