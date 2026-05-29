@@ -12,6 +12,7 @@
 - `sequence-diagrams/` — 重要フローのシーケンス図
 - `threat-model.md` — STRIDE 脅威モデル
 - `disaster-recovery.md` — DR プラン
+- `v1-v2-mapping.md` — V1 (Firebase 版) → V2 (Cloud Run) 画面・機能マッピング表 + sub-Issue 分割案（F0 移植の起点）
 
 ## 図は全て Mermaid で書く
 
