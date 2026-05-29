@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #84 terraform fmt 1 ファイル微修正サイクル merged、Issue #83 close)
+最終更新: 2026-05-29 (PR #85 Terraform root cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル merged。Issue #59 / #69 / #96 close)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,15 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-29: **PR #85 Terraform cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル (Worker → Reviewer → Worker mode 引継 → 修正 PR の 3 段リレー)**:
+  - **PR #85 (Worker #69 Terraform root cleanup、+5 / -105、CI 11/11 green)**: Agent + worktree isolation で spawn した Worker が方針 A (root .tf 群 5 ファイル削除 + envs/*/main.tf 一本化) を ~4 分で完走。Reviewer Agent APPROVE / Critical 0 / High 0 → admin squash merge (commit `9357b5d`)。**Issue #69 close**
+  - **PR #93 (Desktop Worker mode #59 DDL Part C2、+4156 / -2、CI 12/12 green、ただし RLS テスト全 skip)**: 並列で spawn した Worker (Agent + worktree isolation) が **ローカル Docker 不在で Testcontainers 起動できず ~23 分停滞** → ユーザー判断で「Desktop が Worker mode で引き継ぎ」。Worker 成果物 (migration 3 + テスト 2 + setup 3) を流用、残り 3 テスト (audit-columns / audit-log-append-only / audit-log-hash-chain) を Desktop が実装。設計は **Testcontainers 採用せず DATABASE_URL 環境変数で実 PG に接続、未設定なら skip** に切替 (CI で実 PG 起動は別 Issue で対応推奨)。`feat/59-ddl-part-c2` / `v2` は過去 spawn 残骸の branch、`v3` は並行ユーザーの branch hijack 経路、最終的に **`v4` で完走 + 並行ユーザー停止依頼後に commit**。Reviewer Agent が Critical 2 (test の schema 不整合) + High 2 (RLS policy 不足) を指摘 → ユーザーが Issue #96 として別 PR スコープに切り出し、**PR #93 は merge** (commit `e3d5791`)。**Issue #59 close**
+  - **PR #97 (Issue #96 fix C1/C2/H1/H2、+145 / -12、CI 12/12 green)**: ユーザーが起票した Issue #96 (PR #93 Reviewer 指摘のうち実 DB 起動時のみ顕在化する dormant bug 4 件) を Desktop Worker mode で修正。**C1**: tenant-isolation.test.ts の存在しないカラム `body_markdown` → schema 通り `body` + NOT NULL の `publish_scope` 追加 / **C2**: 新規 `migrations/0004_audit_fk.sql` で 18 テーブル × 2 カラム (`created_by`/`updated_by`) に `users(id)` FK 追加 (`ON DELETE SET NULL`、idempotent DROP/ADD) / **H1**: `global-setup.ts` の `DROP SCHEMA public CASCADE` ガード (`KIMITERRACE_TEST_DB_OK=1` / localhost 系 host / DB 名 test 含有 のいずれかを要求) / **H2**: vitest.config.ts に `pool: 'forks'` + `singleFork: true` 明示 + README で文書化 / 派生: crm-system-admin.test.ts の `communications` INSERT に NOT NULL の `occurred_at` 追加 (Reviewer Critical 3、Issue #96 外だが実 DB 前提)。Reviewer APPROVE → admin squash merge (commit `c1be545`)。**Issue #96 close**
+  - **並行ユーザー作業との衝突 (重要な学び)**: 本サイクル中、別セッション (Cursor or 別 Claude) で WIF module (PR #90)、observability scaffold (PR #91)、apps/web Next.js scaffold (PR #92) が並行進行。Desktop の `feat/59-ddl-part-c2-v3` branch を **2 回連続で `local/redo-87` / `local/redo-88` に強制 checkout** され untracked file は保持されたが tracked file 状態が壊れる現象を検知。ユーザーに並行セッション停止を要請 → 独占時間で `v4` branch + commit + push 完走。並行作業前提では git operation の冪等性が崩れるため、(a) `git fetch` + `git checkout` を Desktop が頻繁に行わない、(b) untracked file 中心の操作にする、等の運用工夫が必要 (memory 候補)
+  - **Reviewer 投稿 hygiene 再発**: PR #93 Reviewer Agent (a95e3...) が `gh pr review` 投稿スキップ → Desktop が代理投稿。PR #97 Reviewer は投稿成功 (ただし PowerShell here-string の `@` 文字混入、内容は legible)。**Reviewer brief の Step 4-A を最重要マイルストーンとして明示**する改善は実施済も、依然として失敗事例ゼロにならず。PR #84 / #93 / #97 で 1/3 失敗率
+  - **Worker → Desktop 引継 vs 新 Agent spawn**: Worker が hang した時、SendMessage tool が現環境で deferred list / available list 両方に存在しないため Agent への直接メッセージング不能。選択肢 (新 Agent spawn / Desktop Worker mode 引継 / Docker 待ち / 中断) からユーザーが **Desktop Worker mode** を選択 → 既存 worktree から成果物コピー + 残作業実装で完走。「Worker hang 時に Desktop が引き継ぐ」は memory `feedback_pr_merge_authority.md` や `worker-task-granularity.md` と並ぶ規律候補
+  - **残課題 (本サイクル外)**: PR #93 Reviewer の **High 4** (schools tenant_isolation FOR ALL 不在) / **High 5** (audit_log_insert WITH CHECK actor_user_id 詐称防止) / **High 7** (turbo.json passThroughEnv に DATABASE_URL) / Medium-Low 8-15 は別 Issue 起票推奨 (本セッションでは未起票、次セッション最優先候補)
+  - **本サイクル成果**: 3 PR (#85 / #93 / #97) + 並行ユーザー 3 PR (#90 / #91 / #92) merged、Issue #59 / #69 / #96 close。Desktop context 消費 大 (Worker hang 検出 + Desktop Worker mode 引継 + branch hijack 復旧 + Reviewer 代理投稿 + 修正 PR で ~60k tokens、通常 orchestrator サイクル 6,000 token 目標を 10 倍超過)
 - 2026-05-29: **PR #84 terraform fmt micro-fix サイクル (Issue #83 close)**:
   - **検知経路**: ユーザーが `terraform fmt -recursive infrastructure/terraform/` 実行時に `infrastructure/terraform/modules/identity_platform/main.tf` の `google_identity_platform_tenant.school` リソース引数 alignment ずれを発見。`allow_password_signup` (21 文字) が他の引数より長いのに `=` が縦揃いしていなかった
   - **規律遵守確認**: ユーザーは Desktop に「直接やる」選択肢を提示したが、Desktop 側で「`infrastructure/` は Worker 経由」(CLAUDE.md Orchestrator Mode) を flag → ユーザー判断で Worker spawn + 新規 Issue ルート選択 → Issue #83 起票 → Agent + worktree isolation で Worker spawn
@@ -138,19 +147,25 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-29 サイクル末状態**: DDL Part A/B/C1 完走、Part C2 (#59) のみが F01-F12 解禁の最終 gate。Desktop Worker mode 2 サイクル連鎖実績あり (1 サイクル 2 並列 → merge → 次サイクル)。local RAM 5GB 程度、Agent + worktree isolation で並列 2 task 完走可。
+> **2026-05-29 サイクル末状態 (更新)**: **#59 DDL Part C2 完走 → F01-F12 解禁**。ただし RLS テストは CI 上 DATABASE_URL 未設定で全 skip 状態のため、実 DB 検証は CI に postgres service container 追加後に初めて意味を持つ。並行ユーザーが PR #90 (WIF) / #91 (observability) / #92 (apps/web Next.js scaffold) を着地済、F01-F12 着手の環境はおおむね整った。
 
-1. **#59 DDL Part C2 (F01-F12 解禁の唯一の gate、500 行目安)**:
-   - RLS migration (`0001_enable_rls.sql` / `0002_rls_policies.sql`) + audit_log append-only trigger + `prev_hash` 自動計算 trigger
-   - Testcontainers + Vitest で 5 種 RLS テスト (tenant-isolation / crm-system-admin / audit-columns / audit-log-append-only / audit-log-hash-chain)
-   - Docker 必須 (local or CI)、setup-heavy
-2. **F01-F12 着手は #59 完走後**（テナント漏れ防止の Critical pre-req）
-3. **PR #71 follow-up (残)**:
-   - **#73** composite FK で cross-tenant 整合を DB 強制 (#59 RLS 同時投入推奨)
-   - **#75** AI/RAG schema M-1〜M-4 bundle (status enum / raw_input_hash 整合 / composite index / class_id index)
-4. **PR #66 follow-up (残)**:
-   - **#69** Terraform root 直下の浮いた .tf 群を整理 (A. 削除 / B. wrapper 化)
-5. **Reviewer worktree バグ (#67)**: Reviewer が Desktop の cwd で `gh pr checkout` し branch を奪う問題。修正方針 C 推奨 (テンプレ禁止 + worktree 化)
+1. **CI に postgres service container 追加 (新規 Issue 起票推奨、最優先)**:
+   - `.github/workflows/ci.yml` の test job に `postgres:16` service 追加 + `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/kimiterrace_test` 設定
+   - **重要**: `turbo.json` の `passThroughEnv` に `DATABASE_URL` + `KIMITERRACE_TEST_DB_OK` を追加しないと turbo がフィルタして vitest に渡らない (PR #93 Reviewer 指摘 High 7)
+   - 初回適用で RLS テスト 24 件が実走し、本サイクルで #96 fix 済の Critical 1-3 + High 1-2 が緑になることを確認
+2. **PR #93 Reviewer の残指摘を別 Issue 起票 (#96 で扱わなかった分)**:
+   - **High 4**: schools に `tenant_isolation` FOR ALL policy 追加 (silent 0-row UPDATE 回避)
+   - **High 5**: `audit_log_insert` WITH CHECK に `actor_user_id` 詐称防止 (NFR04 Repudiation)
+   - Medium 8-12 / Low 13-15: 順次 (advisory lock hash 衝突、jsonb canonical 化、credential ログ漏出など)
+3. **F01-F12 着手** (gate 解禁、CI 化 + High 4-5 修正と並行可):
+   - 優先順は F01 (教員ファイル抽出) / F03 (Gemini 構造化) / F04 (即公開 + 安全網) あたりから
+4. **#73 (composite FK で cross-tenant 整合 DB 強制)**: 本 PR で RLS 完備したので着手可能
+5. **#75 AI/RAG schema M-1〜M-4 bundle** (status enum / raw_input_hash 整合 / composite index / class_id index)
+6. **Reviewer worktree バグ (#67)**: 解決方針 C (テンプレ禁止 + worktree 化) を実装
+7. **memory 候補 (本サイクル学び)**:
+   - 並行ユーザーセッション前提では Desktop の `git checkout` 頻度を最小化、untracked file 中心の操作にする
+   - Worker hang 時の Desktop Worker mode 引継ルート (SendMessage tool 不在前提)
+   - Reviewer Agent の `gh pr review` 投稿スキップ問題 (PR #71 / #93 で再発、Reviewer brief Step 4-A を最重要マイルストーンとして再強調しても 1/3 失敗率)
 6. **Mac mini 復活**:
    - ユーザーが Mac 起動 + Terminal.app から `tmux new -s workers` → Desktop が `config.json` の `mac-mini.enabled` を `true` に戻す
    - SSH 解決 fallback 試行: `Kaitos-Mac-mini.local` (LAN) or Tailscale IP
