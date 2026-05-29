@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-29 (PR #85 Terraform root cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル merged。Issue #59 / #69 / #96 close)
+最終更新: 2026-05-29 (PR #85 Terraform root cleanup + PR #93 DDL Part C2 + PR #97 dormant bug 修正サイクル merged。Issue #59 / #69 / #96 close。**Operating Mode を Busy CEO に切替** — orchestrator + Worker 兼任、Reviewer/CI 経由の意思決定は自律実行 OK、詳細は [CLAUDE.md](../CLAUDE.md) Operating Mode セクション + [[busy-ceo-mode]] memory)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
