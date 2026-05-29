@@ -43,6 +43,12 @@ variable "region" {
   default     = "asia-northeast1"
 }
 
+variable "repository" {
+  description = "GitHub repository in owner/name form. Only OIDC tokens from this repo can impersonate the WIF SAs."
+  type        = string
+  default     = "cometa-kaito/kimiterrace-v2"
+}
+
 locals {
   env = "staging"
 }
@@ -85,4 +91,27 @@ module "cloud_run" {
   region     = var.region
   env        = local.env
   enabled    = false
+}
+
+module "workload_identity_federation" {
+  source = "../../modules/workload_identity_federation"
+
+  project_id = var.project_id
+  repository = var.repository
+  env_name   = local.env
+}
+
+output "wif_provider_name" {
+  description = "Pass to GitHub Actions vars as WIF_PROVIDER."
+  value       = module.workload_identity_federation.provider_name
+}
+
+output "wif_deploy_sa_email" {
+  description = "Pass to GitHub Actions vars as WIF_SA_DEPLOY."
+  value       = module.workload_identity_federation.deploy_sa_email
+}
+
+output "wif_plan_sa_email" {
+  description = "Pass to GitHub Actions vars as WIF_SA_PLAN."
+  value       = module.workload_identity_federation.plan_sa_email
 }
