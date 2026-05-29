@@ -1,3 +1,11 @@
+CREATE TYPE "public"."user_role" AS ENUM('school_admin', 'teacher', 'student', 'guardian');--> statement-breakpoint
+CREATE TYPE "public"."publish_scope" AS ENUM('school', 'class', 'homeroom', 'private');--> statement-breakpoint
+CREATE TYPE "public"."content_status" AS ENUM('draft', 'published', 'archived');--> statement-breakpoint
+CREATE TYPE "public"."event_type" AS ENUM('view', 'tap', 'dwell', 'ask');--> statement-breakpoint
+CREATE TYPE "public"."ai_extraction_kind" AS ENUM('schedule', 'announcement', 'summary', 'tag');--> statement-breakpoint
+CREATE TYPE "public"."audit_op" AS ENUM('insert', 'update', 'delete');--> statement-breakpoint
+CREATE TYPE "public"."contract_status" AS ENUM('draft', 'active', 'paused', 'terminated');--> statement-breakpoint
+CREATE TYPE "public"."communication_channel" AS ENUM('email', 'phone', 'meeting', 'other');--> statement-breakpoint
 CREATE TABLE "schools" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" varchar(200) NOT NULL,

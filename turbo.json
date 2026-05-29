@@ -18,7 +18,9 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "env": ["DATABASE_URL"],
+      "passThroughEnv": ["DATABASE_URL"]
     },
     "test:e2e": {
       "dependsOn": ["build"],
