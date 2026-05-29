@@ -105,4 +105,57 @@ describeOrSkip("RLS tenant_isolation (school_id ベースの分離)", () => {
       expect(users[0].id).toBe(fx.userA);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Issue #100 (PR #93 Reviewer High 4): schools tenant_isolation_modify/delete
+  // -------------------------------------------------------------------------
+
+  it("schools UPDATE: school_admin は自校レコードのみ UPDATE 可", async () => {
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+      await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+
+      const res = await tx`UPDATE schools SET notes = 'self-update' WHERE id = ${fx.schoolA}`;
+      expect(res.count).toBe(1);
+    });
+  });
+
+  it("schools UPDATE: school_admin は他校レコードを UPDATE 不可 (silent 0-row、policy で USING false)", async () => {
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+      await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+
+      const res = await tx`UPDATE schools SET notes = 'hijack' WHERE id = ${fx.schoolB}`;
+      expect(res.count).toBe(0);
+    });
+
+    // 値が実際に変わっていないことを別接続で確認 (BYPASSRLS で全件読む)
+    const after = await sql<{ notes: string | null }[]>`
+      SELECT notes FROM schools WHERE id = ${fx.schoolB}
+    `;
+    expect(after[0]?.notes).toBeNull();
+  });
+
+  it("schools UPDATE: system_admin は cross-tenant UPDATE 可", async () => {
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+
+      const res = await tx`UPDATE schools SET notes = 'sysadmin-update' WHERE id = ${fx.schoolB}`;
+      expect(res.count).toBe(1);
+    });
+  });
+
+  it("schools DELETE: school_admin は他校 DELETE 不可", async () => {
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+      await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+
+      const res = await tx`DELETE FROM schools WHERE id = ${fx.schoolB}`;
+      expect(res.count).toBe(0);
+    });
+  });
 });

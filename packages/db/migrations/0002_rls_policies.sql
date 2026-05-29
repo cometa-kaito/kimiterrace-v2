@@ -211,12 +211,26 @@ CREATE POLICY system_admin_full_access ON system_admins FOR ALL
   WITH CHECK (current_setting('app.current_user_role', true) = 'system_admin');
 
 -- ---------------------------------------------------------------------
--- schools のテナント可読 policy: 学校管理者は自校のレコードだけ参照可
--- (system_admin 以外の他テーブル参照で schools への JOIN が発生する場合に備え、
---  read-only な policy を1つ追加)
+-- schools のテナント policy:
+--   - tenant_self_read: 学校管理者は自校のレコードを参照可 (既存)
+--   - tenant_isolation_modify: 自校レコードのみ UPDATE 可
+--   - tenant_isolation_delete: 自校レコードのみ DELETE 可
+--
+-- Issue #100 (PR #93 Reviewer High 4 follow-up): policy 不在で silent 0-row
+-- UPDATE になっていたため、攻撃者が他校 ID で UPDATE/DELETE を発行しても
+-- エラーが出ない (アプリ層が成功と誤認) 問題を解消。
 -- ---------------------------------------------------------------------
 DROP POLICY IF EXISTS tenant_self_read ON schools;
 CREATE POLICY tenant_self_read ON schools FOR SELECT
+  USING (id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS tenant_isolation_modify ON schools;
+CREATE POLICY tenant_isolation_modify ON schools FOR UPDATE
+  USING (id = NULLIF(current_setting('app.current_school_id', true), '')::uuid)
+  WITH CHECK (id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS tenant_isolation_delete ON schools;
+CREATE POLICY tenant_isolation_delete ON schools FOR DELETE
   USING (id = NULLIF(current_setting('app.current_school_id', true), '')::uuid);
 
 -- ---------------------------------------------------------------------
@@ -230,14 +244,27 @@ CREATE POLICY audit_log_tenant_read ON audit_log FOR SELECT
     OR current_setting('app.current_user_role', true) = 'system_admin'
   );
 
+-- Issue #100 (PR #93 Reviewer High 5 follow-up):
+-- WITH CHECK に actor_user_id 詐称防止条件を追加。
+-- 旧 policy では actor_user_id を任意の uuid に偽装した監査ログを生成できたため、
+-- NFR04 (Repudiation) で要求される法的証拠力が低下していた。
+-- 本修正により、actor_user_id は SET LOCAL されたユーザー自身 or system_admin
+-- のみ INSERT 可能 (NULL は cross-tenant / 内部システム操作のため許容)。
 DROP POLICY IF EXISTS audit_log_insert ON audit_log;
 CREATE POLICY audit_log_insert ON audit_log FOR INSERT
   WITH CHECK (
-    -- 任意のセッションが INSERT 可能 (誰がやったかは actor_user_id / actor_identity_uid に記録)
-    -- school_id は null (cross-tenant 操作) または現在の school_id に一致のみ許可
-    school_id IS NULL
-    OR school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid
-    OR current_setting('app.current_user_role', true) = 'system_admin'
+    (
+      -- school_id は null (cross-tenant) または現在の school_id に一致のみ許可
+      school_id IS NULL
+      OR school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid
+      OR current_setting('app.current_user_role', true) = 'system_admin'
+    )
+    AND (
+      -- actor_user_id 詐称防止: 自分自身 or system_admin or null のみ許可
+      actor_user_id IS NULL
+      OR actor_user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid
+      OR current_setting('app.current_user_role', true) = 'system_admin'
+    )
   );
 
 -- ---------------------------------------------------------------------
