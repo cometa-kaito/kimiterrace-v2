@@ -4,7 +4,7 @@ import {
   createDbClient,
   withTenantContext,
 } from "@kimiterrace/db";
-import { getCurrentUser } from "./auth/session";
+import { type AuthUser, getCurrentUser } from "./auth/session";
 
 /**
  * 認証 → RLS コンテキスト配線 (ADR-019 二層 RLS / ADR-008 一元化 / ADR-003 認証)。
@@ -71,7 +71,7 @@ export class UnauthenticatedError extends Error {
  *
  * @throws {UnauthenticatedError} 未認証時
  */
-export async function withSession<T>(fn: (tx: TenantTx) => Promise<T>): Promise<T> {
+export async function withSession<T>(fn: (tx: TenantTx, user: AuthUser) => Promise<T>): Promise<T> {
   const user = await getCurrentUser();
   if (!user) {
     throw new UnauthenticatedError();
@@ -79,6 +79,6 @@ export async function withSession<T>(fn: (tx: TenantTx) => Promise<T>): Promise<
   return await withTenantContext(
     getDb(),
     { userId: user.uid, schoolId: user.schoolId, role: user.role },
-    fn,
+    (tx) => fn(tx, user),
   );
 }

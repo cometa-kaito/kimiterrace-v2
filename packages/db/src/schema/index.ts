@@ -14,6 +14,9 @@ export * from "./events.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
+// F02: 教員音声 / チャット入力 + 添付メタ
+export * from "./teacher-inputs.js";
+export * from "./teacher-input-attachments.js";
 // Part C1: CRM + cross-tenant
 export * from "./advertisers.js";
 export * from "./contracts.js";

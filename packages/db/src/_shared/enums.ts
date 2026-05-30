@@ -20,6 +20,21 @@ export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "tag",
 ]);
 
+// F02: 教員入力の種別（音声 / チャット）
+export const teacherInputType = pgEnum("teacher_input_type", ["voice", "chat"]);
+
+// F02: 教員入力のライフサイクル状態
+//   draft        … 下書き保存（FR-06）
+//   transcribing … 音声文字起こし待ち / 処理中（F02 スコープ外ジョブが更新、TODO）
+//   ready        … 文字起こし完了・確認/編集可能（FR-04）
+//   submitted    … F03 へ送信済み（FR-07: submitted_at をセット）
+export const teacherInputStatus = pgEnum("teacher_input_status", [
+  "draft",
+  "transcribing",
+  "ready",
+  "submitted",
+]);
+
 // 監査ログ操作種別
 export const auditOp = pgEnum("audit_op", ["insert", "update", "delete"]);
 
