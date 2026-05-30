@@ -9,6 +9,8 @@ const packageRoot = join(__dirname, "..", "..");
 const BASELINE_SQL = join(packageRoot, "drizzle", "0000_initial_baseline.sql");
 // F0 (#48-A): 階層基盤テーブル DDL (drizzle-kit generate 生成)。baseline の直後に流す。
 const F0A_SCHEMA_SQL = join(packageRoot, "drizzle", "0001_f0a_hierarchy_tables.sql");
+// F0 (#48-F): classes.grade_id / grades.department_id 追加 (階層リンク FK、drizzle 生成)。
+const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -20,6 +22,8 @@ const AUDIT_LOG_ACTOR_NULL_SQL = join(
 );
 // F0 (#48-A): 階層基盤テーブルの RLS policy + 監査 FK。新テーブル作成後に流す。
 const F0A_RLS_SQL = join(packageRoot, "migrations", "0006_f0a_schema_rls.sql");
+// F0 (#48-F): 広告階層マージ VIEW (security_invoker)。列追加 + RLS 適用後、最後に流す。
+const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_ads_view.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -92,9 +96,10 @@ export async function setup(): Promise<void> {
     await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector;");
     await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
 
-    // 3) DDL (drizzle 生成済の baseline + F0 階層基盤テーブル)
+    // 3) DDL (drizzle 生成済の baseline + F0 階層基盤テーブル + 階層リンク列追加)
     await runSqlFile(sql, BASELINE_SQL);
     await runSqlFile(sql, F0A_SCHEMA_SQL);
+    await runSqlFile(sql, F0F_COLS_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
@@ -105,6 +110,9 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, AUDIT_FK_SQL);
     await runSqlFile(sql, AUDIT_LOG_ACTOR_NULL_SQL);
     await runSqlFile(sql, F0A_RLS_SQL);
+
+    // 5) 広告階層マージ VIEW (#48-F)。列追加 + RLS 適用後に作成する。
+    await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -141,6 +149,11 @@ async function runSqlFile(sql: ReturnType<typeof postgres>, path: string): Promi
 /**
  * `;` で SQL を分割するが、`$$ ... $$` (PL/pgSQL 関数本体) や `'...'` リテラルの中の
  * `;` は無視する。プレーンな `;` 区切りより安全。
+ *
+ * `--` 行コメントは (文字列/関数本体の外なら) 行末まで読み飛ばす。これをしないと
+ * コメント中の `'` や `;` を SQL トークンとして誤認し、奇数個のアポストロフィを含む
+ * コメントが後続の `;` を見落とさせて statement を silent に欠落させる脆さがある
+ * (PR #130 Reviewer L1)。
  */
 function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
@@ -151,6 +164,19 @@ function splitSqlStatements(sql: string): string[] {
   while (i < sql.length) {
     const ch = sql[i];
     const next2 = sql.slice(i, i + 2);
+
+    // 行コメント (文字列/関数本体の外のみ): 行末まで捨てる。改行は残して
+    // トークンが結合しないようにする。
+    if (!inDollar && !inSingle && next2 === "--") {
+      const nl = sql.indexOf("\n", i);
+      if (nl === -1) {
+        i = sql.length;
+      } else {
+        buf += "\n";
+        i = nl + 1;
+      }
+      continue;
+    }
 
     if (!inSingle && next2 === "$$") {
       inDollar = !inDollar;

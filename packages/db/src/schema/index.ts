@@ -27,3 +27,5 @@ export * from "./departments.js";
 export * from "./school-configs.js";
 export * from "./daily-data.js";
 export * from "./ads.js";
+// F0 (#48-F): 広告階層マージ VIEW (実体は migrations/0007、ここは型定義のみ)
+export * from "./effective-ads-view.js";

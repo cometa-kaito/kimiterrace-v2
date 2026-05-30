@@ -15,6 +15,13 @@
       "when": 1780104768352,
       "tag": "0001_f0a_hierarchy_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780110197451,
+      "tag": "0002_f0f_hierarchy_links",
+      "breakpoints": true
     }
   ]
 }
