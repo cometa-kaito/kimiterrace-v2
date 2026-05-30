@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-30 (**F0 移植 着手サイクル**: sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + **#48-A 実装 PR #127 自律 merge**。階層基盤 5 テーブル grades/departments/school_configs/daily_data/ads + RLS、実 PG16 で RLS テスト 12 ケース green。drizzle snapshot enum の真因 (index.ts で enum 未 export → generate が毎回 DROP TYPE) を根本修正。Reviewer file-based 投稿 8 連続成功、Medium 2 を同 PR 内吸収、自律 merge 連続 9 回目)
+最終更新: 2026-05-30 (**F0 #48-F 広告階層マージ View 実装 PR #130 自律 merge**。`effective_ads_per_class` を **Materialized View ではなく `security_invoker` 通常 VIEW** で実装 (MV は RLS 不尊重で横断漏洩 + REFRESH 遅延が F04 即公開と矛盾 → 通常 VIEW なら呼出側 RLS コンテキストで tenant_isolation 貫通 + 常に最新)。#48-A が落としていた階層リンク FK (classes.grade_id / grades.department_id) を Drizzle 経由で復元。クエリ層 getEffectiveAdsForClass + 実 PG16 RLS テスト 10 ケース green。Reviewer APPROVE 相当 (Crit/High/Med 0)、Low/nit を同 PR 吸収、自律 merge 連続 11 回目)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,15 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F0 #48-F 広告階層マージ View 実装 (PR #130 自律 merge、commit `7df09ca`、Issue #116 close)**:
+  - **`effective_ads_per_class` VIEW (`migrations/0007`)**: 学校→学科→学年→クラス 4 階層広告マージを SQL で解決。各行 = あるクラスで表示すべき実効広告 1 件 (自クラス + 親階層から伝搬)。列: class_id / ad_id / school_id / source_scope / scope_rank (school=0/dept=1/grade=2/class=3) / is_inherited (= scope<>'class'、親階層は子で編集不可) / ad メタ各種。`a.school_id = c.school_id` 結合は system_admin (RLS バイパス) 時の cross-tenant ペアリング防止の多層防御
+  - **設計逸脱 (Issue 文面は Materialized View)**: **通常 VIEW + `security_invoker = true`** を採用。理由 (1) PG の MV は RLS を尊重しない (REFRESH 時所有者権限のスナップショット → SELECT 時にテナント分離が効かず横断漏洩 → CLAUDE.md ルール2 違反)。`security_invoker` (PG16) は呼出ロールの RLS コンテキストで実行され下層 classes/grades/ads の tenant_isolation がクエリ時強制。(2) MV の REFRESH 遅延は F04 即公開と矛盾、通常 VIEW は常に最新。(3) 1 クラス数件・索引等価結合で安価、50 端末ポーリングにも適す
+  - **階層リンク FK 復元 (#48-A が落としていた)**: V1 Firestore ネスト `grades/{g}/classes/{c}` をフラット化した際 classes に親学年・grades に親学科参照が無く、マージ View が class→grade→department を辿れなかった。`classes.grade_id → grades.id` / `grades.department_id → departments.id` (ともに nullable, ON DELETE SET NULL) を **Drizzle スキーマ経由**で追加 (`drizzle/0002_f0f_hierarchy_links.sql`、Rule 3 維持・DROP TYPE 無し)。nullable は #48-D 移行で後追い充填
+  - **クエリ層**: `src/schema/effective-ads-view.ts` に `pgView(...).existing()` (VIEW 実体は手書き SQL、型のみ単一ソース化) + `src/queries/effective-ads.ts` の `getEffectiveAdsForClass(db, classId)` ((scope_rank, display_order, ad_id) で広→狭の決定的ソート)
+  - **テスト**: 実 PG16 RLS テスト 10 ケース (`effective-ads-view.test.ts`) — 4 階層継承・別学年除外・grade_id NULL は学校のみ・is_inherited・**他テナント不可視 (security_invoker RLS 実証)**・deny by default・system_admin 自校のみ・クエリ層順序/分離。`global-setup.ts` loader に `0002`/`0007` を正順登録 ([[migration-loader-pattern]] 遵守、PR #110 配線漏れ dormant bug を回避)
+  - **Reviewer Agent (worktree 隔離) APPROVE 相当 (Critical/High/Medium 0 / Low 1 / nit 1)**: security_invoker の RLS 貫通は技術的に正しくテストで実証済、JOIN correctness / FK / loader 順序 / GRANT すべて OK と判定。**Low/nit を同 PR 内で吸収**: L1 (`splitSqlStatements` が `--` 行コメントを剥がさず、奇数アポストロフィのコメントが後続 `;` を見落とし statement silent 欠落しうる脆さ) を文字列/関数本体外の `--` 行末読み飛ばしで修正、N1 (0007 ヘッダの rename 前ファイル名) 修正。Reviewer file-based 投稿 10 連続成功
+  - **本サイクル成果**: 1 PR (#130) merged、Issue #116 close、F0 Phase 2 (サイネージ) のブロック解除 (#48-E が本 VIEW を SELECT 可能に)、Busy CEO 自律 merge 連続 **11 回目**。Desktop 直接実装 (Explore/Worker spawn なし、設計判断と実装が一体のため)、context 消費 中 (~70k tokens、Reviewer 1 spawn + Medium なしで吸収軽量)
+  - **学び**: (1) PG の Materialized View は RLS を尊重しないため、テナント分離が要るマージ結果には `security_invoker` 通常 VIEW が正解 (memory 候補)。(2) ローカル Docker/PG 不在でも drizzle generate + typecheck/lint まで Desktop で固め、RLS/VIEW 実走は CI (pgvector:pg16) に委ねる構成が機能 (PR #127 と同じ、今回も CI 初走で 10/10 pass)
 - 2026-05-30: **F14 サイネージ天気予報を計画追加 (ユーザー要望、PR #129 自律 merge、commit `18b5505`、Issue #128 close)**:
   - **新規 [F14](requirements/functional/F14-weather-forecast-signage.md) + [ADR-021](adr/021-weather-data-source-jma.md)**: サイネージに自校地域の天気予報を表示。データソースは **気象庁 (JMA) 無料 JSON API** (API キー不要・公的・無料、学校無料モデルと整合。商用 API は従量課金/鍵管理/権威性で却下、将来フォールバック候補)
   - **閉域原則 [[closed-system-security]] との両立**: 端末 (最大 50 台/校) は外部直叩きせず、**Cloud Run Job が JMA を地域コード単位で取得 → Cloud SQL `weather_forecasts` にキャッシュ → サイネージは自校 DB から SELECT**。外部 egress は「Job → JMA」1 経路、送信は公開の地域コードのみ (PII ゼロ)。F13/ADR-020 の外部連携正当化論法と整合
@@ -204,16 +213,17 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 F0 着手 + F14 計画追加サイクル末状態**: **sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + #48-A (PR #127) 自律 merge 完了**。F0 Phase 1 起点 (DB 階層基盤 5 テーブル + RLS) が main に着地。加えてユーザー要望で **F14 サイネージ天気予報 (#128) + ADR-021 を計画追加 (PR #129 merged)**。次は最優先: **#48-D (移行スクリプト) / #48-B (認証基盤) 着手** (どちらも #48-A 完了が前提、解禁済)、F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2、#48-E 依存・PoC 前倒し候補**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
+> **2026-05-30 F0 #48-F 実装サイクル末状態**: **#48-A (PR #127) + #48-F (PR #130) 自律 merge 完了**。F0 Phase 1 基盤 (DB 階層 5 テーブル + RLS) + 広告階層マージ VIEW `effective_ads_per_class` (security_invoker で RLS 貫通) + 階層リンク FK が main に着地。**#48-E (サイネージ表示) のブロック解除** (本 VIEW を SELECT 可能に)。次は最優先: **#48-D (移行スクリプト #115) / #48-B (認証基盤 #113) / #48-E (サイネージ表示 #117) 着手**。F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2・#48-E 依存・PoC 前倒し候補**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
 
 ### 最優先 (F0 Phase 1 継続 — #48-A 完了済)
 
 1. ~~**#48 sub-Issue 15 個起票**~~ ✅ **完了** (#112=A 〜 #126=O、`gh issue list` 参照)
 2. ~~**#48-A 着手 (DB スキーマ拡張)**~~ ✅ **完了** (PR #127 merged、commit `6268962`、Issue #112 close)
-3. **次の F0 候補 (依存解禁済、いずれも #48-A 完了が前提)**:
-   - **#48-D (#115) Firestore データ移行スクリプト** `scripts/migration/firestore-to-pg.ts` (500 行) — #48-A のテーブルに冪等インポート。ADR/認証に依存しないので着手しやすい
-   - **#48-B (#113) Identity Platform 認証基盤 + middleware RLS context SET LOCAL** (400 行) — **前提: ADR-003 (Identity Platform) / ADR-008 (Route Handlers) 起草が欲しい (#94)**。auth 系の起点なので #48-C/#48-N をブロックしている
-   - **#48-F (#116) 広告階層マージ Materialized View** (400 行) — #48-A の ads/grades/classes を使う SQL 中心タスク、UI 非依存で着手しやすい
+3. ~~**#48-F 広告階層マージ View**~~ ✅ **完了** (PR #130 merged、commit `7df09ca`、Issue #116 close)
+4. **次の F0 候補 (依存解禁済、いずれも #48-A 完了が前提)**:
+   - **#48-D (#115) Firestore データ移行スクリプト** `scripts/migration/firestore-to-pg.ts` (500 行) — #48-A のテーブルに冪等インポート。**classes.grade_id / grades.department_id (#48-F で追加) も埋めること**。ADR/認証に依存しないので着手しやすい
+   - **#48-E (#117) サイネージ表示 Server Component** — **#48-F 完了でブロック解除済**。`effective_ads_per_class` を SELECT (schedule/notice/assignment 描画 + 広告 rotation)。onSnapshot→5-10 秒ポーリング、50 台×5秒の Cloud SQL 接続圧迫を NFR と突合 (v1-v2-mapping §Firebase API 置換マップ参照)
+   - **#48-B (#113) Identity Platform 認証基盤 + middleware RLS context SET LOCAL** (400 行) — **前提: ADR-003 (Identity Platform) / ADR-008 (Route Handlers) 起草が欲しい (#94)**。auth 系の起点なので #48-C/#48-N をブロックしている。**#48-E/#48-F のクエリ層は middleware が `SET LOCAL app.current_school_id` 済の接続で呼ぶ前提**
 4. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
    - **F01** 教員ファイル抽出 (PDF/Word/Excel/画像 → Gemini 構造化)
    - **F03** AI 構造化 (Gemini Pro + confidence_score、ADR-017 準拠)
