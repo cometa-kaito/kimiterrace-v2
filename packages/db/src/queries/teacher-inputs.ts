@@ -40,6 +40,10 @@ async function recordAudit(tx: TenantTx, params: AuditParams): Promise<void> {
     recordId: params.recordId,
     operation: params.operation,
     diff: params.diff as never,
+    // row_hash は NFR04 の hash chain トリガ (migrations/0003_audit_trigger.sql) が
+    // BEFORE INSERT で必ず上書き計算する。クライアント入力値は無視されるため、
+    // notNull 制約を満たすためのプレースホルダ "" を渡す (改竄入力対策はトリガ側)。
+    rowHash: "",
   });
 }
 
@@ -80,6 +84,10 @@ export async function createTeacherInput(
       updatedBy: actorUserId,
     })
     .returning();
+  // RLS WITH CHECK 違反等で INSERT が 0 行を返した場合は明示エラー (sliently 握りつぶさない)。
+  if (!row) {
+    throw new Error("createTeacherInput: INSERT が行を返しませんでした (RLS 拒否の可能性)");
+  }
   await recordAudit(tx, {
     schoolId,
     actorUserId,
@@ -294,6 +302,9 @@ export async function addAttachment(
       updatedBy: actorUserId,
     })
     .returning();
+  if (!row) {
+    throw new Error("addAttachment: INSERT が行を返しませんでした (RLS 拒否の可能性)");
+  }
 
   await recordAudit(tx, {
     schoolId: parent.schoolId,
