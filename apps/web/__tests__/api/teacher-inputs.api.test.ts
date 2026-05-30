@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TEACHER_INPUT_STAFF_ROLES, isTeacherInputRole } from "../../lib/teacher-input/roles";
 
 /**
  * F02 教員入力 API ルートハンドラの単体テスト。
@@ -9,22 +10,39 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 // ---- モック: lib/db ----------------------------------------------------------
-// withSession は callback に (tx, user) を渡す契約。テストでは fake tx + teacher user を渡す。
+// withSession は callback に (tx, user) を渡す契約。テストでは fake tx + user を渡す。
+// 第2引数 `options.allowedRoles` の role 境界 (本物の withSession が強制する) も mock で再現し、
+// 非 staff ロール → ForbiddenError → 403 のハンドラ配線を検証する。
 class UnauthenticatedError extends Error {}
+class ForbiddenError extends Error {}
+type FakeUser = { uid: string; role: string; schoolId: string };
 const fakeUser = {
   uid: "11111111-1111-1111-1111-111111111111",
-  role: "teacher" as const,
   schoolId: "22222222-2222-2222-2222-222222222222",
 };
 let authed = true;
-const withSession = vi.fn(async (fn: (tx: unknown, user: typeof fakeUser) => Promise<unknown>) => {
-  if (!authed) throw new UnauthenticatedError();
-  return await fn({}, fakeUser);
-});
+/** テストごとに上書き可能な現在ロール (beforeEach で "teacher" にリセット)。 */
+let currentRole = "teacher";
+const withSession = vi.fn(
+  async (
+    fn: (tx: unknown, user: FakeUser) => Promise<unknown>,
+    options?: { allowedRoles?: readonly string[] },
+  ) => {
+    if (!authed) throw new UnauthenticatedError();
+    if (options?.allowedRoles && !options.allowedRoles.includes(currentRole)) {
+      throw new ForbiddenError();
+    }
+    return await fn({}, { ...fakeUser, role: currentRole });
+  },
+);
 
 vi.mock("../../lib/db", () => ({
-  withSession: (fn: (tx: unknown, user: typeof fakeUser) => Promise<unknown>) => withSession(fn),
+  withSession: (
+    fn: (tx: unknown, user: FakeUser) => Promise<unknown>,
+    options?: { allowedRoles?: readonly string[] },
+  ) => withSession(fn, options),
   UnauthenticatedError,
+  ForbiddenError,
 }));
 
 // ---- モック: @kimiterrace/db ドメイン関数 -----------------------------------
@@ -66,6 +84,7 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(() => {
   vi.clearAllMocks();
   authed = true;
+  currentRole = "teacher";
 });
 
 describe("GET /api/teacher-inputs (FR-08 一覧)", () => {
@@ -238,5 +257,79 @@ describe("POST /api/teacher-inputs/:id/attachments (FR-05 メタ行)", () => {
     });
     const res = await attachPOST(r, ctx(VALID_ID));
     expect(res.status).toBe(400);
+  });
+});
+
+// ---- 認可境界 (High-1): 非 staff ロールは 403 -------------------------------
+// teacher_inputs の RLS は school 境界しか守らないため、生徒/保護者の role 境界は
+// handler の allowedRoles (→ withSession → ForbiddenError → 403) が第一層で弾く。
+describe("認可: 生徒/保護者 (非 staff ロール) は 403 でドメイン未到達", () => {
+  it("GET 一覧: student は 403、listTeacherInputs 未呼び出し", async () => {
+    currentRole = "student";
+    const res = await listGET();
+    expect(res.status).toBe(403);
+    expect(db.listTeacherInputs).not.toHaveBeenCalled();
+  });
+
+  it("POST 作成: student は 403、createTeacherInput 未呼び出し", async () => {
+    currentRole = "student";
+    const res = await createPOST(req({ inputType: "chat", transcript: "x" }));
+    expect(res.status).toBe(403);
+    expect(db.createTeacherInput).not.toHaveBeenCalled();
+  });
+
+  it("PATCH submit: guardian は 403、submitTeacherInput 未呼び出し", async () => {
+    currentRole = "guardian";
+    const r = new Request("http://localhost", {
+      method: "PATCH",
+      body: JSON.stringify({ action: "submit" }),
+    });
+    const res = await detailPATCH(r, ctx(VALID_ID));
+    expect(res.status).toBe(403);
+    expect(db.submitTeacherInput).not.toHaveBeenCalled();
+  });
+
+  it("DELETE: student は 403、deleteTeacherInput 未呼び出し", async () => {
+    currentRole = "student";
+    const res = await detailDELETE(new Request("http://localhost"), ctx(VALID_ID));
+    expect(res.status).toBe(403);
+    expect(db.deleteTeacherInput).not.toHaveBeenCalled();
+  });
+
+  it("POST 添付: student は 403、addAttachment 未呼び出し", async () => {
+    currentRole = "student";
+    const r = new Request("http://localhost", {
+      method: "POST",
+      body: JSON.stringify({ storagePath: "gs://b/x.pdf", mimeType: "application/pdf" }),
+    });
+    const res = await attachPOST(r, ctx(VALID_ID));
+    expect(res.status).toBe(403);
+    expect(db.addAttachment).not.toHaveBeenCalled();
+  });
+
+  it("school_admin は許可される (staff ロール)", async () => {
+    currentRole = "school_admin";
+    db.listTeacherInputs.mockResolvedValue([]);
+    const res = await listGET();
+    expect(res.status).toBe(200);
+    expect(db.listTeacherInputs).toHaveBeenCalled();
+  });
+});
+
+// ---- pure role モジュール (allowedRoles 定義の単体検証) ----------------------
+describe("teacher-input roles (pure)", () => {
+  it("teacher / school_admin は staff ロール", () => {
+    expect(isTeacherInputRole("teacher")).toBe(true);
+    expect(isTeacherInputRole("school_admin")).toBe(true);
+  });
+
+  it("student / guardian / system_admin は不可", () => {
+    expect(isTeacherInputRole("student")).toBe(false);
+    expect(isTeacherInputRole("guardian")).toBe(false);
+    expect(isTeacherInputRole("system_admin")).toBe(false);
+  });
+
+  it("許可集合は teacher と school_admin のみ", () => {
+    expect([...TEACHER_INPUT_STAFF_ROLES].sort()).toEqual(["school_admin", "teacher"]);
   });
 });

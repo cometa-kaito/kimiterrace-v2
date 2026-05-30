@@ -9,7 +9,8 @@ import {
 } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { UnauthenticatedError, withSession } from "../../../../lib/db";
+import { ForbiddenError, UnauthenticatedError, withSession } from "../../../../lib/db";
+import { TEACHER_INPUT_STAFF_ROLES } from "../../../../lib/teacher-input/roles";
 
 /**
  * F02: 教員入力 — 個別リソースエンドポイント (ADR-008 Route Handlers)。
@@ -22,7 +23,8 @@ import { UnauthenticatedError, withSession } from "../../../../lib/db";
  * - DELETE /api/teacher-inputs/:id        … 削除 (添付メタは cascade)
  *
  * Next 16: 動的 params は Promise。`await context.params` で解決する。
- * 認証・RLS は withSession、未認証 401 / 不正 400 / 不在 404。
+ * **認可は二層** (ルール2): `allowedRoles` で staff role 以外を 403 (生徒/保護者排除) +
+ * DB の `tenant_isolation` が school 越境を止める。未認証 401 / role 不足 403 / 不正 400 / 不在 404。
  */
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -43,19 +45,26 @@ function unauth(): NextResponse {
   return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 }
 
+function forbidden(): NextResponse {
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
+}
+
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) {
     return NextResponse.json({ error: "invalid_id" }, { status: 400 });
   }
   try {
-    const row = await withSession((tx: TenantTx) => getTeacherInput(tx, id));
+    const row = await withSession((tx: TenantTx) => getTeacherInput(tx, id), {
+      allowedRoles: TEACHER_INPUT_STAFF_ROLES,
+    });
     if (!row) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
     return NextResponse.json(row);
   } catch (e) {
     if (e instanceof UnauthenticatedError) return unauth();
+    if (e instanceof ForbiddenError) return forbidden();
     throw e;
   }
 }
@@ -82,19 +91,22 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
   const data = parsed.data;
 
   try {
-    const result = await withSession(async (tx: TenantTx, user) => {
-      switch (data.action) {
-        case "edit_transcript":
-          return await updateTranscript(tx, user.uid, id, { transcript: data.transcript });
-        case "save_draft":
-          return await saveDraft(tx, user.uid, id, {
-            transcript: data.transcript,
-            audioPath: data.audioPath,
-          });
-        case "submit":
-          return await submitTeacherInput(tx, user.uid, id);
-      }
-    });
+    const result = await withSession(
+      async (tx: TenantTx, user) => {
+        switch (data.action) {
+          case "edit_transcript":
+            return await updateTranscript(tx, user.uid, id, { transcript: data.transcript });
+          case "save_draft":
+            return await saveDraft(tx, user.uid, id, {
+              transcript: data.transcript,
+              audioPath: data.audioPath,
+            });
+          case "submit":
+            return await submitTeacherInput(tx, user.uid, id);
+        }
+      },
+      { allowedRoles: TEACHER_INPUT_STAFF_ROLES },
+    );
     if (!result) {
       // save_draft が submitted 済みで拒否したケースは 409、それ以外は 404。
       if (data.action === "save_draft") {
@@ -105,6 +117,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
     return NextResponse.json(result);
   } catch (e) {
     if (e instanceof UnauthenticatedError) return unauth();
+    if (e instanceof ForbiddenError) return forbidden();
     if (e instanceof TeacherInputValidationError) {
       return NextResponse.json({ error: "unprocessable", message: e.message }, { status: 422 });
     }
@@ -118,13 +131,16 @@ export async function DELETE(_request: Request, context: RouteContext): Promise<
     return NextResponse.json({ error: "invalid_id" }, { status: 400 });
   }
   try {
-    const ok = await withSession((tx: TenantTx, user) => deleteTeacherInput(tx, user.uid, id));
+    const ok = await withSession((tx: TenantTx, user) => deleteTeacherInput(tx, user.uid, id), {
+      allowedRoles: TEACHER_INPUT_STAFF_ROLES,
+    });
     if (!ok) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
     return NextResponse.json({ status: "deleted" });
   } catch (e) {
     if (e instanceof UnauthenticatedError) return unauth();
+    if (e instanceof ForbiddenError) return forbidden();
     throw e;
   }
 }

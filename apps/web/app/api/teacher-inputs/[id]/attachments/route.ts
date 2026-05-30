@@ -1,7 +1,8 @@
 import { type TenantTx, addAttachment, listAttachments } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { UnauthenticatedError, withSession } from "../../../../../lib/db";
+import { ForbiddenError, UnauthenticatedError, withSession } from "../../../../../lib/db";
+import { TEACHER_INPUT_STAFF_ROLES } from "../../../../../lib/teacher-input/roles";
 
 /**
  * F02 (FR-05, メタ行のみ): 教員入力の添付メタエンドポイント (ADR-008 Route Handlers)。
@@ -13,6 +14,7 @@ import { UnauthenticatedError, withSession } from "../../../../../lib/db";
  * TODO(添付実体): 署名付き URL 発行・実アップロード・MIME 検証・ウイルススキャンは別 PR。
  *
  * Next 16: 動的 params は Promise。認証・RLS は withSession。
+ * **認可は二層** (ルール2): `allowedRoles` で staff role 以外を 403 (生徒/保護者排除) + RLS。
  */
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -27,16 +29,23 @@ function unauth(): NextResponse {
   return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 }
 
+function forbidden(): NextResponse {
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
+}
+
 export async function GET(_request: Request, context: RouteContext): Promise<NextResponse> {
   const { id } = await context.params;
   if (!idSchema.safeParse(id).success) {
     return NextResponse.json({ error: "invalid_id" }, { status: 400 });
   }
   try {
-    const rows = await withSession((tx: TenantTx) => listAttachments(tx, id));
+    const rows = await withSession((tx: TenantTx) => listAttachments(tx, id), {
+      allowedRoles: TEACHER_INPUT_STAFF_ROLES,
+    });
     return NextResponse.json({ items: rows });
   } catch (e) {
     if (e instanceof UnauthenticatedError) return unauth();
+    if (e instanceof ForbiddenError) return forbidden();
     throw e;
   }
 }
@@ -62,8 +71,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   }
 
   try {
-    const row = await withSession((tx: TenantTx, user) =>
-      addAttachment(tx, user.uid, id, parsed.data),
+    const row = await withSession(
+      (tx: TenantTx, user) => addAttachment(tx, user.uid, id, parsed.data),
+      { allowedRoles: TEACHER_INPUT_STAFF_ROLES },
     );
     if (!row) {
       return NextResponse.json({ error: "input_not_found" }, { status: 404 });
@@ -71,6 +81,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     return NextResponse.json(row, { status: 201 });
   } catch (e) {
     if (e instanceof UnauthenticatedError) return unauth();
+    if (e instanceof ForbiddenError) return forbidden();
     throw e;
   }
 }

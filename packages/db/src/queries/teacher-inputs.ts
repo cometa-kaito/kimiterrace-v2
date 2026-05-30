@@ -29,7 +29,8 @@ type AuditParams = {
   tableName: string;
   recordId: string;
   operation: "insert" | "update" | "delete";
-  diff: unknown;
+  /** 操作前後値の差分 (jsonb)。`{before, after}` 等のオブジェクト (NFR04)。 */
+  diff: object;
 };
 
 async function recordAudit(tx: TenantTx, params: AuditParams): Promise<void> {
@@ -39,7 +40,7 @@ async function recordAudit(tx: TenantTx, params: AuditParams): Promise<void> {
     tableName: params.tableName,
     recordId: params.recordId,
     operation: params.operation,
-    diff: params.diff as never,
+    diff: params.diff,
     // row_hash は NFR04 の hash chain トリガ (migrations/0003_audit_trigger.sql) が
     // BEFORE INSERT で必ず上書き計算する。クライアント入力値は無視されるため、
     // notNull 制約を満たすためのプレースホルダ "" を渡す (改竄入力対策はトリガ側)。

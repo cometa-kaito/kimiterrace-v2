@@ -1,5 +1,6 @@
 import {
   type KimiterraceDb,
+  type TenantRole,
   type TenantTx,
   createDbClient,
   withTenantContext,
@@ -62,19 +63,44 @@ export class UnauthenticatedError extends Error {
 }
 
 /**
+ * 認証済みだが role が許可集合に無いときに投げるエラー。
+ * 呼出側 (Route Handler) が 403 に変換する (Server Component は `requireRole` で redirect する)。
+ *
+ * `teacher_inputs` のように RLS が school 境界しか守らないテーブルでは、role 境界をこの層で
+ * 強制する必要がある (ルール2 多層防御の第一層)。`allowedRoles` 指定時のみ評価され、
+ * 未指定の既存呼出 (publish/schedule/hub Server Action は別途 `requireRole` でガード済) は
+ * 従来どおり role を問わない (後方互換)。
+ */
+export class ForbiddenError extends Error {
+  constructor() {
+    super("権限がありません (role が許可されていません)。");
+    this.name = "ForbiddenError";
+  }
+}
+
+/**
  * 現在のセッションを解決し、RLS context を張ったトランザクション内で `fn` を実行する。
  *
  * - `getCurrentUser()` が null (未認証 / claims 不正) なら `UnauthenticatedError` を投げる
  *   (deny-by-default)。
+ * - `options.allowedRoles` を渡すと、user.role がそこに無い場合 `ForbiddenError` を投げる
+ *   (tx を開く前に弾く)。RLS が role 境界を守らないテーブルの認可第一層。
  * - 非 null なら `withTenantContext` (packages/db) に user を渡して `SET LOCAL` 相当を一元処理。
  *   手書きの SET LOCAL は書かない (ADR-008 一元化 / ADR-019)。
  *
  * @throws {UnauthenticatedError} 未認証時
+ * @throws {ForbiddenError} `allowedRoles` 指定かつ role が許可集合に無いとき
  */
-export async function withSession<T>(fn: (tx: TenantTx, user: AuthUser) => Promise<T>): Promise<T> {
+export async function withSession<T>(
+  fn: (tx: TenantTx, user: AuthUser) => Promise<T>,
+  options?: { allowedRoles?: readonly TenantRole[] },
+): Promise<T> {
   const user = await getCurrentUser();
   if (!user) {
     throw new UnauthenticatedError();
+  }
+  if (options?.allowedRoles && !options.allowedRoles.includes(user.role)) {
+    throw new ForbiddenError();
   }
   return await withTenantContext(
     getDb(),
