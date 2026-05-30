@@ -44,20 +44,30 @@ PoC 期間中（2026-06-01〜09-30）は LP リポジトリ（`edix-lp`）に Tu
   - `last_seen_at` (timestamptz, TV からの最終ポーリング)
   - `last_known_ip` (inet, nullable)
   - `notes` (text, nullable)
+  - `deleted_at` (timestamptz, nullable, ソフトデリート用 / §4.2)
   - 監査カラム
 - [ ] 新規テーブル `tv_device_commands`（コマンドキュー、send-once セマンティクス）
   - `id` (uuid), `device_id` (FK to tv_devices.device_id)
+  - `school_id` (FK, RLS テナント分離用。`tv_devices.school_id` から継承して INSERT)
   - `command` (enum: `signage_reload`, `signage_open`, `signage_exit`, `service_restart`)
   - `params_json` (jsonb, nullable)
   - `issued_by` (FK to users)
   - `issued_at`, `acknowledged_at` (TV が受信した時刻)
   - `status` (enum: `pending`, `delivered`, `failed`, `expired`)
-- [ ] 新規テーブル `tv_device_audit_log` または `audit_log` 既存テーブルに type=`tv_config_change` で記録
+  - 監査カラム（RLS 有効）
+- [ ] 新規テーブル `tv_device_tokens`（TV ごとのポーリング認証トークン、§2/§5）
+  - `id` (uuid, PK), `device_id` (FK to tv_devices.device_id)
+  - `school_id` (FK, RLS テナント分離用)
+  - `token_hash` (text, 生トークンは保存せずハッシュのみ。生値は登録直後 1 度だけ平文表示)
+  - `expires_at` (timestamptz, nullable, 半年ローテーション / 紛失時即時失効用)
+  - `revoked_at` (timestamptz, nullable)
+  - 監査カラム（RLS 有効）
+- [ ] 既存 `audit_log` テーブルに `type=tv_config_change` で記録（新規テーブルは作らず NFR04 のハッシュチェーンに寄せる）
   - 「誰がいつどのフィールドをどう変更したか」を全件残す（NFR04）
-- [ ] motion_events 拡張: `tv_device_id` (FK to tv_devices.device_id, nullable) を追加
+- [ ] `events` 拡張（F13 の来場イベントテーブル。`motion_events` ではない）: `tv_device_id` (FK to tv_devices.device_id, nullable) を追加
   - 既存の `presence` イベントが TV 経由で来た場合はこの列に紐付ける
   - 直接 SwitchBot クラウド経由（F13）の場合は NULL（device_mac で別途解決）
-- [ ] migrations は drizzle-kit 生成のみ。手書き SQL 禁止（[CLAUDE.md ルール 3](../../../CLAUDE.md)）
+- [ ] テーブル DDL は drizzle-kit 生成（手書き DDL 禁止、[CLAUDE.md ルール 3](../../../CLAUDE.md)）。RLS / ポリシー / トリガ等 drizzle-kit が扱えない要素は `packages/db/migrations/000N_*.sql` の手書き SQL で適用し、`__tests__/_setup/global-setup.ts` のローダ配列に登録する（既存 0001〜0007 と同方式）
 
 ### 2. TV → サーバ ポーリング API `GET /api/tv/config`
 
@@ -86,7 +96,7 @@ PoC 期間中（2026-06-01〜09-30）は LP リポジトリ（`edix-lp`）に Tu
 
 - [ ] `POST /api/sensors/switchbot/webhook` の payload.context に以下のフィールドを受け入れる:
   - `tv_device_id`, `school_id`, `grade_id`, `department_id`, `class_id`, `device_label`
-- [ ] events / motion_events に上記コンテキストを保存
+- [ ] `events`（F13 の来場イベントテーブル）に上記コンテキストを保存
 - [ ] device_mac から sensor_devices.school_id への解決と、ペイロードの school_id が一致しない場合は警告ログ（[NFR04](../non-functional/NFR04-audit-log.md)）
 
 ### 4. Web 管理 UI `/admin/tv-devices`
@@ -141,6 +151,7 @@ PoC 期間中（2026-06-01〜09-30）は LP リポジトリ（`edix-lp`）に Tu
   - school_admin: 自校 row のみ操作可
   - system_admin: 全件操作可
   - 未認証セッション → 拒否
+  - `tv_device_commands` / `tv_device_tokens` も school_id で同様に分離（他校 row 不可視）
 - [ ] `__tests__/ui/admin-tv-devices/`
   - signage_url 入力 → 教室コンテキスト自動抽出のスナップショット
   - school_admin は他校 TV を参照不可（403）
