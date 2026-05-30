@@ -2,7 +2,7 @@
 
 - 状態: Proposed
 - 日付: 2026-05-30
-- 関連: [F14 (サイネージ天気予報)](../requirements/functional/F14-weather-forecast-signage.md), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [NFR03 (セキュリティ)](../requirements/non-functional/NFR03-security.md), [NFR06 (コスト)](../requirements/non-functional/NFR06-cost.md), memory [[closed-system-security]]
+- 関連: [F14 (サイネージ天気予報)](../requirements/functional/F14-weather-forecast-signage.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [NFR03 (セキュリティ)](../requirements/non-functional/NFR03-security.md), [NFR06 (コスト)](../requirements/non-functional/NFR06-cost-policy.md), memory [[closed-system-security]]。ADR-002 (Cloud Run) / ADR-001 (PostgreSQL) / ADR-009 (Terraform) は未作成（[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
 
 ## 文脈
 
@@ -44,5 +44,5 @@ JMA へ送る情報は **公開の地域コードのみ**（例: 岐阜県 = `21
 **悪い影響 / トレードオフ**:
 - JMA の bosai JSON API は**非公式・無保証**（ドキュメント化されておらず、フォーマットや URL が予告なく変わりうる）。→ `raw` 原文保全 + スキーマ検証 + 失敗時 last-known-good + Sentry 監視で緩和。変更時は商用 API フォールバックに切替可能な抽象化を持たせる。
 - `weather_forecasts` は school_id を持たない cross-tenant 参照テーブルになり、RLS が「全ロール SELECT 可・書き込みは system のみ」という**テナント分離テーブルとは別パターン**になる（[ADR-019](019-rls-two-layer-tenant-isolation.md) の例外）。Reviewer はこの SELECT 全開放が公開・非 PII データに限った妥当な例外であることを確認する必要がある。
-- 閉域原則に「外部 egress を 1 経路」開ける判断であり、その経路（Job → JMA）は Terraform で明示管理する必要がある（[ADR-009](009-terraform.md)）。
+- 閉域原則に「外部 egress を 1 経路」開ける判断であり、その経路（Job → JMA）は Terraform で明示管理する必要がある（ADR-009 Terraform、未作成 [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）。
 - 地域コードの導出（府県 → JMA コード）の静的マップ保守が必要。市区単位まで対応する場合は粒度設計が増える。

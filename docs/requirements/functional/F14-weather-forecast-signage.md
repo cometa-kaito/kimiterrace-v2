@@ -1,8 +1,8 @@
 # F14: サイネージ天気予報表示（気象庁データ）
 
 - 状態: Draft（新規）
-- 関連 ADR: [ADR-021 (天気データソース = 気象庁 JMA)](../../adr/021-weather-data-source-jma.md), [ADR-002 (Cloud Run)](../../adr/002-cloud-run-vs-functions.md), [ADR-001 (PostgreSQL)](../../adr/001-postgres-vs-firestore.md), [ADR-019 (RLS 二層)](../../adr/019-rls-two-layer-tenant-isolation.md), [ADR-009 (Terraform)](../../adr/009-terraform.md)
-- 関連要件: [F12 (V1 機能移植 / サイネージ)](F12-v1-port.md), [NFR01 (性能)](../non-functional/NFR01-performance.md), [NFR03 (セキュリティ)](../non-functional/NFR03-security.md), [NFR04 (監査ログ)](../non-functional/NFR04-audit-log.md), [NFR05 (アクセシビリティ)](../non-functional/NFR05-accessibility.md), [NFR06 (コスト)](../non-functional/NFR06-cost.md)
+- 関連 ADR: [ADR-021 (天気データソース = 気象庁 JMA)](../../adr/021-weather-data-source-jma.md), [ADR-019 (RLS 二層)](../../adr/019-rls-two-layer-tenant-isolation.md)。ADR-002 (Cloud Run) / ADR-001 (PostgreSQL) / ADR-009 (Terraform) は未作成（[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
+- 関連要件: [F12 (V1 機能移植 / サイネージ)](F12-v1-port.md), [NFR01 (性能)](../non-functional/NFR01-performance.md), [NFR03 (セキュリティ)](../non-functional/NFR03-security.md), [NFR04 (監査ログ)](../non-functional/NFR04-audit-log.md), [NFR05 (アクセシビリティ)](../non-functional/NFR05-accessibility.md), [NFR06 (コスト)](../non-functional/NFR06-cost-policy.md)
 - 関連 issue: [#128](https://github.com/cometa-kaito/kimiterrace-v2/issues/128)
 - 優先度: **Phase 2（サイネージ）。低コスト・高視認性のため PoC 前倒し候補**（[v2-mvp.md §1.2](../v2-mvp.md)）
 
@@ -47,9 +47,9 @@
 - [ ] エンドポイント: `https://www.jma.go.jp/bosai/forecast/data/forecast/{areaCode}.json`（必要に応じ `overview_forecast/{areaCode}.json` の文章も）
 - [ ] HTTP マナー: 明示的な `User-Agent`、タイムアウト、指数バックオフ retry。並列度を抑え JMA に負荷をかけない
 - [ ] 保存: `weather_forecasts` に upsert（`(area_code, source, forecast_date)` 競合で UPDATE）。`raw` に原文 JSON を保全
-- [ ] 失敗時: 既存キャッシュは消さない（last-known-good 維持）。失敗は Sentry `warning`（[ADR-013](../../adr/013-sentry.md)）+ audit_log に記録
+- [ ] 失敗時: 既存キャッシュは消さない（last-known-good 維持）。失敗は Sentry `warning`（ADR-013 Sentry、未作成 #94）+ audit_log に記録
 - [ ] 監査: 書き込みの `created_by`/`updated_by` はサービスアカウント `system://weather-fetch`。RLS は `app.current_user_role='system_service'` を SET LOCAL
-- [ ] egress: Job からの外向き通信は Terraform で許可範囲を明示（[ADR-009](../../adr/009-terraform.md) / [NFR03](../non-functional/NFR03-security.md)）
+- [ ] egress: Job からの外向き通信は Terraform で許可範囲を明示（ADR-009 Terraform 未作成 #94 / [NFR03](../non-functional/NFR03-security.md)）
 
 ### 3. サイネージ表示（[F12](F12-v1-port.md) / #48-E への追記要件）
 
@@ -64,7 +64,7 @@
 
 - [ ] **PII 非送信**: JMA へ送るのは地域コードのみ。リクエストに学校名・生徒・端末識別子を含めない（[ADR-021](../../adr/021-weather-data-source-jma.md)）
 - [ ] **API キー不要**: JMA 無料 API は鍵不要。将来商用 API をフォールバック採用する場合のみ、その鍵は Secret Manager（[CLAUDE.md ルール 5](../../../CLAUDE.md)）
-- [ ] コスト: JMA 無料 + 地域 dedup + 低頻度取得で実質ゼロ（[NFR06](../non-functional/NFR06-cost.md) / 学校無料のビジネスモデルと整合）
+- [ ] コスト: JMA 無料 + 地域 dedup + 低頻度取得で実質ゼロ（[NFR06](../non-functional/NFR06-cost-policy.md) / 学校無料のビジネスモデルと整合）
 - [ ] 障害耐性: JMA 障害でもサイネージは last-known-good を鮮度注記付きで表示し続け、画面全体は壊れない（[NFR02](../non-functional/NFR02-availability.md)）
 - [ ] 監査: weather 書き込みは audit_log 対象（[NFR04](../non-functional/NFR04-audit-log.md)）。非 PII だが全テーブル監査の原則（[CLAUDE.md ルール 1](../../../CLAUDE.md)）に従う
 
@@ -80,7 +80,7 @@
 - 前段: [F12 (V1 機能移植 / サイネージ表示)](F12-v1-port.md)、#48-E（サイネージ Server Component）、#48-A（DB スキーマ基盤）
 - データソース判断: [ADR-021](../../adr/021-weather-data-source-jma.md)
 - セキュリティ / 閉域: [NFR03](../non-functional/NFR03-security.md)、[[closed-system-security]]（外部連携は原則後送り → 本機能は outbound・非 PII・端末非経由で例外的に許容）
-- 監査 / 観測: [NFR04](../non-functional/NFR04-audit-log.md)、[ADR-013 (Sentry)](../../adr/013-sentry.md)、[ADR-014 (Observability)](../../adr/014-observability.md)
+- 監査 / 観測: [NFR04](../non-functional/NFR04-audit-log.md)、ADR-013 (Sentry) / ADR-014 (Observability)（いずれも未作成 [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
 - テスト: `apps/jobs/weather-fetch/__tests__/`, `__tests__/rls/weather-forecasts.test.ts`
 
 ## 要決定（次セッション / 着手前に確認）
