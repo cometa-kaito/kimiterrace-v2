@@ -1,6 +1,6 @@
 import {
-  type TenantTx,
   TeacherInputValidationError,
+  type TenantTx,
   deleteTeacherInput,
   getTeacherInput,
   saveDraft,
