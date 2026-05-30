@@ -36,3 +36,17 @@ export const communicationChannel = pgEnum("communication_channel", [
   "meeting",
   "other",
 ]);
+
+// F0 (V1 移植): 学校 → 学年 → クラス（→ 学科）階層スコープ。
+// ads / daily_data / school_configs が「どの階層に紐づくか」を判別する discriminator。
+export const hierarchyScope = pgEnum("hierarchy_scope", ["school", "grade", "class", "department"]);
+
+// 学校設定の種別（V1 config sub-collection: display_settings / quiet_hours / schedule_templates）
+export const configKind = pgEnum("config_kind", [
+  "display_settings",
+  "quiet_hours",
+  "schedule_templates",
+]);
+
+// サイネージ広告のメディア種別（V1 Ad.type）
+export const adMediaType = pgEnum("ad_media_type", ["image", "video"]);

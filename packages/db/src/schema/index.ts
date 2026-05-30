@@ -1,4 +1,7 @@
 // 全テーブルの公開エクスポート。drizzle-kit はこのファイルから schema を辿る。
+// enum も明示 re-export しないと drizzle-kit がスナップショットに enum を登録できず、
+// generate のたびに既存 enum の DROP TYPE を吐く (Issue #101 / PR #104 の真因)。
+export * from "../_shared/enums.js";
 export * from "./schools.js";
 export * from "./users.js";
 export * from "./classes.js";
@@ -18,3 +21,9 @@ export * from "./communications.js";
 export * from "./monthly-reports.js";
 export * from "./system-admins.js";
 export * from "./audit-log.js";
+// F0 (#48-A): V1 移植 — 階層基盤テーブル
+export * from "./grades.js";
+export * from "./departments.js";
+export * from "./school-configs.js";
+export * from "./daily-data.js";
+export * from "./ads.js";
