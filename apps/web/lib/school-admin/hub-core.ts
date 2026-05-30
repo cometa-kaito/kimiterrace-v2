@@ -26,6 +26,9 @@ export function invalid(message: string): ActionError {
 export function forbidden(message: string): ActionError {
   return { ok: false, error: { code: "forbidden", message } };
 }
+export function conflict(message: string): ActionError {
+  return { ok: false, error: { code: "conflict", message } };
+}
 
 /**
  * 学年/クラス/学科を操作できるロール。学校横断の system_admin と自校の school_admin。
