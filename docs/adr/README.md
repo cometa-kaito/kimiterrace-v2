@@ -37,14 +37,14 @@
 | 004 | [Drizzle ORM を採用、Prisma を却下](004-drizzle-vs-prisma.md) | Proposed |
 | 005 | [Vertex AI Gemini を採用、データ越境回避](005-vertex-ai.md) | Proposed |
 | 006 | [Vercel AI SDK でストリーミング UI](006-vercel-ai-sdk.md) | Proposed |
-| 007 | pgvector を採用、外部ベクトル DB 不採用 | Proposed |
+| 007 | [pgvector を採用、外部ベクトル DB 不採用](007-pgvector.md) | Proposed |
 | 008 | [API は Next.js Route Handlers + Server Actions に統合、Hono 非採用](008-nextjs-route-handlers.md) | Proposed |
 | 009 | [Terraform を採用、Pulumi を却下](009-terraform.md) | Proposed |
-| 010 | pnpm + Turborepo モノレポ | Proposed |
-| 011 | Biome を採用、ESLint + Prettier 不採用 | Proposed |
+| 010 | [pnpm + Turborepo モノレポ](010-pnpm-turborepo.md) | Proposed |
+| 011 | [Biome を採用、ESLint + Prettier 不採用](011-biome.md) | Proposed |
 | 012 | [テストは Vitest + Playwright + 実 PostgreSQL](012-testing-stack.md)（Testcontainers 不採用、CI 側 service container + DATABASE_URL env で実走） | Accepted |
-| 013 | エラー追跡は Sentry | Proposed |
-| 014 | 観測は Cloud Logging + Cloud Trace + OTel | Proposed |
+| 013 | [エラー追跡は Sentry](013-sentry.md) | Proposed |
+| 014 | [観測は Cloud Logging + Cloud Trace + OTel](014-observability.md) | Proposed |
 | 015 | [即公開 + 安全網 4 種](015-instant-publish-with-safety-nets.md)（承認フロー非採用） | Proposed |
 | 016 | [クラス magic link 匿名アクセス](016-class-magic-link-anonymous-access.md)（個別アカウント非採用） | Proposed |
 | 017 | [Gemini で AI 構造化 + confidence_score 必須化](017-gemini-ai-structuring-with-confidence.md) | Proposed |
