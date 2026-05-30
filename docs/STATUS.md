@@ -28,6 +28,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F04 即公開フロー コア完成 + ADR-015 Accepted 化 (PR #169 自律 merge、commit `7d9cb0e`、Refs #12)**:
+  - **F04 の意思決定記録を実装に整合**。F04 が #141/#148/#156/#161/#165 で実装完了したため、`ADR-015` を Proposed → **Accepted** にし実装メモを追記 (意思決定=即公開/承認非採用+安全網4種 は不変、実装方式と起草時差分を記録)。`F04` 要件を「実装済 (コア)」に、受け入れ条件に実装 PR + F04.3 部分実装 (`[~]`) を反映。ADR README も Accepted に
+  - **F04.3 のスキーマ差分を明文化**: 要件は `contents.confidence_score` を想定したが実スキーマは confidence が `ai_extractions` 側 (ADR-017) で contents に列なし。`ConfidenceBadge` は score を prop 受けで先行実装済、**データ配線 (ai_extractions 連携 or contents 列追加) とスキーマ整合は未了 → 別タスク**と ADR-015 実装メモに記録
+  - **レビュー方針**: 既レビュー済実装を記録する docs 整合 (新規意思決定なし=ADR を覆さない) のため STATUS 等 meta/ops docs と同様に扱い、CI 12/12 green 確認で自律 merge
+  - **F04 コア完成サマリ**: 即公開フロー + 安全網4種が **サーバー3層 (#141 サービス / #148 Actions / #156 read) + UI 2スライス (#161 部品 / #165 画面)** で通しで動作。F04.1 監査 (actor 本人性 + hash chain)・F04.2 1-click rollback (履歴保持)・F04.3 確信度バッジ (部品、データ配線待ち)・F04.4 公開先明示 (NOT NULL + 明示選択 UI) を実 PG RLS テスト + jsdom テスト付きで実装。全 6 スライス worktree 隔離で並行 F05 と無衝突、自律 merge **25 回連続**
+  - **F04 残り (周辺・独立)**: F04.3 confidence データ配線、nav 導線 (#48-C)、follow-up #145 (採番レース) / #150 (Action 堅牢化) / #166 (system_admin UX)
 - 2026-05-31: **F04 エディタ画面実装 — 「一覧→詳細→即公開/巻き戻し」が UI で動作 (PR #165 自律 merge、commit `1e0e7ff`、Issue #166 起票、Refs #12)**:
   - **F04 第5スライス = UI②**。安全網のサーバー3層 (#141 サービス / #148 Actions / #156 read 層) と表示部品 (#161) を**実画面に組み上げ**、F04 のコア体験が UI で動く状態に。
   - **ページ** (Server Component、`/admin` レイアウトの `requireRole(ADMIN_ROLES)` + RLS 継承): `app/admin/contents/page.tsx` (自校一覧 listContents、状態バッジ + 公開先ラベル、行クリックで詳細) / `app/admin/contents/[id]/page.tsx` (詳細 getContentDetail、本文 + バッジ + 公開操作 + バージョンタイムライン集約、不可視は notFound)
