@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F04 安全網表示コンポーネント + React テスト基盤導入 (PR #161 自律 merge、commit `5b69ebf`、Refs #12)**:
+  - **F04 第4スライス = UI①** (前段 #141 サービス / #148 Server Actions / #156 read 層)。apps/web に **React コンポーネント描画テスト基盤** (jsdom + @testing-library/react + jest-dom、devDeps のみ・本体依存不変) を導入し、安全網の「見せ方」部品を render テスト付きで実装。`vitest.config` は esbuild 自動 JSX + `@/*` alias + **`.test.tsx` のみ jsdom** (`environmentMatchGlobs`) で既存 node テストは不変、`vitest.setup` で jest-dom matchers + afterEach cleanup
+  - **コンポーネント** (lib/nav.ts 同方針で表示ロジックを純関数 `lib/contents/publish-view.ts` に分離): `PublishScopeSelect` (F04.4 公開先明示 — 全校を既定/強調にせず初期未選択で明示選択強制・各選択肢に説明) / `ConfidenceBadge` (F04.3 — score<0.7 で⚠️要確認+根拠、高確信度/未取得は非表示) / `ContentStatusBadge` (下書き/公開中/非公開色分け)。型は publish-core (#148) を単一ソース
+  - **F04.3 スキーマ注記**: 要件は `contents.confidence_score` を想定するが実スキーマは confidence が `ai_extractions` 側で contents に列なし。本部品は score を prop 受けの純粋表示にし、データ配線 (どの値を渡すか + スキーマ整合判断) は後続スライスに送る
+  - **テスト 27 ケース** (publish-view node 単体 + 3 コンポーネント jsdom render)。全 web 103 tests green、typecheck/biome/next build green。**ローカル罠の理解**: web の `@kimiterrace/db` runtime import 系テストは CI の turbo `test dependsOn ^build` で dist 生成前提 (ローカルは db build しないと resolve 失敗)
+  - **Reviewer (worktree 隔離、fresh context) APPROVE 相当 (Critical 0 / High 0、nit 3 のみ)**: PR head で自ら `vitest run` し 103 green・node/jsdom 共存・既存テスト非破壊を実証、F04.4/F04.3 要件適合と enum 集合一致を突合。nit (private label と draft の文言重複 / ContentStatusValue が enum 機械結合でない手書きリテラル / 要件「クラス選択デフォルト」と実装「未選択」差異) は後続スライスで吸収
+  - **本サイクル成果**: 1 PR (#161) merged、F04 UI 基盤 + 安全網表示部品着地。worktree 隔離 + `pnpm add` で test 基盤を隔離導入し並行 F05 と無衝突。Busy CEO 自律 merge 連続 **23 回目**。後続: エディタ画面 (一覧/詳細) で公開ボタン・バージョンタイムライン (F04.2) を Server Actions に配線 (④b)、F04.3 confidence データ配線、ADR-015 起票
 - 2026-05-30: **F05 生徒匿名アクセス route 実装 — コア体験「発行→生徒が開く」完成 (PR #160 自律 merge、commit `a12bea5`、Refs #12)**:
   - **`GET /s/{token}`** (`apps/web/app/s/[token]/route.ts`): token を hash 化し `resolve_magic_link` で解決。失効/期限切れ/不明/非クラス/空は **410 Gone** (HTML)。有効なら events に IP/UA をベストエフォート記録 → token を httpOnly cookie `__student_session` (24h) に移し URL/履歴から外す → `/student` へ 302。
   - **即時失効設計** (`student-session.ts`): cookie に school_id 等を署名埋め込みせず token のみ保持し、**毎リクエスト再解決**。教員の失効が cookie 期限に依存せず即座に効く。cookie は個人特定情報ゼロ (F05)。`client-meta.ts` で XFF 先頭/x-real-ip/UA 抽出 (集計用)。`student-access.ts` は `withTenantContext({schoolId, role:student}, userId なし)` で events(type=view) INSERT (events は audit 自動発火しないため actor NULL でも policy 非抵触)。`app/student/page.tsx` は再解決して自己ゲート。
