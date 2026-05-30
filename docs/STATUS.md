@@ -28,6 +28,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F14 サイネージ天気予報を計画追加 (ユーザー要望、PR #129 自律 merge、commit `18b5505`、Issue #128 close)**:
+  - **新規 [F14](requirements/functional/F14-weather-forecast-signage.md) + [ADR-021](adr/021-weather-data-source-jma.md)**: サイネージに自校地域の天気予報を表示。データソースは **気象庁 (JMA) 無料 JSON API** (API キー不要・公的・無料、学校無料モデルと整合。商用 API は従量課金/鍵管理/権威性で却下、将来フォールバック候補)
+  - **閉域原則 [[closed-system-security]] との両立**: 端末 (最大 50 台/校) は外部直叩きせず、**Cloud Run Job が JMA を地域コード単位で取得 → Cloud SQL `weather_forecasts` にキャッシュ → サイネージは自校 DB から SELECT**。外部 egress は「Job → JMA」1 経路、送信は公開の地域コードのみ (PII ゼロ)。F13/ADR-020 の外部連携正当化論法と整合
+  - **Reviewer (worktree 隔離) APPROVE 相当 (Critical 0 / High 1 / Medium 2 / Low 2 / nit 1)**。**H1 を同 PR 内で吸収**: 新 RLS policy `weather_read_all`/`weather_write_system` を [ADR-019](adr/019-rls-two-layer-tenant-isolation.md) §Policy 命名規約表に登録 + 適用ルール 6 (公開参照マスタ特例: school_id 非保持 かつ 公開・非 PII の両方を満たすテーブルのみ SELECT 全開放) 追加。M1 (匿名セッション読み取りを RLS テストで固定) / M2 (府県→JMA コードマップ置き場所) も F14 に反映。リンク切れ (NFR06 ファイル名 + 未作成 ADR の #94 注記化) も事前修正
+  - **位置づけ**: Phase 2 (サイネージ)、低コスト・高視認性のため **PoC 前倒し候補**。実装は #128、依存 #48-A (merged) / #48-E。v2-mvp §1.2 + 索引 (functional/ADR README) + v1-v2-mapping 未移植機能表に反映
+  - 自律 merge 連続 **10 回目**、Reviewer file-based 投稿 9 連続成功
 - 2026-05-30: **F0 (V1 移植) 着手サイクル — sub-Issue 起票 + #48-A 実装 (busy CEO mode)**:
   - **F0 sub-Issue 15 個起票 (#112=#48-A 〜 #126=#48-O)**: `docs/architecture/v1-v2-mapping.md` の分割案どおり Phase 1-5 / 各 ≤500 行 / 依存順で起票。各 body にスコープ + 推定行数 + 依存 + 共通受け入れ基準 (CLAUDE.md 8 ルール)。マッピング: #112=A(DBスキーマ) #113=B(認証) #114=C(レイアウト) #115=D(移行スクリプト) #116=F(広告View) #117=E(サイネージ) #118=G(prefetch) #119=H(Schedule) #120=I(Notice/Assignment) #121=J(クラス設定) #122=K(学校管理者) #123=L(system_admin学校) #124=M(feedback) #125=N(Functions移植) #126=O(e2e)
   - **PR #127 (#48-A 階層基盤 5 テーブル、commit `6268962`、CI 全 green、実 PG16 RLS 12 ケース pass)**: V1 の学校→学年→クラス(→学科) 階層を移植。`grades` / `departments` / `school_configs` (display_settings/quiet_hours/schedule_templates を kind+JSONB) / `daily_data` (schedules/notices/assignments/quiet_hours を V1 document 配列のまま JSONB) / `ads` (displaySettings.ads[] を 1 行/広告に正規化)。**設計**: 共通 `scope` enum (school/grade/class/department) + nullable grade_id/class_id/department_id、階層マージは #48-F の Materialized View に委譲。**DB 強制**: `CHECK ck_*_scope` で scope↔*_id 整合 + `UNIQUE NULLS NOT DISTINCT` (PG16) で school スコープ全 NULL でも重複拒否。全テーブルに auditColumns + RLS (tenant_isolation + system_admin_full_access、ADR-019) + 監査 FK (migration `0006_f0a_schema_rls.sql`)。V1 構造は Explore agent で旧リポジトリ `../キミテラス/management/` を実査確定 (grades.has_classes / ads.caption_font_scale 等)
@@ -198,7 +204,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 F0 着手サイクル末状態**: **sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + #48-A (PR #127) 自律 merge 完了**。F0 Phase 1 起点 (DB 階層基盤 5 テーブル + RLS) が main に着地。次は最優先: **#48-D (移行スクリプト) / #48-B (認証基盤) 着手** (どちらも #48-A 完了が前提、解禁済)、F01-F04 並行着手も可。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
+> **2026-05-30 F0 着手 + F14 計画追加サイクル末状態**: **sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + #48-A (PR #127) 自律 merge 完了**。F0 Phase 1 起点 (DB 階層基盤 5 テーブル + RLS) が main に着地。加えてユーザー要望で **F14 サイネージ天気予報 (#128) + ADR-021 を計画追加 (PR #129 merged)**。次は最優先: **#48-D (移行スクリプト) / #48-B (認証基盤) 着手** (どちらも #48-A 完了が前提、解禁済)、F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2、#48-E 依存・PoC 前倒し候補**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
 
 ### 最優先 (F0 Phase 1 継続 — #48-A 完了済)
 
