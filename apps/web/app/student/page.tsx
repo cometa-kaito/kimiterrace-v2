@@ -9,6 +9,11 @@ import { resolveStudentSession } from "../../lib/magic-link/student-session";
  * 本ページは「匿名セッションが確立し、再解決が機能する」ことを示す最小着地点。
  *
  * 個人特定情報は一切表示しない (F05)。クラス名等の表示も後続で RLS 下クエリにより追加する。
+ *
+ * 失効時のステータス契約 (PR #160 Reviewer Medium-1): F05「失効後は 410」の権威ある入口は
+ * `/s/{token}` (route.ts が 410)。本ランディングへの再訪での失効は **HTTP 200 + 無効メッセージ**
+ * とする (Server Component から 410 を返す標準手段が無く、コンテンツ非表示で漏洩は無いため)。
+ * 即時失効の本体は「毎回再解決して null ならコンテンツを出さない」であり、ここで担保される。
  */
 export default async function StudentLandingPage() {
   const session = await resolveStudentSession();
