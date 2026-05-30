@@ -43,6 +43,7 @@
 
 - 学習・進路アドバイス（生徒対話は掲示物 Q&A のみに限定）
 - 外部システム自動取込み（Google Calendar / メール / Google Classroom / Classi 等）
+- サイネージへの天気予報表示（[F14](functional/F14-weather-forecast-signage.md) / [ADR-021](../adr/021-weather-data-source-jma.md)）— 気象庁 (JMA) 無料 API をバックエンド Job で取得・キャッシュし、端末は自校 DB から表示（外部直叩きなし・非 PII）。外部連携だが outbound のみ・端末非経由のため例外的に許容。**低コスト・高視認性のため PoC 前倒し候補**
 - 広告主向け管理画面（広告主はシステム外、月次レポートのみ受信）
 - 自動配信パイプライン（月次レポートは手動配布で良い）
 - ペネトレーションテスト（2027 年に延期、CI 自動スキャンで代替）

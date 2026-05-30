@@ -17,6 +17,7 @@
 | [F11](F11-role-management.md) | ロール管理 | system_admin / school_admin / teacher 階層 |
 | [F12](F12-v1-port.md) | V1 機能移植 | 管理 UI・サイネージ表示・LiDAR を Cloud Run へ |
 | [F13](F13-presence-sensor-webhook.md) | 来場検知 Webhook | SwitchBot 人感センサ(PIR) Webhook 受信＋集計＋センサ管理UI ([ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md)) |
+| [F14](F14-weather-forecast-signage.md) | サイネージ天気予報 | 気象庁(JMA)無料APIをバックエンドJobで取得しキャッシュ、端末は自校DBから表示（外部直叩きなし）([ADR-021](../../adr/021-weather-data-source-jma.md)) |
 
 ## 優先度
 

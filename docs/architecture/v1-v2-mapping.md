@@ -96,6 +96,7 @@ V1 に存在しないが V2 で追加する機能（[v2-mvp.md §1.2](../require
 | 広告主 CRM | なし | advertisers / contracts / communications テーブル | [F10](../requirements/functional/F10-crm.md) / [ADR-018](../adr/018-custom-crm-design.md) |
 | ロール管理 (3 層) | school_admin のみ | system_admin / school_admin / teacher | [F11](../requirements/functional/F11-role-management.md) |
 | 来場検知センサー (PIR) | LiDAR 構想のみ | SwitchBot Webhook | [F13](../requirements/functional/F13-presence-sensor-webhook.md) / [ADR-020](../adr/020-presence-sensor-switchbot-webhook.md) |
+| サイネージ天気予報 | なし | 気象庁 JMA をバックエンド Job で取得→Cloud SQL キャッシュ→端末は DB から表示 (外部直叩きなし) | [F14](../requirements/functional/F14-weather-forecast-signage.md) / [ADR-021](../adr/021-weather-data-source-jma.md) |
 
 **LiDAR センサー (V1 firmware/)**: V2 では [ADR-020](../adr/020-presence-sensor-switchbot-webhook.md) で SwitchBot Webhook 方式に切替、自作 LiDAR は Deprecated。
 
