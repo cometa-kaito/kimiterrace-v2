@@ -1,6 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { contentStatus } from "../_shared/enums.js";
+import { aiExtractions } from "../schema/ai-extractions.js";
 import { contentVersions } from "../schema/content-versions.js";
 import { contents } from "../schema/contents.js";
 import { publishes } from "../schema/publishes.js";
@@ -141,4 +142,58 @@ export async function getContentDetail(
     .limit(1);
 
   return { content, versions, activePublish: activePublish ?? null };
+}
+
+/** F04.3: content の AI 確信度フラグ用データ (最も低い確信度の抽出 + 根拠引用)。 */
+export type ContentConfidence = {
+  /** 0.0〜1.0。content に紐づく抽出のうち最小値 (最も自信のない抽出を採る)。 */
+  score: number;
+  /** 根拠引用を短くまとめた文字列 (evidence の text を連結)。無ければ null。 */
+  evidence: string | null;
+};
+
+/**
+ * evidence jsonb (例: `[{page, span, text}, ...]`) から表示用の根拠文字列を作る。
+ * `text` フィールドを持つ要素だけを連結する。空 / 形式不一致は null。
+ */
+function formatEvidence(raw: unknown): string | null {
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const texts = raw
+    .map((item) =>
+      item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string"
+        ? (item as { text: string }).text
+        : null,
+    )
+    .filter((t): t is string => t !== null && t.length > 0);
+  if (texts.length === 0) {
+    return null;
+  }
+  return texts.join(" / ");
+}
+
+/**
+ * F04.3: content に紐づく AI 抽出のうち **最も確信度が低いもの** を返す (最も慎重に倒す)。
+ *
+ * confidence は `contents` ではなく `ai_extractions.confidence_score` (ADR-017) にあるため、
+ * content_id で引いて最小 confidence の 1 件を採り、UI (`ConfidenceBadge`、F04.3) に
+ * `{ score, evidence }` を渡す。抽出が無い (人手作成など) なら **null** = フラグを出さない。
+ *
+ * テナント分離は ai_extractions の RLS (tenant_isolation) に委ねる (school_id 条件は書かない)。
+ */
+export async function getContentConfidence(
+  db: Selectable,
+  contentId: string,
+): Promise<ContentConfidence | null> {
+  const [row] = await db
+    .select({ score: aiExtractions.confidenceScore, evidence: aiExtractions.evidence })
+    .from(aiExtractions)
+    .where(eq(aiExtractions.contentId, contentId))
+    .orderBy(asc(aiExtractions.confidenceScore))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  return { score: row.score, evidence: formatEvidence(row.evidence) };
 }
