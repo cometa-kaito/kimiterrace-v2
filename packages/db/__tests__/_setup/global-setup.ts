@@ -13,6 +13,8 @@ const F0A_SCHEMA_SQL = join(packageRoot, "drizzle", "0001_f0a_hierarchy_tables.s
 const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql");
 // F05 (#12): magic_links に class_id / revoked_at 追加 + expires_at デフォルト 90 日 (drizzle 生成)。
 const F05_MAGIC_LINK_SQL = join(packageRoot, "drizzle", "0003_f05_magic_link_class.sql");
+// F02: teacher_inputs / teacher_input_attachments テーブル DDL。schools/users (baseline) 作成後に流す。
+const F02_SCHEMA_SQL = join(packageRoot, "drizzle", "0004_f02_teacher_inputs.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -28,6 +30,8 @@ const F0A_RLS_SQL = join(packageRoot, "migrations", "0006_f0a_schema_rls.sql");
 const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_ads_view.sql");
 // F05 (#12): magic link 匿名解決の SECURITY DEFINER 関数。列追加 (0003) + RLS 後に流す。
 const F05_RESOLVE_FN_SQL = join(packageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
+// F02: teacher_inputs / teacher_input_attachments の RLS policy + 監査 FK。新テーブル作成後に流す。
+const F02_RLS_SQL = join(packageRoot, "migrations", "0009_f02_schema_rls.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -106,6 +110,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, F0F_COLS_SQL);
     // F05: magic_links への列追加は classes (F0A) 作成後に流す
     await runSqlFile(sql, F05_MAGIC_LINK_SQL);
+    // F02: teacher_inputs / teacher_input_attachments は schools/users (baseline) 作成後に流す
+    await runSqlFile(sql, F02_SCHEMA_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
@@ -116,6 +122,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, AUDIT_FK_SQL);
     await runSqlFile(sql, AUDIT_LOG_ACTOR_NULL_SQL);
     await runSqlFile(sql, F0A_RLS_SQL);
+    // F02: 新テーブルの RLS policy + 監査 FK。テーブル作成 (F02_SCHEMA_SQL) と users 作成後に流す。
+    await runSqlFile(sql, F02_RLS_SQL);
 
     // 5) 広告階層マージ VIEW (#48-F)。列追加 + RLS 適用後に作成する。
     await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);

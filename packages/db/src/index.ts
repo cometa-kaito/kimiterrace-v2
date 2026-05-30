@@ -10,3 +10,5 @@ export * from "./queries/contents-publish.js";
 export * from "./queries/magic-links.js";
 // F04: content 読み取りクエリ層 (一覧 / 詳細 + バージョン履歴 + 公開状態、エディタ UI 用)
 export * from "./queries/content-detail.js";
+// F02: 教員音声 / チャット入力 (作成 / 一覧 / 詳細 / transcript 編集 / 下書き / submit / 削除 / 添付メタ)
+export * from "./queries/teacher-inputs.js";
