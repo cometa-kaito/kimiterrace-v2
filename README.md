@@ -10,7 +10,6 @@
 ## ステータス
 
 **現在**: W0 準備フェーズ（要件・設計・スキーマ初稿）
-**本番切替予定**: 2026-08-22-23 (週末)
 
 詳細は [docs/STATUS.md](docs/STATUS.md) と [docs/ROADMAP.md](docs/ROADMAP.md) を参照。
 
