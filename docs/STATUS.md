@@ -28,6 +28,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F05 生徒匿名アクセス route 実装 — コア体験「発行→生徒が開く」完成 (PR #160 自律 merge、commit `a12bea5`、Refs #12)**:
+  - **`GET /s/{token}`** (`apps/web/app/s/[token]/route.ts`): token を hash 化し `resolve_magic_link` で解決。失効/期限切れ/不明/非クラス/空は **410 Gone** (HTML)。有効なら events に IP/UA をベストエフォート記録 → token を httpOnly cookie `__student_session` (24h) に移し URL/履歴から外す → `/student` へ 302。
+  - **即時失効設計** (`student-session.ts`): cookie に school_id 等を署名埋め込みせず token のみ保持し、**毎リクエスト再解決**。教員の失効が cookie 期限に依存せず即座に効く。cookie は個人特定情報ゼロ (F05)。`client-meta.ts` で XFF 先頭/x-real-ip/UA 抽出 (集計用)。`student-access.ts` は `withTenantContext({schoolId, role:student}, userId なし)` で events(type=view) INSERT (events は audit 自動発火しないため actor NULL でも policy 非抵触)。`app/student/page.tsx` は再解決して自己ゲート。
+  - **Reviewer (worktree 隔離) が Critical-1 を検出 → 修正 → 再 Reviewer APPROVE**: 既存 `middleware.ts` が全パスを `__session` cookie でゲートし matcher が `/s`・`/student` を除外していなかったため、**匿名生徒が route 到達前に /login へ弾かれ実機破綻** (unit test は middleware 非経由のため CI 緑でも検知不能=「CI green ≠ 仕様充足」の典型)。matcher negative lookahead に `s/`・`student` を追加し、matcher 正規表現の回帰テスト 3 件を固定 (s/ が /settings を過剰除外しないことも検証)。Medium-1 (/student 失効時 200+メッセージの契約) / Low-2 (XFF スプーフィング) は docstring に明記して合意。**独立 Reviewer が実機破綻を捕捉した好例**。
+  - **テスト**: web 95 緑 (新規: client-meta 4 + student-session 3 + student-route 5 + middleware matcher 3)。CI 全 green。busy CEO: REQUEST_CHANGES → 自己 fix → 再 CI → 再 Reviewer APPROVE → 自律 merge。
+  - **F05 進捗**: ①DB基盤(#143) ②発行API(#149) ③生徒匿名route(#160) 完了 = **コアの「発行→消費」フロー成立**。残 ④教員UI(発行/QR/一覧/失効画面) ⑤漏洩検知時即時失効 runbook。Issue #147 (resolve prod ロール固定/境界テスト/consumed_at)・#139 (CSRF に magic-links route 追記済) も継続。
 - 2026-05-30: **F04 content 読み取りクエリ層実装 (PR #156 自律 merge、commit `ff05178`、Refs #12)**:
   - **F04 第3スライス** (前段 = #141 サービス / #148 Server Actions)。安全網 UI が SELECT する read 層。`packages/db/src/queries/content-detail.ts`: `listContents(db,{status?})` (自校一覧、本文除く軽量射影、updated_at 降順 + status フィルタ) / `getContentDetail(db,contentId)` (本体 + バージョン履歴 [version 降順、F04.2 タイムライン用] + 公開中 publish [unpublished_at IS NULL の最新]、不可視/不存在は null)
   - テナント分離は呼び出し接続の RLS context (app.current_school_id) に委ね **school_id 条件を書かない** (ADR-019/ルール2、effective-ads と同方針)。型は contentStatus enum 由来で単一ソース (ルール3、`import type` + `typeof enumValues`)。新規 migration / 依存追加なし
