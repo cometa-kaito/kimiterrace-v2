@@ -170,7 +170,10 @@ function formatEvidence(raw: unknown): string | null {
   if (texts.length === 0) {
     return null;
   }
-  return texts.join(" / ");
+  // 表示用なので過大長を防ぐ (Reviewer PR #172 nit)。UI 側でさらに省略してもよい。
+  const joined = texts.join(" / ");
+  const MAX = 300;
+  return joined.length > MAX ? `${joined.slice(0, MAX)}…` : joined;
 }
 
 /**
@@ -190,7 +193,8 @@ export async function getContentConfidence(
     .select({ score: aiExtractions.confidenceScore, evidence: aiExtractions.evidence })
     .from(aiExtractions)
     .where(eq(aiExtractions.contentId, contentId))
-    .orderBy(asc(aiExtractions.confidenceScore))
+    // confidence 同値時も決定的に選ぶため id を二次キーに (Reviewer PR #172 M)。
+    .orderBy(asc(aiExtractions.confidenceScore), asc(aiExtractions.id))
     .limit(1);
   if (!row) {
     return null;
