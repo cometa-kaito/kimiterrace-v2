@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-30 (一晩自律サイクル: PR #107/#108/#109/#110/#111 連続 5 merge、Issue #106/#48 マッピング/#95/#105/#94 部分解消。Reviewer Agent file-based 投稿 7 連続成功、migration loader 配線漏れの dormant bug 1 件を Reviewer→自律修正で 1 サイクル内吸収)
+最終更新: 2026-05-30 (**F0 移植 着手サイクル**: sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + **#48-A 実装 PR #127 自律 merge**。階層基盤 5 テーブル grades/departments/school_configs/daily_data/ads + RLS、実 PG16 で RLS テスト 12 ケース green。drizzle snapshot enum の真因 (index.ts で enum 未 export → generate が毎回 DROP TYPE) を根本修正。Reviewer file-based 投稿 8 連続成功、Medium 2 を同 PR 内吸収、自律 merge 連続 9 回目)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F0 (V1 移植) 着手サイクル — sub-Issue 起票 + #48-A 実装 (busy CEO mode)**:
+  - **F0 sub-Issue 15 個起票 (#112=#48-A 〜 #126=#48-O)**: `docs/architecture/v1-v2-mapping.md` の分割案どおり Phase 1-5 / 各 ≤500 行 / 依存順で起票。各 body にスコープ + 推定行数 + 依存 + 共通受け入れ基準 (CLAUDE.md 8 ルール)。マッピング: #112=A(DBスキーマ) #113=B(認証) #114=C(レイアウト) #115=D(移行スクリプト) #116=F(広告View) #117=E(サイネージ) #118=G(prefetch) #119=H(Schedule) #120=I(Notice/Assignment) #121=J(クラス設定) #122=K(学校管理者) #123=L(system_admin学校) #124=M(feedback) #125=N(Functions移植) #126=O(e2e)
+  - **PR #127 (#48-A 階層基盤 5 テーブル、commit `6268962`、CI 全 green、実 PG16 RLS 12 ケース pass)**: V1 の学校→学年→クラス(→学科) 階層を移植。`grades` / `departments` / `school_configs` (display_settings/quiet_hours/schedule_templates を kind+JSONB) / `daily_data` (schedules/notices/assignments/quiet_hours を V1 document 配列のまま JSONB) / `ads` (displaySettings.ads[] を 1 行/広告に正規化)。**設計**: 共通 `scope` enum (school/grade/class/department) + nullable grade_id/class_id/department_id、階層マージは #48-F の Materialized View に委譲。**DB 強制**: `CHECK ck_*_scope` で scope↔*_id 整合 + `UNIQUE NULLS NOT DISTINCT` (PG16) で school スコープ全 NULL でも重複拒否。全テーブルに auditColumns + RLS (tenant_isolation + system_admin_full_access、ADR-019) + 監査 FK (migration `0006_f0a_schema_rls.sql`)。V1 構造は Explore agent で旧リポジトリ `../キミテラス/management/` を実査確定 (grades.has_classes / ads.caption_font_scale 等)
+  - **drizzle snapshot enum 真因修正 (Issue #101 / PR #104 のフォロー)**: `schema/index.ts` が `_shared/enums.ts` を re-export していなかったため drizzle-kit が enum をスナップショットに登録できず、`generate` のたびに既存 8 enum の `DROP TYPE` を吐いていた (PR #104 は snapshot 手編集で一時回避しただけ)。enums を index から export して根本修正、`0001_snapshot.json` に 11 enum 正常登録、以降 generate が安定。memory `feedback_drizzle_enum_export.md` 追加
+  - **Reviewer Agent (worktree 隔離) APPROVE 相当 (Critical 0 / High 0 / Medium 2 / Low 1 / nit 2)**: 重点 9 観点 (RLS / loader 配線 / GRANT タイミング / CHECK 論理 / NULLS NOT DISTINCT / enum 修正 / 監査 FK / テスト網羅 / V1 整合) すべて correctness OK を実証。Medium 2 (M1: departments 分離テスト不在 / M2: grade-scope CHECK 未検証) は **同 PR 内でテスト 3 ケース追加して吸収** (f0a test 9→12)。file-based 投稿成功 (8 連続)
+  - **本サイクル成果**: 15 Issue 起票 + 1 PR (#127) merged、Issue #112 close、F0 Phase 1 起点確立、Busy CEO 自律 merge 連続 **9 回目**。Desktop context 消費 中 (~60k tokens、Explore 1 + Reviewer 1 spawn + drizzle 真因デバッグ + Medium 吸収 sub-cycle)
+  - **学び**: (1) drizzle pgEnum は `schema/index.ts` で re-export しないと generate が DROP TYPE を吐く ([[drizzle-enum-export]])。(2) ローカル Docker/PG 不在でも `drizzle-kit generate` は DB 接続不要なので実行可、RLS テストは CI (pgvector:pg16) に委ねる構成が機能 (PR #99 系の dormant bug は今回ゼロ)
 - 2026-05-30: **一晩自律実行サイクル (ユーザー就寝中、busy CEO mode 全力)**:
   - **PR #108 (V1 → V2 画面マッピング表 + F0 sub-Issue 15 分割案、+178 / -0、CI 12/12 green、commit `b6c4623`)**: Issue #48 (F0/F12 V1 移植) の起点となる `docs/architecture/v1-v2-mapping.md` 起草。V1 (`../キミテラス/management/`) 全体像 (Next.js 16 App Router、Firebase SDK v12、85 コンポーネント約 8,500 行、Vitest 4) + V1 → V2 ルート対応表 (9 主要ルート、エディタ PC/モバイル統合) + Firestore→PostgreSQL マッピング (10 対応) + Firebase API → V2 置換マップ (onSnapshot/setDoc/Auth/Functions/Storage) + 広告階層マージ Materialized View 設計案 + 未移植機能 (V2 で新規追加) クロスリンク + **#48-A 〜 #48-O 15 分割案** (Phase 1-5 / 各 ≤500 行 / 依存順)。Reviewer Agent (Critical 0 / High 1 / Medium 3 / Low 3) → V1 実態整合性 9/9 完全一致、High 1 (F01/F02/F04/F05 ファイル名ずれ + ADR-001/003/008/009 未作成 broken link) は **同 PR 内で修正コミット吸収** (#48-E / #48-L 再分割保険、Phase 2 依存順反転 #48-F → #48-E、onSnapshot 5 秒ポーリング Cloud SQL 圧迫リスク注記、広告階層マージファイルパス 3 ディレクトリ分散明示)
   - **PR #109 (observability follow-up tracer.test.ts + PII Error.message 警告 + LogLevel 拡張、+178 / -1、CI 11/11 green、commit `996cf25`)**: Issue #95 (PR #91 Reviewer Medium 2 + Low 1-3) follow-up。`tracer.test.ts` 10 ケース新規 (vi.hoisted + vi.mock で `@opentelemetry/sdk-node` stub、withSpan 成功/失敗/sync throw/finally end、initTracer idempotent/OTEL_SERVICE_NAME/OTEL_EXPORTER_ENABLED 各分岐) + README PII 警告に `Error.message → recordException → OTel span attribute` 経路注意 + `LogLevel` 型に `trace` / `fatal` 追加 (pino runtime + SEVERITY_MAP は既対応) + `initTracer` 2nd-call serviceName silently ignore 注記。Reviewer APPROVE 相当 (Critical 0 / High 0 / Medium 0 / Low 1 / nit 2)、`__resetTracerForTests` + `delete process.env` biome-ignore コメント付きの判断が秀逸と評価
@@ -191,18 +198,17 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 一晩自律サイクル末状態**: **5 PR (#107/#108/#109/#110/#111) 連続 merge**。F0 着手準備完了 (画面マッピング `docs/architecture/v1-v2-mapping.md` 起草、sub-Issue #48-A 〜 #48-O 15 分割案あり)。security gap (#105) / observability tech-debt (#95) クローズ、#94 (ADR 不在) は ADR-012 で 1 件解消。次は最優先: **#48-A (DB スキーマ拡張) sub-Issue 起票 + 着手**、次優先: F01-F04 並行着手、tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
+> **2026-05-30 F0 着手サイクル末状態**: **sub-Issue #48-A〜#48-O 15 個起票 (#112-#126) + #48-A (PR #127) 自律 merge 完了**。F0 Phase 1 起点 (DB 階層基盤 5 テーブル + RLS) が main に着地。次は最優先: **#48-D (移行スクリプト) / #48-B (認証基盤) 着手** (どちらも #48-A 完了が前提、解禁済)、F01-F04 並行着手も可。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
 
-### 最優先 (F0 移植 sub-Issue 起票 + 着手)
+### 最優先 (F0 Phase 1 継続 — #48-A 完了済)
 
-1. **#48 sub-Issue 15 個起票** (`docs/architecture/v1-v2-mapping.md` の Sub-Issue 分割案セクション):
-   - Phase 1 基盤: #48-A (DB スキーマ拡張 grades/departments/school_configs/ads/daily_data + drizzle migration、400 行) / #48-B (Identity Platform 認証基盤 + middleware RLS context SET LOCAL、400 行) / #48-C (apps/web 共通レイアウト + role 別 navigation、300 行) / #48-D (Firestore データ移行スクリプト `scripts/migration/firestore-to-pg.ts`、500 行)
-   - Phase 2 サイネージ: #48-F (広告階層マージ Materialized View、400 行) → #48-E (サイネージ表示 Server Component、500 行 + 再分割保険 E1/E2) / #48-G (画像/動画 prefetch + Service Worker、400 行)
-   - Phase 3 エディタ: #48-H (Schedule セクション、500 行) / #48-I (Notice/Assignment、500 行) / #48-J (クラス設定、500 行)
-   - Phase 4 管理者: #48-K (学校管理者ハブ、500 行) / #48-L (system_admin 学校一覧+詳細+編集、500 行 + 再分割保険 L1/L2 SchoolDetailView 2282 行) / #48-M (フィードバック+ガイド、400 行)
-   - Phase 5 統合: #48-N (Functions 移植、400 行) / #48-O (e2e Playwright、300 行)
-2. **#48-A 着手 (Phase 1 起点)**: DB スキーマ拡張 + drizzle migration、PR #93 (Part C2) merged 済を前提に grades/departments 等を追加
-3. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
+1. ~~**#48 sub-Issue 15 個起票**~~ ✅ **完了** (#112=A 〜 #126=O、`gh issue list` 参照)
+2. ~~**#48-A 着手 (DB スキーマ拡張)**~~ ✅ **完了** (PR #127 merged、commit `6268962`、Issue #112 close)
+3. **次の F0 候補 (依存解禁済、いずれも #48-A 完了が前提)**:
+   - **#48-D (#115) Firestore データ移行スクリプト** `scripts/migration/firestore-to-pg.ts` (500 行) — #48-A のテーブルに冪等インポート。ADR/認証に依存しないので着手しやすい
+   - **#48-B (#113) Identity Platform 認証基盤 + middleware RLS context SET LOCAL** (400 行) — **前提: ADR-003 (Identity Platform) / ADR-008 (Route Handlers) 起草が欲しい (#94)**。auth 系の起点なので #48-C/#48-N をブロックしている
+   - **#48-F (#116) 広告階層マージ Materialized View** (400 行) — #48-A の ads/grades/classes を使う SQL 中心タスク、UI 非依存で着手しやすい
+4. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
    - **F01** 教員ファイル抽出 (PDF/Word/Excel/画像 → Gemini 構造化)
    - **F03** AI 構造化 (Gemini Pro + confidence_score、ADR-017 準拠)
    - **F04** 即公開 + 安全網 4 種 (audit_log・1-click rollback・AI 確信度フラグ・公開先明示、ADR-015 準拠)
