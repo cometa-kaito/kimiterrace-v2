@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-30 (**F0 #48-F 広告階層マージ View 実装 PR #130 自律 merge**。`effective_ads_per_class` を **Materialized View ではなく `security_invoker` 通常 VIEW** で実装 (MV は RLS 不尊重で横断漏洩 + REFRESH 遅延が F04 即公開と矛盾 → 通常 VIEW なら呼出側 RLS コンテキストで tenant_isolation 貫通 + 常に最新)。#48-A が落としていた階層リンク FK (classes.grade_id / grades.department_id) を Drizzle 経由で復元。クエリ層 getEffectiveAdsForClass + 実 PG16 RLS テスト 10 ケース green。Reviewer APPROVE 相当 (Crit/High/Med 0)、Low/nit を同 PR 吸収、自律 merge 連続 11 回目)
+最終更新: 2026-05-30 (**busy CEO 4 連続自律 merge サイクル**。(1) F15 docs PR #131 (Reviewer M1/Low 吸収) (2) ADR-003 Identity Platform + ADR-008 Route Handlers PR #132 — #48-B 認証のブロック解除 (3) **#48-B core: RLS テナントコンテキスト primitive `withTenantContext` PR #133** — `SET LOCAL` 相当を 1 箇所に集約、deny-by-default + tx スコープ + 実 PG16 RLS テスト 9 ケース、Reviewer がソースレベルで correctness 実証 (Crit/High/Med 0)、Low-1 空文字ガードを同 PR 吸収 (4) ADR-001 Cloud SQL/PostgreSQL + ADR-002 Cloud Run PR #134。**#48-B auth (Identity Platform session + middleware) を Worker spawn 中** (#133 の primitive を使う)。自律 merge 連続 **15 回目**)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,14 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **busy CEO 4 連続自律 merge サイクル (#48-B 認証基盤への地ならし + RLS primitive 着地)**:
+  - **PR #131 (F15 docs、merged)**: 前セッション末の open docs PR を Reviewer Agent (APPROVE 相当) → 自律 merge。Reviewer M1 (F15/STATUS が「audit_log に `type=tv_config_change`」と書くが実 audit_log に `type` 列なし、実列は `table_name`/`operation`/`diff`) + Low (ADR-022 図のデプロイ先「Vercel」→ Cloud Run) を **merge 前に同 PR 吸収**。「ユーザー並行 docs PR はまず open PR を片付ける」[[orchestrator-pr-dedup-check]] の順序遵守
+  - **PR #132 (ADR-003 Identity Platform + ADR-008 Route Handlers、merged)**: #94 不在 ADR のうち **#48-B (認証) のブロック要因 2 本**を起草。ADR-003=session cookie 検証→custom claims(role/school_id)→SET LOCAL で RLS context 確立 (ADR-019 接続)、代替 Firebase Auth継続/自前認証/外部IDaaS 却下。ADR-008=Server Actions(画面mutation)/Route Handlers(外部webhook・V1 callable)役割分担 + RLS context を middleware+共通DBヘルパに一元化、代替 Hono/tRPC/別APIサーバ却下。Reviewer APPROVE 相当 (Crit/High/Med 0)
+  - **PR #133 (#48-B core: `withTenantContext` RLS primitive、merged、commit `821cfe1`)**: #48-B を core/auth に **2 分割**し core を実装。`packages/db/src/client.ts` に `createDbClient(url)` + `withTenantContext(db, ctx, fn, {appRole?})` — トランザクションを開き `set_config('app.current_user_id'/'app.current_school_id'/'app.current_user_role', …, true)` で ADR-019 の 3 GUC を張る。**deny-by-default** (null/undefined/空文字は set_config せず → RLS で全件拒否)、**tx スコープ** (is_local=true でプール再利用時の混入防止)、appRole は正規表現ガード付き。`TenantRole` は `userRole` enum 単一ソース + system_admin 手追加 (ルール3)。実 PG16 RLS テスト 9 ケース (A/B 可視・deny-by-default・空文字 deny・system_admin cross-tenant・3 GUC 設定・tx スコープで漏れない・戻り値伝播・不正 appRole 例外)。新規 migration なし (既存 contents/kimiterrace_app 再利用)。**Reviewer (worktree 隔離) がソースレベルで correctness 実証** (drizzle transaction が単一接続予約・NULLIF 二重防御・インジェクションガード)、APPROVE 相当 (Crit/High/Med 0 / Low 2)。**Low-1 (空文字 schoolId が `!= null` ガードをすり抜け、policy NULLIF で deny に正規化されるが) を truthiness ガード + テストで同 PR 吸収** (下流正規化に依存しない多層防御)
+  - **PR #134 (ADR-001 Cloud SQL/PostgreSQL + ADR-002 Cloud Run、merged)**: #94 で最も broken link を解消するスタック基盤 2 本。ADR-001=RLS で DB レベル分離+SQL テスト/スキーマ→型機械生成/pgvector で RAG 同居、代替 Firestore継続/AlloyDB/Spanner 却下。ADR-002=フル Next.js SSR 単一コンテナ+API/RLS 一元化/min-instances、代替 Functions/GKE/Firebase継続 却下。Reviewer APPROVE 相当 (Crit/High/Med 0)
+  - **#48-B auth (Identity Platform session + middleware) を Worker spawn 中** (worktree 隔離、branch `feat/48b-identity-platform-auth`)。#133 の `withTenantContext` を import し、firebase-admin で session cookie 検証→getCurrentUser→withSession で RLS context 配線。Edge middleware は cookie 存在チェックのみ (DB/検証は Server 側)、deny-by-default、Low-1 の UUID validation を auth 層で実装。テストは firebase-admin mock。Closes #113 予定
+  - **本サイクル成果**: 4 PR merged (#131/#132/#133/#134)、Reviewer Agent file-based 投稿 4 連続成功 (累計成功継続)、busy CEO 自律 merge 連続 **15 回目**。critical path の前提 (ADR-001/002/003/008 + RLS context primitive) が全て揃い、#48-B auth → #48-C → UI 系のブロック解除進行中。Desktop context 消費 中 (Reviewer 4 spawn + auth Worker 1 spawn、helper 実装は Desktop 直接)
+  - **学び**: (1) RLS の SET LOCAL は primitive に集約して「手書きしない」設計が漏れ防止に効く ([[materialized-view-rls-pitfall]] と同じ「DB レベル強制」思想)。(2) セキュリティ primitive の Reviewer Low 指摘 (空文字すり抜け) は無害でも source で吸収する方が多層防御として正しい。(3) #48-B のような setup-heavy + 設計一体タスクは「設計を Desktop が primitive で固める → setup-heavy な統合層を Worker に出す」分割が機能
 - 2026-05-30: **F15 TVデバイスリモート管理を計画追加 (ユーザー要望、commit `131ece5` + Desktop 整合性修正 `b902da6`/`76831eb`)**:
   - **新規 [F15](requirements/functional/F15-tv-device-management.md) + [ADR-022](adr/022-tv-remote-config-polling.md)**: 学校設置済 Google TV (`com.kimiterrace.tvbridge`) に物理アクセスせず signage URL/スケジュール/センサ MAC/リロードをリモート制御 + 稼働ヘルス。通信は **TV からのポーリング (pull、60秒)**、push 型 (WebSocket/FCM/ハイブリッド/短間隔) は学校 Wi-Fi アウトバウンドのみ制約で却下 (ADR-022)。PoC は LP `edix-lp` に Turso 素朴版を 2026-05-30 投入済、v2 は Cloud SQL + Drizzle + RLS + 監査 + UI 統合で再実装
   - **Desktop 確認レビューで整合性修正 (docs PR 未作成、feat ブランチ直 push)**: `motion_events`→`events` 統一 (v2 来場イベントは F13 の `events`)、未定義だった `tv_device_tokens` を §1 に定義追加、`tv_device_commands`/`tv_device_tokens` に `school_id` 追加 (ルール2 RLS)、`deleted_at` 列追加、`audit_log` は既存テーブルへ対象テーブル操作として記録（`table_name`/`operation`/`diff`、`type` 列は存在しないため新規列も作らず NFR04 ハッシュチェーンに寄せる）に確定、「drizzle-kit 生成のみ」→「DDL は drizzle-kit / RLS 等は手書き SQL + global-setup.ts ローダ登録」に実態合わせ、README 番号昇順整列
@@ -218,7 +226,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 F0 #48-F 実装サイクル末状態**: **#48-A (PR #127) + #48-F (PR #130) 自律 merge 完了**。F0 Phase 1 基盤 (DB 階層 5 テーブル + RLS) + 広告階層マージ VIEW `effective_ads_per_class` (security_invoker で RLS 貫通) + 階層リンク FK が main に着地。**#48-E (サイネージ表示) のブロック解除** (本 VIEW を SELECT 可能に)。次は最優先: **#48-D (移行スクリプト #115) / #48-B (認証基盤 #113) / #48-E (サイネージ表示 #117) 着手**。F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2・#48-E 依存・PoC 前倒し候補**。**F15 (TV リモート管理) は設計のみ着地、実装着手時に 4 単位で Issue 化予定 (docs PR 不要)・PoC 終了後 (2026-10〜) 想定**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
+> **2026-05-30 busy CEO 4 連続 merge サイクル末状態**: **#48-A (#127) + #48-F (#130) + #48-B core (#133 `withTenantContext`) merged**。ADR-001/002/003/008 起草済 (#132/#134) で **#94 残 9 ADR** (004/005/006/009/010/011/013/014 ※ 013 は Sentry、要確認)。**#48-B auth (Identity Platform session + middleware) を Worker 実装中** (branch `feat/48b-identity-platform-auth`、#133 primitive 使用、Closes #113 予定)。**次の最優先**: (1) **#48-B auth Worker PR の Reviewer → 自律 merge** (戻ってきたら最優先) (2) **#48-E (#117) サイネージ表示** — #48-F の VIEW + #133 の `withTenantContext` で配線可能に (3) **#48-D (#115) 移行スクリプト** (認証非依存・着手しやすい) (4) #48-C (#114) レイアウトは #48-B auth merge 後。F01-F04 並行着手も可。F14 (#128) は Phase 2・PoC 前倒し候補。F15 は設計のみ着地・PoC 終了後 (2026-10〜)。tech-debt 残 (#94 残 ADR / #75 / #73 / #67)。**Dependabot major bump PR #1-#10 未処理** (TS6.0/Biome2.x 等の破壊的 major、要個別検証、今は据え置き)
 
 ### 最優先 (F0 Phase 1 継続 — #48-A 完了済)
 
@@ -228,7 +236,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 4. **次の F0 候補 (依存解禁済、いずれも #48-A 完了が前提)**:
    - **#48-D (#115) Firestore データ移行スクリプト** `scripts/migration/firestore-to-pg.ts` (500 行) — #48-A のテーブルに冪等インポート。**classes.grade_id / grades.department_id (#48-F で追加) も埋めること**。ADR/認証に依存しないので着手しやすい
    - **#48-E (#117) サイネージ表示 Server Component** — **#48-F 完了でブロック解除済**。`effective_ads_per_class` を SELECT (schedule/notice/assignment 描画 + 広告 rotation)。onSnapshot→5-10 秒ポーリング、50 台×5秒の Cloud SQL 接続圧迫を NFR と突合 (v1-v2-mapping §Firebase API 置換マップ参照)
-   - **#48-B (#113) Identity Platform 認証基盤 + middleware RLS context SET LOCAL** (400 行) — **前提: ADR-003 (Identity Platform) / ADR-008 (Route Handlers) 起草が欲しい (#94)**。auth 系の起点なので #48-C/#48-N をブロックしている。**#48-E/#48-F のクエリ層は middleware が `SET LOCAL app.current_school_id` 済の接続で呼ぶ前提**
+   - ~~**#48-B (#113) Identity Platform 認証基盤**~~ → **2 分割で進行中**: **core (`withTenantContext` SET LOCAL primitive) = PR #133 merged 済**。**auth (Identity Platform session + middleware) = Worker 実装中** (`feat/48b-identity-platform-auth`、ADR-003/008 起草済で解禁、#133 primitive 使用)。auth merge で #48-C/#48-N のブロック解除。**#48-E/#48-F のクエリ層は `withTenantContext` で RLS context を張った接続で呼ぶ** (手書き SET LOCAL 不要に)
 4. **#37-#40 F01-F04 並行着手** (gate 解禁、F0 と独立):
    - **F01** 教員ファイル抽出 (PDF/Word/Excel/画像 → Gemini 構造化)
    - **F03** AI 構造化 (Gemini Pro + confidence_score、ADR-017 準拠)
