@@ -81,9 +81,12 @@ export async function listContents(
       updatedAt: contents.updatedAt,
     })
     .from(contents);
+  // updated_at 同値でも順序を決定的にするため id を二次キーにする (Reviewer PR #156 L2)。
   const rows = opts.status
-    ? await base.where(eq(contents.status, opts.status)).orderBy(desc(contents.updatedAt))
-    : await base.orderBy(desc(contents.updatedAt));
+    ? await base
+        .where(eq(contents.status, opts.status))
+        .orderBy(desc(contents.updatedAt), desc(contents.id))
+    : await base.orderBy(desc(contents.updatedAt), desc(contents.id));
   return rows;
 }
 
@@ -132,7 +135,9 @@ export async function getContentDetail(
     })
     .from(publishes)
     .where(and(eq(publishes.contentId, contentId), isNull(publishes.unpublishedAt)))
-    .orderBy(desc(publishes.publishedAt))
+    // 多重 active publish (Issue #145) でも published_at 同値時に決定的に選ぶため id を二次キーに
+    // する (Reviewer PR #156 L1)。本来 1 content = 最大 1 active publish に正規化すべきは #145。
+    .orderBy(desc(publishes.publishedAt), desc(publishes.id))
     .limit(1);
 
   return { content, versions, activePublish: activePublish ?? null };

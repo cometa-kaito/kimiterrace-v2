@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
 import { getContentDetail, listContents } from "../../src/queries/content-detail.js";
@@ -130,6 +131,28 @@ describeOrSkip("F04 content-detail read queries (一覧 / 詳細 + version + 公
     expect(detail).toBeNull();
     const list = await withTenantContext(db, ctxB, (tx) => listContents(tx), APP);
     expect(list.map((c) => c.id)).not.toContain(contentA);
+
+    // M1 (Reviewer): read 層は RLS 依拠なので、B コンテキストでは A の content_versions /
+    // publishes 行も直接クエリで 0 件であることを実証する (detail=null の early-return だけでなく、
+    // 下層テーブルの越境漏れが無いことを本ファイルでも固定する)。
+    const leak = await withTenantContext(
+      db,
+      ctxB,
+      async (tx) => {
+        const vers = await tx.execute(
+          sql`SELECT count(*)::int AS n FROM content_versions WHERE content_id = ${contentA}`,
+        );
+        const pubs = await tx.execute(
+          sql`SELECT count(*)::int AS n FROM publishes WHERE content_id = ${contentA}`,
+        );
+        return {
+          versions: (vers[0] as { n: number }).n,
+          publishes: (pubs[0] as { n: number }).n,
+        };
+      },
+      APP,
+    );
+    expect(leak).toEqual({ versions: 0, publishes: 0 });
   });
 
   it("空コンテキストは deny-by-default で一覧 0 件", async () => {
