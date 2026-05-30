@@ -71,7 +71,8 @@ const MAX_ITEMS = 12;
 const SUBJECT_MAX = 32;
 const NOTE_MAX = 200;
 
-type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
+/** 検証結果。`ok` なら正規化済 value、そうでなければ表示用 message。エディタ各 core で共有。 */
+export type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
 
 function normalizeString(value: unknown, max: number): string | null {
   if (typeof value !== "string") {
