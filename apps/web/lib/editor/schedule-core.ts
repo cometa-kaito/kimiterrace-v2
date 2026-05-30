@@ -26,6 +26,9 @@ export function invalid(message: string): ActionError {
 export function forbidden(message: string): ActionError {
   return { ok: false, error: { code: "forbidden", message } };
 }
+export function conflict(message: string): ActionError {
+  return { ok: false, error: { code: "conflict", message } };
+}
 
 /** スケジュールを編集できるロール。教員と学校管理者 (自校スコープ)。 */
 export const EDITOR_ROLES = ["school_admin", "teacher"] as const;

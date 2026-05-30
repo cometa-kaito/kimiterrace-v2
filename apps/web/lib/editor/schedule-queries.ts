@@ -3,16 +3,12 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { type ScheduleItem, validateScheduleItems } from "./schedule-core";
 
 /** エディタ着地用: 自校のクラス一覧 (新しい年度順)。RLS で自校に限定。 */
-export type EditableClass = { id: string; name: string; academicYear: number; grade: number };
+export type EditableClass = { id: string; name: string; academicYear: number };
 
 export async function getSchoolClasses(tx: TenantTx): Promise<EditableClass[]> {
+  // grade 列は並び替えにのみ使い、結果には含めない (着地 UI は年度名のみ表示)。
   return await tx
-    .select({
-      id: classes.id,
-      name: classes.name,
-      academicYear: classes.academicYear,
-      grade: classes.grade,
-    })
+    .select({ id: classes.id, name: classes.name, academicYear: classes.academicYear })
     .from(classes)
     .orderBy(desc(classes.academicYear), asc(classes.grade), asc(classes.name));
 }

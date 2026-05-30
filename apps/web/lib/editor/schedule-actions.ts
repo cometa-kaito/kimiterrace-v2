@@ -9,6 +9,7 @@ import {
   type ActionResult,
   EDITOR_ROLES,
   type EditorActor,
+  conflict,
   forbidden,
   invalid,
   isUuid,
@@ -27,6 +28,16 @@ import {
 
 /** クラスが自校で不可視のとき tx をロールバックさせる内部エラー。 */
 class ClassNotFoundError extends Error {}
+
+/** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。同一 class+date の並行保存など。 */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: unknown }).code === "23505"
+  );
+}
 
 async function writeAudit(
   tx: TenantTx,
@@ -135,6 +146,10 @@ export async function setClassScheduleAction(
   } catch (error) {
     if (error instanceof ClassNotFoundError) {
       return invalid("クラスが見つかりません。");
+    }
+    // 並行保存で同一 class+date の INSERT が競合した場合 (ux_daily_data_target_date)。
+    if (isUniqueViolation(error)) {
+      return conflict("他の操作と競合しました。最新の内容を読み込み直してください。");
     }
     throw error;
   }
