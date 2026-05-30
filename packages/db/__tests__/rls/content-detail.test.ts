@@ -176,7 +176,7 @@ describeOrSkip("F04 content-detail read queries (一覧 / 詳細 + version + 公
       INSERT INTO ai_extractions
         (school_id, content_id, extraction_kind, confidence_score, evidence, model_version, created_by)
       VALUES
-        (${fx.schoolA}, ${contentId}, 'summary', ${score}, ${raw.json(evidence as never)},
+        (${fx.schoolA}, ${contentId}, 'summary', ${score}, ${JSON.stringify(evidence)}::jsonb,
          'gemini-test', ${fx.userA})
     `;
   }
