@@ -54,13 +54,16 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
     await raw.end({ timeout: 5 });
   });
 
+  // fx は beforeAll で代入されるため、collection 時 (describe 本体評価) に fx.* を読む
+  // 即時オブジェクトは undefined アクセスで落ちる。actorA / ctxA は遅延 (関数) にして
+  // テスト実行時 (= beforeAll 後) に fx を読む。
   const actorA = () => ({ userId: fx.userA, schoolId: fx.schoolA });
-  const ctxA = { userId: fx.userA, schoolId: fx.schoolA, role: "teacher" as const };
+  const ctxA = () => ({ userId: fx.userA, schoolId: fx.schoolA, role: "teacher" as const });
 
   it("publishContent: status=published + publishes 行 + version + audit を追記する", async () => {
     const result = await withTenantContext(
       db,
-      ctxA,
+      ctxA(),
       (tx) => publishContent(tx, actorA(), contentA),
       APP,
     );
@@ -82,10 +85,10 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   });
 
   it("updateContent: contents を更新し新バージョンを追記、audit に before/after が残る", async () => {
-    await withTenantContext(db, ctxA, (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
     const upd = await withTenantContext(
       db,
-      ctxA,
+      ctxA(),
       (tx) => updateContent(tx, actorA(), contentA, { body: "改訂本文" }),
       APP,
     );
@@ -107,17 +110,17 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   });
 
   it("rollbackContent: 旧バージョン本文を復元しつつ履歴を消さず新バージョンを積む (F04.2)", async () => {
-    await withTenantContext(db, ctxA, (tx) => publishContent(tx, actorA(), contentA), APP); // v1 = 初版本文
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP); // v1 = 初版本文
     await withTenantContext(
       db,
-      ctxA,
+      ctxA(),
       (tx) => updateContent(tx, actorA(), contentA, { body: "改訂本文" }),
       APP,
     ); // v2 = 改訂本文
 
     const rb = await withTenantContext(
       db,
-      ctxA,
+      ctxA(),
       (tx) => rollbackContent(tx, actorA(), contentA, 1),
       APP,
     );
@@ -134,8 +137,8 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   });
 
   it("unpublishContent: 公開中 publish を閉じ status=archived、audit に update を残す", async () => {
-    await withTenantContext(db, ctxA, (tx) => publishContent(tx, actorA(), contentA), APP);
-    await withTenantContext(db, ctxA, (tx) => unpublishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => unpublishContent(tx, actorA(), contentA), APP);
 
     const [c] = await raw<{ status: string }[]>`SELECT status FROM contents WHERE id = ${contentA}`;
     expect(c.status).toBe("archived");
@@ -148,13 +151,13 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
 
   it("unpublishContent: 公開中 publish が無ければ NoActivePublishError", async () => {
     await expect(
-      withTenantContext(db, ctxA, (tx) => unpublishContent(tx, actorA(), contentA), APP),
+      withTenantContext(db, ctxA(), (tx) => unpublishContent(tx, actorA(), contentA), APP),
     ).rejects.toBeInstanceOf(NoActivePublishError);
   });
 
   it("rollbackContent: 存在しないバージョンは VersionNotFoundError", async () => {
     await expect(
-      withTenantContext(db, ctxA, (tx) => rollbackContent(tx, actorA(), contentA, 99), APP),
+      withTenantContext(db, ctxA(), (tx) => rollbackContent(tx, actorA(), contentA, 99), APP),
     ).rejects.toBeInstanceOf(VersionNotFoundError);
   });
 
@@ -167,7 +170,7 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   });
 
   it("テナント分離: B のコンテキストでは A の publishes / version が作られていない", async () => {
-    await withTenantContext(db, ctxA, (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
     // B コンテキストで A の content を rollback 試行 → 不可視で例外、B 側に副作用ゼロ
     const ctxB = { userId: fx.userB, schoolId: fx.schoolB, role: "teacher" as const };
     const actorB = { userId: fx.userB, schoolId: fx.schoolB };
@@ -181,7 +184,7 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   });
 
   it("audit_log の actor_user_id は常に操作者本人 (詐称防止 policy を充足)", async () => {
-    await withTenantContext(db, ctxA, (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
     const rows = await raw<{ actor_user_id: string }[]>`
       SELECT DISTINCT actor_user_id FROM audit_log WHERE school_id = ${fx.schoolA}
     `;
@@ -193,7 +196,7 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   it("publish → publishes.version_id が実在の content_versions を指す (整合)", async () => {
     const { versionId } = await withTenantContext(
       db,
-      ctxA,
+      ctxA(),
       (tx) => publishContent(tx, actorA(), contentA),
       APP,
     );
