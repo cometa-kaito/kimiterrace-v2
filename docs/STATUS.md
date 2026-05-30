@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-31 (**open PR 片付けサイクル**。#140 F16 TV 死活監視 docs + ADR-023 (Reviewer APPROVE 相当) 自律 merge / **#157 F02 教員入力 backend (schema+RLS+CRUD API+tests)** を Reviewer→**High-1 (API role 早期 deny 欠落=権限昇格) 自己 fix→再 CI 12/12→再 Reviewer APPROVE→自律 merge**。F02 backend スライス着地。dependabot 12 PR は triage 済 (GH Actions bump #1-5 は低リスクだが脆弱性非該当、npm major #6/#8/#10/#153 は破壊的=ユーザー判断待ち)。自律 merge 連続 **24 回目**)
+最終更新: 2026-05-31 (**open PR 片付け + F0 #48-I 実装サイクル**。#140 F16 docs / **#157 F02 backend (Reviewer High-1 権限昇格 自己 fix→再 CI→再 Reviewer→merge)** / **#174 #48-I エディタ Notice/Assignment (Worker spawn→Reviewer APPROVE→merge、daily_data スキーマ確定、回帰なし)** を自律 merge。#119/#120 close、follow-up #175 (editor-styles 単一ソース化) 起票。dependabot 12 PR triage 済 (脆弱性 major は破壊的=ユーザー判断待ち)。自律 merge 連続 **26 回目**)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F0 #48-I エディタ Notice/Assignment セクション実装 (PR #174 自律 merge、commit `e0478b2`、Issue #120 close、Refs #12)**:
+  - **Worker spawn (worktree 隔離) で実装 → Desktop が Reviewer spawn → 自律 merge** のオーケストレータ構成。直前 merge の #48-H Schedule (PR #171) を template に同型実装。`apps/web/lib/editor/notice-assignment-{core,actions,queries}.ts` + `_components/{NoticeEditor,AssignmentEditor}.tsx` + 共有 `editor-styles.ts` + `page.tsx` 配線 + テスト 2 ファイル
+  - **daily_data スキーマ確定**: #48-A で opaque JSONB だった `daily_data.notices` = `{text, isHighlight?}` / `daily_data.assignments` = `{deadline, subject, task}` の要素スキーマを core で型として一元定義 (V1 踏襲、サイネージ描画 #48-E1 と整合)。**migration 不要**。deadline 検証は schedule の `isValidDate` 再利用で堅牢
+  - **CLAUDE.md ルール遵守**: 全 mutation を audit_log に同一 tx 記録 (ルール1)、認可・テナント分離は `withSession` 自校 RLS tx 内で完結・`WHERE school_id` 手書きなし・system_admin は `toEditorActor→null` で cross-tenant 編集遮断 (ルール2)、`as any`/`@ts-ignore` なし・型 Drizzle 単一ソース (ルール3)、生 PII 外部送信なし (ルール4)
+  - **Reviewer (worktree 隔離、fresh context) APPROVE 相当 (Critical 0 / High 0 / Medium 1 / Low 3 / nit 1)**: `schedule-core.ts` 変更は `type Validated<T>`→`export type` + docstring の 1 箇所のみで **既存 #48-H に回帰なし** (循環なし、Test SUCCESS) を実証。**ルール6 (+946 行、500 行ガイドラインの約2倍) は許容判定** — production 727 行は schedule の高対称・低複雑度ミラーで Notice/Assignment が core/queries/styles/page を完全共有しており分割は二重化、と Worker 主張の妥当性を Reviewer が追認。テストが認可順序・境界を実挙動で突き空虚緑でないことも確認
+  - **Medium-1 (`editor-styles.ts` 単一ソース未達 — ScheduleEditor が旧 private コピーのまま consume せず drift 懸念) は follow-up Issue #175 に切出し** (本 PR は既に大きく既存 ScheduleEditor のリファクタ同梱はスコープ過大のため)。CI 12/12 green (@e3ba930 head_sha 検証) → 自律 merge
+  - **本サイクル成果**: 1 PR (#174) merged、Issue #120 close + #175 起票。F0 エディタ系は #48-H Schedule + #48-I Notice/Assignment が揃い、残 #48-J (#121 クラス設定 quiet_hours/広告 UI) / #48-G (#118 prefetch+SW) / #48-E (#117 サイネージ Server Component 本体) 等。Desktop context 温存 (実装は Worker、Desktop は brief + Reviewer + merge 判定)
 - 2026-05-31: **open PR 片付けサイクル (F16 docs #140 + F02 backend #157 自律 merge、busy CEO)**:
   - **PR #140 (F16 TV 死活・起動監視 + ADR-023、docs +196/-0、merged、commit `f7878fa`)**: ユーザー作成済 docs PR を Reviewer Agent (worktree 隔離、fresh context) が APPROVE 相当 (Critical/High/Medium 0 / Low 2 / nit 2) → 自律 merge。F16 死活監視は ADR-022 の 60 秒ポーリング心拍 (`tv_devices.last_seen_at`) を再利用する pull 型で F15 (受動表示) と責務分界明示、閉域原則 OK (外形監視 SaaS 却下、health-check は Cloud Scheduler→Cloud Run 内部認証)、audit_log の `type` 列 NG パターン非該当。新規 `tv_device_downtime` は school_id + 監査カラム + RLS 明記。follow-up は全て実装 PR 時の非ブロッカー (L1 F15 閾値追従 / L2 policy 名明記 / N2 issue 起票)
   - **PR #157 (F02 教員音声/チャット入力 backend スライス、merged、commit `b7ee48c`、Refs #38 #12)**: ユーザー作成済 feature PR。`teacher_inputs`/`teacher_input_attachments` schema+DDL+RLS + CRUD API (作成/履歴一覧 FR-08/詳細/transcript編集 FR-04/下書き FR-06/送信 FR-07/削除/添付メタ FR-05) + 全 mutation audit_log in-tx 記録 + RLS テスト + API テスト。migration リナンバ済 (drizzle 0004 / migrations 0009、F05 既 merge 0003/0008 と非衝突)、loader 配線・enum re-export OK
