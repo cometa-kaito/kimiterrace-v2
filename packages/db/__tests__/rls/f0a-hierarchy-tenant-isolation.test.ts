@@ -24,6 +24,9 @@ describeOrSkip("RLS: F0 階層基盤テーブル (#48-A)", () => {
     // 各校に学年を 1 件ずつ (BYPASSRLS = テーブル所有者接続)
     await sql`INSERT INTO grades (school_id, name, display_order) VALUES (${fx.schoolA}, '1年', 1)`;
     await sql`INSERT INTO grades (school_id, name, display_order) VALUES (${fx.schoolB}, '1年', 1)`;
+    // 各校に学科を 1 件ずつ
+    await sql`INSERT INTO departments (school_id, name, display_order) VALUES (${fx.schoolA}, '工業科', 1)`;
+    await sql`INSERT INTO departments (school_id, name, display_order) VALUES (${fx.schoolB}, '商業科', 1)`;
     // 各校に school スコープ広告を 1 件ずつ
     await sql`
       INSERT INTO ads (school_id, scope, media_url, media_type)
@@ -93,6 +96,32 @@ describeOrSkip("RLS: F0 階層基盤テーブル (#48-A)", () => {
     ).rejects.toThrow(/row-level security|new row violates/i);
   });
 
+  it("departments: school A context は A の学科のみ可視 (M1)", async () => {
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+      await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+
+      const rows = await tx<{ name: string; school_id: string }[]>`
+        SELECT name, school_id FROM departments
+      `;
+      expect(rows.length).toBe(1);
+      expect(rows[0].school_id).toBe(fx.schoolA);
+      expect(rows[0].name).toBe("工業科");
+    });
+  });
+
+  it("departments: 他テナント school_id で INSERT は WITH CHECK で拒否 (M1)", async () => {
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+        await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+        await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+        await tx`INSERT INTO departments (school_id, name, display_order) VALUES (${fx.schoolB}, '詐称学科', 9)`;
+      }),
+    ).rejects.toThrow(/row-level security|new row violates/i);
+  });
+
   it("ads: school A context は A の広告のみ可視", async () => {
     await sql.begin(async (tx) => {
       await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
@@ -122,6 +151,17 @@ describeOrSkip("RLS: F0 階層基盤テーブル (#48-A)", () => {
         await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
         await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
         await tx`INSERT INTO daily_data (school_id, scope, date) VALUES (${fx.schoolA}, 'class', '2026-05-30')`;
+      }),
+    ).rejects.toThrow(/ck_daily_data_scope|check constraint/i);
+  });
+
+  it("daily_data: scope='grade' で grade_id NULL は CHECK 制約 (ck_daily_data_scope) で拒否 (M2)", async () => {
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+        await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+        await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+        await tx`INSERT INTO daily_data (school_id, scope, date) VALUES (${fx.schoolA}, 'grade', '2026-05-31')`;
       }),
     ).rejects.toThrow(/ck_daily_data_scope|check constraint/i);
   });
