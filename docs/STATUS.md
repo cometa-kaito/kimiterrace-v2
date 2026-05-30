@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F04.3 確信度フラグ データ配線完了 — F04 安全網4種すべてデータ〜UI で動作 (PR #172 自律 merge、commit `4ded2da`、Refs #12)**:
+  - **F04.3 の残課題 (confidence データ配線) を実装**。confidence は `contents` ではなく `ai_extractions.confidence_score` (ADR-017) にあるため、read 層に `getContentConfidence(db, contentId)` を追加 — content に紐づく抽出のうち**最小 confidence の 1 件**を `{score, evidence}` で返す (最も慎重に倒す)。抽出無し (人手作成) は null=フラグ出さない。evidence jsonb の text を連結 (300字キャップ)。テナント分離は ai_extractions の RLS に委ねる
+  - **詳細画面に配線**: `getContentDetail` と同一 withSession トランザクション (RLS context 共有) で `getContentConfidence` を取得し `ConfidenceBadge` に score/evidence を渡す。detail null 時は短絡
+  - **実 PG RLS テスト 4 ケース追加** (計 12): 複数抽出の最小 confidence + 根拠連結 / 抽出無し null / evidence 空配列で null / テナント分離。beforeEach に ai_extractions DELETE 追加 (FK set null で残るため)
+  - **Reviewer (worktree 隔離、fresh context) APPROVE 相当 (Critical 0 / High 0、Medium 1 / Low 2 / nit 2)**: 最小値選択の意味論・RLS 委譲・formatEvidence 堅牢性・同一 tx 配線・PII (evidence は自校 RLS スコープ内) を実証。**M (confidence 同値の非決定) + nit (長さ) を同 PR 吸収** (id 二次ソート + 300字キャップ、PR #156 と同パターン)
+  - **CI 赤 → 修正の自己完結**: 初回 CI で seed の `raw.json(evidence)` が postgres Bind 時シリアライズ失敗 (3 ケース赤) → `${JSON.stringify(evidence)}::jsonb` の明示キャストに変更して再 CI 12/12 green。「Reviewer 先行 → CI 赤を後から検知」したため、**次回は CI Test green を確認してから Reviewer 投票を最終化する**運用に
+  - **F04 完成サマリ**: 安全網4種すべてが**データ〜UI で動作** — F04.1 監査 (actor 本人性+hash chain) / F04.2 1-click rollback (履歴保持+タイムライン UI) / **F04.3 確信度バッジ (ai_extractions 配線完了)** / F04.4 公開先明示 (NOT NULL + 明示選択 UI)。全7スライス (#141/#148/#156/#161/#165/#169/#172) worktree 隔離で並行 F05 と無衝突、自律 merge **26 回連続**。**F04 残り**: nav 導線 (#48-C)、follow-up #145 (採番レース) / #150 (Action 堅牢化) / #166 (system_admin UX)
 - 2026-05-31: **F04 即公開フロー コア完成 + ADR-015 Accepted 化 (PR #169 自律 merge、commit `7d9cb0e`、Refs #12)**:
   - **F04 の意思決定記録を実装に整合**。F04 が #141/#148/#156/#161/#165 で実装完了したため、`ADR-015` を Proposed → **Accepted** にし実装メモを追記 (意思決定=即公開/承認非採用+安全網4種 は不変、実装方式と起草時差分を記録)。`F04` 要件を「実装済 (コア)」に、受け入れ条件に実装 PR + F04.3 部分実装 (`[~]`) を反映。ADR README も Accepted に
   - **F04.3 のスキーマ差分を明文化**: 要件は `contents.confidence_score` を想定したが実スキーマは confidence が `ai_extractions` 側 (ADR-017) で contents に列なし。`ConfidenceBadge` は score を prop 受けで先行実装済、**データ配線 (ai_extractions 連携 or contents 列追加) とスキーマ整合は未了 → 別タスク**と ADR-015 実装メモに記録
