@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { KimiterraceDb, TenantTx } from "../client.js";
+import { classes } from "../schema/classes.js";
 import { magicLinks } from "../schema/magic-links.js";
 
 /**
@@ -76,15 +77,45 @@ const ISSUED_COLUMNS = {
   createdAt: magicLinks.createdAt,
 } as const;
 
+/** `class_id` が現在のテナントのクラスを指していないときに投げる。 */
+export class MagicLinkClassNotFoundError extends Error {
+  constructor(classId: string) {
+    super(`magic link 発行: クラス ${classId} は自校に存在しません`);
+    this.name = "MagicLinkClassNotFoundError";
+  }
+}
+
+/**
+ * `classId` が現在の RLS コンテキスト (自校) のクラスかを判定する。
+ * RLS の tenant_isolation により、他校のクラスは SELECT で 0 行 = false になる。
+ */
+export async function classBelongsToTenant(tx: TenantTx, classId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: classes.id })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1);
+  return Boolean(row);
+}
+
 /**
  * 教員がクラスに magic link を発行する。RLS context (自校) を張った tx 内で呼ぶ。
- * tenant_isolation の WITH CHECK が `school_id = app.current_school_id` を強制するため、
- * 他校 school_id を渡しても INSERT は拒否される。
+ *
+ * 二層の防御:
+ * - `school_id` は tenant_isolation の WITH CHECK が `app.current_school_id` を強制し、他校
+ *   school_id を渡しても INSERT が拒否される。
+ * - `class_id` は school_id と独立な FK のため、自校 school_id + **他校 class_id** という
+ *   ねじれた行を作れてしまう (RLS は school_id しか見ない)。データ漏洩には至らない (生徒側で
+ *   下層 content が別校になり RLS で 0 件) が、壊れたリンクを生む。これを防ぐため発行前に
+ *   `classBelongsToTenant` で自校クラスであることを検証し、違えば例外で倒す。
  */
 export async function createClassMagicLink(
   tx: TenantTx,
   params: CreateClassMagicLinkParams,
 ): Promise<IssuedMagicLink> {
+  if (!(await classBelongsToTenant(tx, params.classId))) {
+    throw new MagicLinkClassNotFoundError(params.classId);
+  }
   const [row] = await tx
     .insert(magicLinks)
     .values({

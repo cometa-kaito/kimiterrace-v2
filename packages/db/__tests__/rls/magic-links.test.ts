@@ -3,6 +3,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  MagicLinkClassNotFoundError,
+  classBelongsToTenant,
   createClassMagicLink,
   listClassMagicLinks,
   resolveMagicLink,
@@ -174,6 +176,51 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       const days = (issued.expiresAt.getTime() - Date.now()) / 86_400_000;
       expect(days).toBeGreaterThan(89);
       expect(days).toBeLessThan(91);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("createClassMagicLink: 他校の classId は MagicLinkClassNotFoundError で拒否 (ねじれ行防止)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+          await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+          await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+          await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+          // school A context で school B の classId → 自校に存在せず拒否
+          await createClassMagicLink(tx, {
+            schoolId: fx.schoolA,
+            classId: classB,
+            tokenHash: "hash-twisted",
+            actorUserId: fx.userA,
+          });
+        }),
+      ).rejects.toThrow(MagicLinkClassNotFoundError);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("classBelongsToTenant: 自校クラスは true、他校クラスは false (RLS)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      const [own, other] = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return Promise.all([classBelongsToTenant(tx, classA), classBelongsToTenant(tx, classB)]);
+      });
+      expect(own).toBe(true);
+      expect(other).toBe(false);
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
