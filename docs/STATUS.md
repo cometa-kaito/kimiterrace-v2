@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F04 エディタ画面実装 — 「一覧→詳細→即公開/巻き戻し」が UI で動作 (PR #165 自律 merge、commit `1e0e7ff`、Issue #166 起票、Refs #12)**:
+  - **F04 第5スライス = UI②**。安全網のサーバー3層 (#141 サービス / #148 Actions / #156 read 層) と表示部品 (#161) を**実画面に組み上げ**、F04 のコア体験が UI で動く状態に。
+  - **ページ** (Server Component、`/admin` レイアウトの `requireRole(ADMIN_ROLES)` + RLS 継承): `app/admin/contents/page.tsx` (自校一覧 listContents、状態バッジ + 公開先ラベル、行クリックで詳細) / `app/admin/contents/[id]/page.tsx` (詳細 getContentDetail、本文 + バッジ + 公開操作 + バージョンタイムライン集約、不可視は notFound)
+  - **クライアント部品** (Server Action 配線、useTransition + ActionResult): `PublishControls` (draft→公開する/published→非公開、成功で router.refresh・失敗で alert) / `VersionTimeline` (F04.2、履歴降順 + 各版「このバージョンに戻す」[最新版除外]、公開中タグ、rollback で新版追記)
+  - **テスト**: jsdom 7 ケース (actions/next-navigation mock、ボタン→action 引数・成功 refresh・失敗 alert・最新版 rollback 非表示)。全 web 131 tests green、typecheck/biome/next build green (/admin/contents[/[id]] 登録)。依存追加なし
+  - **Reviewer (worktree 隔離、fresh context) APPROVE 相当 (Critical 0 / High 0、Medium 1 / Low 1 / nit 1)**: 認可継承・RLS 委譲・Server/Client 境界 (シリアライズ可能 props のみ)・rollback 判定・Next16 params await・テストを実証。**重要発見**: 「system_admin は一覧空」の想定は誤りで、`system_admin_full_access` policy (0002、ADR-019) により **system_admin は全校横断で全件可視** (mutation は toActor null→forbidden で封じられセキュリティ違反なし)。学校識別列が無く区別できない UX を **Issue #166 に follow-up** (対応案: contents 画面を publisher 専用にするか school 列追加)
+  - **本サイクル成果**: 1 PR (#165) merged、Issue #166 起票。**F04 のサーバー3層 + UI 2スライスが揃い、即公開フロー + 安全網 (監査/rollback/確信度/公開先明示) が UI で一通り動作**。Busy CEO 自律 merge 連続 **24 回目**、全 F04 スライス worktree 隔離で並行 F05 と無衝突。**F04 残り**: F04.3 confidence データ配線 (ai_extractions 連携 + スキーマ整合判断)、nav 導線 (#48-C)、ADR-015 起票、follow-up #145 (バージョン採番レース) / #150 (Action 堅牢化) / #166 (system_admin UX)
 - 2026-05-30: **F04 安全網表示コンポーネント + React テスト基盤導入 (PR #161 自律 merge、commit `5b69ebf`、Refs #12)**:
   - **F04 第4スライス = UI①** (前段 #141 サービス / #148 Server Actions / #156 read 層)。apps/web に **React コンポーネント描画テスト基盤** (jsdom + @testing-library/react + jest-dom、devDeps のみ・本体依存不変) を導入し、安全網の「見せ方」部品を render テスト付きで実装。`vitest.config` は esbuild 自動 JSX + `@/*` alias + **`.test.tsx` のみ jsdom** (`environmentMatchGlobs`) で既存 node テストは不変、`vitest.setup` で jest-dom matchers + afterEach cleanup
   - **コンポーネント** (lib/nav.ts 同方針で表示ロジックを純関数 `lib/contents/publish-view.ts` に分離): `PublishScopeSelect` (F04.4 公開先明示 — 全校を既定/強調にせず初期未選択で明示選択強制・各選択肢に説明) / `ConfidenceBadge` (F04.3 — score<0.7 で⚠️要確認+根拠、高確信度/未取得は非表示) / `ContentStatusBadge` (下書き/公開中/非公開色分け)。型は publish-core (#148) を単一ソース
