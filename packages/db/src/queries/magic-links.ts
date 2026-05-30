@@ -1,7 +1,34 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { KimiterraceDb, TenantTx } from "../client.js";
+import { auditLog } from "../schema/audit-log.js";
 import { classes } from "../schema/classes.js";
 import { magicLinks } from "../schema/magic-links.js";
+
+/**
+ * magic_links の発行/失効を audit_log に追記する (NFR04 / CLAUDE.md ルール1)。
+ *
+ * magic link は生徒の匿名アクセス credential であり、「誰がいつ発行/失効したか」は漏洩時に
+ * 最も追跡したい情報。`prev_hash`/`row_hash` は BEFORE INSERT トリガ (migration 0003) が
+ * 計算するため渡さない。`actor_user_id` は audit_log_insert policy 充足のため必ず actor を載せる。
+ * **token_hash や平文 token は diff に含めない** (ルール5: credential を監査ログに残さない)。
+ */
+async function writeMagicLinkAudit(
+  tx: TenantTx,
+  actor: { userId: string; schoolId: string },
+  params: { recordId: string; operation: "insert" | "update"; diff: object },
+): Promise<void> {
+  await tx.insert(auditLog).values({
+    actorUserId: actor.userId,
+    schoolId: actor.schoolId,
+    tableName: "magic_links",
+    recordId: params.recordId,
+    operation: params.operation,
+    diff: params.diff,
+    rowHash: "",
+    createdBy: actor.userId,
+    updatedBy: actor.userId,
+  });
+}
 
 /**
  * F05: クラス magic link のドメインサービス。
@@ -131,6 +158,16 @@ export async function createClassMagicLink(
     // INSERT が 0 行を返すのは RLS WITH CHECK 違反等。呼び出し側に明示エラーを返す。
     throw new Error("createClassMagicLink: INSERT が行を返しませんでした (RLS 拒否の可能性)");
   }
+  await writeMagicLinkAudit(
+    tx,
+    { userId: params.actorUserId, schoolId: params.schoolId },
+    {
+      recordId: row.id,
+      operation: "insert",
+      // token/hash は載せない (ルール5)。発行された事実とメタのみ。
+      diff: { classId: row.classId, expiresAt: row.expiresAt.toISOString() },
+    },
+  );
   return row;
 }
 
@@ -149,8 +186,22 @@ export async function revokeMagicLink(
     .update(magicLinks)
     .set({ revokedAt: sql`now()`, updatedBy: actorUserId, updatedAt: sql`now()` })
     .where(and(eq(magicLinks.id, id), isNull(magicLinks.revokedAt)))
-    .returning(ISSUED_COLUMNS);
-  return row;
+    // schoolId は audit 記録に使うため内部的に取得する (公開戻り値には含めない)。
+    .returning({ ...ISSUED_COLUMNS, schoolId: magicLinks.schoolId });
+  if (!row) {
+    return undefined;
+  }
+  await writeMagicLinkAudit(
+    tx,
+    { userId: actorUserId, schoolId: row.schoolId },
+    {
+      recordId: row.id,
+      operation: "update",
+      diff: { revokedAt: row.revokedAt?.toISOString() ?? null },
+    },
+  );
+  const { schoolId: _schoolId, ...issued } = row;
+  return issued;
 }
 
 /**

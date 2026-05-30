@@ -176,6 +176,15 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       const days = (issued.expiresAt.getTime() - Date.now()) / 86_400_000;
       expect(days).toBeGreaterThan(89);
       expect(days).toBeLessThan(91);
+
+      // 発行が audit_log に insert として残る (ルール1)。owner 接続で確認 (token は載らない)。
+      const audit = await sql<{ operation: string; diff: Record<string, unknown> }[]>`
+        SELECT operation, diff FROM audit_log
+        WHERE table_name = 'magic_links' AND record_id = ${issued.id}
+      `;
+      expect(audit).toHaveLength(1);
+      expect(audit[0].operation).toBe("insert");
+      expect(JSON.stringify(audit[0].diff)).not.toContain("hash-created-A");
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
@@ -238,10 +247,11 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
           await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
           await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
           await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-          // school A context で school B の school_id を INSERT → RLS 拒否
+          // 自校 classA でクラス検証は通すが、school_id だけ他校 → tenant_isolation の
+          // WITH CHECK で INSERT 拒否 (class ガードではなく RLS が止めることを検証)。
           await createClassMagicLink(tx, {
             schoolId: fx.schoolB,
-            classId: classB,
+            classId: classA,
             tokenHash: "hash-cross-tenant",
             actorUserId: fx.userA,
           });
@@ -273,6 +283,13 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         return revokeMagicLink(tx, id, fx.userA);
       });
       expect(first?.revokedAt).not.toBeNull();
+
+      // 失効が audit_log に update として残る (ルール1)。
+      const audit = await sql<{ operation: string }[]>`
+        SELECT operation FROM audit_log
+        WHERE table_name = 'magic_links' AND record_id = ${id} AND operation = 'update'
+      `;
+      expect(audit).toHaveLength(1);
 
       // 2 回目は対象なし (既に失効) → undefined (冪等)
       const second = await db.transaction(async (tx) => {
