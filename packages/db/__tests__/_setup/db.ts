@@ -52,6 +52,7 @@ export async function seedBaseFixture(sql: ReturnType<typeof postgres>): Promise
         audit_log,
         ai_chat_messages, ai_chat_sessions, ai_extractions,
         events, publishes, content_versions, contents,
+        ads, daily_data, school_configs, departments, grades,
         magic_links, memberships, classes, users,
         monthly_reports,
         communications, contracts, advertisers,
