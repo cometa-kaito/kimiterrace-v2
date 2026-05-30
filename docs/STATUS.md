@@ -28,6 +28,11 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F15 TVデバイスリモート管理を計画追加 (ユーザー要望、commit `131ece5` + Desktop 整合性修正 `b902da6`/`76831eb`)**:
+  - **新規 [F15](requirements/functional/F15-tv-device-management.md) + [ADR-022](adr/022-tv-remote-config-polling.md)**: 学校設置済 Google TV (`com.kimiterrace.tvbridge`) に物理アクセスせず signage URL/スケジュール/センサ MAC/リロードをリモート制御 + 稼働ヘルス。通信は **TV からのポーリング (pull、60秒)**、push 型 (WebSocket/FCM/ハイブリッド/短間隔) は学校 Wi-Fi アウトバウンドのみ制約で却下 (ADR-022)。PoC は LP `edix-lp` に Turso 素朴版を 2026-05-30 投入済、v2 は Cloud SQL + Drizzle + RLS + 監査 + UI 統合で再実装
+  - **Desktop 確認レビューで整合性修正 (docs PR 未作成、feat ブランチ直 push)**: `motion_events`→`events` 統一 (v2 来場イベントは F13 の `events`)、未定義だった `tv_device_tokens` を §1 に定義追加、`tv_device_commands`/`tv_device_tokens` に `school_id` 追加 (ルール2 RLS)、`deleted_at` 列追加、`audit_log` は既存テーブル `type=tv_config_change` に確定、「drizzle-kit 生成のみ」→「DDL は drizzle-kit / RLS 等は手書き SQL + global-setup.ts ローダ登録」に実態合わせ、README 番号昇順整列
+  - **実装方針 (ユーザー判断 2026-05-30)**: docs PR は立てず、**実装着手時に F15 §実装分割方針の 4 単位 (①スキーマ+migration+RLS ②ポーリング API ③管理 UI ④コマンドキュー) で Issue 化してから進める**。各単位はルール6 (≤500 行) に収まる粒度
+  - **位置づけ**: Phase 2 (サイネージ系)、F13 (来場 Webhook) の後段・F08 (効果ダッシュボード) と TV ヘルス統合。PoC 終了後 (2026-10-01〜) に v2 実装 + Turso→Cloud SQL 移行 → LP エンドポイント廃止
 - 2026-05-30: **F0 #48-F 広告階層マージ View 実装 (PR #130 自律 merge、commit `7df09ca`、Issue #116 close)**:
   - **`effective_ads_per_class` VIEW (`migrations/0007`)**: 学校→学科→学年→クラス 4 階層広告マージを SQL で解決。各行 = あるクラスで表示すべき実効広告 1 件 (自クラス + 親階層から伝搬)。列: class_id / ad_id / school_id / source_scope / scope_rank (school=0/dept=1/grade=2/class=3) / is_inherited (= scope<>'class'、親階層は子で編集不可) / ad メタ各種。`a.school_id = c.school_id` 結合は system_admin (RLS バイパス) 時の cross-tenant ペアリング防止の多層防御
   - **設計逸脱 (Issue 文面は Materialized View)**: **通常 VIEW + `security_invoker = true`** を採用。理由 (1) PG の MV は RLS を尊重しない (REFRESH 時所有者権限のスナップショット → SELECT 時にテナント分離が効かず横断漏洩 → CLAUDE.md ルール2 違反)。`security_invoker` (PG16) は呼出ロールの RLS コンテキストで実行され下層 classes/grades/ads の tenant_isolation がクエリ時強制。(2) MV の REFRESH 遅延は F04 即公開と矛盾、通常 VIEW は常に最新。(3) 1 クラス数件・索引等価結合で安価、50 端末ポーリングにも適す
@@ -213,7 +218,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 次にやるべき（次セッション entry point）
 
-> **2026-05-30 F0 #48-F 実装サイクル末状態**: **#48-A (PR #127) + #48-F (PR #130) 自律 merge 完了**。F0 Phase 1 基盤 (DB 階層 5 テーブル + RLS) + 広告階層マージ VIEW `effective_ads_per_class` (security_invoker で RLS 貫通) + 階層リンク FK が main に着地。**#48-E (サイネージ表示) のブロック解除** (本 VIEW を SELECT 可能に)。次は最優先: **#48-D (移行スクリプト #115) / #48-B (認証基盤 #113) / #48-E (サイネージ表示 #117) 着手**。F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2・#48-E 依存・PoC 前倒し候補**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
+> **2026-05-30 F0 #48-F 実装サイクル末状態**: **#48-A (PR #127) + #48-F (PR #130) 自律 merge 完了**。F0 Phase 1 基盤 (DB 階層 5 テーブル + RLS) + 広告階層マージ VIEW `effective_ads_per_class` (security_invoker で RLS 貫通) + 階層リンク FK が main に着地。**#48-E (サイネージ表示) のブロック解除** (本 VIEW を SELECT 可能に)。次は最優先: **#48-D (移行スクリプト #115) / #48-B (認証基盤 #113) / #48-E (サイネージ表示 #117) 着手**。F01-F04 並行着手も可。**F14 実装 (#128) は Phase 2・#48-E 依存・PoC 前倒し候補**。**F15 (TV リモート管理) は設計のみ着地、実装着手時に 4 単位で Issue 化予定 (docs PR 不要)・PoC 終了後 (2026-10〜) 想定**。tech-debt 残 (#94 残 13 ADR / #75 / #73 / #67)。
 
 ### 最優先 (F0 Phase 1 継続 — #48-A 完了済)
 
