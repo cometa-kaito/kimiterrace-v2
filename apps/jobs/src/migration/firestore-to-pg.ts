@@ -37,7 +37,16 @@ async function main(): Promise<void> {
   console.info(JSON.stringify({ event: "migration.firestore-to-pg.done", summary }));
 }
 
+/**
+ * エラーメッセージから接続文字列 (DSN) を伏せる (CLAUDE.md ルール5: secret をログに出さない)。
+ * postgres 接続エラーは host / 場合により認証情報を message に含めうるため、URL を一律マスクする。
+ */
+function redactDsn(s: string): string {
+  return s.replace(/postgres(?:ql)?:\/\/[^\s"]+/gi, "postgres://<redacted>");
+}
+
 main().catch((err) => {
-  console.error(JSON.stringify({ event: "migration.firestore-to-pg.error", message: String(err) }));
+  const message = redactDsn(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+  console.error(JSON.stringify({ event: "migration.firestore-to-pg.error", message }));
   exit(1);
 });

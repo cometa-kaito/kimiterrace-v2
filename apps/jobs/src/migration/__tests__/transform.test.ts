@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIGRATION_NAMESPACE, uuidv5, v2Id } from "../ids.js";
+import { MIGRATION_NAMESPACE, deterministicUuid, v2Id } from "../ids.js";
 import { transformExport } from "../transform.js";
 import type { V1Export } from "../types.js";
 
@@ -17,20 +17,20 @@ function byScope<T extends { scope: string }>(arr: T[], sc: string): T[] {
   return arr.filter((r) => r.scope === sc);
 }
 
-describe("uuidv5 / v2Id (決定論的 id)", () => {
-  it("同じ入力は同じ UUID、形式は RFC4122、version=5 / variant=10xx", () => {
-    const a = uuidv5("school:abc");
-    const b = uuidv5("school:abc");
+describe("deterministicUuid / v2Id (決定論的 id)", () => {
+  it("同じ入力は同じ UUID、形式は RFC9562、version=8 / variant=10xx", () => {
+    const a = deterministicUuid("school:abc");
+    const b = deterministicUuid("school:abc");
     expect(a).toBe(b);
     expect(a).toMatch(UUID_RE);
-    expect(a[14]).toBe("5"); // version nibble
+    expect(a[14]).toBe("8"); // version nibble (RFC 9562 v8 = custom)
     expect(["8", "9", "a", "b"]).toContain(a[19]); // variant
   });
 
   it("入力が違えば別 UUID / namespace に依存", () => {
-    expect(uuidv5("school:abc")).not.toBe(uuidv5("school:def"));
-    expect(uuidv5("x", MIGRATION_NAMESPACE)).not.toBe(
-      uuidv5("x", "00000000-0000-0000-0000-000000000000"),
+    expect(deterministicUuid("school:abc")).not.toBe(deterministicUuid("school:def"));
+    expect(deterministicUuid("x", MIGRATION_NAMESPACE)).not.toBe(
+      deterministicUuid("x", "00000000-0000-0000-0000-000000000000"),
     );
   });
 

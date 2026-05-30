@@ -41,7 +41,13 @@ export type MigrationRows = {
 
 type HierarchyScope = "school" | "grade" | "department" | "class";
 
-/** scope に応じた *_id 列を組む (他はすべて null)。schema の ck_*_scope を満たす形。 */
+/**
+ * scope に応じた *_id 列を組む (他はすべて null)。schema の ck_*_scope を満たす形。
+ *
+ * 注: grade / class スコープの行に department_id を**冗長保持しない**。学科への伝搬は
+ * `grades.department_id` / `classes.grade_id` の FK リンクを #48-F の `effective_ads_per_class`
+ * VIEW が辿って解決する (非正規化せず単一ソースは階層リンク FK 側に置く)。
+ */
 function scopeColumns(
   scope: HierarchyScope,
   ids: { gradeId?: string; departmentId?: string; classId?: string },

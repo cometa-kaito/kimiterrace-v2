@@ -10,7 +10,7 @@ import {
   schoolConfigs,
   schools,
 } from "@kimiterrace/db";
-import { uuidv5 } from "./ids.js";
+import { deterministicUuid } from "./ids.js";
 import { type MigrationRows, transformExport } from "./transform.js";
 import type { V1Export } from "./types.js";
 
@@ -63,7 +63,7 @@ export async function importRows(db: KimiterraceDb, rows: MigrationRows): Promis
 
     // 学校ごとの移行マーカー (決定論的 id で再実行時は重複しない)。
     const markers = rows.schools.map((s) => ({
-      id: uuidv5(`audit-migration:${s.id}`),
+      id: deterministicUuid(`audit-migration:${s.id}`),
       actorUserId: null,
       schoolId: s.id as string,
       tableName: "schools",
