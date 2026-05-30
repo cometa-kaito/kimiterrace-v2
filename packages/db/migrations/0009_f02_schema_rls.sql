@@ -21,7 +21,9 @@
 -- 1) RLS 有効化
 -- ---------------------------------------------------------------------
 ALTER TABLE teacher_inputs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teacher_inputs FORCE ROW LEVEL SECURITY;
 ALTER TABLE teacher_input_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teacher_input_attachments FORCE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------
 -- 2) tenant_isolation policy

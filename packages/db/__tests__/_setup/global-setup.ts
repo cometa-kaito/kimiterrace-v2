@@ -14,7 +14,7 @@ const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql"
 // F05 (#12): magic_links に class_id / revoked_at 追加 + expires_at デフォルト 90 日 (drizzle 生成)。
 const F05_MAGIC_LINK_SQL = join(packageRoot, "drizzle", "0003_f05_magic_link_class.sql");
 // F02: teacher_inputs / teacher_input_attachments テーブル DDL。schools/users (baseline) 作成後に流す。
-const F02_SCHEMA_SQL = join(packageRoot, "drizzle", "0003_f02_teacher_inputs.sql");
+const F02_SCHEMA_SQL = join(packageRoot, "drizzle", "0004_f02_teacher_inputs.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -31,7 +31,7 @@ const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_a
 // F05 (#12): magic link 匿名解決の SECURITY DEFINER 関数。列追加 (0003) + RLS 後に流す。
 const F05_RESOLVE_FN_SQL = join(packageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
 // F02: teacher_inputs / teacher_input_attachments の RLS policy + 監査 FK。新テーブル作成後に流す。
-const F02_RLS_SQL = join(packageRoot, "migrations", "0008_f02_schema_rls.sql");
+const F02_RLS_SQL = join(packageRoot, "migrations", "0009_f02_schema_rls.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
