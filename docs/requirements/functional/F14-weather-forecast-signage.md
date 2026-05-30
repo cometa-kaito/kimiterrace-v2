@@ -31,10 +31,9 @@
 - [ ] 新規テーブル `weather_forecasts`（**地域単位のキャッシュ。school_id を持たない cross-tenant 参照テーブル**、auditColumns 必須、RLS 有効）
   - `id`, `area_code`（JMA 地域コード）, `area_name`, `source`（enum `weather_source`: `jma`）, `fetched_at`, `forecast_date`（対象日）, `weather_code`（JMA 天気コード）, `weather_text`, `temp_min`, `temp_max`, `pop`（降水確率 %）, `raw (jsonb)`（原文保全）, 監査カラム
   - 一意制約: `(area_code, source, forecast_date)`（同日 1 行、再取得は upsert）
-- [ ] **RLS（school_id 非保持テーブルの特例、[ADR-019](../../adr/019-rls-two-layer-tenant-isolation.md) の cross-tenant パターン）**:
-  - SELECT: 全ロール可（公開・非 PII の地域情報。サイネージ匿名セッション含む）→ `weather_read_all`（`USING (true)`）
-  - INSERT / UPDATE / DELETE: `system_admin` および天気取得 Job のサービスロールのみ → `weather_write_system`
-  - **Reviewer 確認ポイント**: 「全ロール SELECT 可」が CLAUDE.md ルール2（テナント分離）の例外として妥当か。天気は学校横断の公開データであり school_id に紐づかないため、CRM (`system_admin_only`) とは別の「全員読める参照マスタ」枠とする
+- [ ] **RLS（school_id 非保持の公開参照マスタの特例）**: policy 名 `weather_read_all`（`FOR SELECT`、`USING (true)`）+ `weather_write_system`（`FOR INSERT/UPDATE/DELETE`、`system_admin` / サービスロール `system_service` のみ）。**両名は [ADR-019 §Policy 命名規約](../../adr/019-rls-two-layer-tenant-isolation.md) に登録済 + 適用ルール 6（公開参照マスタ特例）で「school_id 非保持 かつ 公開・非 PII の両方を満たすテーブルにのみ適用」と規定済**（名前の発明ではない）
+  - SELECT 全開放の根拠: 天気は学校横断の公開・非 PII データで、漏れても無害。書き込みは system に閉じる。CRM (`system_admin_only`、読み書きとも system 限定) とは保護要件が異なる別枠
+  - **サイネージ匿名セッション（[ADR-016](../../adr/016-class-magic-link-anonymous-access.md)）が確実に読めること**を RLS テストで固定（§5 参照、#128 受け入れ条件に明記）
 - [ ] 地域コードの解決: 各校の所在から JMA 地域コードを導出
   - 既定: `schools.prefecture` → JMA 府県予報区コードの静的マップ（`packages/` 内のテーブル）
   - 上書き: より細かい市区単位を使いたい場合は `school_configs`（[#48-A](https://github.com/cometa-kaito/kimiterrace-v2/issues/112)）に `weather` 設定枠を追加（`config_kind` 拡張 or 専用列、設計時に決定）
@@ -87,4 +86,5 @@
 
 - 表示範囲: 本日のみ / 本日 + 翌日 / 週間（情報量とサイネージの視認性のバランス）
 - 地域粒度: 府県予報区（既定）で十分か、市区単位まで必要か（JMA の地域コード階層次第）
+- **府県 → JMA 地域コードの静的マップの置き場所**: コード定数（`packages/` 内）か DB マスタテーブルか。DB 化する場合は Drizzle スキーマで型単一ソース化（[CLAUDE.md ルール 3](../../../CLAUDE.md)）。固定的・小規模ならコード定数で可（Reviewer M2）
 - PoC 前倒しの可否: 低コストだが Phase 2 想定。岐南工業 PoC（2026/6〜9）で初日から出したいかはユーザー判断
