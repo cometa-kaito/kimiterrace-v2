@@ -28,6 +28,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-30: **F04 content 読み取りクエリ層実装 (PR #156 自律 merge、commit `ff05178`、Refs #12)**:
+  - **F04 第3スライス** (前段 = #141 サービス / #148 Server Actions)。安全網 UI が SELECT する read 層。`packages/db/src/queries/content-detail.ts`: `listContents(db,{status?})` (自校一覧、本文除く軽量射影、updated_at 降順 + status フィルタ) / `getContentDetail(db,contentId)` (本体 + バージョン履歴 [version 降順、F04.2 タイムライン用] + 公開中 publish [unpublished_at IS NULL の最新]、不可視/不存在は null)
+  - テナント分離は呼び出し接続の RLS context (app.current_school_id) に委ね **school_id 条件を書かない** (ADR-019/ルール2、effective-ads と同方針)。型は contentStatus enum 由来で単一ソース (ルール3、`import type` + `typeof enumValues`)。新規 migration / 依存追加なし
+  - **実 PG RLS テスト 8 ケース**: publish→update 後の詳細射影 / draft・unpublish 後の activePublish null / 不存在 null / 一覧更新順 / status フィルタ / テナント分離 / 空コンテキスト deny。状態づくりに publish サービスを使い read 層をクロス検証
+  - **Reviewer (worktree 隔離、fresh context) APPROVE 相当 (Critical 0 / High 0 / Medium 1 / Low 2)**。**L1/L2/M1 を同 PR 吸収**: L2 (listContents の updated_at 同値時順序を id 二次キーで決定的に) / L1 (getContentDetail の activePublish を published_at 同値時 id 二次キーで決定的に、多重 active publish [#145] の非決定回避) / M1 (テナント分離テストで B から A の content_versions/publishes 行が直接クエリ 0 件を実証、下層テーブル越境漏れ非存在を固定)。再 CI 12/12 green
+  - **本サイクル成果**: 1 PR (#156) merged、F04 の read 層着地で UI スライスを unblock (後続: エディタ UI = 公開ボタン/バージョンタイムライン/F04.3 確信度バッジ [contents に confidence_score 無く ai_extractions 側 → スキーマ要検討]/F04.4 公開先明示セレクタ、ADR-015 起票)。Busy CEO 自律 merge 連続 **22 回目**、全スライス worktree 隔離で並行 F05 と無衝突
 - 2026-05-30: **F05 magic link アプリ層 = 発行/一覧/失効 API + token utility (PR #149 自律 merge、commit `50edf2a`、Refs #12)**:
   - **token utility** (`apps/web/lib/magic-link/token.ts`): `generateToken` (256bit 乱数→base64url) + `hashToken` (SHA-256 hex)。**平文は発行レスポンスで 1 度だけ返し DB は hash のみ** (ルール5)。生徒検証側も同 hashToken で `resolve_magic_link` に渡す。`request.ts` に pure な `parseIssueBody`/`isIssuerRole`(teacher/school_admin のみ)/`computeExpiresAt`。
   - **API** (ADR-008/019): `POST /api/magic-links`(発行・201 で平文 token 1 回) / `GET ?classId=`(一覧・token 非返却) / `POST /{id}/revoke`(失効・冪等 404)。認可二層 = handler の role 早期 deny + DB tenant_isolation の越境阻止。`withTenantContext` で RLS 一元配線。
