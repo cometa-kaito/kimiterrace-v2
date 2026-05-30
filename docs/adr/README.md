@@ -31,8 +31,8 @@
 
 | ID | タイトル | 状態 |
 |---|---|---|
-| 001 | PostgreSQL を採用、Firestore を捨てる | Proposed |
-| 002 | Cloud Run を採用、Functions を捨てる | Proposed |
+| 001 | [Cloud SQL for PostgreSQL を採用、Firestore を捨てる](001-postgres-vs-firestore.md) | Proposed |
+| 002 | [Cloud Run を採用、Cloud Functions を捨てる](002-cloud-run-vs-functions.md) | Proposed |
 | 003 | [Identity Platform を採用、Firebase Auth は移行](003-identity-platform.md) | Proposed |
 | 004 | Drizzle ORM を採用、Prisma を却下 | Proposed |
 | 005 | Vertex AI Gemini を採用、データ越境回避 | Proposed |
