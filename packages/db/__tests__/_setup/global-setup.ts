@@ -11,6 +11,8 @@ const BASELINE_SQL = join(packageRoot, "drizzle", "0000_initial_baseline.sql");
 const F0A_SCHEMA_SQL = join(packageRoot, "drizzle", "0001_f0a_hierarchy_tables.sql");
 // F0 (#48-F): classes.grade_id / grades.department_id 追加 (階層リンク FK、drizzle 生成)。
 const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql");
+// F05 (#12): magic_links に class_id / revoked_at 追加 + expires_at デフォルト 90 日 (drizzle 生成)。
+const F05_MAGIC_LINK_SQL = join(packageRoot, "drizzle", "0003_f05_magic_link_class.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -24,6 +26,8 @@ const AUDIT_LOG_ACTOR_NULL_SQL = join(
 const F0A_RLS_SQL = join(packageRoot, "migrations", "0006_f0a_schema_rls.sql");
 // F0 (#48-F): 広告階層マージ VIEW (security_invoker)。列追加 + RLS 適用後、最後に流す。
 const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_ads_view.sql");
+// F05 (#12): magic link 匿名解決の SECURITY DEFINER 関数。列追加 (0003) + RLS 後に流す。
+const F05_RESOLVE_FN_SQL = join(packageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -100,6 +104,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, BASELINE_SQL);
     await runSqlFile(sql, F0A_SCHEMA_SQL);
     await runSqlFile(sql, F0F_COLS_SQL);
+    // F05: magic_links への列追加は classes (F0A) 作成後に流す
+    await runSqlFile(sql, F05_MAGIC_LINK_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
@@ -113,6 +119,10 @@ export async function setup(): Promise<void> {
 
     // 5) 広告階層マージ VIEW (#48-F)。列追加 + RLS 適用後に作成する。
     await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);
+
+    // 6) F05 magic link 匿名解決の SECURITY DEFINER 関数。kimiterrace_app 作成
+    //    (RLS_POLICIES_SQL) と class_id/revoked_at 列追加 (F05_MAGIC_LINK_SQL) 後に流す。
+    await runSqlFile(sql, F05_RESOLVE_FN_SQL);
   } finally {
     await sql.end({ timeout: 5 });
   }

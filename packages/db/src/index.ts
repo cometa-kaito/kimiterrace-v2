@@ -6,3 +6,5 @@ export * from "./client.js";
 export * from "./queries/effective-ads.js";
 // F04: 即公開フロー + 安全網 (publish / update / unpublish / rollback ドメインサービス)
 export * from "./queries/contents-publish.js";
+// F05: クラス magic link (発行 / 失効 / 一覧 + 生徒匿名解決 resolve_magic_link)
+export * from "./queries/magic-links.js";
