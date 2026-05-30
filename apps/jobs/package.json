@@ -1,0 +1,22 @@
+{
+  "name": "@kimiterrace/jobs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloud Run Jobs (バッチ)。Firestore→PostgreSQL データ移行など。",
+  "scripts": {
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "migrate:firestore": "node --experimental-strip-types src/migration/firestore-to-pg.ts"
+  },
+  "dependencies": {
+    "@kimiterrace/db": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
