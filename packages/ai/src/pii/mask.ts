@@ -25,11 +25,6 @@ function makeToken(category: string, n: number): string {
   return `{{${category}_${String(n).padStart(3, "0")}}}`;
 }
 
-/** 正規表現リテラルをエスケープ（値をリテラル文字列として検索するため）。 */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 interface Surface {
   surface: string;
   token: string;
@@ -70,14 +65,11 @@ export function maskPII(
 
   let masked = text;
   for (const { surface, token, value } of surfaces) {
-    const re = new RegExp(escapeRegExp(surface), "g");
-    let hit = false;
-    masked = masked.replace(re, () => {
-      hit = true;
-      return token;
-    });
+    // 値はリテラル文字列として置換する（`new RegExp` を使わず ReDoS / 正規表現インジェクションを排除）。
+    if (!masked.includes(surface)) continue;
+    masked = masked.replaceAll(surface, token);
     // 実際に置換が起きたエントリのみ辞書へ載せる（未出現エントリは番号だけ消費し辞書に残さない）。
-    if (hit) dictionary[token] = value;
+    dictionary[token] = value;
   }
 
   // 2) 書式が決まった PII を機械検出（既定 ON）。トークン内の短い数字列は誤検出しない。
