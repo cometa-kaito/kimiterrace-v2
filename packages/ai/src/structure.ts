@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ModelClient, ModelUsage } from "./model/client.js";
-import { maskPII, unmaskDeep } from "./pii/mask.js";
+import { findUnmaskedPii, maskPII, unmaskDeep } from "./pii/mask.js";
 import type { MaskOptions, PiiEntry } from "./pii/types.js";
 import { buildSystemPrompt, buildUserPrompt, repairHint } from "./prompt/build.js";
 import type { RateLimiter } from "./rate-limit.js";
@@ -66,6 +66,17 @@ export class RateLimitExceededError extends Error {
   }
 }
 
+/**
+ * マスク後に PII が残存（fail-closed ガード作動）。モデルへは何も送信されていない。
+ * メッセージには残存件数のみ載せ、PII 実体は含めない（ログ漏洩防止・ルール5）。
+ */
+export class PiiLeakError extends Error {
+  constructor(public readonly leakCount: number) {
+    super(`F03 PII masking incomplete: ${leakCount} residual item(s) detected; request aborted`);
+    this.name = "PiiLeakError";
+  }
+}
+
 const EMPTY_USAGE: ModelUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
 function sha256Hex(text: string): string {
@@ -83,7 +94,18 @@ export async function structureContent(req: StructureRequest): Promise<Structure
     }
   }
 
-  const { masked, dictionary } = maskPII(req.input, req.piiEntries ?? [], req.maskOptions ?? {});
+  const entries = req.piiEntries ?? [];
+  const { masked, dictionary } = maskPII(req.input, entries, req.maskOptions ?? {});
+
+  // fail-closed ガード（CLAUDE.md ルール4）: マスク後に PII が残っていたら **モデルへ送らず中止**。
+  // 下流（プロンプト構築・Gemini 呼び出し）に到達する前に弾くことで、マスク漏れ時の外部委託漏洩を
+  // 構造的に防ぐ。検出は名簿値の残存 + 電話/メールのパターン残存（detectPhones/Emails を無効化した
+  // 場合でも残存 PII は送らない＝安全側に倒す）。
+  const leaks = findUnmaskedPii(masked, entries);
+  if (leaks.length > 0) {
+    throw new PiiLeakError(leaks.length);
+  }
+
   const rawInputHash = sha256Hex(masked);
   const system = buildSystemPrompt(req.kind);
   const baseUser = buildUserPrompt(masked);

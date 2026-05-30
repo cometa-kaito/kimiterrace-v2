@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelClient, ModelRequest, ModelResponse } from "../../model/client.js";
 import { FixedWindowRateLimiter } from "../../rate-limit.js";
-import { RateLimitExceededError, structureContent } from "../../structure.js";
+import { PiiLeakError, RateLimitExceededError, structureContent } from "../../structure.js";
 
 const USAGE = { promptTokens: 10, completionTokens: 5, totalTokens: 15 };
 
@@ -123,5 +123,19 @@ describe("structureContent", () => {
     await expect(structureContent({ ...base, nowMs: 2_000 })).rejects.toBeInstanceOf(
       RateLimitExceededError,
     );
+  });
+
+  it("fail-closed: マスク後に PII が残ると送信せず PiiLeakError を投げる", async () => {
+    // パターン検出を切ると電話がマスクされず残存 → ガードが発火し、モデルは呼ばれない。
+    const model = fakeModel([announcement("ok")]);
+    await expect(
+      structureContent({
+        kind: "announcement",
+        input: "代表は 03-1111-2222 です",
+        model,
+        maskOptions: { detectPhones: false },
+      }),
+    ).rejects.toBeInstanceOf(PiiLeakError);
+    expect(model.requests).toHaveLength(0);
   });
 });

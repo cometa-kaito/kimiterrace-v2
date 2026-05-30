@@ -34,7 +34,7 @@ export {
 export type { RateLimiter } from "./rate-limit.js";
 
 // オーケストレータ
-export { structureContent, RateLimitExceededError } from "./structure.js";
+export { structureContent, RateLimitExceededError, PiiLeakError } from "./structure.js";
 export type { StructureRequest, StructureResult } from "./structure.js";
 
 // 監査マッパー

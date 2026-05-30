@@ -17,9 +17,13 @@ import type { MaskOptions, MaskResult, PiiCategory, PiiEntry } from "./types.js"
  */
 
 // 書式が決まった PII の検出パターン。
-// 電話: 区切りあり（市外局番/携帯） or 区切りなし 10〜11 桁。
-const PHONE_RE = /0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10}/g;
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+// すべて量化子を上限付き ({n,m}) にして線形時間で評価する（untrusted な教員入力に毎回適用するため
+// ReDoS を構造的に排除）。
+// 電話: ①+81 国際（区切り任意）②国内ハイフン区切り（市外局番/携帯）③区切りなし 10〜11 桁。
+const PHONE_RE =
+  /\+81[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{3,4}|0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10}/g;
+// メール: ローカル/ドメイン/TLD を RFC 上限内に bound（局所バックトラックを定数化）。
+const EMAIL_RE = /[^\s@]{1,64}@[^\s@]{1,252}\.[A-Za-z]{2,24}/g;
 
 function makeToken(category: string, n: number): string {
   return `{{${category}_${String(n).padStart(3, "0")}}}`;
