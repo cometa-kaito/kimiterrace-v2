@@ -27,7 +27,7 @@
 
 **Vertex AI の Gemini（asia-northeast1）を採用**する。
 
-- **モデル**: 構造化（[F03](../requirements/functional/F03-ai-structuring.md)）と Q&A（[F06](../requirements/functional/F06-student-qa.md)）に Gemini Pro / Flash を用途で使い分け。出力は構造化 + `confidence_score` 必須（[ADR-017](017-gemini-ai-structuring-with-confidence.md)）。
+- **モデル**: 構造化（[F03](../requirements/functional/F03-ai-structuring.md)）と Q&A（[F06](../requirements/functional/F06-student-qa.md)）に Gemini ファミリ（Pro / Flash）を用いる。**具体的なモデル選定（MVP は Pro 固定、用途別の Flash/Pro 使い分けは Phase 2 送り）と出力の `confidence_score` 必須化は [ADR-017](017-gemini-ai-structuring-with-confidence.md) に委ねる**（本 ADR はプロバイダ = Vertex AI の採用とデータ所在の決定に責務を限定）。
 - **PII マスキング**: Vertex AI でも生 PII は投げない。送信前にトークン化、応答後に逆変換、embedding はマスキング後テキストで生成（[CLAUDE.md ルール4](../../CLAUDE.md)）。
 - **データ所在**: asia-northeast1 リージョンで処理を完結。Google 内であってもモデルログ・将来学習に PII が混入しない設計（マスキング + リージョン固定）。
 - **認証**: Workload Identity（JSON キー禁止 = [ルール5](../../CLAUDE.md)）。
