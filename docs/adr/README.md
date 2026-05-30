@@ -33,12 +33,12 @@
 |---|---|---|
 | 001 | PostgreSQL を採用、Firestore を捨てる | Proposed |
 | 002 | Cloud Run を採用、Functions を捨てる | Proposed |
-| 003 | Identity Platform を採用、Firebase Auth は移行 | Proposed |
+| 003 | [Identity Platform を採用、Firebase Auth は移行](003-identity-platform.md) | Proposed |
 | 004 | Drizzle ORM を採用、Prisma を却下 | Proposed |
 | 005 | Vertex AI Gemini を採用、データ越境回避 | Proposed |
 | 006 | Vercel AI SDK でストリーミング UI | Proposed |
 | 007 | pgvector を採用、外部ベクトル DB 不採用 | Proposed |
-| 008 | API は Next.js Route Handlers に統合、Hono 非採用 | Proposed |
+| 008 | [API は Next.js Route Handlers + Server Actions に統合、Hono 非採用](008-nextjs-route-handlers.md) | Proposed |
 | 009 | Terraform を採用、Pulumi 不採用 | Proposed |
 | 010 | pnpm + Turborepo モノレポ | Proposed |
 | 011 | Biome を採用、ESLint + Prettier 不採用 | Proposed |
