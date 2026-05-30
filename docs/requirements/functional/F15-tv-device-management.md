@@ -62,7 +62,7 @@ PoC 期間中（2026-06-01〜09-30）は LP リポジトリ（`edix-lp`）に Tu
   - `expires_at` (timestamptz, nullable, 半年ローテーション / 紛失時即時失効用)
   - `revoked_at` (timestamptz, nullable)
   - 監査カラム（RLS 有効）
-- [ ] 既存 `audit_log` テーブルに `type=tv_config_change` で記録（新規テーブルは作らず NFR04 のハッシュチェーンに寄せる）
+- [ ] TV 設定変更は対象テーブル（`tv_devices` / `tv_device_commands` / `tv_device_tokens`）への操作として既存 `audit_log` に記録（`table_name` + `record_id` + `operation`(insert/update/delete) + `diff`。`audit_log` に `type` 列はないため、新規テーブルも新規列も作らず NFR04 のハッシュチェーンにそのまま寄せる）
   - 「誰がいつどのフィールドをどう変更したか」を全件残す（NFR04）
 - [ ] `events` 拡張（F13 の来場イベントテーブル。`motion_events` ではない）: `tv_device_id` (FK to tv_devices.device_id, nullable) を追加
   - 既存の `presence` イベントが TV 経由で来た場合はこの列に紐付ける

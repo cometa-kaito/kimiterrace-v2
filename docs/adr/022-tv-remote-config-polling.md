@@ -48,7 +48,7 @@
   ↓
 TV 上の ConfigPoller
   ↓ HTTPS GET 60秒ごと
-Cloud Run / Vercel (apps/web)
+Cloud Run (apps/web、asia-northeast1 / ADR-002)
   ↑
 管理者 Web UI POST で設定変更
   ↓
