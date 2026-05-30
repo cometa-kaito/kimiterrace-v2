@@ -1,5 +1,5 @@
 import { type TenantTx, classes, dailyData } from "@kimiterrace/db";
-import { and, eq, or } from "drizzle-orm";
+import { type InferSelectModel, and, eq, or } from "drizzle-orm";
 
 /**
  * サイネージの実効日次データ解決 (#48-E1)。
@@ -17,19 +17,22 @@ import { and, eq, or } from "drizzle-orm";
  * により DB レベルで自校に限定される。`db` は非 BYPASSRLS ロール (kimiterrace_app)。
  */
 
-/** daily_data の 1 行のうちマージに必要な部分 (テストで最小オブジェクトを渡せるよう narrow)。 */
-export type DailyScopeRow = {
-  scope: "school" | "grade" | "department" | "class";
-  schedules: unknown;
-  notices: unknown;
-  assignments: unknown;
-  quietHours: unknown;
-};
+/**
+ * daily_data の 1 行のうちマージに必要な部分。`daily_data` スキーマから `Pick` で派生し、
+ * `scope` の値域も `hierarchy_scope` enum と単一ソースにする (CLAUDE.md ルール3、手書き複製しない)。
+ */
+export type DailyScopeRow = Pick<
+  InferSelectModel<typeof dailyData>,
+  "scope" | "schedules" | "notices" | "assignments" | "quietHours"
+>;
+
+/** マージ採用元になりうる scope (department はサイネージ表示対象外なので含めない)。 */
+type RenderableScope = "school" | "grade" | "class";
 
 /** マージ後の 1 セクション。`source` は採用元 scope (全 scope 空なら null)。 */
 export type MergedSection = {
   items: unknown[];
-  source: "school" | "grade" | "class" | null;
+  source: RenderableScope | null;
 };
 
 export type EffectiveDailyData = {
@@ -124,5 +127,5 @@ export async function getEffectiveDailyData(
       ),
     );
 
-  return mergeDailySections(date, rows as DailyScopeRow[]);
+  return mergeDailySections(date, rows);
 }
