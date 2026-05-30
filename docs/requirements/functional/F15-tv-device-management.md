@@ -159,6 +159,17 @@ PoC 期間中（2026-06-01〜09-30）は LP リポジトリ（`edix-lp`）に Tu
 - [ ] e2e（Playwright）
   - TV ポーリング模擬 → 設定変更 → 60秒以内に反映を観測
 
+## 実装分割方針（[CLAUDE.md ルール 6](../../../CLAUDE.md): 1 PR ≤500 行）
+
+本要件は 1 PR で実装できる分量を超えるため、最低でも以下の単位に分割して PR を立てる:
+
+1. **スキーマ + migration + RLS**: `tv_devices` / `tv_device_commands` / `tv_device_tokens` の Drizzle スキーマ、`events` への `tv_device_id` 追加、RLS ポリシー手書き SQL（+ global-setup.ts ローダ登録）、`__tests__/rls/tv-devices.test.ts`
+2. **ポーリング API**: `GET /api/tv/config`（認証・レート制限・`last_seen_at` 更新・unknown 応答）と `__tests__/api/tv/config/`
+3. **管理 UI**: `/admin/tv-devices` 一覧 + 詳細・編集 + オンボーディング + 監査ビュー、signage URL 自動抽出、`__tests__/ui/admin-tv-devices/`
+4. **コマンドキュー**: `tv_device_commands` 発行 UI とポーリング応答への commands 反映、e2e
+
+§3（F13 Webhook payload 拡張）は影響範囲が小さければ 1 か 2 に同梱可。
+
 ## 関連
 
 - 前段: [F13 (来場検知 Webhook)](F13-presence-sensor-webhook.md)（device_id / 教室コンテキストは Webhook 受信側で受け取り済）
