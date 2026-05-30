@@ -149,6 +149,11 @@ async function runSqlFile(sql: ReturnType<typeof postgres>, path: string): Promi
 /**
  * `;` で SQL を分割するが、`$$ ... $$` (PL/pgSQL 関数本体) や `'...'` リテラルの中の
  * `;` は無視する。プレーンな `;` 区切りより安全。
+ *
+ * `--` 行コメントは (文字列/関数本体の外なら) 行末まで読み飛ばす。これをしないと
+ * コメント中の `'` や `;` を SQL トークンとして誤認し、奇数個のアポストロフィを含む
+ * コメントが後続の `;` を見落とさせて statement を silent に欠落させる脆さがある
+ * (PR #130 Reviewer L1)。
  */
 function splitSqlStatements(sql: string): string[] {
   const out: string[] = [];
@@ -159,6 +164,19 @@ function splitSqlStatements(sql: string): string[] {
   while (i < sql.length) {
     const ch = sql[i];
     const next2 = sql.slice(i, i + 2);
+
+    // 行コメント (文字列/関数本体の外のみ): 行末まで捨てる。改行は残して
+    // トークンが結合しないようにする。
+    if (!inDollar && !inSingle && next2 === "--") {
+      const nl = sql.indexOf("\n", i);
+      if (nl === -1) {
+        i = sql.length;
+      } else {
+        buf += "\n";
+        i = nl + 1;
+      }
+      continue;
+    }
 
     if (!inSingle && next2 === "$$") {
       inDollar = !inDollar;

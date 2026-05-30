@@ -25,7 +25,7 @@
 --     (広 → 狭。決定的順序。再生制御 #48-G/#48-E 側で再ソート可)。
 --
 -- 前提:
---   * drizzle/0002_crazy_post.sql で classes.grade_id / grades.department_id 追加済
+--   * drizzle/0002_f0f_hierarchy_links.sql で classes.grade_id / grades.department_id 追加済
 --   * grades/departments/classes/ads に RLS (0006_f0a_schema_rls.sql) 適用済
 --
 -- ADR-019 二層 RLS / CLAUDE.md ルール2・3 準拠。
