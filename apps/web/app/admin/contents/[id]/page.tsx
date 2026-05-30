@@ -1,7 +1,7 @@
 import type { PublishScopeValue } from "@/lib/contents/publish-core";
 import { scopeLabel } from "@/lib/contents/publish-view";
 import { withSession } from "@/lib/db";
-import { getContentDetail } from "@kimiterrace/db";
+import { getContentConfidence, getContentDetail } from "@kimiterrace/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfidenceBadge } from "../_components/ConfidenceBadge";
@@ -24,7 +24,11 @@ export default async function ContentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const detail = await withSession((tx) => getContentDetail(tx, id));
+  // 同一トランザクション (RLS context) で本体 + 確信度を取得する。
+  const { detail, confidence } = await withSession(async (tx) => {
+    const d = await getContentDetail(tx, id);
+    return { detail: d, confidence: d ? await getContentConfidence(tx, id) : null };
+  });
   if (!detail) {
     notFound();
   }
@@ -46,8 +50,9 @@ export default async function ContentDetailPage({
         </span>
       </header>
 
-      {/* F04.3 確信度フラグ。confidence の出所 (ai_extractions) 配線は後続スライス。 */}
-      <ConfidenceBadge />
+      {/* F04.3 確信度フラグ。最も確信度の低い AI 抽出 (ai_extractions, ADR-017) を表示。
+          抽出が無い (人手作成) なら ConfidenceBadge は何も描画しない。 */}
+      <ConfidenceBadge score={confidence?.score} evidence={confidence?.evidence ?? undefined} />
 
       <PublishControls contentId={content.id} status={content.status} />
 

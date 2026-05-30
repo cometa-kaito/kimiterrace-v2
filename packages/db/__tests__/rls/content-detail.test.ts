@@ -1,7 +1,11 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getContentDetail, listContents } from "../../src/queries/content-detail.js";
+import {
+  getContentConfidence,
+  getContentDetail,
+  listContents,
+} from "../../src/queries/content-detail.js";
 import {
   publishContent,
   unpublishContent,
@@ -41,6 +45,7 @@ describeOrSkip("F04 content-detail read queries (一覧 / 詳細 + version + 公
 
   beforeEach(async () => {
     await raw`RESET ROLE`;
+    await raw`DELETE FROM ai_extractions`;
     await raw`DELETE FROM publishes`;
     await raw`DELETE FROM content_versions`;
     await raw`DELETE FROM contents`;
@@ -158,5 +163,63 @@ describeOrSkip("F04 content-detail read queries (一覧 / 詳細 + version + 公
   it("空コンテキストは deny-by-default で一覧 0 件", async () => {
     const list = await withTenantContext(db, {}, (tx) => listContents(tx), APP);
     expect(list.length).toBe(0);
+  });
+
+  // --- F04.3 getContentConfidence ---
+
+  async function seedExtraction(
+    contentId: string,
+    score: number,
+    evidence: unknown,
+  ): Promise<void> {
+    await raw`
+      INSERT INTO ai_extractions
+        (school_id, content_id, extraction_kind, confidence_score, evidence, model_version, created_by)
+      VALUES
+        (${fx.schoolA}, ${contentId}, 'summary', ${score}, ${JSON.stringify(evidence)}::jsonb,
+         'gemini-test', ${fx.userA})
+    `;
+  }
+
+  it("getContentConfidence: 複数抽出のうち最小 confidence + 根拠を返す (最も慎重に倒す)", async () => {
+    await seedExtraction(contentA, 0.95, [{ text: "高確信の根拠" }]);
+    await seedExtraction(contentA, 0.55, [{ text: "弱い根拠1" }, { text: "弱い根拠2" }]);
+    const conf = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getContentConfidence(tx, contentA),
+      APP,
+    );
+    expect(conf?.score).toBeCloseTo(0.55, 5);
+    expect(conf?.evidence).toBe("弱い根拠1 / 弱い根拠2");
+  });
+
+  it("getContentConfidence: 抽出が無ければ null (人手作成 → フラグ出さない)", async () => {
+    const conf = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getContentConfidence(tx, contentA),
+      APP,
+    );
+    expect(conf).toBeNull();
+  });
+
+  it("getContentConfidence: evidence が空配列なら evidence は null (score は返す)", async () => {
+    await seedExtraction(contentA, 0.4, []);
+    const conf = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getContentConfidence(tx, contentA),
+      APP,
+    );
+    expect(conf?.score).toBeCloseTo(0.4, 5);
+    expect(conf?.evidence).toBeNull();
+  });
+
+  it("テナント分離: 別校 (B) からは A の抽出 confidence が見えず null (RLS)", async () => {
+    await seedExtraction(contentA, 0.3, [{ text: "A の根拠" }]);
+    const ctxB = { userId: fx.userB, schoolId: fx.schoolB, role: "teacher" as const };
+    const conf = await withTenantContext(db, ctxB, (tx) => getContentConfidence(tx, contentA), APP);
+    expect(conf).toBeNull();
   });
 });
