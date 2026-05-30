@@ -96,14 +96,16 @@ export async function withTenantContext<T>(
     if (appRole !== undefined) {
       await tx.execute(sql.raw(`SET LOCAL ROLE ${appRole}`));
     }
-    // deny-by-default: null/undefined は set_config しない (未設定 → RLS で全件拒否)。
-    if (ctx.userId != null) {
+    // deny-by-default: null/undefined/空文字 は set_config しない (未設定 → RLS で全件拒否)。
+    // 空文字を弾くのは多層防御: policy 側 NULLIF(...,'') でも deny に正規化されるが、
+    // primitive 自身が「空文字 = 未設定」として扱い、下流の正規化に依存しない (PR #133 Reviewer Low-1)。
+    if (ctx.userId) {
       await tx.execute(sql`select set_config('app.current_user_id', ${ctx.userId}, true)`);
     }
-    if (ctx.schoolId != null) {
+    if (ctx.schoolId) {
       await tx.execute(sql`select set_config('app.current_school_id', ${ctx.schoolId}, true)`);
     }
-    if (ctx.role != null) {
+    if (ctx.role) {
       await tx.execute(sql`select set_config('app.current_user_role', ${ctx.role}, true)`);
     }
     return await fn(tx);

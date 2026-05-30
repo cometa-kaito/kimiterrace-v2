@@ -71,6 +71,16 @@ describeOrSkip("withTenantContext (RLS テナントコンテキスト primitive)
     expect(rows.length).toBe(0);
   });
 
+  it("空文字の schoolId は未設定扱い → deny-by-default (PR #133 Low-1)", async () => {
+    const rows = await withTenantContext(
+      db,
+      { schoolId: "", role: "school_admin" },
+      (tx) => tx.select({ title: contents.title }).from(contents),
+      APP,
+    );
+    expect(rows.length).toBe(0);
+  });
+
   it("role = system_admin (schoolId 未指定) → cross-tenant で全件可視", async () => {
     const rows = await withTenantContext(
       db,
