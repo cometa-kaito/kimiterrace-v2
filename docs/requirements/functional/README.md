@@ -19,6 +19,7 @@
 | [F13](F13-presence-sensor-webhook.md) | 来場検知 Webhook | SwitchBot 人感センサ(PIR) Webhook 受信＋集計＋センサ管理UI ([ADR-020](../../adr/020-presence-sensor-switchbot-webhook.md)) |
 | [F14](F14-weather-forecast-signage.md) | サイネージ天気予報 | 気象庁(JMA)無料APIをバックエンドJobで取得しキャッシュ、端末は自校DBから表示（外部直叩きなし）([ADR-021](../../adr/021-weather-data-source-jma.md)) |
 | [F15](F15-tv-device-management.md) | TVデバイスリモート管理 | Google TV へのポーリング型リモート設定 + 管理画面 ([ADR-022](../../adr/022-tv-remote-config-polling.md)) |
+| [F16](F16-tv-uptime-monitoring.md) | TV死活・起動監視 | ポーリング心拍(last_seen)のギャップを定期チェッカで判定し、ダウン/復帰/再起動を通知＋ダウンタイム記録 ([ADR-023](../../adr/023-tv-liveness-monitoring-alerting.md)) |
 
 ## 優先度
 

@@ -53,6 +53,7 @@
 | 020 | [来場検知は SwitchBot Webhook + Cloud SQL](020-presence-sensor-switchbot-webhook.md)（自作 LiDAR 案を deprecate） | Proposed |
 | 021 | [サイネージ天気予報は気象庁 (JMA) 無料 API + バックエンドキャッシュ](021-weather-data-source-jma.md)（端末は外部直叩きしない、商用 API 不採用） | Proposed |
 | 022 | [TVリモート設定はポーリング方式](022-tv-remote-config-polling.md)（push 型 WebSocket/FCM 不採用） | Proposed |
+| 023 | [TV死活・起動監視は last_seen ギャップ + 定期チェッカ + 多段アラート](023-tv-liveness-monitoring-alerting.md)（常時接続・外形監視 SaaS 不採用） | Proposed |
 
 ## ルール
 
