@@ -81,7 +81,35 @@ export const SEED = {
    * class スコープ (SEED.NOTICE_TEXT 等) は app 側 `eq(classId,...)` でも分離されるため RLS 単独検証にならない。
    */
   SCHOOL_SCOPE_TEXT: "E2E-SCHOOL1-SCHOOLSCOPE-ONLY",
+  /** SCHOOL1 の school_id。教員 session の custom claim `school_id` に載せ、RLS スコープを一致させる。 */
+  SCHOOL_ID: "00000000-0000-4000-8000-000000000001",
+  /**
+   * 認証 e2e (#48-O 第 3 増分) の教員ユーザー。`auth.setup.ts` が Auth emulator に
+   * **localId = TEACHER_UID** でユーザーを作成し、custom claim `{role:"teacher", school_id: SCHOOL_ID}`
+   * を付与する。
+   *
+   * **`uid` は localId (= ID トークンの `sub`) から来る、custom claim ではない**: firebase-admin の
+   * `verifySessionCookie` が返す `decoded.uid` は常に Auth ユーザーの localId であり、`uid` という名の
+   * custom claim は予約衝突で上書きされる (実験で確認)。本番も Identity Platform ユーザーの localId に
+   * DB の users.id (UUID) を採る運用なので、e2e でも **localId = TEACHER_UID (UUID)** にして本番と揃える。
+   * これで session.ts の `normalizeClaims` が `decoded.uid` を UUID として受理し、`withSession`→RLS が
+   * 教員の所属校 (SCHOOL_ID) にスコープされる。
+   * - `TEACHER_UID`: Auth localId = ID トークン sub = users.id = users.identity_uid。UUID 必須。
+   * - email / password: テスト専用の明白値 (実 credential ではない、CLAUDE.md ルール5)。
+   */
+  TEACHER_UID: "00000000-0000-4000-8000-000000000021",
+  TEACHER_EMAIL: "teacher.e2e@example.com",
+  TEACHER_PASSWORD: "e2e-teacher-password",
 } as const;
+
+/**
+ * 認証済み教員の storageState 保存先 (#48-O 第 3 増分)。`auth.setup.ts` が書き、
+ * `admin-auth.spec.ts` が `storageState` で読む。**定数のみここに置く**理由: `auth.setup.ts`
+ * は読み込むと `setup(...)` (= test) を登録するため、spec から import すると chromium project に
+ * setup テストが混入する。副作用の無い本モジュールに定数を置き両者が参照することで混入を防ぐ。
+ * .gitignore 済 (emulator トークン由来の __session を含む)。
+ */
+export const TEACHER_STORAGE_STATE = "e2e/.auth/teacher.json";
 
 /**
  * 2 校目の seed (#213: RLS テナント分離を e2e で実証する negative 用)。別 school / class / token。
@@ -299,6 +327,16 @@ async function seed(sql: RawSql): Promise<void> {
   await sql.unsafe(
     `INSERT INTO magic_links (id, school_id, class_id, token_hash)
      VALUES ('${magicLinkId}', '${schoolId}', '${classId}', '${tokenHash}')
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+
+  // 認証 e2e (#48-O 第 3 増分) の教員ユーザー。id = identity_uid = Auth emulator の localId =
+  // ID トークン sub = TEACHER_UID (UUID) で一意に揃える (auth.setup.ts が同じ localId で作成)。
+  // 監査カラム created_by/updated_by はシステム作成として NULL。RLS スコープは school_id=SCHOOL1。
+  await sql.unsafe(
+    `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
+     VALUES ('${SEED.TEACHER_UID}', '${schoolId}', '${SEED.TEACHER_UID}',
+             'teacher', 'E2E 教員', '${SEED.TEACHER_EMAIL}', true)
      ON CONFLICT (id) DO NOTHING;`,
   );
 

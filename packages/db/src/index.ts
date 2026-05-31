@@ -20,3 +20,5 @@ export * from "./queries/school-configs.js";
 export * from "./queries/schools.js";
 // F12 (#48-M): フィードバック (匿名投稿 submit_feedback / system_admin 一覧)
 export * from "./queries/feedback.js";
+// F03 (#154): AI 構造化抽出結果の ai_extractions 永続化層 (RLS context 内 INSERT)
+export * from "./queries/ai-extractions.js";

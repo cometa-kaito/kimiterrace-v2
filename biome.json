@@ -16,7 +16,8 @@
       "**/coverage",
       "**/.terraform",
       "**/*.tfstate*",
-      "pnpm-lock.yaml"
+      "pnpm-lock.yaml",
+      "**/drizzle/meta"
     ]
   },
   "formatter": {
@@ -63,5 +64,12 @@
       "indentWidth": 2,
       "lineWidth": 100
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["**/drizzle/meta/**"],
+      "formatter": { "enabled": false },
+      "linter": { "enabled": false }
+    }
+  ]
 }

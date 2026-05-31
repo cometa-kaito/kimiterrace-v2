@@ -61,9 +61,9 @@ export default async function SystemSchoolsPage() {
                 <td style={tdStyle}>{HIERARCHY_MODE_LABEL[s.hierarchyMode]}</td>
                 <td style={tdStyle}>{formatJstDate(s.createdAt)}</td>
                 <td style={tdStyle}>
-                  <a href={`/admin/system/schools/${s.id}/edit`} style={editLinkStyle}>
+                  <Link href={`/admin/system/schools/${s.id}/edit`} style={editLinkStyle}>
                     編集
-                  </a>
+                  </Link>
                 </td>
               </tr>
             ))}
