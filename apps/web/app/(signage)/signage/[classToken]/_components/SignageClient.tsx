@@ -9,7 +9,7 @@ import {
   nextIndex,
 } from "@/lib/signage/rotation";
 import type { SignagePayload } from "@/lib/signage/signage-display";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SignageInvalid } from "./SignageInvalid";
 
 /**
@@ -78,16 +78,20 @@ export function SignageClient({
 
   // --- 広告ローテーション (現在広告の duration で次へ。件数変動時は index を丸める) ---
   const safeIndex = clampIndex(adIndex, adCount);
+  // 最新の広告配列を ref に保持する。ローテーション effect の依存に `ads` 参照を入れると、
+  // ポーリング (8-12s) のたびに新しい配列参照でタイマーがリセットされ、ポーリング間隔より長い
+  // 広告 (clamp 上限 120s) が巡回しなくなる。依存は safeIndex/adCount だけにし、duration は ref
+  // から読むことで「内容が同じポーリングでは再生位相を保つ」「index 前進・件数変動でのみ再スケジュール」。
+  const adsRef = useRef(ads);
+  adsRef.current = ads;
   useEffect(() => {
     if (adCount <= 1) {
       return; // 0/1 件は巡回不要。
     }
-    const current = ads[safeIndex];
-    const ms = clampAdDurationMs(current?.durationSec ?? 0);
+    const ms = clampAdDurationMs(adsRef.current[safeIndex]?.durationSec ?? 0);
     const id = setTimeout(() => setAdIndex((i) => nextIndex(i, adCount)), ms);
     return () => clearTimeout(id);
-    // safeIndex の変化と件数変化 (ポーリング更新) でリスケジュールする。
-  }, [safeIndex, adCount, ads]);
+  }, [safeIndex, adCount]);
 
   if (invalid) {
     return <SignageInvalid />;
