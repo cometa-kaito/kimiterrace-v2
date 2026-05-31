@@ -84,6 +84,12 @@ export const SEED = {
   /** SCHOOL1 の school_id。教員 session の custom claim `school_id` に載せ、RLS スコープを一致させる。 */
   SCHOOL_ID: "00000000-0000-4000-8000-000000000001",
   /**
+   * SCHOOL1 の class_id (`seed()` が daily_data を入れるクラス)。完全 golden-path e2e
+   * (#48-O 第 4 増分) で教員が `/admin/editor/{classId}` を開いて連絡を更新するため、固定 UUID を
+   * spec から import できるよう公開する。教員の school_id = SCHOOL_ID と同一校なので RLS で編集可能。
+   */
+  CLASS_ID: "00000000-0000-4000-8000-000000000003",
+  /**
    * 認証 e2e (#48-O 第 3 増分) の教員ユーザー。`auth.setup.ts` が Auth emulator に
    * **localId = TEACHER_UID** でユーザーを作成し、custom claim `{role:"teacher", school_id: SCHOOL_ID}`
    * を付与する。
@@ -284,9 +290,9 @@ async function applyMigrations(sql: RawSql): Promise<void> {
  * ON CONFLICT DO NOTHING にする。監査カラム created_by/updated_by はシステム作成として NULL。
  */
 async function seed(sql: RawSql): Promise<void> {
-  const schoolId = "00000000-0000-4000-8000-000000000001";
+  const schoolId = SEED.SCHOOL_ID;
   const gradeId = "00000000-0000-4000-8000-000000000002";
-  const classId = "00000000-0000-4000-8000-000000000003";
+  const classId = SEED.CLASS_ID;
   const magicLinkId = "00000000-0000-4000-8000-000000000004";
   const dailyId = "00000000-0000-4000-8000-000000000005";
   const schoolScopeDailyId = "00000000-0000-4000-8000-000000000006";
