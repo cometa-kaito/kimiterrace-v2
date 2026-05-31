@@ -1,0 +1,282 @@
+"use client";
+
+import { EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
+import { useState } from "react";
+
+/**
+ * F05 (#41): クラス magic link の発行 / 一覧 / 失効を行う client。
+ *
+ * - 発行: `POST /api/magic-links` に `{classId, expiresInDays?}` を送り、返ってきた **1 回限りの
+ *   平文 URL** を表示する (コピー可)。以降サーバーは hash しか持たず再表示不可 (ルール5)。
+ * - 失効: `POST /api/magic-links/{id}/revoke`。生きたリンクを誤って失効しないよう 2 段階確認。
+ * - 一覧の token は表示しない (メタのみ)。期限は ISO を locale 表示する。
+ */
+
+/** 一覧行 (server から ISO 文字列で受ける、token は含まない)。 */
+export type MagicLinkRow = {
+  id: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+/** 発行直後にだけ手に入る平文 URL の情報。 */
+type IssuedToken = { id: string; url: string; expiresAt: string };
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("ja-JP");
+}
+
+export function MagicLinkManager({
+  classId,
+  initialLinks,
+}: {
+  classId: string;
+  initialLinks: MagicLinkRow[];
+}) {
+  const [links, setLinks] = useState<MagicLinkRow[]>(initialLinks);
+  const [expiresInDays, setExpiresInDays] = useState("");
+  const [issuing, setIssuing] = useState(false);
+  const [issued, setIssued] = useState<IssuedToken | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  async function refreshLinks() {
+    const res = await fetch(`/api/magic-links?classId=${encodeURIComponent(classId)}`);
+    if (!res.ok) {
+      return;
+    }
+    const data: { links: MagicLinkRow[] } = await res.json();
+    setLinks(data.links);
+  }
+
+  async function issue() {
+    setError(null);
+    setIssued(null);
+    setCopied(false);
+
+    const body: { classId: string; expiresInDays?: number } = { classId };
+    const raw = expiresInDays.trim();
+    if (raw !== "") {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < EXPIRES_MIN_DAYS || n > EXPIRES_MAX_DAYS) {
+        setError(
+          `有効期限は ${EXPIRES_MIN_DAYS}〜${EXPIRES_MAX_DAYS} 日の整数で指定してください。`,
+        );
+        return;
+      }
+      body.expiresInDays = n;
+    }
+
+    setIssuing(true);
+    try {
+      const res = await fetch("/api/magic-links", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setError(`発行に失敗しました (${res.status})。`);
+        return;
+      }
+      const data: { id: string; path: string; expiresAt: string } = await res.json();
+      setIssued({
+        id: data.id,
+        url: `${window.location.origin}${data.path}`,
+        expiresAt: data.expiresAt,
+      });
+      setExpiresInDays("");
+      await refreshLinks();
+    } catch {
+      setError("ネットワークエラーが発生しました。");
+    } finally {
+      setIssuing(false);
+    }
+  }
+
+  async function copyUrl(url: string) {
+    try {
+      await navigator.clipboard?.writeText(url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/magic-links/${id}/revoke`, { method: "POST" });
+      if (!res.ok && res.status !== 404) {
+        setError(`失効に失敗しました (${res.status})。`);
+        return;
+      }
+      // 404 は「既に失効済 / 不存在」で冪等成功扱い。いずれも一覧から除く。
+      setLinks((prev) => prev.filter((l) => l.id !== id));
+      if (issued?.id === id) {
+        setIssued(null);
+      }
+    } catch {
+      setError("ネットワークエラーが発生しました。");
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
+  const inputStyle = {
+    width: "5rem",
+    padding: "0.3rem 0.4rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.3rem",
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ fontSize: "0.9rem" }}>
+          有効期限(日、未指定で既定):{" "}
+          <input
+            type="number"
+            inputMode="numeric"
+            min={EXPIRES_MIN_DAYS}
+            max={EXPIRES_MAX_DAYS}
+            value={expiresInDays}
+            onChange={(e) => setExpiresInDays(e.target.value)}
+            placeholder="90"
+            style={inputStyle}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={issue}
+          disabled={issuing}
+          style={{
+            padding: "0.5rem 1.1rem",
+            borderRadius: "0.4rem",
+            border: "none",
+            background: issuing ? "#93c5fd" : "#2563eb",
+            color: "#fff",
+            cursor: issuing ? "default" : "pointer",
+          }}
+        >
+          {issuing ? "発行中…" : "新しいリンクを発行"}
+        </button>
+      </div>
+
+      {error ? (
+        <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: "0.5rem" }}>
+          {error}
+        </p>
+      ) : null}
+
+      {issued ? (
+        <div
+          style={{
+            marginTop: "0.75rem",
+            padding: "0.75rem",
+            border: "1px solid #bfdbfe",
+            background: "#eff6ff",
+            borderRadius: "0.4rem",
+          }}
+        >
+          <p style={{ margin: "0 0 0.4rem", fontWeight: 600, color: "#1e3a8a" }}>
+            発行しました。この URL は今だけ表示されます。
+          </p>
+          <code
+            data-testid="issued-url"
+            style={{ display: "block", wordBreak: "break-all", fontSize: "0.9rem" }}
+          >
+            {issued.url}
+          </code>
+          <button
+            type="button"
+            onClick={() => copyUrl(issued.url)}
+            style={{
+              marginTop: "0.4rem",
+              padding: "0.3rem 0.8rem",
+              borderRadius: "0.3rem",
+              border: "1px solid #93c5fd",
+              background: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            {copied ? "コピーしました" : "URL をコピー"}
+          </button>
+        </div>
+      ) : null}
+
+      <h2 style={{ fontSize: "1.05rem", margin: "1.25rem 0 0.5rem" }}>発行済みリンク</h2>
+      {links.length === 0 ? (
+        <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>有効なリンクはありません。</p>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {links.map((link) => (
+            <li
+              key={link.id}
+              style={{
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.5rem 0",
+                borderTop: "1px solid #e5e7eb",
+                fontSize: "0.9rem",
+              }}
+            >
+              <span style={{ color: "#374151" }}>
+                発行 {formatDate(link.createdAt)} / 期限 {formatDate(link.expiresAt)}
+              </span>
+              {confirmingId === link.id ? (
+                <span style={{ display: "flex", gap: "0.4rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => revoke(link.id)}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "none",
+                      background: "#dc2626",
+                      color: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    失効する
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingId(null)}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid #d1d5db",
+                      background: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    やめる
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingId(link.id)}
+                  style={{
+                    padding: "0.3rem 0.7rem",
+                    borderRadius: "0.3rem",
+                    border: "1px solid #fca5a5",
+                    background: "#fff",
+                    color: "#b91c1c",
+                    cursor: "pointer",
+                  }}
+                >
+                  失効
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
