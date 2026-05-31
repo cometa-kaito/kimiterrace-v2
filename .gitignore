@@ -68,3 +68,8 @@ postgres-data/
 .cache/
 tmp/
 .tmp/
+
+# Claude Code — worktree isolation の隔離チェックアウト (transient・commit 対象外)。
+# 60+ 堆積で ripgrep/glob が timeout する + Windows MAX_PATH で削除困難になるため除外。
+# レーン規律の詳細は docs/parallel-lanes.md §10 (follow-up GC)
+.claude/worktrees/
