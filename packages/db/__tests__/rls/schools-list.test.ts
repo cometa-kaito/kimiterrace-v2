@@ -46,14 +46,22 @@ describeOrSkip("#48-L listSchools (system_admin=全校 / テナント=自校 / d
     expect(rows.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("射影は軽量 (id/name/prefecture/code/createdAt のみ、notes 非含)", async () => {
+  it("射影は軽量 (id/name/prefecture/code/hierarchyMode/createdAt のみ、notes 非含)", async () => {
     const rows = await withTenantContext(
       db,
       { userId: fx.sysAdmin, role: "system_admin" },
       (tx) => listSchools(tx),
       APP,
     );
-    expect(Object.keys(rows[0]).sort()).toEqual(["code", "createdAt", "id", "name", "prefecture"]);
+    // #48-L1 で hierarchyMode を一覧射影に追加 (編集画面の階層モード列で消費)。notes は依然非含。
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      "code",
+      "createdAt",
+      "hierarchyMode",
+      "id",
+      "name",
+      "prefecture",
+    ]);
   });
 
   it("並びが (prefecture, name, id) で決定的に昇順", async () => {
