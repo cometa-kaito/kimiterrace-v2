@@ -38,17 +38,20 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "学校一覧", href: "/admin/system/schools" },
     { label: "フィードバック", href: "/admin/system/feedback" },
   ],
-  // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開。
+  // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。
   school_admin: [
     { label: "学校管理", href: "/admin/school" },
     { label: "エディタ", href: "/admin/editor" },
     { label: "コンテンツ", href: "/admin/contents" },
+    { label: "ダッシュボード", href: "/admin/dashboard" },
   ],
-  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04)。
-  // コンテンツ一覧 (/admin/contents) は PUBLISHER_ROLES=school_admin/teacher 専用 (#166)。
+  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 効果ダッシュボード (F08)。
+  // コンテンツ一覧 (/admin/contents) / ダッシュボード (/admin/dashboard) は
+  // PUBLISHER_ROLES=school_admin/teacher 専用 (#166 / F08 第1スライス)。
   teacher: [
     { label: "エディタ", href: "/admin/editor" },
     { label: "コンテンツ", href: "/admin/contents" },
+    { label: "ダッシュボード", href: "/admin/dashboard" },
   ],
 };
 
