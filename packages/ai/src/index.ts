@@ -40,3 +40,26 @@ export type { StructureRequest, StructureResult } from "./structure.js";
 // 監査マッパー
 export { toAiExtractionInsert } from "./audit.js";
 export type { AiExtractionInsert, AuditMapParams } from "./audit.js";
+
+// F01 テキスト抽出レイヤ（PDF/Word/Excel/画像 → 素テキスト → structureContent 前段、#180）
+export {
+  detectFormat,
+  ExtractorRegistry,
+  createDefaultRegistry,
+  extractText,
+  TextExtractor,
+  PdfExtractor,
+  DocxExtractor,
+  XlsxExtractor,
+  ImageExtractor,
+  SOURCE_FORMATS,
+  UnsupportedFormatError,
+  ExtractorNotConfiguredError,
+} from "./extract/index.js";
+export type {
+  SourceFormat,
+  ExtractSource,
+  ExtractMeta,
+  ExtractedText,
+  DocumentExtractor,
+} from "./extract/index.js";
