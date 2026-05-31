@@ -12,9 +12,13 @@ import { type StructureRequest, type StructureResult, structureContent } from ".
  * ## 監査ポリシー (本 seam が固定する判断)
  * - **モデルに到達した抽出試行 (status=success / failed) は必ず監査する** —
  *   `toAiExtractionInsert` で行へ写像し `persist` する (成功/失敗いずれも記録、#154 受け入れ条件)。
- * - **`RateLimitExceededError` / `PiiLeakError` は監査しない** — これらは `structureContent` が
- *   **モデル送信前**に throw する。抽出試行 (ai_extractions の意味する事象) ではなく呼び出し側 UX
- *   (429 / 送信中止) の領域なので、監査行を作らずそのまま伝播する (item 4 のハンドリングは apps/web 層)。
+ * - **`RateLimitExceededError` / `PiiLeakError` は `ai_extractions` には記録しない** — これらは
+ *   `structureContent` が**モデル送信前**に throw し、抽出試行 (ai_extractions の意味する事象) が
+ *   成立していないため (confidence/model/hash の無い空行を台帳に混ぜない)。**ただし**「ai_extractions に
+ *   書かない」≠「どこにも記録しない」: 特に `PiiLeakError` は fail-closed ガード作動 = セキュリティ事象
+ *   (名簿/マスク設定の不備シグナル、ルール4 / NFR03) なので、**呼び出し側 (item 2b) が構造化ログ + Sentry
+ *   (ADR-013) で必ず記録する**こと。本 seam は DB/ログ口を持たないため例外をそのまま伝播するに留める。
+ *   `RateLimitExceededError` は UX 事象で metrics/ログで足りる。429 / 送信中止 UX は apps/web 層 (item 4)。
  * - **`persist` の失敗は握りつぶさず伝播する** — 永続化失敗 (= 監査欠落) を呼び出し側が検知できるように。
  */
 
@@ -24,7 +28,7 @@ export type PersistExtraction = (row: AiExtractionInsert) => Promise<void>;
 export interface RunExtractionParams {
   /** `structureContent` への要求 (kind / input / model / piiEntries / rateLimiter / schoolId 等)。 */
   request: StructureRequest;
-  /** 監査行のテナント。通常 `request.schoolId` と同一 (rateLimiter キーと監査テナントは同じ school)。 */
+  /** 監査行のテナント。`request.schoolId` を指定する場合は同一値である必要がある (下記ガード)。 */
   schoolId: string;
   /** 抽出元 content (事前バッチ等で未確定なら null)。 */
   contentId?: string | null;
@@ -34,29 +38,32 @@ export interface RunExtractionParams {
   persist: PersistExtraction;
 }
 
-export interface RunExtractionOutcome {
-  result: StructureResult;
-  /** 監査行を永続化したか。モデルに到達した試行は常に true。 */
-  audited: boolean;
-}
-
 /** テスト用の依存差し替え (既定は実 `structureContent`)。`structureContent` 自体は別途テスト済。 */
 export interface RunExtractionDeps {
   structure?: (req: StructureRequest) => Promise<StructureResult>;
 }
 
 /**
- * 構造化抽出を実行し、結果 (成功/失敗) を ai_extractions に監査記録する (#154 item 2a)。
+ * 構造化抽出を実行し、結果 (成功/失敗) を ai_extractions に監査記録して `StructureResult` を返す
+ * (#154 item 2a)。返り値が解決した時点で監査行は永続化済 (失敗時は throw するため)。
  *
- * @throws RateLimitExceededError レート上限超過 (監査せず伝播、呼び出し側が 429 にマップ)
- * @throws PiiLeakError マスク後 PII 残存 (監査せず伝播、呼び出し側が送信中止 UX に)
+ * @throws RateLimitExceededError レート上限超過 (ai_extractions には記録せず伝播、呼び出し側が 429 に)
+ * @throws PiiLeakError マスク後 PII 残存 (ai_extractions には記録せず伝播、呼び出し側がログ/Sentry + 送信中止 UX に)
  */
 export async function runStructuredExtraction(
   params: RunExtractionParams,
   deps: RunExtractionDeps = {},
-): Promise<RunExtractionOutcome> {
+): Promise<StructureResult> {
+  // fail-safe: rate-limit キー (request.schoolId) と監査テナント (params.schoolId) の乖離を構造排除する
+  // (「A 校でレート判定し B 校台帳に記録」を型では防げないため、不一致は即エラー)。
+  if (params.request.schoolId !== undefined && params.request.schoolId !== params.schoolId) {
+    throw new Error(
+      "runStructuredExtraction: request.schoolId と監査 schoolId が不一致です (同一 school である必要があります)。",
+    );
+  }
+
   const structure = deps.structure ?? structureContent;
-  // rate-limit / PII-leak はここで throw され、監査行を作らず呼び出し側へ伝播する。
+  // rate-limit / PII-leak はここで throw され、ai_extractions 行を作らず呼び出し側へ伝播する。
   const result = await structure(params.request);
   const row = toAiExtractionInsert({
     schoolId: params.schoolId,
@@ -65,5 +72,5 @@ export async function runStructuredExtraction(
     result,
   });
   await params.persist(row);
-  return { result, audited: true };
+  return result;
 }

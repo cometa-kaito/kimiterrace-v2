@@ -43,12 +43,7 @@ export type { AiExtractionInsert, AuditMapParams } from "./audit.js";
 
 // F03 (#154 item 2a): 抽出 → 監査行 → 永続化 オーケストレータ (persist は呼び出し側が DB に配線)
 export { runStructuredExtraction } from "./run.js";
-export type {
-  PersistExtraction,
-  RunExtractionParams,
-  RunExtractionOutcome,
-  RunExtractionDeps,
-} from "./run.js";
+export type { PersistExtraction, RunExtractionParams, RunExtractionDeps } from "./run.js";
 
 // F01 テキスト抽出レイヤ（PDF/Word/Excel/画像 → 素テキスト → structureContent 前段、#180）
 export {

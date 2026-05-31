@@ -59,12 +59,12 @@ describe("runStructuredExtraction (#154 item 2a)", () => {
     const persist = vi.fn().mockResolvedValue(undefined);
     const structure = vi.fn().mockResolvedValue(successResult);
 
-    const outcome = await runStructuredExtraction(
+    const result = await runStructuredExtraction(
       { request: baseRequest, ...IDS, persist },
       { structure },
     );
 
-    expect(outcome).toEqual({ result: successResult, audited: true });
+    expect(result).toBe(successResult);
     expect(persist).toHaveBeenCalledTimes(1);
     const row = persist.mock.calls[0]?.[0];
     // toAiExtractionInsert の写像が通っていることをフィールドで確認。
@@ -87,13 +87,12 @@ describe("runStructuredExtraction (#154 item 2a)", () => {
     const persist = vi.fn().mockResolvedValue(undefined);
     const structure = vi.fn().mockResolvedValue(failedResult);
 
-    const outcome = await runStructuredExtraction(
+    const result = await runStructuredExtraction(
       { request: baseRequest, ...IDS, persist },
       { structure },
     );
 
-    expect(outcome.audited).toBe(true);
-    expect(outcome.result.status).toBe("failed");
+    expect(result.status).toBe("failed");
     expect(persist).toHaveBeenCalledTimes(1);
     expect(persist.mock.calls[0]?.[0]).toMatchObject({
       status: "failed",
@@ -118,6 +117,20 @@ describe("runStructuredExtraction (#154 item 2a)", () => {
       createdBy: null,
       updatedBy: null,
     });
+  });
+
+  it("request.schoolId と監査 schoolId の不一致は fail-safe で弾く (structure/persist 未到達)", async () => {
+    const persist = vi.fn().mockResolvedValue(undefined);
+    const structure = vi.fn().mockResolvedValue(successResult);
+
+    await expect(
+      runStructuredExtraction(
+        { request: { ...baseRequest, schoolId: "school-OTHER" }, ...IDS, persist },
+        { structure },
+      ),
+    ).rejects.toThrow(/不一致/);
+    expect(structure).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("RateLimitExceededError は監査せず呼び出し側へ伝播する (モデル送信前の throttle)", async () => {
