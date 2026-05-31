@@ -71,6 +71,13 @@
       "when": 1780450000000,
       "tag": "0009_school_hierarchy_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780229982647,
+      "tag": "20260531121942_tidy_red_wolf",
+      "breakpoints": true
     }
   ]
 }

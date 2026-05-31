@@ -27,6 +27,13 @@ export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "tag",
 ]);
 
+// AI 抽出の実行結果ステータス（F03）。varchar から enum 化し、想定外文字列の混入を DB で弾く
+// （ルール3: 値域の単一ソース化。PR #71 Reviewer M-1）。
+//   success … 抽出成功
+//   retry   … 一時失敗でリトライ対象
+//   failed  … 恒久失敗
+export const aiExtractionStatus = pgEnum("ai_extraction_status", ["success", "retry", "failed"]);
+
 // F02: 教員入力の種別（音声 / チャット）
 export const teacherInputType = pgEnum("teacher_input_type", ["voice", "chat"]);
 

@@ -43,9 +43,19 @@ export const aiChatSessions = pgTable(
     ...auditColumns,
   },
   (t) => ({
-    ixSchool: index("ix_ai_chat_sessions_school_id").on(t.schoolId),
     ixMagicLink: index("ix_ai_chat_sessions_magic_link_id").on(t.magicLinkId),
     ixLastMessage: index("ix_ai_chat_sessions_last_message_at").on(t.lastMessageAt),
+    // ADR-019: RLS テーブルは school_id を先頭に持つ複合インデックスを基本とする（PR #71 Reviewer M-3）。
+    // school 内「最近のセッション順」(ORDER BY last_message_at DESC) を 1 本で賄う。bare (school_id)
+    // インデックスは school_id 先頭の本複合に内包されるため旧 ix_ai_chat_sessions_school_id は廃止。
+    // 方向は既定(ASC)。btree は後方スキャンで DESC ORDER BY も同コストで賄うため明示 DESC は不要。
+    ixSchoolLastMessage: index("ix_ai_chat_sessions_school_last_message").on(
+      t.schoolId,
+      t.lastMessageAt,
+    ),
+    // denormalize した class_id を活かす class 単位集計の索引（M-4）。RLS 下のクエリは
+    // school_id = ? AND class_id = ? の形になるため、ADR-019 に合わせ school_id 先頭の複合にする。
+    ixSchoolClass: index("ix_ai_chat_sessions_school_class").on(t.schoolId, t.classId),
     // 子側から composite FK で参照される (ai_chat_messages.(session_id, school_id))。
     uqIdSchool: unique("uq_ai_chat_sessions_id_school").on(t.id, t.schoolId),
     // cross-tenant write 整合を DB 強制 (#73、PR #71 H-1)。RLS は read を守るが write の
