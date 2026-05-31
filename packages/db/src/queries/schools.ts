@@ -1,5 +1,8 @@
-import { type InferSelectModel, asc, eq } from "drizzle-orm";
+import { type InferSelectModel, asc, count, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { classes } from "../schema/classes.js";
+import { departments } from "../schema/departments.js";
+import { grades } from "../schema/grades.js";
 import { schools } from "../schema/schools.js";
 
 /**
@@ -36,6 +39,12 @@ export type SchoolEditable = Pick<
   SchoolRow,
   "id" | "name" | "prefecture" | "code" | "hierarchyMode" | "notes"
 >;
+
+/** 学校詳細 (#48-L2): マスタ全フィールド + 配下の階層 (学年/クラス/学科) 件数。 */
+export type SchoolDetail = {
+  school: SchoolRow;
+  counts: { grades: number; classes: number; departments: number };
+};
 
 /** updateSchool が書き込む基本フィールド (型は schema 由来、ルール3)。 */
 export type SchoolUpdate = Pick<SchoolRow, "name" | "prefecture" | "code" | "hierarchyMode">;
@@ -76,6 +85,35 @@ export async function getSchool(db: Selectable, id: string): Promise<SchoolEdita
     .where(eq(schools.id, id))
     .limit(1);
   return row;
+}
+
+/**
+ * 学校 1 件の詳細 (#48-L2) を取得する。マスタ全フィールド + 配下の学年/クラス/学科の件数。
+ * RLS で不可視 (他校 / 不存在) なら `null`。
+ *
+ * `WHERE id` / `WHERE school_id = id` は**対象特定**の条件であってテナント境界ではない:
+ * system_admin は `system_admin_full_access` で全校の行を見られるため、特定校の配下件数を数えるには
+ * 明示的に school_id で絞り込む (この絞り込みが無いと全校合算になる)。テナント (school_admin/teacher)
+ * が他校 id を渡しても RLS が 0 行に倒すため越権は生じない (多層防御、本ページは system_admin 専用)。
+ */
+export async function getSchoolDetail(db: Selectable, id: string): Promise<SchoolDetail | null> {
+  const [school] = await db.select().from(schools).where(eq(schools.id, id)).limit(1);
+  if (!school) {
+    return null;
+  }
+  const [gradeRow, classRow, departmentRow] = await Promise.all([
+    db.select({ n: count() }).from(grades).where(eq(grades.schoolId, id)),
+    db.select({ n: count() }).from(classes).where(eq(classes.schoolId, id)),
+    db.select({ n: count() }).from(departments).where(eq(departments.schoolId, id)),
+  ]);
+  return {
+    school,
+    counts: {
+      grades: gradeRow[0]?.n ?? 0,
+      classes: classRow[0]?.n ?? 0,
+      departments: departmentRow[0]?.n ?? 0,
+    },
+  };
 }
 
 /**

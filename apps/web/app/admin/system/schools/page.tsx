@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { listSchools } from "@kimiterrace/db";
 import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
+import Link from "next/link";
 
 /** 階層モードの表示ラベル (一覧の列)。enum 値を網羅 (型でズレ検出、ルール3)。 */
 const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
@@ -19,8 +20,8 @@ const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
  *
  * `withSession` で RLS context を張り `listSchools` を呼ぶ。可視範囲は schools の RLS が決め
  * (system_admin=全校 / それ以外=自校のみ)、本ページは system_admin 専用なので全校が並ぶ。
- * 各行から編集 (`/admin/system/schools/{id}/edit`、#48-L1) に遷移できる。詳細ビュー
- * (V1 SchoolDetailView) は #48-L2、create/delete は follow-up。
+ * 各行は校名から詳細 (`/admin/system/schools/{id}`、#48-L2) / 「編集」から編集
+ * (`/admin/system/schools/{id}/edit`、#48-L1) に遷移できる。create/delete は follow-up。
  */
 export default async function SystemSchoolsPage() {
   await requireRole(SYSTEM_ADMIN_ROLES);
@@ -51,7 +52,11 @@ export default async function SystemSchoolsPage() {
             {schools.map((s) => (
               <tr key={s.id}>
                 <td style={tdStyle}>{s.prefecture}</td>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>{s.name}</td>
+                <td style={{ ...tdStyle, fontWeight: 600 }}>
+                  <Link href={`/admin/system/schools/${s.id}`} style={nameLinkStyle}>
+                    {s.name}
+                  </Link>
+                </td>
                 <td style={tdStyle}>{s.code ?? "—"}</td>
                 <td style={tdStyle}>{HIERARCHY_MODE_LABEL[s.hierarchyMode]}</td>
                 <td style={tdStyle}>{formatJstDate(s.createdAt)}</td>
@@ -102,3 +107,4 @@ const tdStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 const editLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.85rem" };
+const nameLinkStyle: React.CSSProperties = { color: "#1f2937", textDecoration: "none" };
