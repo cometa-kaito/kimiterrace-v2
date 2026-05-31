@@ -15,4 +15,7 @@ allowBuilds:
   "@firebase/util": false
   esbuild: true
   protobufjs: true
+  # re2 は firebase-tools (認証 e2e の Auth emulator、#48-O) が引き込む optional native dep。
+  # emulator 起動に native ビルドは不要なので承認しない (install を非対話的に通す)。
+  re2: false
   sharp: true

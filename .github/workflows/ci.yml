@@ -138,8 +138,17 @@ jobs:
         run: pnpm --filter @kimiterrace/db build
       - name: Install Playwright browsers
         run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
-      - name: Run e2e (globalSetup migrate+seed → webServer build+start → signage 描画検証)
-        run: pnpm --filter @kimiterrace/web test:e2e
+      # Auth emulator は Java を要する (ubuntu runner には JDK が同梱)。明示セットアップで安定化。
+      - name: Set up JDK (Firebase Auth emulator runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # firebase emulators:exec が Auth emulator を起動 → FIREBASE_AUTH_EMULATOR_HOST /
+      # GOOGLE_CLOUD_PROJECT を子プロセス (playwright → webServer → auth.setup) に伝播 → 終了で停止。
+      # これで signage golden-path に加え 認証 e2e (教員ログイン到達) も RLS + emulator 下で実走する。
+      - name: Run e2e (Auth emulator + globalSetup migrate+seed → webServer → signage + 認証 描画検証)
+        run: pnpm --filter @kimiterrace/web test:e2e:auth
 
   build:
     name: Build

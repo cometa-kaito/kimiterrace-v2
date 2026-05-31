@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:auth": "firebase emulators:exec --only auth --project demo-kimiterrace \"playwright test\"",
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.10.0",
+    "firebase-tools": "^13.29.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "jsdom": "^29.1.1",
