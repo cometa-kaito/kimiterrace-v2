@@ -36,6 +36,14 @@ import {
  * 確認** してから結線する (`findVisibleClass`)。他校の class_id を渡しても「不可視 → not found」で弾かれ、
  * 別テナントのクラスに静粛時間をぶら下げられない。
  *
+ * **system_admin の降格 (ADR-019 §#95 / Issue #226)**: 本 Action は特定 class (= 特定 school) を
+ * 対象にするテナントスコープ操作のため、`withSession(..., { tenantScoped: true })` で実行する。
+ * QUIET_HOURS_ROLES は system_admin を含むが、school_id claim を持つ system_admin の tx では
+ * `system_admin_full_access` policy が全校発火し `findVisibleClass` が他校 class も可視と判定して
+ * cross-tenant 越権が成立しうる (#197 の hub-actions と同種の gap)。tenantScoped で role を
+ * school_admin に降格すると当該 policy が止まり、`tenant_isolation` だけが残るため他校 class は
+ * 不可視になる。schoolId 無しの system_admin は降格されず toQuietHoursActor が null → forbidden。
+ *
  * **value 構造 (読み取り契約との整合)**: signage (`effective-daily-data.ts`) は時間帯を配列として読むため、
  * value は `{ ranges: [{ start:"HH:MM", end:"HH:MM" }] }` のオブジェクトで保存する (quiet-hours-core.ts 参照)。
  */
@@ -114,39 +122,44 @@ export async function saveQuietHoursAction(
   }
 
   try {
-    const id = await withSession(async (tx) => {
-      // 自校で可視なクラスか (他校 id は RLS で不可視 → CrossTenantError)。
-      if (!(await findVisibleClass(tx, classId))) {
-        throw new CrossTenantError("指定されたクラスが見つかりません。");
-      }
-      // upsert 前に既存値を読み、insert/update の別と before スナップショットを確定する。
-      const prev = await getClassConfigValue(tx, classId, QUIET_HOURS_KIND);
-      const operation: "insert" | "update" = prev === null ? "insert" : "update";
+    // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
+    // (ADR-019 §#95 / Issue #226)。本 Action は特定 class = 特定 school のテナントスコープ操作。
+    const id = await withSession(
+      async (tx) => {
+        // 自校で可視なクラスか (他校 id は RLS で不可視 → CrossTenantError)。
+        if (!(await findVisibleClass(tx, classId))) {
+          throw new CrossTenantError("指定されたクラスが見つかりません。");
+        }
+        // upsert 前に既存値を読み、insert/update の別と before スナップショットを確定する。
+        const prev = await getClassConfigValue(tx, classId, QUIET_HOURS_KIND);
+        const operation: "insert" | "update" = prev === null ? "insert" : "update";
 
-      const newId = await upsertClassConfig(tx, {
-        schoolId: actor.schoolId,
-        classId,
-        kind: QUIET_HOURS_KIND,
-        value: v.value,
-        actorUserId: actor.userId,
-      });
-      if (!newId) {
-        throw new CrossTenantError("静粛時間を保存できませんでした。");
-      }
+        const newId = await upsertClassConfig(tx, {
+          schoolId: actor.schoolId,
+          classId,
+          kind: QUIET_HOURS_KIND,
+          value: v.value,
+          actorUserId: actor.userId,
+        });
+        if (!newId) {
+          throw new CrossTenantError("静粛時間を保存できませんでした。");
+        }
 
-      await writeAudit(tx, actor, {
-        recordId: newId,
-        operation,
-        diff:
-          operation === "insert"
-            ? { after: auditView(v.value) }
-            : {
-                before: { count: readQuietRanges(prev).length, ranges: readQuietRanges(prev) },
-                after: auditView(v.value),
-              },
-      });
-      return newId;
-    });
+        await writeAudit(tx, actor, {
+          recordId: newId,
+          operation,
+          diff:
+            operation === "insert"
+              ? { after: auditView(v.value) }
+              : {
+                  before: { count: readQuietRanges(prev).length, ranges: readQuietRanges(prev) },
+                  after: auditView(v.value),
+                },
+        });
+        return newId;
+      },
+      { tenantScoped: true },
+    );
 
     revalidatePath(`/admin/editor/${classId}/quiet-hours`);
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
