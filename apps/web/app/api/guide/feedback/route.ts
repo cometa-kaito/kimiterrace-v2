@@ -2,6 +2,7 @@ import { submitFeedback } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { getDb } from "../../../../lib/db";
 import { validateFeedbackInput } from "../../../../lib/feedback/feedback-core";
+import { clientKeyFromHeaders, guideFeedbackRateLimiter } from "../../../../lib/guide/rate-limit";
 
 /**
  * F12 (#48-M): フィードバック投稿エンドポイント `POST /api/guide/feedback` (ADR-008 Route Handlers)。
@@ -19,6 +20,10 @@ import { validateFeedbackInput } from "../../../../lib/feedback/feedback-core";
  *
  * 入力検証は `validateFeedbackInput` (純関数) が担い、範囲・必須は DB の CHECK + 関数の RAISE
  * でも二重に守る。フォーム (application/x-www-form-urlencoded) と JSON の両方を受ける。
+ *
+ * **濫用対策 (#234)**: 非認証公開のため IP 単位の固定ウィンドウ・レート制限を最先頭で適用し、
+ * 超過は 429 + Retry-After に倒す (`lib/guide/rate-limit.ts`)。per-instance / XFF 詐称の限界が
+ * あるため infra 層 WAF (Cloud Armor) と併用する前提の defense-in-depth。
  */
 
 function fieldsFromForm(form: FormData) {
@@ -33,6 +38,17 @@ function fieldsFromForm(form: FormData) {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  // 濫用対策 (#234): IP 単位の固定ウィンドウ制限。**body parse / DB の前**に弾くことで、
+  // malformed flood も含めて無駄な処理ごと頭打ちにする (per-instance / XFF 詐称の限界は
+  // lib/guide/rate-limit.ts 参照。ハードな保証は infra 層 WAF が担う defense-in-depth)。
+  const rateKey = clientKeyFromHeaders(request.headers);
+  if (!guideFeedbackRateLimiter.tryAcquire(rateKey, Date.now())) {
+    return NextResponse.json(
+      { ok: false, message: "送信が多すぎます。しばらくしてから再度お試しください。" },
+      { status: 429, headers: { "Retry-After": "600" } },
+    );
+  }
+
   // フォーム送信 (guide ページ) と JSON (将来の API/テスト) の両対応。
   let raw: Parameters<typeof validateFeedbackInput>[0];
   const contentType = request.headers.get("content-type") ?? "";
