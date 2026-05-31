@@ -2,6 +2,12 @@
 
 import type { MergedSection } from "@/lib/signage/effective-daily-data";
 import {
+  cleanupStaleMedia,
+  prefetchMedia,
+  registerSignageServiceWorker,
+  selectPrefetchUrls,
+} from "@/lib/signage/media-cache";
+import {
   clampAdDurationMs,
   clampIndex,
   jitteredPollMs,
@@ -92,6 +98,22 @@ export function SignageClient({
     const id = setTimeout(() => setAdIndex((i) => nextIndex(i, adCount)), ms);
     return () => clearTimeout(id);
   }, [safeIndex, adCount]);
+
+  // --- Service Worker 登録 (#48-G)。マウント時に 1 度だけ。失敗しても表示はブロックしない。 ---
+  useEffect(() => {
+    void registerSignageServiceWorker();
+  }, []);
+
+  // --- 広告 media の prefetch / cleanup (#48-G)。media URL 集合が変わった時だけベストエフォートで
+  //     温め、現行に無い旧 media を Cache Storage から掃除する。瞬断 (ADR-022) でも cache-first で
+  //     last-good を維持。配列参照ではなく URL 集合 (prefetchKey) を依存にし、内容不変なポーリング
+  //     (8-12s ごとに新しい配列参照) では再 prefetch しない。 ---
+  const prefetchKey = selectPrefetchUrls(ads).join("\n");
+  useEffect(() => {
+    const urls = prefetchKey ? prefetchKey.split("\n") : [];
+    void prefetchMedia(urls);
+    void cleanupStaleMedia(urls);
+  }, [prefetchKey]);
 
   if (invalid) {
     return <SignageInvalid />;
