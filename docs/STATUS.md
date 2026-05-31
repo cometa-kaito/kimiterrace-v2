@@ -16,18 +16,24 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 **Phase 調査 → Phase 設計 (移行中)**
 
-ロードマップは 4 Phase 構成（調査・設計・開発・導入）に再設計済 (2026-05-28)。
-**Claude は調査〜開発を全力で進める。導入は人間担当**。
+ロードマップは **5 Phase 構成（調査・設計・開発・検証・導入）** に再設計済 (2026-05-28 に 4 Phase、2026-05-31 に「検証」を新設)。
+**Claude は調査〜検証を全力で進める。導入は人間担当**。「検証」は開発と導入の間の受入ゲート → [docs/testing/test-strategy.md](testing/test-strategy.md)。
 
 - プロジェクト方針: [memory: GCP 全改修方針](../../.claude/projects/.../memory/project_kimiterrace_stack.md)
 - ビジネスモデル: [memory: キミテラス ビジネスモデル](../../.claude/projects/.../memory/project_kimiterrace_business_model.md)
-- 4 Phase 計画: [ROADMAP.md](ROADMAP.md)
+- 5 Phase 計画: [ROADMAP.md](ROADMAP.md)
 - 規律: [CLAUDE.md](../CLAUDE.md)
 
 ---
 
 ## 直近の完了
 
+- 2026-05-31: **★ Phase 検証（受入テスト）を新設 — 5 Phase 構成へ + 詳細設計一式 (ユーザー判断、PR `docs/phase-verification`)**:
+  - 「開発」と「導入」の間に **Claude Code 主導の受入ゲート「Phase 検証」**を新設。PR 単位の shift-left（unit/RLS/API/e2e + CI スキャン）では捕まらない**統合 staging への横断・敵対・要件トレーサブル**な検証を担う
+  - **5 トラックの詳細設計を `docs/testing/` に作成**: ① 機能受入 (FUN-001〜023) ② UI/UX/GUI (UX-001〜020、WCAG 2.2 AA) ③ セキュリティ・ペネトレ (SEC-001〜029、STRIDE 全 ID) ④ 非機能 (PERF/LOAD/RESIL/COST、NFR01 閾値) ⑤ 移行・監査・コンプラ (MIG/AUD/CMP) + 横断 (traceability-matrix / defect-log / go-no-go-report)
+  - **ペネトレ方針更新**: 旧「2027 延期・確定 + CI 代替」を撤回。Phase 検証で **Claude 内部ペネトレを導入前ゲート**化、**外部第三者ペネトレの要否・時期は見直し**（Claude 内部は外部認証の代替でなく前段）。境界（不変）: 第三者正式ペネトレ認証 / 実機・実環境 / 本番データ試験 は Claude 範囲外
+  - **Reviewer 別 spawn (fresh context) が REQUEST_CHANGES → blocker 修正**: B1 (③ Critical 脅威列挙に R-01 欠落=ゲート穴) / B2 (① 既存テストパス断定の接地誤り→実在パス + 要確認に修正) / B3 (threat-model red-team 周期の方針追随注記) + ゲート論理 H2 (② 既知ギャップの no-go デッドロック回避) / H3 (⑤ MIG-008 にマッピング監査を組込みスコープ網羅穴を封鎖) を解消
+  - **成果物**: [docs/testing/](testing/) 9 ファイル + [ROADMAP.md](ROADMAP.md)（Phase 検証 節・マイルストーン・ペネトレ計画）+ 本 STATUS + 5-phase memory を更新。個別テストケース・閾値は実行フェーズに委譲
 - 2026-05-31: **★ F0 (V1 既存機能の Cloud Run 移植、#48-A〜#48-O) frontier 完了 + issue hygiene (両セッション協働)**:
   - **F0 の全スライスが merge 済**: #48-A 階層スキーマ / #48-B 認証 + RLS primitive / #48-C レイアウト / #48-E サイネージ表示 (#182/#159/#206) / #48-F 広告 VIEW / #48-G prefetch+SW (#200) / #48-H Schedule (#171) / #48-I Notice/Assignment (#174) / #48-J 広告管理 (#181) + #48-J-2 quiet_hours (#190/#206) / #48-K ハブ CRUD (#164/#196) / #48-L 学校 一覧 (#208) + 編集 (#214) + 詳細 (#223) + 作成 (#229) / #48-M フィードバック+ガイド (#227) / #48-O e2e golden path (#233/#224/#216)。**#48-N は superseded** (callable は実装済/別issue/廃止に分散、監査済)
   - **issue hygiene (本セッション、重複 spawn 防止)**: 実装済だが未 close だった F0 umbrella を close — #117 (#48-E→#182) / #118 (#48-G→#200) / #122 (#48-K→#164/#196) / #126 (#48-O→#233) / #219 (#48-L2→#223) / #125 (#48-N superseded)。**残 open F0 = tech-debt のみ**: #139 (#48-B auth ハードニング Low 4) / #234 (#48-M guide rate limit follow-up)
