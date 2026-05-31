@@ -1,6 +1,6 @@
 # ADR-004: Drizzle ORM を採用、Prisma を却下
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-007 (pgvector)](007-pgvector.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [CLAUDE.md ルール3 (型は Drizzle 単一ソース)](../../CLAUDE.md)
 

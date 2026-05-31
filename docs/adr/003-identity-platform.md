@@ -1,6 +1,6 @@
 # ADR-003: Identity Platform を採用、Firebase Auth は移行
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [#48-B (#113)](https://github.com/cometa-kaito/kimiterrace-v2/issues/113), [F11 ロール管理](../requirements/functional/F11-role-management.md), [NFR03 セキュリティ](../requirements/non-functional/NFR03-security.md), [NFR04 監査ログ](../requirements/non-functional/NFR04-audit-log.md), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-016 (magic link)](016-class-magic-link-anonymous-access.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [CLAUDE.md スタック表](../../CLAUDE.md)
 

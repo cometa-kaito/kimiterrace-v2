@@ -1,6 +1,6 @@
 # ADR-010: pnpm + Turborepo モノレポを採用
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-004 (Drizzle)](004-drizzle-vs-prisma.md), [ADR-011 (Biome)](011-biome.md), [CLAUDE.md ディレクトリ構成](../../CLAUDE.md)
 

@@ -1,6 +1,6 @@
 # ADR-001: Cloud SQL for PostgreSQL を採用、Firestore を捨てる
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-004 (Drizzle)](004-drizzle-vs-prisma.md), [ADR-007 (pgvector)](007-pgvector.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [NFR03 セキュリティ](../requirements/non-functional/NFR03-security.md), [NFR04 監査ログ](../requirements/non-functional/NFR04-audit-log.md), [NFR07 コンプライアンス](../requirements/non-functional/NFR07-compliance.md), [CLAUDE.md スタック表 / ルール1・2・3](../../CLAUDE.md)
 

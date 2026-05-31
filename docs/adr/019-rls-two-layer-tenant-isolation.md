@@ -1,6 +1,6 @@
 # ADR-019: RLS 二層分離（school_id テナント + system_admin cross-tenant）
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-28
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [#13](https://github.com/cometa-kaito/kimiterrace-v2/issues/13), [F11](../requirements/functional/F11-role-management.md), [NFR03](../requirements/non-functional/NFR03-security.md), [v2-mvp.md §7](../requirements/v2-mvp.md), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [CLAUDE.md ルール 2](../../CLAUDE.md)
 
