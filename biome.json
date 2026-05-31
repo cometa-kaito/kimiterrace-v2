@@ -78,7 +78,7 @@
         "**/*.test.tsx",
         "**/e2e/**",
         "scripts/**",
-        "apps/jobs/**",
+        "apps/jobs/src/migration/firestore-to-pg.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",
