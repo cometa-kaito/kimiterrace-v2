@@ -108,3 +108,25 @@ export async function withSession<T>(
     (tx) => fn(tx, user),
   );
 }
+
+/**
+ * **既に解決済みの `AuthUser`** で RLS context tx を開く (`withSession` の「user 既知」版)。
+ *
+ * `withSession` は毎回 `getCurrentUser()` で cookie を再検証する (失効チェックで Identity Platform への
+ * 往復を伴う)。同一リクエスト内で既に user を解決済みの呼び出し (例: 認可ガードが弾いた後の監査記録) では、
+ * その再検証は冗長で、敵対的経路 (拒否試行の連打) では IdP 負荷を二重化する。本関数は解決済み user を
+ * そのまま `withTenantContext` に渡し、二度目の検証を避ける。
+ *
+ * 注: caller が `user` の正当性を保証する責務を持つ (本関数は cookie 検証も role gate もしない)。
+ * 通常の画面/API 経路は引き続き `withSession` を使うこと。
+ */
+export async function withUserSession<T>(
+  user: AuthUser,
+  fn: (tx: TenantTx) => Promise<T>,
+): Promise<T> {
+  return await withTenantContext(
+    getDb(),
+    { userId: user.uid, schoolId: user.schoolId, role: user.role },
+    fn,
+  );
+}

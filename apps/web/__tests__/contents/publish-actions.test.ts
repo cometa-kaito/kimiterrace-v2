@@ -2,9 +2,10 @@ import { ContentNotFoundError, NoActivePublishError, VersionNotFoundError } from
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // next/cache・next/navigation・guard・db を mock。@kimiterrace/db は **mock しない** (mapDomainError の
-// instanceof 判定に実クラスが要るため。recordPublishDenial は withSession mock 越しで呼ばれないので実害なし)。
+// instanceof 判定に実クラスが要るため。recordPublishDenial は withUserSession mock 越しで呼ばれないので実害なし)。
 // guard は requireUser を mock し、純粋関数 isRoleAllowed は実装をそのまま使う (認可分岐を実挙動で突く)。
 // redirect は throw する mock にして、認可拒否時に /forbidden へ遷移する (= action が reject する) ことを検証する。
+// 正常系の mutation は withSession、拒否時の監査記録は withUserSession (cookie 再検証を避ける、#211 L-1) を使う。
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((path: string) => {
@@ -15,7 +16,7 @@ vi.mock("../../lib/auth/guard", () => ({
   requireUser: vi.fn(),
   isRoleAllowed: (role: string, allowed: readonly string[]) => allowed.includes(role),
 }));
-vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
+vi.mock("../../lib/db", () => ({ withSession: vi.fn(), withUserSession: vi.fn() }));
 
 import { redirect } from "next/navigation";
 import { requireUser } from "../../lib/auth/guard";
@@ -26,10 +27,11 @@ import {
   updateContentAction,
 } from "../../lib/contents/publish-actions";
 import { mapDomainError, toActor } from "../../lib/contents/publish-core";
-import { withSession } from "../../lib/db";
+import { withSession, withUserSession } from "../../lib/db";
 
 const requireUserMock = vi.mocked(requireUser);
 const withSessionMock = vi.mocked(withSession);
+const withUserSessionMock = vi.mocked(withUserSession);
 const redirectMock = vi.mocked(redirect);
 
 const CONTENT_ID = "11111111-1111-4111-8111-111111111111";
@@ -89,8 +91,10 @@ describe("publishContentAction", () => {
     // 認可拒否は redirect("/forbidden") で throw されるため action は reject する。
     await expect(publishContentAction(CONTENT_ID)).rejects.toThrow("REDIRECT:/forbidden");
     expect(redirectMock).toHaveBeenCalledWith("/forbidden");
-    // schoolId を持つので拒否監査が試行される (withSession 経由で recordPublishDenial)。
-    expect(withSessionMock).toHaveBeenCalledTimes(1);
+    // schoolId を持つので拒否監査が試行される (withUserSession 経由で recordPublishDenial、#211 L-1)。
+    expect(withUserSessionMock).toHaveBeenCalledTimes(1);
+    // 拒否監査は cookie 再検証を避ける withUserSession を使い、通常 mutation 用の withSession は使わない。
+    expect(withSessionMock).not.toHaveBeenCalled();
   });
 
   it("schoolId 無し (system_admin 等) は /forbidden、監査は記録しない (tenant context 無し)", async () => {
@@ -98,12 +102,12 @@ describe("publishContentAction", () => {
     await expect(publishContentAction(CONTENT_ID)).rejects.toThrow("REDIRECT:/forbidden");
     expect(redirectMock).toHaveBeenCalledWith("/forbidden");
     // schoolId が無く tenant-scoped audit_log に書けないため記録対象外。
-    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(withUserSessionMock).not.toHaveBeenCalled();
   });
 
   it("監査記録が失敗しても /forbidden redirect は妨げない (best-effort)", async () => {
     requireUserMock.mockResolvedValue(student);
-    withSessionMock.mockRejectedValue(new Error("audit write failed"));
+    withUserSessionMock.mockRejectedValue(new Error("audit write failed"));
     await expect(publishContentAction(CONTENT_ID)).rejects.toThrow("REDIRECT:/forbidden");
     expect(redirectMock).toHaveBeenCalledWith("/forbidden");
   });
@@ -116,6 +120,7 @@ describe("publishContentAction", () => {
     expect(res).toMatchObject({ ok: false, code: "forbidden" });
     expect(redirectMock).not.toHaveBeenCalled();
     expect(withSessionMock).not.toHaveBeenCalled();
+    expect(withUserSessionMock).not.toHaveBeenCalled();
   });
 
   it("ドメイン例外 (ContentNotFoundError) は not_found 結果に変換", async () => {

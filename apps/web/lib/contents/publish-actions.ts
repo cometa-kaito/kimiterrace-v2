@@ -12,7 +12,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRoleAllowed, requireUser } from "../auth/guard";
 import type { AuthUser } from "../auth/session";
-import { withSession } from "../db";
+import { withSession, withUserSession } from "../db";
 import {
   type ActionResult,
   PUBLISHER_ROLES,
@@ -65,9 +65,12 @@ async function authorizePublisher(
 
 /**
  * 認可拒否を audit_log に **ベストエフォート**で記録する。記録の失敗 (DB 一時障害等) で拒否応答
- * (/forbidden) を妨げない。actor は拒否されたユーザー本人で、`withSession` が同じ user で tenant tx を
+ * (/forbidden) を妨げない。actor は拒否されたユーザー本人で、`withUserSession` が同じ user で tenant tx を
  * 張るため audit_log_insert policy (actor_user_id = app.current_user_id、migration 0005) を充足する。
  * schoolId を持たない actor は tenant-scoped audit_log に書けないため記録対象外 (redirect のみ)。
+ *
+ * `requireUser()` で解決済みの `user` を `withUserSession` に渡し、cookie の再検証 (失効チェックの
+ * Identity Platform 往復) を二重に走らせない。拒否試行は敵対的経路なので IdP 往復を最小化する。
  */
 async function recordDenialBestEffort(
   user: AuthUser,
@@ -79,7 +82,7 @@ async function recordDenialBestEffort(
   }
   const actor = { userId: user.uid, schoolId: user.schoolId };
   try {
-    await withSession((tx) =>
+    await withUserSession(user, (tx) =>
       recordPublishDenial(tx, actor, { action, contentId, attemptedRole: user.role }),
     );
   } catch {
