@@ -28,14 +28,13 @@ describe("TextExtractor", () => {
 describe("未配線スタブはフェイルクローズで投げる", () => {
   // pdf / docx / xlsx は #12 でローカルパーサに配線済み（別ファイルで契約検証）。
   // OCR が外部委託になる image のみ未配線スタブとして残る（ADR-024 決定2）。
-  it.each([[new ImageExtractor(), "image", "@google-cloud/vision"]] as const)(
-    "%s は ExtractorNotConfiguredError（依存名付き）",
-    async (extractor, format, dep) => {
-      const promise = extractor.extract({ bytes: new Uint8Array() });
-      await expect(promise).rejects.toBeInstanceOf(ExtractorNotConfiguredError);
-      await expect(promise).rejects.toMatchObject({ format, dependency: dep });
-    },
-  );
+  it.each([
+    [new ImageExtractor(), "image", "@google-cloud/vision"],
+  ] as const)("%s は ExtractorNotConfiguredError（依存名付き）", async (extractor, format, dep) => {
+    const promise = extractor.extract({ bytes: new Uint8Array() });
+    await expect(promise).rejects.toBeInstanceOf(ExtractorNotConfiguredError);
+    await expect(promise).rejects.toMatchObject({ format, dependency: dep });
+  });
 });
 
 describe("ExtractorRegistry", () => {

@@ -16,11 +16,7 @@ import { AdsManager } from "./_components/AdsManager";
  * (`getEffectiveAdsForClass` の `is_inherited=true` 行) 取得する。両方を 1 つの `withSession` の自校
  * RLS tx 内でまとめて読み、クライアント編集器に渡す。
  */
-export default async function ClassAdsPage({
-  params,
-}: {
-  params: Promise<{ classId: string }>;
-}) {
+export default async function ClassAdsPage({ params }: { params: Promise<{ classId: string }> }) {
   await requireRole(ADS_ROLES);
   const { classId } = await params;
 

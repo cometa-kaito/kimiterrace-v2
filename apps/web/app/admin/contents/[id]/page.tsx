@@ -23,11 +23,7 @@ import { VersionTimeline } from "../_components/VersionTimeline";
  * - 公開状態バッジ / 確信度フラグ (F04.3)
  * を 1 画面に集約する。不可視 (別テナント / 不存在) は `notFound()` (RLS が null を返す)。
  */
-export default async function ContentDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function ContentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(PUBLISHER_ROLES);
   const { id } = await params;
   // 同一トランザクション (RLS context) で本体 + 確信度を取得する。

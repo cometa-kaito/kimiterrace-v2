@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -7,17 +7,18 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "ignore": [
-      "**/node_modules",
-      "**/dist",
-      "**/build",
-      "**/.next",
-      "**/.turbo",
-      "**/coverage",
-      "**/.terraform",
-      "**/*.tfstate*",
-      "pnpm-lock.yaml",
-      "**/drizzle/meta"
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/build",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/coverage",
+      "!**/.terraform",
+      "!**/*.tfstate*",
+      "!**/pnpm-lock.yaml",
+      "!**/drizzle/meta"
     ]
   },
   "formatter": {
@@ -27,8 +28,12 @@
     "lineWidth": 100,
     "lineEnding": "lf"
   },
-  "organizeImports": {
-    "enabled": true
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
   },
   "linter": {
     "enabled": true,
@@ -43,11 +48,18 @@
         "useNodejsImportProtocol": "error"
       },
       "complexity": {
-        "noBannedTypes": "error"
+        "noBannedTypes": "error",
+        "useOptionalChain": "off"
       },
       "correctness": {
         "noUnusedVariables": "error",
         "noUnusedImports": "error"
+      },
+      "a11y": {
+        "useAriaPropsSupportedByRole": "off"
+      },
+      "performance": {
+        "noImgElement": "off"
       }
     }
   },
@@ -67,18 +79,18 @@
   },
   "overrides": [
     {
-      "include": ["**/drizzle/meta/**"],
+      "includes": ["**/drizzle/meta/**"],
       "formatter": { "enabled": false },
       "linter": { "enabled": false }
     },
     {
-      "include": [
+      "includes": [
         "**/__tests__/**",
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/e2e/**",
-        "scripts/**",
-        "apps/jobs/src/migration/firestore-to-pg.ts",
+        "**/scripts/**",
+        "**/apps/jobs/src/migration/firestore-to-pg.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",

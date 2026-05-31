@@ -73,36 +73,30 @@ describe("detectFormat: レガシー Office (.doc/.xls)", () => {
   it.each([
     ["application/msword", "doc", "docx"],
     ["application/vnd.ms-excel", "xls", "xlsx"],
-  ] as const)(
-    "レガシー MIME %s は LegacyOfficeFormatError（→ %s）",
-    (mimeType, legacyExt, suggested) => {
-      try {
-        detectFormat({ bytes: EMPTY, mimeType });
-        expect.unreachable("should have thrown");
-      } catch (e) {
-        expect(e).toBeInstanceOf(LegacyOfficeFormatError);
-        expect(e).toMatchObject({ legacyExt, suggested });
-      }
-    },
-  );
+  ] as const)("レガシー MIME %s は LegacyOfficeFormatError（→ %s）", (mimeType, legacyExt, suggested) => {
+    try {
+      detectFormat({ bytes: EMPTY, mimeType });
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(LegacyOfficeFormatError);
+      expect(e).toMatchObject({ legacyExt, suggested });
+    }
+  });
 
   it.each([
     ["legacy.doc", "doc", "docx"],
     ["template.dot", "dot", "docx"],
     ["sheet.XLS", "xls", "xlsx"],
     ["book.xlt", "xlt", "xlsx"],
-  ] as const)(
-    "レガシー拡張子 %s は LegacyOfficeFormatError（→ %s）",
-    (filename, legacyExt, suggested) => {
-      try {
-        detectFormat({ bytes: EMPTY, filename });
-        expect.unreachable("should have thrown");
-      } catch (e) {
-        expect(e).toBeInstanceOf(LegacyOfficeFormatError);
-        expect(e).toMatchObject({ legacyExt, suggested });
-      }
-    },
-  );
+  ] as const)("レガシー拡張子 %s は LegacyOfficeFormatError（→ %s）", (filename, legacyExt, suggested) => {
+    try {
+      detectFormat({ bytes: EMPTY, filename });
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(LegacyOfficeFormatError);
+      expect(e).toMatchObject({ legacyExt, suggested });
+    }
+  });
 
   it("LegacyOfficeFormatError は UnsupportedFormatError の派生（既存 catch でも拾える）", () => {
     expect(() => detectFormat({ bytes: EMPTY, mimeType: "application/msword" })).toThrow(

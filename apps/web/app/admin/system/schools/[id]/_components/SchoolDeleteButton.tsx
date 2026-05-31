@@ -16,7 +16,10 @@ import { useId, useState, useTransition } from "react";
 export function SchoolDeleteButton({
   schoolId,
   schoolName,
-}: { schoolId: string; schoolName: string }) {
+}: {
+  schoolId: string;
+  schoolName: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
