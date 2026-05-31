@@ -1,6 +1,6 @@
 "use server";
 
-import { type TenantTx, auditLog, getSchool, updateSchool } from "@kimiterrace/db";
+import { type TenantTx, auditLog, createSchool, getSchool, updateSchool } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -10,6 +10,7 @@ import {
   conflict,
   invalid,
   notFound,
+  validateSchoolCreate,
   validateSchoolUpdate,
 } from "./schools-core";
 
@@ -87,7 +88,7 @@ export async function updateSchoolAction(raw: {
         // RLS で UPDATE が 0 行 (再取得後に可視性が変わる等の競合) → not_found に倒す。
         throw new SchoolNotFoundError();
       }
-      await writeSchoolAudit(tx, user, v.value.id, {
+      await writeSchoolAudit(tx, user, v.value.id, "update", {
         before: {
           name: before.name,
           prefecture: before.prefecture,
@@ -118,6 +119,55 @@ export async function updateSchoolAction(raw: {
 }
 
 /**
+ * 学校 (テナント) を新規作成する (#48-L3 — テナント プロビジョニング)。
+ *
+ * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。INSERT は schools の
+ * `system_admin_full_access` WITH CHECK でのみ通る (テナントは INSERT policy 不在で RLS 拒否)。
+ * 作成と監査を同一 tx で行い、成功後に新規校の id を返す。学校コード重複 (23505) は `conflict`。
+ */
+export async function createSchoolAction(raw: {
+  name?: unknown;
+  prefecture?: unknown;
+  code?: unknown;
+  hierarchyMode?: unknown;
+}): Promise<ActionResult<{ id: string }>> {
+  const v = validateSchoolCreate(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  try {
+    const data = await withSession(async (tx: TenantTx, user) => {
+      const [row] = await createSchool(tx, {
+        name: v.value.name,
+        prefecture: v.value.prefecture,
+        code: v.value.code,
+        hierarchyMode: v.value.hierarchyMode,
+        // system_admin は users 行ではないため created_by は NULL (FK は users(id))。
+        createdBy: user.role === "system_admin" ? null : user.uid,
+      });
+      if (!row) {
+        // INSERT が 0 行 = RLS で WITH CHECK 不成立 (本来 403 で来ないが多層防御)。
+        throw new SchoolNotFoundError();
+      }
+      await writeSchoolAudit(tx, user, row.id, "insert", { after: v.value });
+      return { id: row.id };
+    });
+    revalidatePath("/admin/system/schools");
+    return { ok: true, data };
+  } catch (error) {
+    if (error instanceof SchoolNotFoundError) {
+      return notFound("学校を作成できませんでした。");
+    }
+    if (isUniqueViolation(error)) {
+      return conflict("同じ学校コードが既に存在します。");
+    }
+    throw error;
+  }
+}
+
+/**
  * audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。
  * system_admin は users 行ではないため actor 系は NULL、school_id には対象校 id を記録する。
  */
@@ -125,6 +175,7 @@ async function writeSchoolAudit(
   tx: TenantTx,
   user: { uid: string; role: string },
   schoolId: string,
+  operation: "insert" | "update",
   diff: unknown,
 ): Promise<void> {
   const isSystemAdmin = user.role === "system_admin";
@@ -133,7 +184,7 @@ async function writeSchoolAudit(
     schoolId,
     tableName: "schools",
     recordId: schoolId,
-    operation: "update",
+    operation,
     diff: diff as object,
     rowHash: "",
     createdBy: isSystemAdmin ? null : user.uid,
