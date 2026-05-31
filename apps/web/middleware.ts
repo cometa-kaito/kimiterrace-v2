@@ -33,8 +33,10 @@ export function middleware(request: NextRequest): NextResponse {
 /**
  * matcher: 認証不要なパスを除外する。
  * - /login: ログイン画面そのもの
- * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)
- * - /api/health: 監視用 liveness (ADR: 認証不要)
+ * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)。`api/auth/` と
+ *   trailing slash で固定し、サブルート (session / signout) のみ除外する。
+ * - /api/health: 監視用 liveness (ADR: 認証不要)。leaf エンドポイントなので `api/health(?:/|$)`
+ *   で完全一致 + 末尾スラッシュのみ除外する。
  * - /s/*: F05 生徒の匿名アクセス入口 (`/s/{token}`)。生徒は `__session` を持たないため
  *   除外しないと route handler に到達できない。可否は token 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは 410 に倒す (app/s/[token]/route.ts)。
@@ -54,9 +56,14 @@ export function middleware(request: NextRequest): NextResponse {
  * `/student`、F12 の `/signage/`・`/guide`) を除外しないと「発行→生徒/端末が開く」「教員がフィードバック
  * 投稿」が /login に弾かれ実機で破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は
  * __tests__/auth/middleware.test.ts の matcher テスト。
+ *
+ * **prefix 除外の厳密化 (#139 L3)**: 除外トークンは「先頭一致」なので、anchor の無い `api/auth` は
+ * `/api/authorize`、`api/health` は `/api/healthz` まで巻き込み、保護対象パスを静かにゲート除外して
+ * しまう (PR #227 が `guide` → `guide(?:/|$)` で塞いだのと同クラスの footgun)。サブルートを持つ
+ * `api/auth/` は trailing slash で、leaf の `api/health(?:/|$)` は完全一致 + 末尾スラッシュで固定する。
  */
 export const config = {
   matcher: [
-    "/((?!login|s/|student|signage/|guide(?:/|$)|api/auth|api/health|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login|s/|student|signage/|guide(?:/|$)|api/auth/|api/health(?:/|$)|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };

@@ -74,7 +74,23 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
   it("既存の認証不要パスも除外のまま", () => {
     expect(gated.test("/login")).toBe(false);
     expect(gated.test("/api/auth/session")).toBe(false);
+    expect(gated.test("/api/auth/signout")).toBe(false);
     expect(gated.test("/api/health")).toBe(false);
+  });
+
+  it("api/auth 除外は api/auth/ で厳格、/api/authorize 等は過剰除外しない (保護のまま) (#139 L3)", () => {
+    // anchor の無い `api/auth` だと /api/authorize 等を巻き込み、将来 /api/auth で始まる別ルートを
+    // 追加した人が「保護されている」と誤認する静かなバイパスになる (PR #227 の guide と同クラス)。
+    expect(gated.test("/api/authorize")).toBe(true);
+    expect(gated.test("/api/auth-debug")).toBe(true);
+  });
+
+  it("api/health 除外は api/health(?:/|$) で厳格、/api/healthz 等は過剰除外しない (保護のまま) (#139 L3)", () => {
+    // leaf エンドポイントなので完全一致 + 末尾スラッシュのみ除外。/api/healthz は保護対象に残す。
+    expect(gated.test("/api/healthz")).toBe(true);
+    expect(gated.test("/api/health-internal")).toBe(true);
+    // 末尾スラッシュ付きの正規アクセスは引き続き除外 (認証不要のまま)。
+    expect(gated.test("/api/health/")).toBe(false);
   });
 
   it("保護対象 (/admin 等) は引き続きゲート対象、s で始まる別パスは過剰除外しない", () => {
