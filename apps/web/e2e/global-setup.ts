@@ -84,6 +84,22 @@ export const SEED = {
   /** SCHOOL1 の school_id。教員 session の custom claim `school_id` に載せ、RLS スコープを一致させる。 */
   SCHOOL_ID: "00000000-0000-4000-8000-000000000001",
   /**
+   * SCHOOL1 の class_id (`seed()` が daily_data を入れるクラス)。完全 golden-path e2e
+   * (#48-O 第 4 増分) で教員が `/admin/editor/{classId}` を開いて連絡を更新するため、固定 UUID を
+   * spec から import できるよう公開する。教員の school_id = SCHOOL_ID と同一校なので RLS で編集可能。
+   */
+  CLASS_ID: "00000000-0000-4000-8000-000000000003",
+  /**
+   * 完全 golden-path 専用のクラス / トークン / 初期連絡 (#48-O 第 4 増分の test 分離)。
+   * golden-path は連絡を**破壊的に UPDATE** するため、`signage.spec.ts` が読む共有クラス
+   * (`CLASS_ID` / `KNOWN_TOKEN`) を使うと `fullyParallel` 実行順次第で signage 正常系が落ちうる
+   * (PR #233 Reviewer Medium-1)。golden-path は **専用クラス**を編集・表示して相互干渉を断つ。
+   * SCHOOL1 配下 (school_id=SCHOOL_ID) なので教員 (同一校) が RLS 下で編集可能。
+   */
+  GOLDEN_CLASS_ID: "00000000-0000-4000-8000-000000000031",
+  GOLDEN_TOKEN: "e2e-golden-path-token",
+  GOLDEN_INITIAL_NOTICE: "E2E-GOLDEN-INITIAL",
+  /**
    * 認証 e2e (#48-O 第 3 増分) の教員ユーザー。`auth.setup.ts` が Auth emulator に
    * **localId = TEACHER_UID** でユーザーを作成し、custom claim `{role:"teacher", school_id: SCHOOL_ID}`
    * を付与する。
@@ -186,6 +202,7 @@ export default async function globalSetup(): Promise<void> {
     await applyMigrations(sql);
     await seed(sql);
     await seedSchool2(sql);
+    await seedGoldenClass(sql);
     // 描画経路を RLS 下で走らせるため、webServer 用の kimiterrace_app に LOGIN を付与する (#213)。
     await enableAppRoleLogin(sql, url);
   } finally {
@@ -246,6 +263,40 @@ async function seedSchool2(sql: RawSql): Promise<void> {
   );
 }
 
+/**
+ * 完全 golden-path 専用クラスを SCHOOL1 配下に seed する (#48-O 第 4 増分 / PR #233 Reviewer Medium-1)。
+ * golden-path は連絡を破壊的 UPDATE するため `signage.spec.ts` の共有クラスと干渉しないよう専用化する。
+ * 教員 (school_id=SCHOOL_ID) が編集できるよう SCHOOL1 / 既存 grade 配下に作る。初期連絡を 1 件入れて
+ * NoticeEditor に編集対象の入力欄が出るようにする (golden-path がこれを一意文字列へ置換する)。
+ */
+async function seedGoldenClass(sql: RawSql): Promise<void> {
+  const schoolId = SEED.SCHOOL_ID;
+  const gradeId = "00000000-0000-4000-8000-000000000002"; // seed() の SCHOOL1 1年 grade
+  const classId = SEED.GOLDEN_CLASS_ID;
+  const magicLinkId = "00000000-0000-4000-8000-000000000032";
+  const dailyId = "00000000-0000-4000-8000-000000000033";
+
+  const tokenHash = hashToken(SEED.GOLDEN_TOKEN);
+  const today = jstToday();
+  const notices = JSON.stringify([{ text: SEED.GOLDEN_INITIAL_NOTICE }]);
+
+  await sql.unsafe(
+    `INSERT INTO classes (id, school_id, grade_id, academic_year, name, grade)
+     VALUES ('${classId}', '${schoolId}', '${gradeId}', 2026, '2組', 1)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO magic_links (id, school_id, class_id, token_hash)
+     VALUES ('${magicLinkId}', '${schoolId}', '${classId}', '${tokenHash}')
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO daily_data (id, school_id, scope, class_id, date, notices)
+     VALUES ('${dailyId}', '${schoolId}', 'class', '${classId}', '${today}', '${notices}'::jsonb)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+}
+
 /** 真実ソース (packages/db/__tests__/_setup/global-setup.ts) と厳密一致させた適用順序。 */
 async function applyMigrations(sql: RawSql): Promise<void> {
   // 拡張 (pgvector + pgcrypto)。CI Postgres は新品なので DROP SCHEMA は不要。
@@ -284,9 +335,9 @@ async function applyMigrations(sql: RawSql): Promise<void> {
  * ON CONFLICT DO NOTHING にする。監査カラム created_by/updated_by はシステム作成として NULL。
  */
 async function seed(sql: RawSql): Promise<void> {
-  const schoolId = "00000000-0000-4000-8000-000000000001";
+  const schoolId = SEED.SCHOOL_ID;
   const gradeId = "00000000-0000-4000-8000-000000000002";
-  const classId = "00000000-0000-4000-8000-000000000003";
+  const classId = SEED.CLASS_ID;
   const magicLinkId = "00000000-0000-4000-8000-000000000004";
   const dailyId = "00000000-0000-4000-8000-000000000005";
   const schoolScopeDailyId = "00000000-0000-4000-8000-000000000006";
