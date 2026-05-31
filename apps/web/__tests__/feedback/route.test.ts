@@ -14,13 +14,14 @@ vi.mock("../../lib/db", () => ({ getDb: () => ({}) }));
 vi.mock("@kimiterrace/db", () => ({ submitFeedback }));
 
 import { POST } from "../../app/api/guide/feedback/route";
+import { GUIDE_FEEDBACK_LIMIT, guideFeedbackRateLimiter } from "../../lib/guide/rate-limit";
 
 const NEW_ID = "55555555-5555-4555-8555-555555555555";
 
-function jsonRequest(body: unknown): Request {
+function jsonRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://test/api/guide/feedback", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
@@ -37,6 +38,8 @@ function formRequest(fields: Record<string, string>): Request {
 beforeEach(() => {
   submitFeedback.mockReset();
   submitFeedback.mockResolvedValue(NEW_ID);
+  // レートリミッタは module-level シングルトン。テスト間で状態が漏れないよう毎回リセット (#234)。
+  guideFeedbackRateLimiter.reset();
 });
 
 afterEach(() => {
@@ -105,5 +108,36 @@ describe("POST /api/guide/feedback (非認証 / 匿名投稿)", () => {
     );
     expect(res.status).toBe(400);
     expect(submitFeedback).not.toHaveBeenCalled();
+  });
+
+  it("同一 IP が上限を超えると 429 + Retry-After を返し、その投稿は submitFeedback を呼ばない (#234)", async () => {
+    const ip = "203.0.113.42";
+    const valid = { studentReaction: 4, teacherUtility: 4 };
+    // 上限ちょうどまでは通る (各回 201、submitFeedback が呼ばれる)。
+    for (let i = 0; i < GUIDE_FEEDBACK_LIMIT; i++) {
+      const ok = await POST(jsonRequest(valid, { "x-forwarded-for": ip }));
+      expect(ok.status).toBe(201);
+    }
+    expect(submitFeedback).toHaveBeenCalledTimes(GUIDE_FEEDBACK_LIMIT);
+
+    // 上限 +1 件目は 429。body parse / DB へ進まないため submitFeedback は増えない。
+    const limited = await POST(jsonRequest(valid, { "x-forwarded-for": ip }));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("600");
+    expect((await limited.json()).ok).toBe(false);
+    expect(submitFeedback).toHaveBeenCalledTimes(GUIDE_FEEDBACK_LIMIT);
+  });
+
+  it("別 IP は独立した上限を持つ (一方の枯渇が他方を巻き込まない、#234)", async () => {
+    const valid = { studentReaction: 3, teacherUtility: 3 };
+    // IP-A を上限まで枯渇させる。
+    for (let i = 0; i < GUIDE_FEEDBACK_LIMIT; i++) {
+      await POST(jsonRequest(valid, { "x-forwarded-for": "198.51.100.1" }));
+    }
+    const aLimited = await POST(jsonRequest(valid, { "x-forwarded-for": "198.51.100.1" }));
+    expect(aLimited.status).toBe(429);
+    // IP-B は無関係に通る。
+    const bOk = await POST(jsonRequest(valid, { "x-forwarded-for": "198.51.100.2" }));
+    expect(bOk.status).toBe(201);
   });
 });
