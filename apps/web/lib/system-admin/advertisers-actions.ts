@@ -121,7 +121,9 @@ export async function setAdvertiserActiveAction(raw: {
       const isSystemAdmin = user.role === "system_admin";
       const updated = await tx
         .update(advertisers)
-        .set({ isActive, updatedBy: isSystemAdmin ? null : user.uid })
+        // updated_at は auditColumns では INSERT 時のみ default のため UPDATE では明示更新する
+        // (sibling の schools/magic-links/contents の UPDATE と同方針、ルール1: 監査カラム整合)。
+        .set({ isActive, updatedBy: isSystemAdmin ? null : user.uid, updatedAt: new Date() })
         .where(eq(advertisers.id, id))
         .returning({ id: advertisers.id });
       if (updated.length === 0) {

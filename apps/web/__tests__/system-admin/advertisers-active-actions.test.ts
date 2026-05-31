@@ -91,6 +91,8 @@ describe("setAdvertiserActiveAction", () => {
     const res = await setAdvertiserActiveAction({ id: ADV_ID, isActive: false });
     expect(res).toEqual({ ok: true, data: { id: ADV_ID, isActive: false } });
     expect(updateSet).toMatchObject({ isActive: false, updatedBy: null });
+    // updated_at を明示更新する (auditColumns は UPDATE で自動更新しないため、ルール1)。
+    expect(updateSet?.updatedAt).toBeInstanceOf(Date);
     expect(auditValues).toMatchObject({
       actorUserId: null,
       schoolId: null,
