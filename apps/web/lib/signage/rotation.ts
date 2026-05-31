@@ -1,0 +1,80 @@
+/**
+ * サイネージ再生制御の**純粋ロジック** (#48-E2 / F12)。DB・DOM 非依存でユニットテスト可能。
+ *
+ * #48-E1 が「いま表示すべき確定状態」を静的描画したのに対し、#48-E2 は Client Island で
+ * (a) 広告ローテーション (1 件ずつ duration 秒で巡回) と (b) 5-10 秒ポーリングによる自動更新を
+ * 担う。V1 の Firestore `onSnapshot` リアルタイム購読を**短ポーリングに置換**する
+ * (ADR-022: 学校 Wi-Fi はアウトバウンドのみ前提、pull 型に統一 / v1-v2-mapping §Firebase API 置換)。
+ *
+ * **ポーリング間隔の根拠 (NFR01 突合)**: 既定 10 秒 (`POLL_BASE_MS`)。v1-v2-mapping が懸念した
+ * 「50 台/校 × 5 秒 = 10 req/s/校」を、サイネージは描画頻度が低い (連絡・時間割は分〜時間単位で変化)
+ * ため **10 秒に倍化して 5 req/s/校** に抑える。さらに端末ごとに ±20% のジッタ (`POLL_JITTER_RATIO`)
+ * を掛け、50 台の更新が同一秒に重ならないよう**位相をばらして** Cloud SQL 接続のバースト
+ * (= 1 リクエスト 1 トランザクション 1 コネクション) を平準化する。詳細な接続試算は
+ * `signage-display.ts` 冒頭コメント参照。
+ */
+
+/** ポーリング基準間隔 (ms)。NFR01 突合の結果 5 秒 → 10 秒に倍化 (上記コメント)。 */
+export const POLL_BASE_MS = 10_000;
+
+/** ポーリング間隔のジッタ比率 (±20%)。50 台の更新位相をばらし接続バーストを避ける。 */
+export const POLL_JITTER_RATIO = 0.2;
+
+/** 広告 1 件の表示時間の下限・上限 (ms)。0/欠損/極端値を実用域へ丸める。 */
+export const MIN_AD_MS = 3_000;
+export const MAX_AD_MS = 120_000;
+/** durationSec が不正 (<=0 / 非有限) なときの既定表示時間 (ms)。 */
+export const DEFAULT_AD_MS = 10_000;
+
+/**
+ * 広告の `durationSec` を実用域の ms に丸める。非有限/0 以下は既定値、範囲外はクランプ。
+ * 端末側で異常データに引きずられて「広告が一瞬で切り替わる/固まる」のを防ぐ。
+ */
+export function clampAdDurationMs(durationSec: number): number {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    return DEFAULT_AD_MS;
+  }
+  const ms = durationSec * 1_000;
+  return Math.min(MAX_AD_MS, Math.max(MIN_AD_MS, ms));
+}
+
+/**
+ * ローテーションの次インデックス。空 (length<=0) は 0、それ以外は循環。
+ * ポーリングで広告件数が変わっても範囲外を指さないよう、呼び出し側は現在 index に
+ * `clampIndex` を併用する。
+ */
+export function nextIndex(current: number, length: number): number {
+  if (length <= 0) {
+    return 0;
+  }
+  return (current + 1) % length;
+}
+
+/** 件数変動時に現在 index を有効範囲へ丸める (件数減で範囲外を指すのを防ぐ)。 */
+export function clampIndex(current: number, length: number): number {
+  if (length <= 0) {
+    return 0;
+  }
+  return current % length;
+}
+
+/**
+ * ポーリング間隔にジッタを掛けた ms を返す。`rnd` は [0,1) の乱数源 (既定 Math.random、
+ * テストでは固定値を注入)。50 台の更新位相をばらすのが目的。
+ */
+export function jitteredPollMs(
+  baseMs: number = POLL_BASE_MS,
+  ratio: number = POLL_JITTER_RATIO,
+  rnd: () => number = Math.random,
+): number {
+  const delta = (rnd() * 2 - 1) * ratio * baseMs;
+  return Math.max(MIN_AD_MS, Math.round(baseMs + delta));
+}
+
+/**
+ * JST (Asia/Tokyo) の YYYY-MM-DD。端末のブラウザ TZ に依存せず日本時間の「今日」を出す
+ * (深夜 0 時を跨いだら翌日分へ自動で切り替わる)。`now` 注入でテスト可能。
+ */
+export function jstDateString(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
+}
