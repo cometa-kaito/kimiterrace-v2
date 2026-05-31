@@ -40,16 +40,18 @@ export function middleware(request: NextRequest): NextResponse {
  *   判定し、失効/期限切れは 410 に倒す (app/s/[token]/route.ts)。
  * - /student: F05 生徒ランディング。`__student_session` で再解決し自己ゲートするため、
  *   教員系 `__session` ゲートからは除外 (app/student/page.tsx)。
- * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)
- * - /api/health: 監視用 liveness (ADR: 認証不要)
+ * - /signage/*: F12/#48-E 公開サイネージ表示 (`/signage/{classToken}` + `/signage/{classToken}/data`)。
+ *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
+ *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
+ *   弾かれ実機破綻する。`/admin/signage-preview` は `admin` 始まりなので本除外の影響外 (保護のまま)。
  * - _next/static, _next/image, favicon, public assets: 静的アセット
  *
- * negative lookahead で上記を除外し、残り全部を保護対象にする。F05 の匿名 2 経路
- * (`/s`・`/student`) を除外しないと「発行→生徒が開く」が /login に弾かれ実機で破綻する
- * (PR #160 Reviewer Critical-1)。回帰は __tests__/auth/middleware.test.ts の matcher テスト。
+ * negative lookahead で上記を除外し、残り全部を保護対象にする。匿名公開経路 (F05 の `/s`・
+ * `/student`、F12 の `/signage/`) を除外しないと「発行→生徒/端末が開く」が /login に弾かれ実機で
+ * 破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は __tests__/auth/middleware.test.ts の matcher テスト。
  */
 export const config = {
   matcher: [
-    "/((?!login|s/|student|api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login|s/|student|signage/|api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };

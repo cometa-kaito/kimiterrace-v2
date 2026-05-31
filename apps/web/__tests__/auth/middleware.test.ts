@@ -42,17 +42,22 @@ describe("middleware", () => {
 });
 
 /**
- * matcher 回帰 (PR #160 Reviewer Critical-1): F05 の匿名 2 経路を `__session` ゲートから
- * 除外できているかを matcher 正規表現で固定する。除外漏れると生徒アクセスが /login に弾かれ
+ * matcher 回帰 (PR #160 Reviewer Critical-1 / #48-E): 匿名公開経路を `__session` ゲートから
+ * 除外できているかを matcher 正規表現で固定する。除外漏れると生徒/端末アクセスが /login に弾かれ
  * 実機破綻する。matcher は path 全体にマッチする想定なので ^...$ で anchor して判定する。
  */
-describe("middleware matcher (F05 匿名経路の除外)", () => {
+describe("middleware matcher (匿名公開経路の除外)", () => {
   // biome-ignore lint/style/noNonNullAssertion: config.matcher は固定で存在する
   const gated = new RegExp(`^${config.matcher[0]!}$`);
 
   it("F05 匿名経路 /s/{token}・/student はゲート対象外 (除外)", () => {
     expect(gated.test("/s/abc123_token")).toBe(false);
     expect(gated.test("/student")).toBe(false);
+  });
+
+  it("F12/#48-E 公開サイネージ /signage/{classToken}(/data) はゲート対象外 (除外)", () => {
+    expect(gated.test("/signage/abc123_token")).toBe(false);
+    expect(gated.test("/signage/abc123_token/data")).toBe(false);
   });
 
   it("既存の認証不要パスも除外のまま", () => {
@@ -66,5 +71,10 @@ describe("middleware matcher (F05 匿名経路の除外)", () => {
     expect(gated.test("/dashboard")).toBe(true);
     // `s/` 除外が /settings を巻き込まないこと (s/ ではなく settings)
     expect(gated.test("/settings")).toBe(true);
+  });
+
+  it("signage/ 除外が認証必須の /admin/signage-preview を巻き込まない (過剰除外しない)", () => {
+    // `/admin/...` 始まりは signage/ 除外の影響外 → 引き続きゲート対象 (保護される)。
+    expect(gated.test("/admin/signage-preview/some-class-id")).toBe(true);
   });
 });
