@@ -73,7 +73,47 @@ export const SEED = {
   SCHEDULE_TEXT: "E2E-SCHEDULE-1限-数学",
   NOTICE_TEXT: "E2E-NOTICE-XYZ",
   ASSIGNMENT_TEXT: "E2E-ASSIGNMENT-数学ワーク",
+  /**
+   * SCHOOL1 の **school スコープ**日次データに入れる識別文字列 (#213 真の RLS ガード)。
+   * `getEffectiveDailyData` の school スコープ分岐 (`eq(scope,'school')`) は **app 側に school_id
+   * フィルタが無く RLS だけがテナント分離する**唯一の経路。よって別校 (SCHOOL2) の描画にこの文字列が
+   * 出ないことは「RLS が効いている」ことの厳密な回帰ガードになる (superuser=RLS バイパス時のみ漏れる)。
+   * class スコープ (SEED.NOTICE_TEXT 等) は app 側 `eq(classId,...)` でも分離されるため RLS 単独検証にならない。
+   */
+  SCHOOL_SCOPE_TEXT: "E2E-SCHOOL1-SCHOOLSCOPE-ONLY",
 } as const;
+
+/**
+ * 2 校目の seed (#213: RLS テナント分離を e2e で実証する negative 用)。別 school / class / token。
+ * webServer を kimiterrace_app (非 BYPASSRLS) 接続にした上で、SCHOOL2 の token では SCHOOL2 の
+ * 連絡だけが描画され SCHOOL1 の連絡 (`SEED.NOTICE_TEXT`) は出ない (= RLS で越境不可) ことを確認する。
+ */
+export const SEED2 = {
+  KNOWN_TOKEN: "e2e-known-token-school2",
+  NOTICE_TEXT: "E2E-NOTICE-SCHOOL2-ONLY",
+} as const;
+
+/**
+ * アプリ (webServer) が e2e で接続する **非 BYPASSRLS** ロール (#213 / PR #210 Reviewer Medium-1)。
+ * migrate / seed は superuser で行うが、描画経路は kimiterrace_app で動かして **RLS を実際に効かせる**。
+ * superuser 接続のままだと RLS がバイパスされ「RLS を貫く end-to-end」が名ばかりになる。
+ * kimiterrace_app は migration で NOLOGIN なので、CI の使い捨て DB に限り globalSetup で LOGIN を付与する。
+ */
+export const APP_DB_ROLE = "kimiterrace_app";
+
+/**
+ * superuser の DATABASE_URL から、接続ユーザーだけを kimiterrace_app に差し替えた URL を作る。
+ * パスワードは同じ CI 値を流用する (新たな secret 文字列を増やさない、CLAUDE.md ルール5)。
+ * placeholder (実 DB 無しのローカル) はそのまま返す (signage spec は skip される)。
+ */
+export function toAppDatabaseUrl(url: string | undefined): string | undefined {
+  if (!isSignageDbAvailable(url)) {
+    return url;
+  }
+  const parsed = new URL(url);
+  parsed.username = APP_DB_ROLE;
+  return parsed.toString();
+}
 
 /**
  * 平文トークンの SHA-256 hex。`apps/web/lib/magic-link/token.ts` の `hashToken` と
@@ -117,9 +157,65 @@ export default async function globalSetup(): Promise<void> {
   try {
     await applyMigrations(sql);
     await seed(sql);
+    await seedSchool2(sql);
+    // 描画経路を RLS 下で走らせるため、webServer 用の kimiterrace_app に LOGIN を付与する (#213)。
+    await enableAppRoleLogin(sql, url);
   } finally {
     await sql.end({ timeout: 5 });
   }
+}
+
+/**
+ * kimiterrace_app (migration で NOLOGIN) に LOGIN + パスワードを付与する。**CI の使い捨て DB 限定**。
+ * パスワードは superuser URL のものを流用 (新規 secret を増やさない)。これにより webServer は
+ * `toAppDatabaseUrl(...)` で非 BYPASSRLS 接続でき、signage の描画経路が実際に RLS を通る。
+ */
+async function enableAppRoleLogin(sql: RawSql, url: string): Promise<void> {
+  const password = new URL(url).password || "postgres";
+  const escaped = password.replace(/'/g, "''");
+  await sql.unsafe(`ALTER ROLE ${APP_DB_ROLE} WITH LOGIN PASSWORD '${escaped}';`);
+}
+
+/**
+ * 2 校目 (SEED2) を最小 seed する。RLS テナント分離の negative 用に、SCHOOL1 とは別 school_id の
+ * クラス + 有効 magic link + 当日 daily_data (連絡のみ) を入れる。superuser 接続で直接 INSERT。
+ */
+async function seedSchool2(sql: RawSql): Promise<void> {
+  const schoolId = "00000000-0000-4000-8000-000000000011";
+  const gradeId = "00000000-0000-4000-8000-000000000012";
+  const classId = "00000000-0000-4000-8000-000000000013";
+  const magicLinkId = "00000000-0000-4000-8000-000000000014";
+  const dailyId = "00000000-0000-4000-8000-000000000015";
+
+  const tokenHash = hashToken(SEED2.KNOWN_TOKEN);
+  const today = jstToday();
+  const notices = JSON.stringify([{ text: SEED2.NOTICE_TEXT }]);
+
+  await sql.unsafe(
+    `INSERT INTO schools (id, name, prefecture)
+     VALUES ('${schoolId}', 'E2E高校2', '岐阜県')
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO grades (id, school_id, name, display_order, has_classes)
+     VALUES ('${gradeId}', '${schoolId}', '1年', 0, true)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO classes (id, school_id, grade_id, academic_year, name, grade)
+     VALUES ('${classId}', '${schoolId}', '${gradeId}', 2026, '1組', 1)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO magic_links (id, school_id, class_id, token_hash)
+     VALUES ('${magicLinkId}', '${schoolId}', '${classId}', '${tokenHash}')
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  await sql.unsafe(
+    `INSERT INTO daily_data (id, school_id, scope, class_id, date, notices)
+     VALUES ('${dailyId}', '${schoolId}', 'class', '${classId}', '${today}', '${notices}'::jsonb)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
 }
 
 /** 真実ソース (packages/db/__tests__/_setup/global-setup.ts) と厳密一致させた適用順序。 */
@@ -165,6 +261,7 @@ async function seed(sql: RawSql): Promise<void> {
   const classId = "00000000-0000-4000-8000-000000000003";
   const magicLinkId = "00000000-0000-4000-8000-000000000004";
   const dailyId = "00000000-0000-4000-8000-000000000005";
+  const schoolScopeDailyId = "00000000-0000-4000-8000-000000000006";
 
   const tokenHash = hashToken(SEED.KNOWN_TOKEN);
   const today = jstToday();
@@ -176,6 +273,8 @@ async function seed(sql: RawSql): Promise<void> {
   const assignments = JSON.stringify([
     { deadline: today, subject: SEED.ASSIGNMENT_TEXT, task: "p.10-12" },
   ]);
+  // SCHOOL1 の school スコープ行 (class_id NULL)。RLS 単独で分離される経路の漏れ検知用 (#213)。
+  const schoolScopeSchedules = JSON.stringify([{ period: 1, subject: SEED.SCHOOL_SCOPE_TEXT }]);
 
   await sql.unsafe(
     `INSERT INTO schools (id, name, prefecture)
@@ -210,6 +309,16 @@ async function seed(sql: RawSql): Promise<void> {
      VALUES
        ('${dailyId}', '${schoolId}', 'class', '${classId}', '${today}',
         '${schedules}'::jsonb, '${notices}'::jsonb, '${assignments}'::jsonb)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+
+  // 当日の **school スコープ**日次データ (class_id/grade_id/department_id NULL = ck_daily_data_scope OK)。
+  // app 側に school_id フィルタが無い `eq(scope,'school')` 経路に乗るため、別校描画に漏れたら RLS 不全。
+  // SCHOOL2 は schedules を持たない (seedSchool2 は notices のみ) ので、漏れた場合 SCHOOL2 の時間割欄に
+  // SCHOOL_SCOPE_TEXT が出る → negative テストで検知できる。
+  await sql.unsafe(
+    `INSERT INTO daily_data (id, school_id, scope, date, schedules)
+     VALUES ('${schoolScopeDailyId}', '${schoolId}', 'school', '${today}', '${schoolScopeSchedules}'::jsonb)
      ON CONFLICT (id) DO NOTHING;`,
   );
 }
