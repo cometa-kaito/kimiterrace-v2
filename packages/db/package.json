@@ -7,9 +7,18 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./dist/index.js" },
-    "./schema": { "types": "./src/schema/index.ts", "default": "./dist/schema/index.js" },
-    "./migrate-files": { "types": "./src/migrate-files.ts", "default": "./dist/migrate-files.js" }
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./migrate-files": {
+      "types": "./src/migrate-files.ts",
+      "default": "./dist/migrate-files.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

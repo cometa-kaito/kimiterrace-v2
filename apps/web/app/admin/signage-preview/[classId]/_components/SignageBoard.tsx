@@ -59,7 +59,11 @@ function Section({
   title,
   kind,
   section,
-}: { title: string; kind: SignageSectionKind; section: MergedSection }) {
+}: {
+  title: string;
+  kind: SignageSectionKind;
+  section: MergedSection;
+}) {
   return (
     <section aria-label={title} style={sectionStyle}>
       <h2 style={sectionTitleStyle}>

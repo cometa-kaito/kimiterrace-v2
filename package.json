@@ -30,6 +30,8 @@
     "typescript": "^6.0.3"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx,json,md,yaml,yml}": ["biome format --write --no-errors-on-unmatched"]
+    "*.{ts,tsx,js,jsx,json,md,yaml,yml}": [
+      "biome format --write --no-errors-on-unmatched"
+    ]
   }
 }

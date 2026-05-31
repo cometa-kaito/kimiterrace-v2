@@ -47,15 +47,18 @@ describe("magic-link request validation", () => {
     expect(parseIssueBody({ classId: "x" })).toEqual({ ok: false, error: "invalid_class_id" });
   });
 
-  it.each([0, -5, 1.5, EXPIRES_MAX_DAYS + 1, "30"])(
-    "parseIssueBody: 範囲外/非整数の expiresInDays (%s) は invalid_expires_in_days",
-    (bad) => {
-      expect(parseIssueBody({ classId: CLASS_ID, expiresInDays: bad })).toEqual({
-        ok: false,
-        error: "invalid_expires_in_days",
-      });
-    },
-  );
+  it.each([
+    0,
+    -5,
+    1.5,
+    EXPIRES_MAX_DAYS + 1,
+    "30",
+  ])("parseIssueBody: 範囲外/非整数の expiresInDays (%s) は invalid_expires_in_days", (bad) => {
+    expect(parseIssueBody({ classId: CLASS_ID, expiresInDays: bad })).toEqual({
+      ok: false,
+      error: "invalid_expires_in_days",
+    });
+  });
 
   it("computeExpiresAt: now からの日数を加算", () => {
     const now = new Date("2026-01-01T00:00:00.000Z");

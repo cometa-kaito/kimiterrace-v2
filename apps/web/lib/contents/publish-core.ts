@@ -38,9 +38,8 @@ export type PublishScopeValue = (typeof PUBLISH_SCOPES)[number];
 
 // ズレ検出: publishScope enum の全メンバが PUBLISH_SCOPES に含まれることを型レベルで強制する。
 // enum に値が追加 (publishScope の派生型が広がる) されると、この代入が型エラーになる (= 更新漏れを CI が検出)。
-type _ExhaustivePublishScopeCheck = Exclude<PublishScope, PublishScopeValue> extends never
-  ? true
-  : never;
+type _ExhaustivePublishScopeCheck =
+  Exclude<PublishScope, PublishScopeValue> extends never ? true : never;
 const _exhaustivePublishScope: _ExhaustivePublishScopeCheck = true;
 void _exhaustivePublishScope;
 

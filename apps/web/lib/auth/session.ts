@@ -38,9 +38,8 @@ const ALLOWED_ROLES = [
 
 // ズレ検出: TenantRole の全メンバが ALLOWED_ROLES に含まれることを型レベルで強制する。
 // userRole enum に値が追加され TenantRole が広がると、この代入が型エラーになる (= 更新漏れを CI が検出)。
-type _ExhaustiveRoleCheck = Exclude<TenantRole, (typeof ALLOWED_ROLES)[number]> extends never
-  ? true
-  : never;
+type _ExhaustiveRoleCheck =
+  Exclude<TenantRole, (typeof ALLOWED_ROLES)[number]> extends never ? true : never;
 const _exhaustive: _ExhaustiveRoleCheck = true;
 void _exhaustive;
 

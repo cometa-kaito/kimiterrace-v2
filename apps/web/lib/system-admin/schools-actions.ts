@@ -203,9 +203,9 @@ export async function createSchoolAction(raw: {
  * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。削除と監査を同一 tx で行い、FK 違反時は
  * tx がロールバックされ監査も残らない。`audit_log.school_id` は FK ではないため作成時監査行は削除を阻まない。
  */
-export async function deleteSchoolAction(raw: { id?: unknown }): Promise<
-  ActionResult<{ id: string }>
-> {
+export async function deleteSchoolAction(raw: {
+  id?: unknown;
+}): Promise<ActionResult<{ id: string }>> {
   if (!isUuid(raw.id)) {
     return invalid("学校の指定が不正です。");
   }
