@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
+import { foreignKey, index, pgTable, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { classes } from "./classes.js";
 import { schools } from "./schools.js";
@@ -28,8 +28,13 @@ export const magicLinks = pgTable(
     schoolId: uuid("school_id")
       .notNull()
       .references(() => schools.id, { onDelete: "restrict" }),
-    /** F05 クラスリンクの対象クラス。クラス削除でリンクも失効させるため cascade。 */
-    classId: uuid("class_id").references(() => classes.id, { onDelete: "cascade" }),
+    /**
+     * F05 クラスリンクの対象クラス。クラス削除でリンクも失効させるため cascade。
+     * FK は (class_id, school_id) の composite で張る (#204、下記 foreignKey 参照) —
+     * 別テナントの class を指すクラスリンクの発行を DB で弾く (cross-tenant write 整合)。
+     * nullable: 旧・保護者単回リンクは class_id NULL で、MATCH SIMPLE により FK 検査をスキップ。
+     */
+    classId: uuid("class_id"),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     tokenHash: varchar("token_hash", { length: 128 }).notNull(),
     /** デフォルト 90 日 (F05)。教員 UI から短縮/延長可能。 */
@@ -53,5 +58,12 @@ export const magicLinks = pgTable(
     ixClass: index("ix_magic_links_class_id").on(t.classId),
     // 子側 (ai_chat_sessions.(magic_link_id, school_id)) から composite FK で参照される (#73)。
     uqIdSchool: unique("uq_magic_links_id_school").on(t.id, t.schoolId),
+    // cross-tenant write 整合 (#204): class と school_id の一致を composite FK で強制。
+    // classes には uq_classes_id_school (#203) があるため参照先 UNIQUE は既存。
+    fkClass: foreignKey({
+      columns: [t.classId, t.schoolId],
+      foreignColumns: [classes.id, classes.schoolId],
+      name: "fk_magic_links_class",
+    }).onDelete("cascade"),
   }),
 );

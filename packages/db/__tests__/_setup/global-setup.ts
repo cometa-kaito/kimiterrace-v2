@@ -27,6 +27,12 @@ const F04_PUBLISH_UNIQUE_SQL = join(
 const COMPOSITE_FK_SQL = join(packageRoot, "drizzle", "0006_composite_fk_cross_tenant.sql");
 // #204 (#73 横展開): contents ドメインの composite FK (content_versions / publishes → contents)。
 const CONTENTS_COMPOSITE_FK_SQL = join(packageRoot, "drizzle", "0007_contents_composite_fk.sql");
+// #204 (#73 横展開、最終): magic_links.class_id の composite FK (→ classes)。classes UNIQUE は 0006。
+const MAGIC_LINK_CLASS_FK_SQL = join(
+  packageRoot,
+  "drizzle",
+  "0008_magic_link_class_composite_fk.sql",
+);
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -130,6 +136,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, COMPOSITE_FK_SQL);
     // #204: contents ドメインの composite FK (contents / content_versions が揃った後)
     await runSqlFile(sql, CONTENTS_COMPOSITE_FK_SQL);
+    // #204: magic_links.class_id の composite FK (classes UNIQUE = 0006 適用後)
+    await runSqlFile(sql, MAGIC_LINK_CLASS_FK_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
