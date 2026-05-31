@@ -6,13 +6,22 @@ packages:
 # どちらも同一メジャー / pre-1.0 minor 内の引き上げで親パッケージの API 互換を維持。
 # - postcss <8.5.10: XSS via unescaped </style> in stringify (GHSA-qx2v-qp2m-jg93)。next 経由で runtime。
 # - jsondiffpatch <0.7.2: XSS in HtmlFormatter::nodeBegin (GHSA-33vc-wfww-vjfv)。ai SDK 経由で runtime。
+# - tar <7.5.1: node-tar の path traversal / symlink poisoning 系 high 6 件
+#   (GHSA-8qq5-rm4j-mr97 等)。firebase-tools (認証 e2e の Auth emulator、#48-O、**devDependency**) が
+#   tar@6.2.1 を引き込む。6.x に patch 版が無いため 7.5.1+ へ引き上げ。tar は dev ツールチェーンの
+#   アーカイブ展開 (emulator JAR の解凍) にのみ使われ Cloud Run runtime には載らない。CI e2e で
+#   emulator 起動 (= tar 展開経路) が green であることを確認済 (PR #224)。
 overrides:
   "postcss@<8.5.10": "^8.5.10"
   "jsondiffpatch@<0.7.2": "^0.7.2"
+  "tar@<7.5.1": "^7.5.1"
 
 allowBuilds:
   "@biomejs/biome": true
   "@firebase/util": false
   esbuild: true
   protobufjs: true
+  # re2 は firebase-tools (認証 e2e の Auth emulator、#48-O) が引き込む optional native dep。
+  # emulator 起動に native ビルドは不要なので承認しない (install を非対話的に通す)。
+  re2: false
   sharp: true

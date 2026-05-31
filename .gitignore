@@ -41,6 +41,12 @@ yarn-debug.log*
 playwright-report/
 test-results/
 .playwright/
+# 認証 e2e の storageState (emulator トークン由来の __session を含むため commit しない、#48-O)
+apps/web/e2e/.auth/
+# firebase emulators:exec のデバッグログ
+**/firebase-debug.log
+**/firestore-debug.log
+**/ui-debug.log
 
 # Terraform
 .terraform/

@@ -29,6 +29,23 @@ const DATABASE_URL =
   toAppDatabaseUrl(process.env.DATABASE_URL) ??
   "postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder";
 
+/**
+ * Auth emulator 用 env (#48-O 第 3 増分)。CI / ローカルで `firebase emulators:exec` 配下にいると
+ * `FIREBASE_AUTH_EMULATOR_HOST` が立つ。これを webServer に伝播させると firebase-admin
+ * (lib/auth/adminApp.ts) が **コード変更なし**で emulator を信頼し、createSessionCookie /
+ * verifySessionCookie が emulator トークンで成立する。projectId は demo (実プロジェクト不要)。
+ * emulator が無い場合は undefined を渡さない (webServer env は string のみ) ため、立っている時だけ載せる。
+ */
+const FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
+const GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT ?? "demo-kimiterrace";
+
+const emulatorEnv: Record<string, string> = FIREBASE_AUTH_EMULATOR_HOST
+  ? {
+      FIREBASE_AUTH_EMULATOR_HOST,
+      GOOGLE_CLOUD_PROJECT,
+    }
+  : {};
+
 export default defineConfig({
   testDir: "./e2e",
   // globalSetup が webServer 起動前に migrate + seed する (#48-O 第 2 増分)。
@@ -42,9 +59,18 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
+    // 認証セットアップ (#48-O 第 3 増分)。emulator に教員を作成し /api/auth/session 経由で
+    // __session を storageState に保存する。chromium はこれに依存して認証済み spec を再利用する。
+    {
+      name: "setup",
+      testMatch: /.*\.setup\.ts$/,
+    },
     {
       name: "chromium",
+      // `*.setup.ts` は setup project 専用なので chromium のテスト探索からは除外する。
+      testIgnore: /.*\.setup\.ts$/,
       use: { ...devices["Desktop Chrome"] },
+      dependencies: ["setup"],
     },
   ],
   webServer: {
@@ -55,6 +81,8 @@ export default defineConfig({
     env: {
       // signage ページは Server で getDb() を呼ぶため実 DB URL を継承する (上記参照)。
       DATABASE_URL,
+      // emulator が立っていれば firebase-admin を emulator に向ける (認証 e2e、コード変更なし)。
+      ...emulatorEnv,
     },
   },
 });
