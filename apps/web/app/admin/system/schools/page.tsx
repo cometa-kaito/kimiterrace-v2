@@ -2,6 +2,13 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { listSchools } from "@kimiterrace/db";
+import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
+
+/** 階層モードの表示ラベル (一覧の列)。enum 値を網羅 (型でズレ検出、ルール3)。 */
+const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
+  class: "クラス制",
+  department: "学科制",
+};
 
 /**
  * #48-L (#123): システム管理者の学校一覧 (`/admin/system/schools`)。**Server Component**。
@@ -12,7 +19,8 @@ import { listSchools } from "@kimiterrace/db";
  *
  * `withSession` で RLS context を張り `listSchools` を呼ぶ。可視範囲は schools の RLS が決め
  * (system_admin=全校 / それ以外=自校のみ)、本ページは system_admin 専用なので全校が並ぶ。
- * 一覧は読み取り専用 (詳細 / 編集は後続スライス、本 Issue の残スコープ)。
+ * 各行から編集 (`/admin/system/schools/{id}/edit`、#48-L1) に遷移できる。詳細ビュー
+ * (V1 SchoolDetailView) は #48-L2、create/delete は follow-up。
  */
 export default async function SystemSchoolsPage() {
   await requireRole(SYSTEM_ADMIN_ROLES);
@@ -34,7 +42,9 @@ export default async function SystemSchoolsPage() {
               <th style={thStyle}>都道府県</th>
               <th style={thStyle}>学校名</th>
               <th style={thStyle}>学校コード</th>
+              <th style={thStyle}>階層モード</th>
               <th style={thStyle}>登録日</th>
+              <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
@@ -43,7 +53,13 @@ export default async function SystemSchoolsPage() {
                 <td style={tdStyle}>{s.prefecture}</td>
                 <td style={{ ...tdStyle, fontWeight: 600 }}>{s.name}</td>
                 <td style={tdStyle}>{s.code ?? "—"}</td>
+                <td style={tdStyle}>{HIERARCHY_MODE_LABEL[s.hierarchyMode]}</td>
                 <td style={tdStyle}>{formatJstDate(s.createdAt)}</td>
+                <td style={tdStyle}>
+                  <a href={`/admin/system/schools/${s.id}/edit`} style={editLinkStyle}>
+                    編集
+                  </a>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -85,3 +101,4 @@ const tdStyle: React.CSSProperties = {
   borderBottom: "1px solid #f3f4f6",
   fontSize: "0.9rem",
 };
+const editLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.85rem" };
