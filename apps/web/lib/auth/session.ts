@@ -81,10 +81,12 @@ function toTenantRole(value: unknown): TenantRole | null {
 /**
  * 検証済み claims を AuthUser に正規化する。1 つでも不正なら null (deny-by-default)。
  *
- * - `uid` は UUID 必須 (users.id / system_admins.id は uuid。Identity Platform 側で
- *   custom claim `uid` に DB の user id を載せる運用、ADR-003)。
- * - `role` は TenantRole のみ。
- * - `school_id` は system_admin のとき null 許容、それ以外は UUID 必須。
+ * - `uid` は UUID 必須 (users.id / system_admins.id は uuid)。**`decoded.uid` は firebase-admin が
+ *   常に Auth の localId (= ID トークンの `sub`) を返す**。`uid` という名の custom claim は予約衝突で
+ *   無視される (#224 で実証) ため、DB の id を claim に載せる経路は存在しない → Identity Platform
+ *   ユーザーの **localId 自体を `users.id`(UUID) に一致させて provisioning する**のが前提 (ADR-003)。
+ * - `role` は TenantRole のみ (特権 SA が付与する custom claim)。
+ * - `school_id` は system_admin のとき null 許容、それ以外は UUID 必須 (custom claim)。
  *   テナントロールで school_id が無い / 不正なら deny (RLS が school_id 未設定で全件拒否になる前に倒す)。
  */
 function normalizeClaims(claims: RawClaims): AuthUser | null {
@@ -124,7 +126,7 @@ export async function createSessionCookie(idToken: string, expiresInMs: number):
 }
 
 /**
- * session cookie を検証し、custom claims を AuthUser に正規化して返す。
+ * session cookie を検証し、検証済みトークン (localId + custom claims) を AuthUser に正規化して返す。
  * 失敗・期限切れ・claims 不正はすべて **null** (deny-by-default、throw しない)。
  *
  * @param cookie session cookie の値
@@ -139,6 +141,9 @@ export async function verifySessionCookie(
   }
   try {
     const decoded = await getAdminAuth().verifySessionCookie(cookie, checkRevoked);
+    // `decoded.uid` は Auth localId (= ID トークン sub) であり custom claim ではない。
+    // `role` / `school_id` は特権 SA が付与する custom claim。localId を users.id(UUID) に
+    // 一致させる provisioning 前提は normalizeClaims の docstring を参照 (ADR-003)。
     return normalizeClaims({
       uid: decoded.uid,
       role: decoded.role,
