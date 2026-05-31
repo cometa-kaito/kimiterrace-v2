@@ -36,7 +36,7 @@
       "recommended": true,
       "suspicious": {
         "noExplicitAny": "error",
-        "noConsoleLog": "warn"
+        "noConsole": "error"
       },
       "style": {
         "useImportType": "error",
@@ -70,6 +70,21 @@
       "include": ["**/drizzle/meta/**"],
       "formatter": { "enabled": false },
       "linter": { "enabled": false }
+    },
+    {
+      "include": [
+        "**/__tests__/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/e2e/**",
+        "scripts/**",
+        "apps/jobs/**",
+        "**/*.config.ts",
+        "**/*.config.mts",
+        "**/*.config.js",
+        "**/*.config.mjs"
+      ],
+      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     }
   ]
 }

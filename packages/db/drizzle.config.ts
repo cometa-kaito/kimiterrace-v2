@@ -6,8 +6,7 @@ import { defineConfig } from "drizzle-kit";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   // drizzle-kit はコマンド実行時にしか必要としないので、import 時に throw しない。
-  // ただし誤検知防止のため明示的に警告。
-  // biome-ignore lint/suspicious/noConsoleLog: drizzle-kit CLI 向けの起動時警告
+  // ただし誤検知防止のため明示的に警告 (config ファイルは biome.json override で noConsole 除外済)。
   console.warn("[drizzle.config] DATABASE_URL が未設定です。generate のみなら無視可。");
 }
 
