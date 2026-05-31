@@ -14,6 +14,19 @@ RLS / トリガ等、**drizzle-kit generate では生成できない手書き SQ
 | `0003_audit_trigger.sql` | audit_log の append-only 強制 + `prev_hash`/`row_hash` 自動計算トリガ |
 | `0004_audit_fk.sql` | 全 18 テーブルの `created_by`/`updated_by` に `users(id)` FK 追加 (`ON DELETE SET NULL`)。`_shared/audit.ts` は循環依存回避のため drizzle 側で FK を付けず、本 migration で物理 FK を付与する設計 |
 
+## 新しい migration を追加するとき (auto-discovery)
+
+`__tests__/_setup/global-setup.ts` の loader は **drizzle/ と migrations/ を走査してファイル名
+昇順で全件適用**する (docs/parallel-lanes.md §4)。新しい migration は **loader を編集せず**、適切な
+番号 prefix の `*.sql` を置くだけでよい (並行レーンが loader の行で衝突しない = chokepoint 解消)。
+
+- **ファイル名昇順 == 適用順 == 依存順**。後から依存するものほど大きい番号を振る。
+- drizzle 生成 DDL は `drizzle-kit generate` が `migrations.prefix: "timestamp"` で
+  `<epoch>_name.sql` を出力する (並行レーンの採番衝突なし)。手書き migration も時刻/単調 prefix を推奨。
+- `0000..0010` の既存番号は timestamp prefix より小さくソートされるので、移行後も「既存が先・新規が後」を保つ。
+- 例: `0011_effective_ads_view.sql` と `0012_f05_magic_link_resolve_fn.sql` は RLS (0001-0010)
+  適用後に流す必要があるため、生成時期より大きい番号を採番している (旧 0007/0008 からリナンバ)。
+
 ## 適用方法
 
 ローカル:

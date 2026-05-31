@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
@@ -6,68 +6,33 @@ import postgres from "postgres";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..", "..");
 
-const BASELINE_SQL = join(packageRoot, "drizzle", "0000_initial_baseline.sql");
-// F0 (#48-A): 階層基盤テーブル DDL (drizzle-kit generate 生成)。baseline の直後に流す。
-const F0A_SCHEMA_SQL = join(packageRoot, "drizzle", "0001_f0a_hierarchy_tables.sql");
-// F0 (#48-F): classes.grade_id / grades.department_id 追加 (階層リンク FK、drizzle 生成)。
-const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql");
-// F05 (#12): magic_links に class_id / revoked_at 追加 + expires_at デフォルト 90 日 (drizzle 生成)。
-const F05_MAGIC_LINK_SQL = join(packageRoot, "drizzle", "0003_f05_magic_link_class.sql");
-// F02: teacher_inputs / teacher_input_attachments テーブル DDL。schools/users (baseline) 作成後に流す。
-const F02_SCHEMA_SQL = join(packageRoot, "drizzle", "0004_f02_teacher_inputs.sql");
-// F04 (#145): content_versions(content_id, version) を UNIQUE 化 + publishes に active 部分 UNIQUE。
-// content_versions / publishes は baseline 作成済なので、その index 貼り替えとして流す。
-const F04_PUBLISH_UNIQUE_SQL = join(
-  packageRoot,
-  "drizzle",
-  "0005_content_versions_publishes_unique.sql",
-);
-// #73: cross-tenant write 整合の composite FK (ai_chat_sessions / ai_chat_messages)。
-// 親 (magic_links/classes/ai_chat_sessions) と子テーブルが揃った後に張り替える。
-const COMPOSITE_FK_SQL = join(packageRoot, "drizzle", "0006_composite_fk_cross_tenant.sql");
-// #204 (#73 横展開): contents ドメインの composite FK (content_versions / publishes → contents)。
-const CONTENTS_COMPOSITE_FK_SQL = join(packageRoot, "drizzle", "0007_contents_composite_fk.sql");
-// #204 (#73 横展開、最終): magic_links.class_id の composite FK (→ classes)。classes UNIQUE は 0006。
-const MAGIC_LINK_CLASS_FK_SQL = join(
-  packageRoot,
-  "drizzle",
-  "0008_magic_link_class_composite_fk.sql",
-);
-// #48-L (#123): schools に hierarchy_mode 列 + enum を追加 (V1 setSchoolHierarchyMode 相当)。
-// schools (baseline) 作成後ならいつでも流せる列追加。番号は main の 0008 と衝突回避のため 0009。
-const SCHOOL_HIERARCHY_MODE_SQL = join(packageRoot, "drizzle", "0009_school_hierarchy_mode.sql");
-// F12 (#48-M): feedback テーブル DDL (cross-tenant、system_admin_only)。schools (baseline)
-// 作成後に流す (school_id FK のため)。RLS / SECURITY DEFINER は migrations/0010 で後付け。
-const FEEDBACK_SCHEMA_SQL = join(packageRoot, "drizzle", "0010_feedback.sql");
-const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
-const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
-const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
-const AUDIT_FK_SQL = join(packageRoot, "migrations", "0004_audit_fk.sql");
-const AUDIT_LOG_ACTOR_NULL_SQL = join(
-  packageRoot,
-  "migrations",
-  "0005_audit_log_actor_null_school_admin.sql",
-);
-// F0 (#48-A): 階層基盤テーブルの RLS policy + 監査 FK。新テーブル作成後に流す。
-const F0A_RLS_SQL = join(packageRoot, "migrations", "0006_f0a_schema_rls.sql");
-// F0 (#48-F): 広告階層マージ VIEW (security_invoker)。列追加 + RLS 適用後、最後に流す。
-const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_ads_view.sql");
-// F05 (#12): magic link 匿名解決の SECURITY DEFINER 関数。列追加 (0003) + RLS 後に流す。
-const F05_RESOLVE_FN_SQL = join(packageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
-// F02: teacher_inputs / teacher_input_attachments の RLS policy + 監査 FK。新テーブル作成後に流す。
-const F02_RLS_SQL = join(packageRoot, "migrations", "0009_f02_schema_rls.sql");
-// F12 (#48-M): feedback の RLS (system_admin_only) + 匿名 INSERT 用 SECURITY DEFINER 関数
-// submit_feedback。テーブル作成 (FEEDBACK_SCHEMA_SQL) + kimiterrace_app ロール (RLS_POLICIES_SQL)
-// + users 作成後に流す。
-const FEEDBACK_RLS_SQL = join(packageRoot, "migrations", "0010_feedback_rls.sql");
-
 /**
- * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
+ * 適用するマイグレーションファイルを「順序つき」で集める (auto-discovery)。
  *
- * - 既存スキーマを `DROP SCHEMA public CASCADE` で破棄 (テスト DB 限定の前提)
- * - 拡張 → drizzle baseline DDL → RLS 有効化 → policy → audit trigger を順に流す
- * - DATABASE_URL 未設定の場合はテスト自体をスキップ (== 全テストが skip 扱い)
+ * 並行レーンが loader を奪い合わない (docs/parallel-lanes.md §4 の chokepoint 解消) ため、
+ * ハードコードした const 列ではなく **ディレクトリ走査 + ファイル名昇順** で集める。新しい
+ * migration は drizzle/ か migrations/ に番号 (または timestamp) prefix で置くだけで、この
+ * loader を編集せずに拾われる (= loader が並行 PR の衝突点でなくなる)。
+ *
+ * 順序契約 (本番 runbook docs/runbooks/db-migrations.md が参照する単一ソース):
+ *   1. drizzle/*.sql    — drizzle-kit 生成の DDL をファイル名昇順で全て
+ *   2. migrations/*.sql — 手書き RLS / トリガ / VIEW / SECURITY DEFINER 関数をファイル名昇順で全て
+ *
+ * **ファイル名昇順 == 依存順** になるよう採番する (後から依存するものほど大きい番号)。依存理由は
+ * 各ファイル先頭コメントに書く。例: effective_ads_view (0011) と resolve_magic_link 関数 (0012) は
+ * RLS (0001-0010) 適用後に流す必要があるため、生成時期より大きい番号を振っている。`0000..0010` の
+ * 既存番号は timestamp prefix より小さくソートされるので、将来 timestamp 採番へ移行しても
+ * 「既存が先・新規が後」の不変条件は保たれる。
  */
+export function collectMigrationFiles(root: string): string[] {
+  const listSqlSorted = (dir: string): string[] =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith(".sql"))
+      .sort()
+      .map((f) => join(dir, f));
+  return [...listSqlSorted(join(root, "drizzle")), ...listSqlSorted(join(root, "migrations"))];
+}
+
 /**
  * `DATABASE_URL` を test-DB として安全に使えるか検証する (H1 ガード)。
  *
@@ -105,6 +70,13 @@ function assertTestDatabase(url: string): void {
   );
 }
 
+/**
+ * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
+ *
+ * - 既存スキーマを `DROP SCHEMA public CASCADE` で破棄 (テスト DB 限定の前提)
+ * - 拡張 → `collectMigrationFiles()` が返す順 (drizzle DDL → 手書き RLS/トリガ/VIEW/関数) で全て流す
+ * - DATABASE_URL 未設定の場合はテスト自体をスキップ (== 全テストが skip 扱い)
+ */
 export async function setup(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -132,48 +104,13 @@ export async function setup(): Promise<void> {
     await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector;");
     await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
 
-    // 3) DDL (drizzle 生成済の baseline + F0 階層基盤テーブル + 階層リンク列追加)
-    await runSqlFile(sql, BASELINE_SQL);
-    await runSqlFile(sql, F0A_SCHEMA_SQL);
-    await runSqlFile(sql, F0F_COLS_SQL);
-    // F05: magic_links への列追加は classes (F0A) 作成後に流す
-    await runSqlFile(sql, F05_MAGIC_LINK_SQL);
-    // F02: teacher_inputs / teacher_input_attachments は schools/users (baseline) 作成後に流す
-    await runSqlFile(sql, F02_SCHEMA_SQL);
-    // F04 (#145): content_versions / publishes の UNIQUE index 貼り替え (baseline でテーブル作成済)
-    await runSqlFile(sql, F04_PUBLISH_UNIQUE_SQL);
-    // #73: 全 DDL (baseline + 階層 + magic_link 列 + F02/F04) 適用後に composite FK を張る
-    await runSqlFile(sql, COMPOSITE_FK_SQL);
-    // #204: contents ドメインの composite FK (contents / content_versions が揃った後)
-    await runSqlFile(sql, CONTENTS_COMPOSITE_FK_SQL);
-    // #204: magic_links.class_id の composite FK (classes UNIQUE = 0006 適用後)
-    await runSqlFile(sql, MAGIC_LINK_CLASS_FK_SQL);
-    // #48-L (#123): schools.hierarchy_mode 列 + enum を追加 (schools は baseline 作成済)
-    await runSqlFile(sql, SCHOOL_HIERARCHY_MODE_SQL);
-    // F12 (#48-M): feedback テーブル DDL (schools 作成後 = school_id FK のため)
-    await runSqlFile(sql, FEEDBACK_SCHEMA_SQL);
-
-    // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
-    //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
-    //    + F0 階層基盤テーブルの RLS policy + 監査 FK (#48-A)
-    await runSqlFile(sql, RLS_ENABLE_SQL);
-    await runSqlFile(sql, RLS_POLICIES_SQL);
-    await runSqlFile(sql, AUDIT_TRIGGER_SQL);
-    await runSqlFile(sql, AUDIT_FK_SQL);
-    await runSqlFile(sql, AUDIT_LOG_ACTOR_NULL_SQL);
-    await runSqlFile(sql, F0A_RLS_SQL);
-    // F02: 新テーブルの RLS policy + 監査 FK。テーブル作成 (F02_SCHEMA_SQL) と users 作成後に流す。
-    await runSqlFile(sql, F02_RLS_SQL);
-    // F12 (#48-M): feedback の RLS (system_admin_only) + submit_feedback SECURITY DEFINER 関数。
-    // テーブル作成 (FEEDBACK_SCHEMA_SQL) + kimiterrace_app ロール (RLS_POLICIES_SQL) + users 後に流す。
-    await runSqlFile(sql, FEEDBACK_RLS_SQL);
-
-    // 5) 広告階層マージ VIEW (#48-F)。列追加 + RLS 適用後に作成する。
-    await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);
-
-    // 6) F05 magic link 匿名解決の SECURITY DEFINER 関数。kimiterrace_app 作成
-    //    (RLS_POLICIES_SQL) と class_id/revoked_at 列追加 (F05_MAGIC_LINK_SQL) 後に流す。
-    await runSqlFile(sql, F05_RESOLVE_FN_SQL);
+    // 3) マイグレーションを順に適用する。順序の単一ソースは collectMigrationFiles
+    //    (drizzle/ の DDL をファイル名順 → migrations/ の RLS/トリガ/VIEW/SECURITY DEFINER 関数を
+    //    ファイル名順)。本番も同じ順で両ディレクトリを適用する (docs/runbooks/db-migrations.md)。
+    //    依存順 == ファイル名昇順 になるよう採番しているので、ここは編集不要で新 migration を拾う。
+    for (const file of collectMigrationFiles(packageRoot)) {
+      await runSqlFile(sql, file);
+    }
   } finally {
     await sql.end({ timeout: 5 });
   }
