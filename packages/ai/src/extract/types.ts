@@ -108,3 +108,24 @@ export class ExtractorNotConfiguredError extends Error {
     this.name = "ExtractorNotConfiguredError";
   }
 }
+
+/**
+ * 配線済み抽出器でパーサが解析に失敗したときに投げる（ADR-024 決定4: フェイルクローズ）。
+ * パーサ例外を握りつぶして空文字を返すのは禁止 — 破損 / 暗号化 / 非対応サブ形式は
+ * このエラーで上流に伝え、`cause` に元例外を保持して原因追跡できるようにする。
+ */
+export class ExtractFailedError extends Error {
+  constructor(
+    public readonly format: SourceFormat,
+    public readonly dependency: string,
+    cause: unknown,
+  ) {
+    super(
+      `F01 extract: '${format}' extraction failed via '${dependency}': ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+    this.name = "ExtractFailedError";
+  }
+}

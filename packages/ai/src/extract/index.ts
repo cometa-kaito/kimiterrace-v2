@@ -15,6 +15,7 @@ export {
   UnsupportedFormatError,
   LegacyOfficeFormatError,
   ExtractorNotConfiguredError,
+  ExtractFailedError,
 } from "./types.js";
 export type {
   SourceFormat,
