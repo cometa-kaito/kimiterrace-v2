@@ -117,4 +117,23 @@ describe("formatSignageItem", () => {
       expect(typeof formatSignageItem(kind, {}).text).toBe("string");
     }
   });
+
+  it("SignageSectionKind は EffectiveDailyData のセクション名から派生し縮まない (型結合の回帰ピン)", () => {
+    // `satisfies Record<SignageSectionKind, true>` は SignageSectionKind の全メンバを
+    // 過不足なく要求する → EffectiveDailyData 側でセクションを改名/増減すると、
+    // section-format.ts の Pick / FORMATTERS と併せてここがコンパイルエラーになる。
+    // (#247 / PR #238 Reviewer M-1: 型の単一ソースを typecheck で機械強制)
+    const cover = {
+      schedules: true,
+      notices: true,
+      assignments: true,
+      quietHours: true,
+    } satisfies Record<SignageSectionKind, true>;
+    expect(Object.keys(cover).sort()).toEqual([
+      "assignments",
+      "notices",
+      "quietHours",
+      "schedules",
+    ]);
+  });
 });

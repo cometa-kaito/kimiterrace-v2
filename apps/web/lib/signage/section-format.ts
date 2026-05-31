@@ -18,19 +18,43 @@
  *    していた (公開サイネージ = 生徒が見る画面の表示バグ)。
  *
  * 本モジュールはその整形を **kind ごとに確定スキーマで rich 化**して一本化する。型は
- * `@/lib/editor/*` / `quiet-hours-core` を単一ソースとし (`import type` のみ — ランタイム値を持ち込まず
- * `"use client"` な `SignageClient` のバンドルを汚さない、CLAUDE.md ルール3 + #148/#48-J の教訓)。
+ * `@/lib/editor/*` / `quiet-hours-core` / `effective-daily-data` を単一ソースとし、整形ロジックは
+ * {@link field} 経由でフィールド名を **`keyof CoreType` にコンパイル時結合**する。core 側がフィールドを
+ * 改名すると本モジュールがコンパイルエラーになり、静かな lossy 化を機械的に検知する (CLAUDE.md ルール3:
+ * 型の単一ソースを人力レビューに依存せず機械強制。#247 / PR #238 Reviewer M-1)。`import type` のみで
+ * ランタイム値は持ち込まず、`"use client"` な `SignageClient` のバンドルを汚さない (#148/#48-J の教訓)。
  *
  * **fail-soft**: items は依然 opaque JSONB (旧データ / 将来差分 / エディタ未経由の投入がありうる) なので、
  * kind 別に**防御的に narrow** し、想定形でなければ従来同等の汎用ラベル抽出にフォールバックする
  * (表示は壊さない)。整形は副作用なしの純関数 — node 環境で網羅 unit テスト可能。
  */
 
-/** 日次セクションの種別 (`EffectiveDailyData` のフィールド名と一致)。 */
-export type SignageSectionKind = "schedules" | "notices" | "assignments" | "quietHours";
+import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
+import type { ScheduleItem } from "@/lib/editor/schedule-core";
+import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
+import type { EffectiveDailyData } from "@/lib/signage/effective-daily-data";
+
+/**
+ * 日次セクションの種別。`EffectiveDailyData` のセクションフィールド名から派生し、手書き union の
+ * 二重管理を排す (ルール3)。`EffectiveDailyData` 側のフィールド改名はこの `Pick` がコンパイル時に弾く。
+ */
+export type SignageSectionKind = keyof Pick<
+  EffectiveDailyData,
+  "schedules" | "notices" | "assignments" | "quietHours"
+>;
 
 /** 表示用の 1 行。`emphasis` は重要マーク (notice の isHighlight) のときのみ true。 */
 export type SignageLine = { text: string; emphasis?: boolean };
+
+/**
+ * opaque JSONB から **core 型 `T` のフィールド名に機械結合**して生値 (unknown) を読む。
+ * `key` は `keyof T & string` に制約されるため、core 側 ({@link ScheduleItem} 等) がフィールドを
+ * 改名すると呼び出し側がコンパイルエラーになる (ルール3 の機械強制)。ランタイムは型を信用せず、
+ * 戻り値を呼び出し側で {@link str} / `typeof` により defensive に narrow する (fail-soft)。
+ */
+function field<T>(rec: Record<string, unknown>, key: keyof T & string): unknown {
+  return rec[key];
+}
 
 /** trim 済みの非空文字列を返す。非文字列・空は null。 */
 function str(value: unknown): string | null {
@@ -52,42 +76,42 @@ function shortDate(deadline: string): string {
 
 /** 時間割: "N限 科目（補足）"。`period` を冠して時限を明示する。 */
 function formatSchedule(rec: Record<string, unknown>): SignageLine | null {
-  const subject = str(rec.subject);
+  const subject = str(field<ScheduleItem>(rec, "subject"));
   if (!subject) {
     return null;
   }
-  const hasPeriod =
-    typeof rec.period === "number" && Number.isInteger(rec.period) && rec.period > 0;
-  const head = hasPeriod ? `${rec.period}限 ${subject}` : subject;
-  const note = str(rec.note);
+  const period = field<ScheduleItem>(rec, "period");
+  const hasPeriod = typeof period === "number" && Number.isInteger(period) && period > 0;
+  const head = hasPeriod ? `${period}限 ${subject}` : subject;
+  const note = str(field<ScheduleItem>(rec, "note"));
   return { text: note ? `${head}（${note}）` : head };
 }
 
 /** 連絡: 本文 + 重要マーク (isHighlight=true のみ emphasis)。 */
 function formatNotice(rec: Record<string, unknown>): SignageLine | null {
-  const text = str(rec.text);
+  const text = str(field<NoticeItem>(rec, "text"));
   if (!text) {
     return null;
   }
-  return rec.isHighlight === true ? { text, emphasis: true } : { text };
+  return field<NoticeItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
 /** 提出物: "科目：内容（〆 M/D）"。期限と内容を捨てずに表示する。 */
 function formatAssignment(rec: Record<string, unknown>): SignageLine | null {
-  const subject = str(rec.subject);
-  const task = str(rec.task);
+  const subject = str(field<AssignmentItem>(rec, "subject"));
+  const task = str(field<AssignmentItem>(rec, "task"));
   if (!subject || !task) {
     return null;
   }
-  const deadline = str(rec.deadline);
+  const deadline = str(field<AssignmentItem>(rec, "deadline"));
   const body = `${subject}：${task}`;
   return { text: deadline ? `${body}（〆${shortDate(deadline)}）` : body };
 }
 
 /** 静粛時間: "開始–終了" (例: "12:30–13:00")。生 JSON を露出させない。 */
 function formatQuietHours(rec: Record<string, unknown>): SignageLine | null {
-  const start = str(rec.start);
-  const end = str(rec.end);
+  const start = str(field<QuietRange>(rec, "start"));
+  const end = str(field<QuietRange>(rec, "end"));
   if (!start || !end) {
     return null;
   }
