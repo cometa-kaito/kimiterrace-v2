@@ -130,12 +130,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
-      # @kimiterrace/web は @kimiterrace/db の dist (./dist/index.js) を解決する。
-      # turbo の test/build タスクは ^build で db を先にビルドするが、ここは web の
-      # test:e2e を直接叩くため db の dist を明示的に用意する (これが無いと next build が
-      # Module not found: '@kimiterrace/db' で落ちる)。
-      - name: Build workspace deps (@kimiterrace/db dist)
-        run: pnpm --filter @kimiterrace/db build
+      # @kimiterrace/web は dist 提供の workspace パッケージ (@kimiterrace/db / ai / observability、
+      # いずれも main/exports.default=./dist/index.js) を解決する。turbo の test/build タスクは ^build で
+      # 先にビルドするが、ここは web の test:e2e を直接叩くため dist を明示的に用意する (これが無いと
+      # next build が Module not found で落ちる)。#154 トリガ route が ai/observability を build グラフに
+      # 引き込むため db のみでは不足 (PR #287)。
+      - name: Build workspace deps (dist for db / ai / observability)
+        run: pnpm --filter "./packages/*" build
       - name: Install Playwright browsers
         run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
       # Auth emulator は Java を要する (ubuntu runner には JDK が同梱)。明示セットアップで安定化。
