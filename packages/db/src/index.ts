@@ -18,3 +18,5 @@ export * from "./queries/ads.js";
 export * from "./queries/school-configs.js";
 // #48-L (#123): システム管理者向け 学校 (テナント) マスタ一覧
 export * from "./queries/schools.js";
+// F03 (#154): AI 構造化抽出結果の ai_extractions 永続化層 (RLS context 内 INSERT)
+export * from "./queries/ai-extractions.js";
