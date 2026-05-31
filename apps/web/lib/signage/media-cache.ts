@@ -11,10 +11,11 @@ import type { EffectiveAd } from "@kimiterrace/db";
  *
  * ## キャッシュ範囲とテナント分離 (CLAUDE.md ルール2/4/5)
  *
- * SW がキャッシュするのは **`destination==='image'||'video'` の GET だけ** (sw.js 側で
- * `shouldCacheRequest` ガード)。HTML / `/signage/{token}/data` の token スコープ JSON / API は
- * 一切 intercept しないので、no-store の即時失効とテナント分離 (RLS) が壊れない。media URL は
- * 公開アセットで PII/secret を含まず、credential (classToken) もここでは扱わない。
+ * SW がキャッシュするのは **same-origin かつ `destination==='image'||'video'` の GET だけ**
+ * (sw.js 側で `shouldCacheRequest` ガード、#201/閉域原則)。HTML / `/signage/{token}/data` の
+ * token スコープ JSON / API、および cross-origin の外部 media は一切 intercept しないので、
+ * no-store の即時失効とテナント分離 (RLS) が壊れない。media URL は公開アセットで PII/secret を
+ * 含まず、credential (classToken) もここでは扱わない。
  *
  * ## 純粋関数 (テスト対象) とランタイム関数 (環境依存) の分離
  *
@@ -28,15 +29,57 @@ export const MEDIA_CACHE_NAME = "signage-media-v1";
 
 /**
  * SW が intercept (cache-first) してよいリクエストか判定する **唯一の真実**。
- * GET かつ画像/動画リクエストのみ true。`public/sw.js` の `shouldCacheRequest` は本関数と
- * **同一ロジックを複製**している (SW は静的配信の plain JS で TS lib を import できないため)。
- * どちらかを変えたら必ず両方を揃え、この関数の unit テストで戦略を固定する。
+ * 次の 3 条件すべてを満たす時だけ true:
+ *   1. `GET` (副作用のない取得のみ)
+ *   2. `destination` が `image` / `video` (= サイネージ広告 media)
+ *   3. **same-origin** (リクエスト URL のオリジンが SW 自身のオリジン `selfOrigin` と一致)
+ *
+ * `public/sw.js` の `shouldCacheRequest` は本関数と **同一ロジックを複製**している (SW は静的
+ * 配信の plain JS で TS lib を import できないため)。どちらかを変えたら必ず両方を揃え、この
+ * 関数の unit テストで戦略を固定する。
+ *
+ * ## なぜ same-origin に限定するか (#201 / 閉域原則)
+ *
+ * cross-origin (外部 CDN) の media を SW が no-cors で取得すると **opaque レスポンス**
+ * (`response.ok===false`) になり cache に貯まらない=瞬断耐性が効かないうえ、opaque は中身・
+ * サイズが不可視で Cache Storage を不透明に圧迫する。本プロジェクトの閉域原則
+ * ([[closed-system-security]] / 端末は外部を直叩きしない、ADR-021 JMA 取り込みと同型) では
+ * サイネージ広告 media は **自校オリジン (GCS/Cloud Run 経由) で再配信**する前提なので、SW が
+ * キャッシュすべきは same-origin media のみ。cross-origin はそもそも到達しない想定だが、仮に
+ * 紛れ込んでも intercept せず素通りさせ (online ならブラウザが直接取得)、SW の respondWith 面
+ * = セキュリティ境界を最小に保つ。cross-origin の真のオフライン対応が要ればバックエンド取り込み
+ * Job で same-origin 再配信する (本 MVP ではスコープ外、#201)。
  *
  * これにより HTML / `/signage/{token}/data` の token スコープ JSON / API (document/script/
- * style/empty=XHR/navigation) は SW が触らず、no-store の即時失効とテナント分離 (RLS) を保全する。
+ * style/empty=XHR/navigation) も同様に SW が触らず、no-store の即時失効とテナント分離 (RLS)
+ * を保全する。
+ *
+ * @param req         判定対象リクエスト (method / destination / url)。
+ * @param selfOrigin  SW 自身のオリジン (`self.location.origin`)。same-origin 判定の基準。
  */
-export function shouldCacheRequest(req: { method: string; destination: string }): boolean {
-  return req.method === "GET" && (req.destination === "image" || req.destination === "video");
+export function shouldCacheRequest(
+  req: { method: string; destination: string; url: string },
+  selfOrigin: string,
+): boolean {
+  if (req.method !== "GET") {
+    return false;
+  }
+  if (req.destination !== "image" && req.destination !== "video") {
+    return false;
+  }
+  return isSameOriginUrl(req.url, selfOrigin);
+}
+
+/**
+ * `url` が `selfOrigin` と same-origin か。相対 URL は `selfOrigin` を基準に解決するため
+ * same-origin と判定する。パースできない URL は false (= intercept しない、安全側)。
+ */
+function isSameOriginUrl(url: string, selfOrigin: string): boolean {
+  try {
+    return new URL(url, selfOrigin).origin === selfOrigin;
+  } catch {
+    return false;
+  }
 }
 
 /**

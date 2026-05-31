@@ -76,19 +76,47 @@ describe("staleCacheKeys", () => {
 });
 
 describe("shouldCacheRequest (SW intercept ガード)", () => {
-  it("GET の image / video のみ true", () => {
-    expect(shouldCacheRequest({ method: "GET", destination: "image" })).toBe(true);
-    expect(shouldCacheRequest({ method: "GET", destination: "video" })).toBe(true);
+  // SW 自身のオリジン (same-origin 判定の基準)。テストでは固定の自校オリジンを用いる。
+  const ORIGIN = "https://signage.example.test";
+  /** リクエストもどきを組む小ヘルパ (real Request の url は常に絶対 URL)。 */
+  const req = (method: string, destination: string, url: string) => ({ method, destination, url });
+
+  it("same-origin の GET image / video は true", () => {
+    expect(shouldCacheRequest(req("GET", "image", `${ORIGIN}/ads/a.png`), ORIGIN)).toBe(true);
+    expect(shouldCacheRequest(req("GET", "video", `${ORIGIN}/ads/b.mp4`), ORIGIN)).toBe(true);
   });
 
-  it("document / script / style / xhr (empty) / navigation は false (no-store・RLS 保全)", () => {
+  it("cross-origin の media は false (#201 / 閉域原則: opaque を貯めない・境界最小化)", () => {
+    expect(shouldCacheRequest(req("GET", "image", "https://cdn.example.com/a.png"), ORIGIN)).toBe(
+      false,
+    );
+    expect(shouldCacheRequest(req("GET", "video", "https://cdn.example.com/b.mp4"), ORIGIN)).toBe(
+      false,
+    );
+    // 同一ホストでもポート違いは別オリジン → false。
+    expect(
+      shouldCacheRequest(req("GET", "image", "https://signage.example.test:8443/a.png"), ORIGIN),
+    ).toBe(false);
+    // protocol-relative `//host` は相対に見えて別オリジンに解決する (origin-confusion 経路)。false。
+    expect(shouldCacheRequest(req("GET", "image", "//cdn.example.com/a.png"), ORIGIN)).toBe(false);
+  });
+
+  it("相対 URL は selfOrigin 基準で same-origin と解決し true", () => {
+    expect(shouldCacheRequest(req("GET", "image", "/ads/a.png"), ORIGIN)).toBe(true);
+  });
+
+  it("パースできない URL は false (安全側で intercept しない)", () => {
+    expect(shouldCacheRequest(req("GET", "image", "http://"), ORIGIN)).toBe(false);
+  });
+
+  it("document / script / style / xhr (empty) / navigation は same-origin でも false (no-store・RLS 保全)", () => {
     for (const destination of ["document", "script", "style", "", "audio", "font"]) {
-      expect(shouldCacheRequest({ method: "GET", destination })).toBe(false);
+      expect(shouldCacheRequest(req("GET", destination, `${ORIGIN}/x`), ORIGIN)).toBe(false);
     }
   });
 
-  it("非 GET (POST 等) は media でも false", () => {
-    expect(shouldCacheRequest({ method: "POST", destination: "image" })).toBe(false);
-    expect(shouldCacheRequest({ method: "HEAD", destination: "video" })).toBe(false);
+  it("非 GET (POST 等) は same-origin media でも false", () => {
+    expect(shouldCacheRequest(req("POST", "image", `${ORIGIN}/a.png`), ORIGIN)).toBe(false);
+    expect(shouldCacheRequest(req("HEAD", "video", `${ORIGIN}/b.mp4`), ORIGIN)).toBe(false);
   });
 });

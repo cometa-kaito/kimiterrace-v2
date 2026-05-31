@@ -1,15 +1,23 @@
 /*
  * サイネージ用 Service Worker (#48-G / F12, ADR-022)。
- * `/signage/{classToken}` の広告画像・動画だけを cache-first で透過キャッシュし、学校 Wi-Fi の
- * 瞬断に対するオフライン耐性を上げる。V1 `management/src/lib/image-cache.ts` (IndexedDB blob)
- * の置換。plain JS (静的配信、`/sw.js`)。
+ * `/signage/{classToken}` の **same-origin** な広告画像・動画だけを cache-first で透過キャッシュし、
+ * 学校 Wi-Fi の瞬断に対するオフライン耐性を上げる。V1 `management/src/lib/image-cache.ts`
+ * (IndexedDB blob) の置換。plain JS (静的配信、`/sw.js`)。
  *
- * ## 最重要: media 以外は一切 intercept しない
- * `fetch` ハンドラは `shouldCacheRequest` が true のリクエスト (GET かつ image/video) でのみ
- * `respondWith` する。HTML / `/signage/{token}/data` の token スコープ JSON / API
- * (document/script/style/empty=XHR/navigation 等) は素通りさせるので、ブラウザ既定の no-store が
- * 効き続け、**即時失効とテナント分離 (RLS, CLAUDE.md ルール2) が壊れない**。media URL は公開
- * アセットで PII/secret を含まない (ルール4/5)。token・credential はログに出さない。
+ * ## 最重要: same-origin の media 以外は一切 intercept しない
+ * `fetch` ハンドラは `shouldCacheRequest` が true のリクエスト (GET かつ image/video かつ
+ * same-origin) でのみ `respondWith` する。HTML / `/signage/{token}/data` の token スコープ
+ * JSON / API (document/script/style/empty=XHR/navigation 等)、および cross-origin の外部 media は
+ * 素通りさせるので、ブラウザ既定の no-store が効き続け、**即時失効とテナント分離 (RLS,
+ * CLAUDE.md ルール2) が壊れない**。media URL は公開アセットで PII/secret を含まない (ルール4/5)。
+ * token・credential はログに出さない。
+ *
+ * ## cross-origin を caching しない理由 (#201 / 閉域原則)
+ * 外部 CDN の media を no-cors で取ると opaque (`response.ok===false`) で cache に貯まらず瞬断
+ * 耐性も効かない。閉域原則 (端末は外部直叩きしない、ADR-021 と同型) では広告 media は自校
+ * オリジンで再配信する前提なので same-origin のみキャッシュ対象とし、respondWith 面 (=
+ * セキュリティ境界) を最小に保つ。cross-origin の真のオフライン対応はバックエンド取り込み再配信
+ * に委ねる (本 MVP ではスコープ外)。
  *
  * `shouldCacheRequest` のロジックは `apps/web/lib/signage/media-cache.ts` の同名関数と同一
  * (そちらが unit テストで戦略を固定する真実のソース)。変更時は両方を揃えること。
@@ -21,17 +29,42 @@
 const CACHE_NAME = "signage-media-v1";
 
 /**
- * intercept (cache-first) してよいリクエストか。GET かつ画像/動画のみ。
+ * intercept (cache-first) してよいリクエストか。GET かつ画像/動画かつ same-origin のみ。
  *
  * ⚠️ セキュリティ境界: この述語が false のものは fetch ハンドラで素通りする (キャッシュしない)。
- * この「media 以外は素通り」がオリジン全体 (SW 制御スコープは `/`、/admin 含む) の安全性を
- * 担保している。**条件を広げると HTML / token スコープ JSON / API までキャッシュし得て、
+ * この「same-origin の media 以外は素通り」がオリジン全体 (SW 制御スコープは `/`、/admin 含む)
+ * の安全性を担保している。**条件を広げると HTML / token スコープ JSON / API までキャッシュし得て、
  * 即時失効・テナント分離 (RLS) が壊れる**。広げる場合は必ず影響を再評価すること。
- * @param {{ method: string, destination: string }} req
+ *
+ * `apps/web/lib/signage/media-cache.ts` の同名関数と同一ロジック (そちらが unit テストで戦略を
+ * 固定する真実のソース)。same-origin 限定の理由はファイル冒頭コメント参照 (#201 / 閉域原則)。
+ * @param {{ method: string, destination: string, url: string }} req
+ * @param {string} selfOrigin SW 自身のオリジン (`self.location.origin`)
  * @returns {boolean}
  */
-function shouldCacheRequest(req) {
-  return req.method === "GET" && (req.destination === "image" || req.destination === "video");
+function shouldCacheRequest(req, selfOrigin) {
+  if (req.method !== "GET") {
+    return false;
+  }
+  if (req.destination !== "image" && req.destination !== "video") {
+    return false;
+  }
+  return isSameOriginUrl(req.url, selfOrigin);
+}
+
+/**
+ * `url` が `selfOrigin` と same-origin か。相対 URL は `selfOrigin` 基準で解決するため same-origin。
+ * パースできない URL は false (= intercept しない、安全側)。media-cache.ts の同名関数と同一。
+ * @param {string} url
+ * @param {string} selfOrigin
+ * @returns {boolean}
+ */
+function isSameOriginUrl(url, selfOrigin) {
+  try {
+    return new URL(url, selfOrigin).origin === selfOrigin;
+  } catch {
+    return false;
+  }
 }
 
 self.addEventListener("install", () => {
@@ -57,8 +90,8 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
-  // media (image/video) の GET 以外は respondWith せず素通り (no-store / RLS 保全)。
-  if (!shouldCacheRequest(request)) {
+  // same-origin の media (image/video) GET 以外は respondWith せず素通り (no-store / RLS 保全)。
+  if (!shouldCacheRequest(request, self.location.origin)) {
     return;
   }
 
