@@ -71,6 +71,16 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/guide-internal")).toBe(true);
   });
 
+  it("login / student 除外も (?:/|$) で厳格、lookalike は過剰除外しない (保護のまま) (#139 L3)", () => {
+    // login・student は leaf。anchor 無しだと /loginx・/studentx 等を巻き込み静かな under-protection。
+    expect(gated.test("/loginx")).toBe(true);
+    expect(gated.test("/students")).toBe(true);
+    expect(gated.test("/student-portal")).toBe(true);
+    // 正規の leaf アクセスは引き続き除外 (認証不要のまま)。
+    expect(gated.test("/login")).toBe(false);
+    expect(gated.test("/student")).toBe(false);
+  });
+
   it("既存の認証不要パスも除外のまま", () => {
     expect(gated.test("/login")).toBe(false);
     expect(gated.test("/api/auth/session")).toBe(false);

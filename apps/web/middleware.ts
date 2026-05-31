@@ -32,16 +32,16 @@ export function middleware(request: NextRequest): NextResponse {
 
 /**
  * matcher: 認証不要なパスを除外する。
- * - /login: ログイン画面そのもの
+ * - /login: ログイン画面そのもの (leaf)。`login(?:/|$)` で完全一致 + 末尾スラッシュのみ除外。
  * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)。`api/auth/` と
  *   trailing slash で固定し、サブルート (session / signout) のみ除外する。
- * - /api/health: 監視用 liveness (ADR: 認証不要)。leaf エンドポイントなので `api/health(?:/|$)`
- *   で完全一致 + 末尾スラッシュのみ除外する。
+ * - /api/health: 監視用 liveness (ADR: 認証不要)。leaf なので `api/health(?:/|$)` で
+ *   `/api/health` 自身 (+ 末尾スラッシュ) のみ除外し、`/api/healthz` 等は巻き込まない。
  * - /s/*: F05 生徒の匿名アクセス入口 (`/s/{token}`)。生徒は `__session` を持たないため
  *   除外しないと route handler に到達できない。可否は token 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは 410 に倒す (app/s/[token]/route.ts)。
- * - /student: F05 生徒ランディング。`__student_session` で再解決し自己ゲートするため、
- *   教員系 `__session` ゲートからは除外 (app/student/page.tsx)。
+ * - /student: F05 生徒ランディング (leaf)。`__student_session` で再解決し自己ゲートするため、
+ *   教員系 `__session` ゲートからは除外 (app/student/page.tsx)。`student(?:/|$)` で固定。
  * - /signage/*: F12/#48-E 公開サイネージ表示 (`/signage/{classToken}` + `/signage/{classToken}/data`)。
  *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
@@ -57,13 +57,17 @@ export function middleware(request: NextRequest): NextResponse {
  * 投稿」が /login に弾かれ実機で破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は
  * __tests__/auth/middleware.test.ts の matcher テスト。
  *
- * **prefix 除外の厳密化 (#139 L3)**: 除外トークンは「先頭一致」なので、anchor の無い `api/auth` は
- * `/api/authorize`、`api/health` は `/api/healthz` まで巻き込み、保護対象パスを静かにゲート除外して
- * しまう (PR #227 が `guide` → `guide(?:/|$)` で塞いだのと同クラスの footgun)。サブルートを持つ
- * `api/auth/` は trailing slash で、leaf の `api/health(?:/|$)` は完全一致 + 末尾スラッシュで固定する。
+ * **prefix 除外の厳密化 (#139 L3)**: 除外トークンは「先頭一致」なので、anchor の無いトークンは
+ * 別パスを巻き込み、保護対象を静かにゲート除外する (例: 旧 `api/auth`→`/api/authorize`、
+ * `api/health`→`/api/healthz`、`login`→`/loginx`、`student`→`/studentx`)。PR #227 が
+ * `guide`→`guide(?:/|$)` で塞いだのと同クラスの footgun。middleware は認可の砦ではなく最適化
+ * レイヤ (実検証は Server 側) なので実害は「過剰除外による静かな under-protection」だが、将来
+ * 同名 prefix のルートを足した人の誤認を防ぐため、全トークンを anchor 済みに揃える:
+ * サブルートを持つものは trailing slash (`s/` `signage/` `api/auth/` `api/guide/`)、leaf は
+ * `(?:/|$)` (`login` `student` `guide` `api/health`)。
  */
 export const config = {
   matcher: [
-    "/((?!login|s/|student|signage/|guide(?:/|$)|api/auth/|api/health(?:/|$)|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth/|api/health(?:/|$)|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
