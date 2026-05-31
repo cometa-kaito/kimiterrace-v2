@@ -20,7 +20,7 @@ const CLASS_2 = "class-2";
 const studentA1: StudentContext = { schoolId: SCHOOL_A, classId: CLASS_1 };
 
 function content(scope: PublishScopeValue, over: Partial<ContentAudience> = {}): ContentAudience {
-  return { schoolId: SCHOOL_A, scope, targets: [], ...over };
+  return { schoolId: SCHOOL_A, status: "published", scope, targets: [], ...over };
 }
 
 describe("canStudentSeeContent — テナント境界", () => {
@@ -49,6 +49,26 @@ describe("canStudentSeeContent — テナント境界", () => {
   });
 });
 
+describe("canStudentSeeContent — 公開ライフサイクル (status)", () => {
+  it("status が published 以外 (draft/archived) は scope に関わらず非可視 (not_published)", () => {
+    // draft × school: 公開前の全校下書きは漏らさない。
+    expect(canStudentSeeContent(content("school", { status: "draft" }), studentA1)).toEqual({
+      visible: false,
+      reason: "not_published",
+    });
+    // archived × class(自クラス対象): 取り下げ済みは生徒に残さない。
+    expect(
+      canStudentSeeContent(content("class", { status: "archived", targets: [CLASS_1] }), studentA1),
+    ).toEqual({ visible: false, reason: "not_published" });
+  });
+
+  it("status チェックは school 一致より後・scope 突合より先 (draft の別校は school_mismatch 優先)", () => {
+    expect(
+      canStudentSeeContent(content("school", { status: "draft", schoolId: SCHOOL_B }), studentA1),
+    ).toEqual({ visible: false, reason: "school_mismatch" });
+  });
+});
+
 describe("canStudentSeeContent — scope 突合", () => {
   it("school scope は同一校の全生徒に可視", () => {
     expect(canStudentSeeContent(content("school"), studentA1)).toEqual({ visible: true });
@@ -57,10 +77,10 @@ describe("canStudentSeeContent — scope 突合", () => {
     ).toBe(true);
   });
 
-  it("private scope は生徒に非可視 (not_published)", () => {
+  it("private scope は生徒に非可視 (private_scope)", () => {
     expect(canStudentSeeContent(content("private"), studentA1)).toEqual({
       visible: false,
-      reason: "not_published",
+      reason: "private_scope",
     });
   });
 

@@ -1,4 +1,5 @@
 import type { PublishScopeValue } from "./publish-core";
+import type { ContentStatusValue } from "./publish-view";
 
 /**
  * F04 + F05/F06: 公開済みコンテンツが **生徒（magic_link 経由の匿名アクセス）に見えてよいか**の
@@ -7,6 +8,11 @@ import type { PublishScopeValue } from "./publish-core";
  * F04 受け入れ条件「公開先と一致しない magic_link 経由のアクセスは 403」の決定核であり、同時に
  * F06 生徒 Q&A の RAG が **生徒のクラスに公開された掲示物のみ**を検索対象にするための前段フィルタ
  * （[[nonconflicting-feature-lane-tactics]] の student-qa スライスが要求する可視範囲制御）。
+ *
+ * **公開ライフサイクル（status）も判定に含める**: 生徒に見えるのは `status="published"` のみ。
+ * `draft`（未公開）/ `archived`（取り下げ済）は `scope` に関わらず非可視（fail-closed）。status は
+ * `scope` と直交する別概念のため、`not_published`（status 由来）と `private_scope`（scope 由来）を
+ * 別 reason に分けて返す。これにより本関数は scope だけでなく**公開状態まで含めた決定核**になる。
  *
  * `publish_scope` の意味論（`publish-view.ts` SCOPE_OPTIONS と整合）:
  * - `school`   : 同一校の全生徒に公開。
@@ -25,6 +31,11 @@ import type { PublishScopeValue } from "./publish-core";
 /** 可視性判定に必要なコンテンツ側の属性。`targets` は class/homeroom scope の対象 class_id 配列。 */
 export interface ContentAudience {
   schoolId: string | null;
+  /**
+   * 公開ライフサイクル状態（`scope` と直交）。生徒に見えるのは `published` のみ。
+   * `draft`（未公開）/ `archived`（取り下げ済）は scope に関わらず非可視（fail-closed）。
+   */
+  status: ContentStatusValue;
   scope: PublishScopeValue;
   /** class/homeroom scope の対象 class_id（DB jsonb 由来）。他 scope では無視される。 */
   targets: readonly string[];
@@ -45,8 +56,10 @@ export type VisibilityDecision =
 export type VisibilityDenyReason =
   /** コンテンツと生徒の所属校が異なる、または校が未設定。 */
   | "school_mismatch"
-  /** scope=private（下書き）で生徒には公開されていない。 */
+  /** status が published でない（draft / archived）。公開ライフサイクル由来の非可視。 */
   | "not_published"
+  /** scope=private（下書き専用スコープ）。scope 由来の非可視（status とは別概念）。 */
+  | "private_scope"
   /** class/homeroom scope だが生徒のクラスが対象外。 */
   | "out_of_scope"
   /** class/homeroom scope だが生徒のクラスが未確定（突合不能）。 */
@@ -63,7 +76,7 @@ function isSet(value: string | null): value is string {
 /**
  * 生徒が当該コンテンツを閲覧してよいかを判定する。
  *
- * 判定順: ①同一校（未設定は不可）→ ②scope ごとの audience 突合。
+ * 判定順: ①同一校（未設定は不可）→ ②公開ライフサイクル（published のみ）→ ③scope ごとの audience 突合。
  */
 export function canStudentSeeContent(
   content: ContentAudience,
@@ -73,12 +86,15 @@ export function canStudentSeeContent(
   if (!isSet(content.schoolId) || !isSet(student.schoolId)) return hide("school_mismatch");
   if (content.schoolId !== student.schoolId) return hide("school_mismatch");
 
-  // ② audience 境界: scope ごとに突合。
+  // ② 公開ライフサイクル: published 以外（draft/archived）は scope に関わらず非可視（fail-closed）。
+  if (content.status !== "published") return hide("not_published");
+
+  // ③ audience 境界: scope ごとに突合。
   switch (content.scope) {
     case "school":
       return VISIBLE;
     case "private":
-      return hide("not_published");
+      return hide("private_scope");
     case "class":
     case "homeroom":
       if (!isSet(student.classId)) return hide("no_class_context");
