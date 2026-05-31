@@ -73,6 +73,14 @@ export const SEED = {
   SCHEDULE_TEXT: "E2E-SCHEDULE-1限-数学",
   NOTICE_TEXT: "E2E-NOTICE-XYZ",
   ASSIGNMENT_TEXT: "E2E-ASSIGNMENT-数学ワーク",
+  /**
+   * SCHOOL1 の **school スコープ**日次データに入れる識別文字列 (#213 真の RLS ガード)。
+   * `getEffectiveDailyData` の school スコープ分岐 (`eq(scope,'school')`) は **app 側に school_id
+   * フィルタが無く RLS だけがテナント分離する**唯一の経路。よって別校 (SCHOOL2) の描画にこの文字列が
+   * 出ないことは「RLS が効いている」ことの厳密な回帰ガードになる (superuser=RLS バイパス時のみ漏れる)。
+   * class スコープ (SEED.NOTICE_TEXT 等) は app 側 `eq(classId,...)` でも分離されるため RLS 単独検証にならない。
+   */
+  SCHOOL_SCOPE_TEXT: "E2E-SCHOOL1-SCHOOLSCOPE-ONLY",
 } as const;
 
 /**
@@ -253,6 +261,7 @@ async function seed(sql: RawSql): Promise<void> {
   const classId = "00000000-0000-4000-8000-000000000003";
   const magicLinkId = "00000000-0000-4000-8000-000000000004";
   const dailyId = "00000000-0000-4000-8000-000000000005";
+  const schoolScopeDailyId = "00000000-0000-4000-8000-000000000006";
 
   const tokenHash = hashToken(SEED.KNOWN_TOKEN);
   const today = jstToday();
@@ -264,6 +273,8 @@ async function seed(sql: RawSql): Promise<void> {
   const assignments = JSON.stringify([
     { deadline: today, subject: SEED.ASSIGNMENT_TEXT, task: "p.10-12" },
   ]);
+  // SCHOOL1 の school スコープ行 (class_id NULL)。RLS 単独で分離される経路の漏れ検知用 (#213)。
+  const schoolScopeSchedules = JSON.stringify([{ period: 1, subject: SEED.SCHOOL_SCOPE_TEXT }]);
 
   await sql.unsafe(
     `INSERT INTO schools (id, name, prefecture)
@@ -298,6 +309,16 @@ async function seed(sql: RawSql): Promise<void> {
      VALUES
        ('${dailyId}', '${schoolId}', 'class', '${classId}', '${today}',
         '${schedules}'::jsonb, '${notices}'::jsonb, '${assignments}'::jsonb)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+
+  // 当日の **school スコープ**日次データ (class_id/grade_id/department_id NULL = ck_daily_data_scope OK)。
+  // app 側に school_id フィルタが無い `eq(scope,'school')` 経路に乗るため、別校描画に漏れたら RLS 不全。
+  // SCHOOL2 は schedules を持たない (seedSchool2 は notices のみ) ので、漏れた場合 SCHOOL2 の時間割欄に
+  // SCHOOL_SCOPE_TEXT が出る → negative テストで検知できる。
+  await sql.unsafe(
+    `INSERT INTO daily_data (id, school_id, scope, date, schedules)
+     VALUES ('${schoolScopeDailyId}', '${schoolId}', 'school', '${today}', '${schoolScopeSchedules}'::jsonb)
      ON CONFLICT (id) DO NOTHING;`,
   );
 }

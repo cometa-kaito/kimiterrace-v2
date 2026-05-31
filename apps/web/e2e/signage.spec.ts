@@ -44,8 +44,12 @@ test.describe("公開サイネージ /signage/{token}", () => {
 
     // SCHOOL2 の連絡は描画される。
     await expect(page.getByText(SEED2.NOTICE_TEXT)).toBeVisible();
-    // SCHOOL1 の連絡は **一切出ない** (越境不可)。RLS がバイパスされていれば検知される。
+    // SCHOOL1 の **class スコープ**連絡は出ない (app 側 eq(classId) でも分離されるため二重防御の確認)。
     await expect(page.getByText(SEED.NOTICE_TEXT)).toHaveCount(0);
+    // SCHOOL1 の **school スコープ**時間割は出ない = **真の RLS ガード**。
+    // `eq(scope,'school')` 経路は app に school_id フィルタが無く RLS だけが分離する。SCHOOL2 は
+    // schedules 未設定なので、RLS がバイパスされていればここに SCHOOL1 の school スコープ値が漏れる。
+    await expect(page.getByText(SEED.SCHOOL_SCOPE_TEXT)).toHaveCount(0);
   });
 
   test("無効トークンは無効画面になる (コンテンツを出さない)", async ({ page }) => {
