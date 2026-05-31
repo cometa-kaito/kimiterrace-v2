@@ -21,9 +21,11 @@ import { createSql, getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
  * class を不可視 (null) と判定し、ガードが正しく cross-tenant を弾く。
  *
  * 「降格なし (raw system_admin)」と「降格あり (tenantScopedContext)」を**対比**し、降格こそが
- * 他校遮断を生んでいる (= テストが空虚でない) ことを実証する。gap は `school_configs` ではなく
- * Action が実際に使う `findVisibleClass` (= `classes` 可視性) 側にあるため、そこを直接突く
- * (`school_configs` は tenant_isolation のみで full_access policy を持たず、元から他校不可視)。
+ * 他校遮断を生んでいる (= テストが空虚でない) ことを実証する。テスト対象は Action が実際に
+ * cross-tenant ガードに使う `findVisibleClass` (= `classes` 可視性) を直接突く。`classes` も
+ * `school_configs` も二層 RLS (tenant_isolation + system_admin_full_access、migration 0006) を
+ * 持つが、Action の防御判定は classes 可視性で行われるためそこを検証すれば十分 (upsert 先の
+ * school_configs は同一 tx の同じ降格 context 下で書かれるため別途の policy 検証は不要)。
  */
 
 const url = getConnectionUrl();
