@@ -15,8 +15,8 @@ import { type Auth, getAuth } from "firebase-admin/auth";
  *   公開値 (秘密ではない) のため env 経由で渡してよい。
  *
  * テスト容易性 (ADR-012):
- * - `getAdminAuth()` は内部キャッシュを返すだけの薄いラッパ。テストでは firebase-admin を
- *   `vi.mock` するか、`__setAdminAuthForTest()` で Auth を差し替える。
+ * - `getAdminAuth()` は内部キャッシュを返すだけの薄いラッパ。テストでは `vi.mock` で
+ *   本モジュール (または firebase-admin) を差し替える (apps/web/__tests__/auth/session.test.ts)。
  */
 
 let cachedAuth: Auth | null = null;
@@ -44,12 +44,4 @@ export function getAdminAuth(): Auth {
   }
   cachedAuth = getAuth(initAdminApp());
   return cachedAuth;
-}
-
-/**
- * テスト専用: Admin Auth を差し替える / リセットする。
- * 本番コードからは呼ばない (ADR-012 の unit + mock 方針)。
- */
-export function __setAdminAuthForTest(auth: Auth | null): void {
-  cachedAuth = auth;
 }

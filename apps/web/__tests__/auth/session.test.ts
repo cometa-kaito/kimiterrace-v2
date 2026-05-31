@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * 検証観点:
  * - 有効 cookie → getCurrentUser が {uid, role, schoolId} を返す
  * - 無効 / 期限切れ cookie → null (deny)
+ * - revoked セッション → null (deny) + checkRevoked=true が既定で Admin SDK に渡る (#139 L4)
  * - cookie 無し → null
  * - 不正な schoolId (非 UUID) claims → null に倒す (PR #133 Reviewer Low-1)
  * - 不正な role / 非 UUID uid → null
@@ -23,7 +24,6 @@ const createSessionCookie = vi.fn();
 
 vi.mock("../../lib/auth/adminApp", () => ({
   getAdminAuth: () => ({ verifySessionCookie, createSessionCookie }),
-  __setAdminAuthForTest: () => {},
 }));
 
 // next/headers の cookies() をテストから制御する。
@@ -75,6 +75,36 @@ describe("verifySessionCookie", () => {
   it("無効 / 期限切れ cookie (verify が throw) → null", async () => {
     verifySessionCookie.mockRejectedValue(new Error("auth/session-cookie-expired"));
     await expect(verify("expired")).resolves.toBeNull();
+  });
+
+  // #139 L4: 失効 (revoke) 済みセッションが確実に拒否されることを固定する。
+  // 教員アカウント無効化や漏洩時の失効 (revokeRefreshTokens) が即座に効くための要。
+  it("revoked セッション (verify が session-cookie-revoked で reject) → null (deny)", async () => {
+    verifySessionCookie.mockRejectedValue(new Error("auth/session-cookie-revoked"));
+    await expect(verify("revoked-cookie")).resolves.toBeNull();
+  });
+
+  // #139 L4: 失効チェックは既定で ON。誰かが既定値を false に倒すと失効済みトークンが
+  // 通ってしまうが unit では気付けない (mock は素通り) ため、SDK への転送引数を直接固定する。
+  it("既定で checkRevoked=true を Admin SDK に渡す (失効チェック有効、ADR-003)", async () => {
+    verifySessionCookie.mockResolvedValue({
+      uid: VALID_UID,
+      role: "teacher",
+      school_id: VALID_SCHOOL,
+    });
+    await verify("good-cookie");
+    expect(verifySessionCookie).toHaveBeenCalledWith("good-cookie", true);
+  });
+
+  // checkRevoked=false の opt-out 経路 (低レイテンシが要る読み取り等) も引数転送を固定する。
+  it("checkRevoked=false を明示すると失効チェックを省いて SDK に渡す", async () => {
+    verifySessionCookie.mockResolvedValue({
+      uid: VALID_UID,
+      role: "teacher",
+      school_id: VALID_SCHOOL,
+    });
+    await verify("good-cookie", false);
+    expect(verifySessionCookie).toHaveBeenCalledWith("good-cookie", false);
   });
 
   it("空 cookie → null (Admin SDK を呼ばない)", async () => {
