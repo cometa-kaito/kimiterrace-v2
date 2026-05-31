@@ -6,6 +6,7 @@ import { getSchoolDetail } from "@kimiterrace/db";
 import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SchoolDeleteButton } from "./_components/SchoolDeleteButton";
 
 /** 階層モードの表示ラベル。enum 値を網羅 (型でズレ検出、ルール3、一覧ページと同方針)。 */
 const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
@@ -47,9 +48,12 @@ export default async function SystemSchoolDetailPage({
 
       <header style={headerStyle}>
         <h1 style={titleStyle}>{school.name}</h1>
-        <Link href={`/admin/system/schools/${school.id}/edit`} style={editLinkStyle}>
-          編集
-        </Link>
+        <div style={headerActionsStyle}>
+          <Link href={`/admin/system/schools/${school.id}/edit`} style={editLinkStyle}>
+            編集
+          </Link>
+          <SchoolDeleteButton schoolId={school.id} schoolName={school.name} />
+        </div>
       </header>
 
       <dl style={dlStyle}>
@@ -117,6 +121,11 @@ const headerStyle: React.CSSProperties = {
   gap: "1rem",
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.4rem", fontWeight: 700, margin: 0 };
+const headerActionsStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "1rem",
+};
 const editLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.9rem" };
 const dlStyle: React.CSSProperties = {
   display: "grid",

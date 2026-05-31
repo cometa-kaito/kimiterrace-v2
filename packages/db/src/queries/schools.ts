@@ -27,6 +27,8 @@ type Selectable = Pick<PostgresJsDatabase, "select">;
 type Mutable = Pick<PostgresJsDatabase, "select" | "update">;
 /** INSERT が要る作成系 (トランザクションを受ける)。 */
 type Insertable = Pick<PostgresJsDatabase, "insert">;
+/** DELETE が要る削除系 (トランザクションを受ける)。 */
+type Deletable = Pick<PostgresJsDatabase, "delete">;
 
 type SchoolRow = InferSelectModel<typeof schools>;
 
@@ -170,4 +172,21 @@ export async function updateSchool(
     })
     .where(eq(schools.id, id))
     .returning({ id: schools.id });
+}
+
+/**
+ * 学校 (テナント) を削除し、削除行の id を返す (#48-L4)。0 行 = RLS で不可視 / 不存在。
+ *
+ * **子データ保護は DB が強制する (ルール2)**: schools を参照する全テーブル (users / grades / classes /
+ * departments / contents / events / ai_* / teacher_inputs / magic_links / ads / daily_data /
+ * school_configs / memberships / publishes / monthly_reports 等) は `ON DELETE RESTRICT` のため、
+ * 子行が 1 つでも残る学校の DELETE は FK 違反 (SQLSTATE 23503) になる。呼び出し側はこれを conflict に
+ * 写像し「空の学校のみ削除可」を担保する (soft-delete を導入せず hard-delete を安全側に倒す)。
+ * `audit_log.school_id` は FK ではない (cross-tenant 用) ため、作成時監査行は削除を阻まない。
+ *
+ * RLS: `system_admin_full_access` (全校 DELETE 可) / `tenant_isolation_delete` (自校のみ)。`WHERE id` は
+ * 対象特定であってテナント境界ではない (越権は RLS が弾く、本ページは system_admin 専用)。
+ */
+export async function deleteSchool(db: Deletable, id: string): Promise<{ id: string }[]> {
+  return db.delete(schools).where(eq(schools.id, id)).returning({ id: schools.id });
 }
