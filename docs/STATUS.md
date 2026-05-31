@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-31 (**F0 #48-J クラス設定 完了** — 広告管理 #181 + 静粛時間 quiet_hours #190 自律 merge。#190 は Reviewer Medium-1 [orphan write: school_configs 保存だが signage 未消費] を follow-up #191 化 + 境界明示で解消、Low-1 死リンクも同梱修正、Worker が next build までローカル検証 (#181 Critical-1 教訓)。Issue #121/#185 close、#175/#191 起票。本セッション計 **#140/#157/#174/#176/#181/#190 の 6 PR merge**。並行セッションは F01/#48-E/ADR を別途進行 (#182/#189 等))
+最終更新: 2026-05-31 (**#150 F04 Server Action 堅牢化 #193 自律 merge** — 「他 worker とコンフリクトしないよう進めて」指示に対し、直近の活発前線 (F01 抽出 `packages/ai` / サイネージ・quiet_hours `apps/web/(signage)`・`lib/school-admin`) と非重複の `apps/web/lib/contents/*` + enum 型 1 行に限定して ASCII 隔離 worktree で実装。**M-1** scope enum 同期ガード (`PublishScope` 型を packages/db で単一ソース化 + `satisfies`+exhaustive で enum ドリフトを CI 検出) + **L-1** updateContentAction の body/targets 検証対称化 (`validateUpdateInput` 純関数、認可・DB 前に早期 deny)。L-2 (拒否監査) は DB 波及のため #150 に分離。Reviewer spawn が架空 enum 値追加でガードが空虚でないことを実証 (Critical/High/Medium/Low 0)→CI 12/12→自律 merge (commit `01075bb`、Issue #150 close)。**衝突回避判断が的中**: 同時刻に並行 worker が #145 [content_versions 採番レース] を #194 でマージ、#145 を避けたことで migration 採番衝突を回避。旧: **F0 #48-J クラス設定 完了** — 広告管理 #181 + 静粛時間 quiet_hours #190 自律 merge。#190 は Reviewer Medium-1 [orphan write: school_configs 保存だが signage 未消費] を follow-up #191 化 + 境界明示で解消、Low-1 死リンクも同梱修正、Worker が next build までローカル検証 (#181 Critical-1 教訓)。Issue #121/#185 close、#175/#191 起票。本セッション計 **#140/#157/#174/#176/#181/#190 の 6 PR merge**。並行セッションは F01/#48-E/ADR を別途進行 (#182/#189 等))
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
