@@ -1,5 +1,12 @@
 import { hashToken } from "@/lib/magic-link/token";
-import { events, type TenantTx, resolveMagicLink, withTenantContext } from "@kimiterrace/db";
+import {
+  events,
+  type TenantTx,
+  effectiveAdsPerClass,
+  resolveMagicLink,
+  withTenantContext,
+} from "@kimiterrace/db";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 
 /**
@@ -103,6 +110,8 @@ export function validateEventInput(
   if (raw.adId != null) {
     // 表示中の広告 (effective_ads_per_class.ad_id) の uuid。広告主の到達数集計 (F07 ユーザーストーリー)
     // 用。events.content_id は contents への FK なので広告 id は載せられず、payload に持つ。
+    // 形式 (uuid) のみここで検証し、「当該クラスの実効広告か」の実在照合は recordSignageEvent の
+    // tenant 文脈内 (RLS スコープ下) で行う (#265 L-1、純関数では DB に触れないため)。
     if (typeof raw.adId !== "string" || !UUID_RE.test(raw.adId)) {
       return { ok: false, message: "adId が不正です。" };
     }
@@ -112,13 +121,18 @@ export function validateEventInput(
   return { ok: true, value: { type, contentId, payload } };
 }
 
-/** トークンを {schoolId} に解決。無効 (失効/期限切れ/不明) なら null。 */
-async function resolveSchoolId(classToken: string): Promise<string | null> {
+/**
+ * トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。
+ * classId は adId 実在照合 (effective_ads_per_class はクラス単位) に使う。
+ */
+async function resolveClass(
+  classToken: string,
+): Promise<{ schoolId: string; classId: string } | null> {
   if (!classToken) {
     return null;
   }
   const resolved = await resolveMagicLink(getDb(), hashToken(classToken));
-  return resolved ? resolved.schoolId : null;
+  return resolved ? { schoolId: resolved.schoolId, classId: resolved.classId } : null;
 }
 
 /**
@@ -135,12 +149,31 @@ export async function recordSignageEvent(
     return { ok: false, reason: "invalid" };
   }
 
-  const schoolId = await resolveSchoolId(classToken);
-  if (!schoolId) {
+  const cls = await resolveClass(classToken);
+  if (!cls) {
     return { ok: false, reason: "gone" };
   }
+  const { schoolId, classId } = cls;
 
-  await withTenantContext(getDb(), { schoolId }, async (tx: TenantTx) => {
+  return await withTenantContext(getDb(), { schoolId }, async (tx: TenantTx) => {
+    // #265 L-1 (集計健全性): adId は当該クラスの実効広告 (effective_ads_per_class) と突合する。
+    // 形式検証だけでは、有効 classToken 保持者が任意 uuid を送って広告到達数を水増しできる。
+    // VIEW は security_invoker で `app.current_school_id` に RLS スコープされ、さらに classId で
+    // 絞るため、テナント越境の adId は不可視 = 自校の実効広告だけが照合に通る (ルール2)。
+    // 通らない adId (偽装、または描画直後にローテで実効集合から外れた稀ケース) は invalid に倒し、
+    // 不正な impression を記録しない (僅かな undercount より過大計上を防ぐ方を優先)。
+    const { adId } = v.value.payload;
+    if (typeof adId === "string") {
+      const hit = await tx
+        .select({ adId: effectiveAdsPerClass.adId })
+        .from(effectiveAdsPerClass)
+        .where(and(eq(effectiveAdsPerClass.classId, classId), eq(effectiveAdsPerClass.adId, adId)))
+        .limit(1);
+      if (hit.length === 0) {
+        return { ok: false, reason: "invalid" };
+      }
+    }
+
     await tx.insert(events).values({
       schoolId,
       contentId: v.value.contentId,
@@ -148,6 +181,6 @@ export async function recordSignageEvent(
       // occurred_at は DB 既定 now() に委ねる (クライアント時刻を信用しない)。
       payload: v.value.payload,
     });
+    return { ok: true };
   });
-  return { ok: true };
 }

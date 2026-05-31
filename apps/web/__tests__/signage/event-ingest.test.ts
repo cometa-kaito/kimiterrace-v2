@@ -16,6 +16,9 @@ vi.mock("@kimiterrace/db", () => ({
   resolveMagicLink,
   withTenantContext,
   events: { __table: "events" },
+  // adId 実在照合 (#265 L-1) 用。列参照は drizzle eq/and が遅延 SQL を組むだけで、
+  // tx.select の mock は条件を無視して adRows を返すため、stub 値で足りる。
+  effectiveAdsPerClass: { adId: { __col: "ad_id" }, classId: { __col: "class_id" } },
 }));
 vi.mock("../../lib/db", () => ({ getDb: () => ({ __db: true }) }));
 vi.mock("@/lib/magic-link/token", () => ({ hashToken }));
@@ -33,16 +36,26 @@ const AD_ID = "77777777-7777-4777-8777-777777777777";
 
 let captured: Record<string, unknown>[];
 let lastCtx: { schoolId?: string } | null;
+// adId 実在照合 (#265 L-1) の SELECT が返す行。空 = 実効広告に該当なし。
+let adRows: unknown[];
 
 beforeEach(() => {
   vi.clearAllMocks();
   hashToken.mockImplementation((t: string) => `HASH(${t})`);
   captured = [];
   lastCtx = null;
+  adRows = [];
   withTenantContext.mockImplementation(
     async (_db: unknown, ctx: { schoolId?: string }, fn: (tx: unknown) => Promise<unknown>) => {
       lastCtx = ctx;
       const tx = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve(adRows),
+            }),
+          }),
+        }),
         insert: () => ({
           values: (v: Record<string, unknown>) => {
             captured.push(v);
@@ -156,5 +169,30 @@ describe("recordSignageEvent", () => {
     const res = await recordSignageEvent("", { type: "view" });
     expect(res).toEqual({ ok: false, reason: "gone" });
     expect(resolveMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("#265 L-1: adId が当該クラスの実効広告なら照合通過して INSERT", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c" });
+    adRows = [{ adId: AD_ID }]; // 実効広告に該当あり
+    const res = await recordSignageEvent("THETOKEN", { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: true });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ type: "view", payload: { adId: AD_ID } });
+  });
+
+  it("#265 L-1: adId が実効広告に無ければ invalid で INSERT しない (到達数水増し防止)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c" });
+    adRows = []; // 偽装 uuid 等、当該クラスの実効広告に該当なし
+    const res = await recordSignageEvent("THETOKEN", { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: false, reason: "invalid" });
+    expect(captured).toHaveLength(0);
+  });
+
+  it("#265 L-1: adId を含まない view は照合せず INSERT (照合は adId 指定時のみ)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c" });
+    adRows = []; // 実効広告 0 でも adId 無しなら影響しない
+    const res = await recordSignageEvent("THETOKEN", { type: "view", slotIndex: 0 });
+    expect(res).toEqual({ ok: true });
+    expect(captured).toHaveLength(1);
   });
 });
