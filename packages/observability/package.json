@@ -21,11 +21,11 @@
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/sdk-node": "^0.218.0",
-    "pino": "^9.5.0",
+    "pino": "^10.3.1",
     "pino-pretty": "^13.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^25.9.1",
     "typescript": "^6.0.3",
     "vitest": "^2.1.8"
   }
