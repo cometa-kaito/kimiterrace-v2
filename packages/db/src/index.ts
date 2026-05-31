@@ -22,3 +22,5 @@ export * from "./queries/schools.js";
 export * from "./queries/feedback.js";
 // F03 (#154): AI 構造化抽出結果の ai_extractions 永続化層 (RLS context 内 INSERT)
 export * from "./queries/ai-extractions.js";
+// F08 (#44): 効果ダッシュボードの行動ログ集計読み取り層 (view/tap totals + content ランキング)
+export * from "./queries/event-stats.js";

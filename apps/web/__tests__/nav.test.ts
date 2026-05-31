@@ -32,16 +32,21 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + コンテンツ (#48-C 導線、F04 公開ハブ)", () => {
+  it("teacher はエディタ + コンテンツ + ダッシュボード (#48-C 導線、F04 公開ハブ、F08 効果)", () => {
     const items = navItemsForRole("teacher");
-    expect(items.map((i) => i.href)).toEqual(["/admin/editor", "/admin/contents"]);
+    expect(items.map((i) => i.href)).toEqual([
+      "/admin/editor",
+      "/admin/contents",
+      "/admin/dashboard",
+    ]);
   });
 
-  it("school_admin は学校管理 + エディタ + コンテンツ", () => {
+  it("school_admin は学校管理 + エディタ + コンテンツ + ダッシュボード", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/editor");
     expect(hrefs).toContain("/admin/contents");
+    expect(hrefs).toContain("/admin/dashboard");
   });
 
   it("コンテンツ (/admin/contents) は publisher (school_admin/teacher) のみに出す (#166 と整合)", () => {
@@ -50,6 +55,13 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/contents");
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/contents");
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/contents");
+  });
+
+  it("ダッシュボード (/admin/dashboard) も publisher 専用 (F08 第1スライスは自校ビュー、system_admin は後続の cross-tenant 画面)", () => {
+    // /admin/dashboard は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/dashboard");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/dashboard");
   });
 
   it("system_admin は学校一覧 + フィードバック（自校エディタは出さない）", () => {
