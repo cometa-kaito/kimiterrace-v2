@@ -13,6 +13,7 @@ export { ExtractorRegistry, createDefaultRegistry, extractText } from "./registr
 export {
   SOURCE_FORMATS,
   UnsupportedFormatError,
+  LegacyOfficeFormatError,
   ExtractorNotConfiguredError,
 } from "./types.js";
 export type {

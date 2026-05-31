@@ -1,4 +1,9 @@
-import { type ExtractSource, type SourceFormat, UnsupportedFormatError } from "./types.js";
+import {
+  type ExtractSource,
+  LegacyOfficeFormatError,
+  type SourceFormat,
+  UnsupportedFormatError,
+} from "./types.js";
 
 /**
  * F01: 素材の形式を推定する（純粋関数・外部依存なし）。
@@ -36,6 +41,23 @@ const EXT_TO_FORMAT: Readonly<Record<string, SourceFormat>> = {
   tif: "image",
 };
 
+/**
+ * レガシーバイナリ Office（OOXML 以前）。学校現場では .doc / .xls が依然流通するため、
+ * 「未対応」と一括で投げずに OOXML への変換を促せるよう、変換先 OOXML 拡張子へ対応づける。
+ * 値は変換すべき modern 拡張子（= 本レイヤが対応する SourceFormat の拡張子）。
+ */
+const LEGACY_MIME_TO_SUGGESTED: Readonly<Record<string, string>> = {
+  "application/msword": "docx",
+  "application/vnd.ms-excel": "xlsx",
+};
+
+const LEGACY_EXT_TO_SUGGESTED: Readonly<Record<string, string>> = {
+  doc: "docx",
+  dot: "docx",
+  xls: "xlsx",
+  xlt: "xlsx",
+};
+
 /** MIME の `image/*` は一括で image とみなす（個別 subtype を列挙しすぎない）。 */
 function formatFromMime(mimeType: string): SourceFormat | undefined {
   const normalized = mimeType.trim().toLowerCase().split(";", 1)[0]?.trim() ?? "";
@@ -61,7 +83,35 @@ function formatFromFilename(filename: string): SourceFormat | undefined {
   return ext ? EXT_TO_FORMAT[ext] : undefined;
 }
 
-/** 形式を推定する。判定不能なら UnsupportedFormatError。 */
+/**
+ * レガシー Office を検出し、変換先 OOXML 拡張子を返す（mimeType を拡張子より優先）。
+ * 該当しなければ undefined。
+ */
+function legacyOfficeMatch(
+  source: ExtractSource,
+): { legacyExt: string; suggested: string } | undefined {
+  if (source.mimeType) {
+    const normalized = source.mimeType.trim().toLowerCase().split(";", 1)[0]?.trim() ?? "";
+    const suggested = LEGACY_MIME_TO_SUGGESTED[normalized];
+    if (suggested) {
+      // MIME からは拡張子が一意でないため suggested から逆算（docx→doc / xlsx→xls）。
+      return { legacyExt: suggested === "docx" ? "doc" : "xls", suggested };
+    }
+  }
+  if (source.filename) {
+    const ext = extensionOf(source.filename);
+    const suggested = ext ? LEGACY_EXT_TO_SUGGESTED[ext] : undefined;
+    if (ext && suggested) {
+      return { legacyExt: ext, suggested };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 形式を推定する。判定不能なら UnsupportedFormatError。
+ * レガシーバイナリ Office（.doc/.xls）は変換を促す {@link LegacyOfficeFormatError}（その派生）を投げる。
+ */
 export function detectFormat(source: ExtractSource): SourceFormat {
   if (source.format) {
     return source.format;
@@ -77,6 +127,10 @@ export function detectFormat(source: ExtractSource): SourceFormat {
     if (byName) {
       return byName;
     }
+  }
+  const legacy = legacyOfficeMatch(source);
+  if (legacy) {
+    throw new LegacyOfficeFormatError(legacy.legacyExt, legacy.suggested);
   }
   throw new UnsupportedFormatError(
     `mimeType=${source.mimeType ?? "?"} filename=${source.filename ?? "?"}`,
