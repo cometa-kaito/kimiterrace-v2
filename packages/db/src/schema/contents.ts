@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, unique, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { contentStatus, publishScope } from "../_shared/enums.js";
 import { schools } from "./schools.js";
@@ -23,5 +23,8 @@ export const contents = pgTable(
   (t) => ({
     ixSchool: index("ix_contents_school_id").on(t.schoolId),
     ixStatus: index("ix_contents_status").on(t.status),
+    // 子側 (content_versions / publishes の (content_id, school_id)) から composite FK で
+    // 参照される (#204、cross-tenant write 整合の DB 強制)。
+    uqIdSchool: unique("uq_contents_id_school").on(t.id, t.schoolId),
   }),
 );

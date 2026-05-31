@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { vector } from "../_shared/pgvector.js";
 import { contents } from "./contents.js";
@@ -13,9 +22,9 @@ export const contentVersions = pgTable(
     schoolId: uuid("school_id")
       .notNull()
       .references(() => schools.id, { onDelete: "restrict" }),
-    contentId: uuid("content_id")
-      .notNull()
-      .references(() => contents.id, { onDelete: "cascade" }),
+    // FK は (content_id, school_id) の composite で張る (#204、下記 foreignKey 参照) —
+    // cross-tenant write 整合を DB 強制 (別テナントの content を指す行を弾く)。
+    contentId: uuid("content_id").notNull(),
     version: integer("version").notNull(),
     snapshot: jsonb("snapshot").notNull(),
     // PII マスキング後のテキストから生成した embedding（CLAUDE.md ルール4）
@@ -29,5 +38,13 @@ export const contentVersions = pgTable(
     // 通常は contents 行の FOR UPDATE ロック (contents-publish.ts) で直列化されエラーにならず、
     // ロックを経由しない経路が現れた場合の最終防壁として機能する。
     uxContentVer: uniqueIndex("ux_content_versions_content_version").on(t.contentId, t.version),
+    // 子側 (publishes.(version_id, school_id)) から composite FK で参照される (#204)。
+    uqIdSchool: unique("uq_content_versions_id_school").on(t.id, t.schoolId),
+    // cross-tenant write 整合 (#204): content と school_id の一致を composite FK で強制。
+    fkContent: foreignKey({
+      columns: [t.contentId, t.schoolId],
+      foreignColumns: [contents.id, contents.schoolId],
+      name: "fk_content_versions_content",
+    }).onDelete("cascade"),
   }),
 );

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { foreignKey, index, pgTable, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { contentVersions } from "./content-versions.js";
 import { contents } from "./contents.js";
@@ -13,12 +13,10 @@ export const publishes = pgTable(
     schoolId: uuid("school_id")
       .notNull()
       .references(() => schools.id, { onDelete: "restrict" }),
-    contentId: uuid("content_id")
-      .notNull()
-      .references(() => contents.id, { onDelete: "cascade" }),
-    versionId: uuid("version_id")
-      .notNull()
-      .references(() => contentVersions.id, { onDelete: "restrict" }),
+    // FK は (content_id, school_id) / (version_id, school_id) の composite で張る
+    // (#204、下記 foreignKey 参照) — cross-tenant write 整合を DB 強制。
+    contentId: uuid("content_id").notNull(),
+    versionId: uuid("version_id").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull().default(sql`now()`),
     unpublishedAt: timestamp("unpublished_at", { withTimezone: true }),
     ...auditColumns,
@@ -31,5 +29,16 @@ export const publishes = pgTable(
     uxActivePerContent: uniqueIndex("ux_publishes_active_per_content")
       .on(t.contentId)
       .where(sql`${t.unpublishedAt} IS NULL`),
+    // cross-tenant write 整合 (#204): content / version と school_id の一致を composite FK で強制。
+    fkContent: foreignKey({
+      columns: [t.contentId, t.schoolId],
+      foreignColumns: [contents.id, contents.schoolId],
+      name: "fk_publishes_content",
+    }).onDelete("cascade"),
+    fkVersion: foreignKey({
+      columns: [t.versionId, t.schoolId],
+      foreignColumns: [contentVersions.id, contentVersions.schoolId],
+      name: "fk_publishes_version",
+    }).onDelete("restrict"),
   }),
 );
