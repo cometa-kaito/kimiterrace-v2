@@ -1,12 +1,16 @@
 "use server";
 
 import { type TenantTx, advertisers, auditLog } from "@kimiterrace/db";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
 import { type AdvertiserCreateInput, validateAdvertiserCreate } from "./advertisers-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
-import { type ActionResult, invalid } from "./schools-core";
+import { type ActionResult, invalid, isUuid, notFound } from "./schools-core";
+
+/** 対象広告主が見つからない (RLS 不可視 / 不存在) とき tx をロールバックさせる。 */
+class AdvertiserNotFoundError extends Error {}
 
 /**
  * F10 (#46): 広告主 (CRM) を新規作成する Server Action (ADR-008 — 画面 mutation は Server Actions)。
@@ -83,6 +87,74 @@ async function writeAdvertiserAudit(
     recordId: advertiserId,
     operation: "insert",
     diff: { after: input },
+    rowHash: "",
+    createdBy: isSystemAdmin ? null : user.uid,
+    updatedBy: isSystemAdmin ? null : user.uid,
+  });
+}
+
+/**
+ * F10 (#46): 広告主の稼働状態 (`is_active`) を切り替える Server Action。停止 = 論理削除
+ * (advertisers schema: 過去契約のトレースを残すため物理 DELETE しない)、再開でその逆。
+ *
+ * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。UPDATE は advertisers の
+ * `system_admin_full_access` policy で通る (ルール2)。対象が RLS で不可視 / 不存在なら UPDATE が 0 行と
+ * なり `not_found` に倒す (手書き WHERE は対象特定であってテナント境界ではない)。状態変更を同一 tx で
+ * audit_log に記録する (ルール1、advertisers は cross-tenant なので school_id / actor は NULL)。
+ */
+export async function setAdvertiserActiveAction(raw: {
+  id?: unknown;
+  isActive?: unknown;
+}): Promise<ActionResult<{ id: string; isActive: boolean }>> {
+  if (!isUuid(raw.id)) {
+    return invalid("広告主の指定が不正です。");
+  }
+  if (typeof raw.isActive !== "boolean") {
+    return invalid("状態の指定が不正です。");
+  }
+  const id = raw.id;
+  const isActive = raw.isActive;
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  try {
+    const data = await withSession(async (tx: TenantTx, user) => {
+      const isSystemAdmin = user.role === "system_admin";
+      const updated = await tx
+        .update(advertisers)
+        .set({ isActive, updatedBy: isSystemAdmin ? null : user.uid })
+        .where(eq(advertisers.id, id))
+        .returning({ id: advertisers.id });
+      if (updated.length === 0) {
+        throw new AdvertiserNotFoundError();
+      }
+      await writeAdvertiserActiveAudit(tx, user, id, isActive);
+      return { id, isActive };
+    });
+    revalidatePath("/admin/system/advertisers");
+    return { ok: true, data };
+  } catch (error) {
+    if (error instanceof AdvertiserNotFoundError) {
+      return notFound("指定された広告主が見つかりません。");
+    }
+    throw error;
+  }
+}
+
+/** 稼働状態変更を audit_log に追記 (operation=update、diff は変更後の is_active のみ)。 */
+async function writeAdvertiserActiveAudit(
+  tx: TenantTx,
+  user: { uid: string; role: string },
+  advertiserId: string,
+  isActive: boolean,
+): Promise<void> {
+  const isSystemAdmin = user.role === "system_admin";
+  await tx.insert(auditLog).values({
+    actorUserId: isSystemAdmin ? null : user.uid,
+    schoolId: null,
+    tableName: "advertisers",
+    recordId: advertiserId,
+    operation: "update",
+    diff: { after: { isActive } },
     rowHash: "",
     createdBy: isSystemAdmin ? null : user.uid,
     updatedBy: isSystemAdmin ? null : user.uid,
