@@ -13,8 +13,9 @@
 2. [docs/STATUS.md](docs/STATUS.md) を読む（現在地・進行中タスク・詰まり）
 3. 該当 issue / PR を読む
 4. `git status && git log -5` で最新状態確認
-5. 必要なら Plan agent で実装計画
-6. 着手
+5. **並行で進めるなら [docs/parallel-lanes.md](docs/parallel-lanes.md) を読み、レーンを claim する**（衝突回避 × context 経済の自律フロー。「進めて」の起点）
+6. 必要なら Plan agent で実装計画
+7. 着手
 
 新セッションが**5分以内に作業に入れる**ことを設計目標とする。
 
@@ -112,6 +113,7 @@ flowchart TD
 5. PR メタは `--json title,body,additions,deletions,statusCheckRollup` で取得
 6. PR diff 全文は context に丸読みしない、file:line で参照
 7. Worker / Reviewer の log は **異常時のみ** `tail -30` で確認
+8. **「進めて」= [docs/parallel-lanes.md](docs/parallel-lanes.md) §6 の自律フロー**: `gh pr/issue list` + `git worktree list` の構造化クエリだけで in-flight と非重複の feature レーンを選定（STATUS.md 全文を読まない）→ worktree 隔離 → 規模で直接/Worker → Reviewer → 自律 merge → **worktree 解放** → 次レーンへ連続
 
 → Desktop の context は 1 日中使ってもほぼ枯れないことが設計目標。
 
@@ -122,6 +124,7 @@ flowchart TD
 - [[orchestrator-commit-push-authority]] — 旧範囲制限（包含済、メタ規律以外も Desktop 直接 OK に）
 - [[pr-merge-authority]] — 自律 merge 権限（範囲拡張済）
 - [[worker-review-discipline]] — Reviewer 必須は維持
+- [[parallel-lanes-design]] — 並行レーン規律（ファイル所有境界 × chokepoint トークン × race-free GitHub 台帳、[docs/parallel-lanes.md](docs/parallel-lanes.md)）
 
 ---
 
@@ -410,6 +413,7 @@ kimiterrace-v2/
 
 - 現在地: [docs/STATUS.md](docs/STATUS.md)
 - ロードマップ: [docs/ROADMAP.md](docs/ROADMAP.md)
+- **並行開発レーン**: [docs/parallel-lanes.md](docs/parallel-lanes.md)（複数スレッド並行時の衝突回避 × context 経済）
 - 意思決定一覧: [docs/adr/](docs/adr/)
 - インシデント対応: [docs/runbooks/incident-response.md](docs/runbooks/incident-response.md)
 
