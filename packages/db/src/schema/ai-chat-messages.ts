@@ -53,7 +53,9 @@ export const aiChatMessages = pgTable(
     ...auditColumns,
   },
   (t) => ({
-    ixSchool: index("ix_ai_chat_messages_school_id").on(t.schoolId),
+    // ADR-019: school_id を先頭に持つ複合インデックス（PR #71 Reviewer M-3）。school 内の時系列取得
+    // (ORDER BY created_at DESC) を賄い、bare (school_id) を内包するため旧 ix_..._school_id は廃止。
+    ixSchoolCreated: index("ix_ai_chat_messages_school_created").on(t.schoolId, t.createdAt),
     ixSessionCreated: index("ix_ai_chat_messages_session_created").on(t.sessionId, t.createdAt),
     // cross-tenant write 整合を DB 強制 (#73)。session と school_id の一致を composite FK で強制。
     fkSession: foreignKey({

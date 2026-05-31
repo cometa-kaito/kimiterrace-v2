@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { check, index, jsonb, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
-import { aiExtractionKind } from "../_shared/enums.js";
+import { aiExtractionKind, aiExtractionStatus } from "../_shared/enums.js";
 import { contents } from "./contents.js";
 import { schools } from "./schools.js";
 
@@ -33,8 +33,8 @@ export const aiExtractions = pgTable(
     rawInputHash: varchar("raw_input_hash", { length: 64 }),
     // 例: "gemini-1.5-pro-002"
     modelVersion: varchar("model_version", { length: 64 }).notNull(),
-    // success / retry / failed
-    status: varchar("status", { length: 32 }).notNull().default("success"),
+    // 実行結果ステータス（enum: success / retry / failed）。値域は単一ソース enum で DB 強制。
+    status: aiExtractionStatus("status").notNull().default("success"),
     errorMessage: text("error_message"),
     ...auditColumns,
   },
@@ -42,5 +42,11 @@ export const aiExtractions = pgTable(
     ixSchool: index("ix_ai_extractions_school_id").on(t.schoolId),
     ixContent: index("ix_ai_extractions_content_id").on(t.contentId),
     ixStatus: index("ix_ai_extractions_status").on(t.status),
+    // 監査トレース整合: success 行は再現性のため raw_input_hash 必須（retry/failed は欠落許容）。
+    // hard-delete 不可逆の AI 抽出ログで「成功時に何を入力したか」の立証を担保（PR #71 Reviewer M-2）。
+    ckHashOnSuccess: check(
+      "ck_ai_extractions_hash_on_success",
+      sql`${t.status} <> 'success' OR ${t.rawInputHash} IS NOT NULL`,
+    ),
   }),
 );

@@ -147,4 +147,32 @@ describeOrSkip("F03 ai_extractions 永続化 (#154 item 1, RLS)", () => {
     expect(Number(row.confidence_score)).toBe(0);
     expect(row.error_message).toBe("Zod 検証に 3 回失敗");
   });
+
+  // ---- #75 (PR #71 Reviewer M-1/M-2): status enum 化 + 監査整合 CHECK の DB 強制 ----
+  // raw (superuser/BYPASSRLS) で直接 INSERT し、型・制約レベルの拒否を突く。ai_extractions には
+  // GUC 依存トリガが無いため、失敗は enum / CHECK 制約そのものに帰属する。
+
+  it("M-1: status は enum 制約 — 想定外の値は DB が弾く (ルール3 機械強制)", async () => {
+    await expect(
+      raw`INSERT INTO ai_extractions
+            (school_id, extraction_kind, confidence_score, model_version, status, raw_input_hash)
+          VALUES (${fx.schoolA}, 'schedule', 0.5, 'gemini-1.5-pro-002', 'bogus', ${"a".repeat(64)})`,
+    ).rejects.toThrow();
+  });
+
+  it("M-2: status=success の行は raw_input_hash 必須 — NULL は CHECK が弾く (監査トレース整合)", async () => {
+    await expect(
+      raw`INSERT INTO ai_extractions
+            (school_id, extraction_kind, confidence_score, model_version, status, raw_input_hash)
+          VALUES (${fx.schoolA}, 'schedule', 0.5, 'gemini-1.5-pro-002', 'success', NULL)`,
+    ).rejects.toThrow();
+  });
+
+  it("M-2: status=failed なら raw_input_hash NULL を許容 — 失敗経路はハッシュ欠落可", async () => {
+    const rows = await raw`INSERT INTO ai_extractions
+          (school_id, extraction_kind, confidence_score, model_version, status, raw_input_hash)
+        VALUES (${fx.schoolA}, 'schedule', 0, 'gemini-1.5-pro-002', 'failed', NULL)
+        RETURNING id`;
+    expect(rows.length).toBe(1);
+  });
 });
