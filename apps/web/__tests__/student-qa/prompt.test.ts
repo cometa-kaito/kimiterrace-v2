@@ -73,6 +73,11 @@ describe("buildContextBlock", () => {
     expect(block).toContain("&lt;b&gt;9月3日&lt;/b&gt;");
     expect(block).not.toContain("<b>");
   });
+
+  it("ref に二重引用符が含まれても属性を破らない（defense-in-depth）", () => {
+    const block = buildContextBlock([{ id: 'c"x', title: "t", body: "b" }]);
+    expect(block).toContain('<content ref="c&quot;x">');
+  });
 });
 
 describe("buildQuestionBlock", () => {
