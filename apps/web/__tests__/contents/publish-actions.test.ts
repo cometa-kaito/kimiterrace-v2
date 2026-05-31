@@ -96,6 +96,19 @@ describe("updateContentAction", () => {
     expect(res).toMatchObject({ ok: false, code: "invalid_input" });
   });
 
+  it("非文字列 body は invalid_input で、認可も DB も走らせない (#150 L-1)", async () => {
+    const res = await updateContentAction(CONTENT_ID, { body: 1 as unknown as string });
+    expect(res).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("非配列 targets は invalid_input (#150 L-1)", async () => {
+    const res = await updateContentAction(CONTENT_ID, { targets: { classId: "x" } });
+    expect(res).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
   it("正常系: 許可スコープで更新し version を返す", async () => {
     withSessionMock.mockResolvedValue({ version: 2 });
     const res = await updateContentAction(CONTENT_ID, { body: "改訂", publishScope: "class" });

@@ -10,10 +10,10 @@ import {
   type UpdateContentInput,
   forbidden,
   invalid,
-  isPublishScope,
   isUuid,
   mapDomainError,
   toActor,
+  validateUpdateInput,
 } from "./publish-core";
 
 /**
@@ -58,11 +58,9 @@ export async function updateContentAction(
   if (!isUuid(contentId)) {
     return invalid("contentId が不正です。");
   }
-  if (input.publishScope !== undefined && !isPublishScope(input.publishScope)) {
-    return invalid("publishScope が不正です。");
-  }
-  if (input.title !== undefined && (typeof input.title !== "string" || input.title.length === 0)) {
-    return invalid("title が不正です。");
+  const invalidInput = validateUpdateInput(input);
+  if (invalidInput) {
+    return invalidInput;
   }
   const user = await requireRole(PUBLISHER_ROLES);
   const actor = toActor(user);
