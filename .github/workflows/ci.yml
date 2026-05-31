@@ -90,6 +90,31 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
 
+  # ---------------------------------------------------------------------------
+  # e2e (Playwright) — F0 #48-O 第 1 増分: 基盤確立のみ。
+  #
+  # スモークは DB / 認証に依存しない /login の描画 1 本だけ。Playwright の webServer が
+  # 本番ビルド (next build) + 起動 (next start) を担うので、このジョブは Postgres service を
+  # 付けない。後続増分で「ログイン→エディタ更新→サイネージ反映」golden path を足す際に
+  # postgres service + DB seed を追加する (test ジョブの services ブロックを参照)。
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
+      - name: Run e2e (Playwright webServer builds + starts the app)
+        run: pnpm --filter @kimiterrace/web test:e2e
+
   build:
     name: Build
     runs-on: ubuntu-latest
