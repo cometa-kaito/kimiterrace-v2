@@ -141,7 +141,7 @@ jobs:
         run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
       # Auth emulator は Java を要する (ubuntu runner には JDK が同梱)。明示セットアップで安定化。
       - name: Set up JDK (Firebase Auth emulator runtime)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
