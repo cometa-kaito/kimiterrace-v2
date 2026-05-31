@@ -44,8 +44,6 @@ export function middleware(request: NextRequest): NextResponse {
  *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
  *   弾かれ実機破綻する。`/admin/signage-preview` は `admin` 始まりなので本除外の影響外 (保護のまま)。
- * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)
- * - /api/health: 監視用 liveness (ADR: 認証不要)
  * - _next/static, _next/image, favicon, public assets: 静的アセット
  *
  * negative lookahead で上記を除外し、残り全部を保護対象にする。匿名公開経路 (F05 の `/s`・
