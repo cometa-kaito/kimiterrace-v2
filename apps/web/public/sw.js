@@ -22,6 +22,11 @@ const CACHE_NAME = "signage-media-v1";
 
 /**
  * intercept (cache-first) してよいリクエストか。GET かつ画像/動画のみ。
+ *
+ * ⚠️ セキュリティ境界: この述語が false のものは fetch ハンドラで素通りする (キャッシュしない)。
+ * この「media 以外は素通り」がオリジン全体 (SW 制御スコープは `/`、/admin 含む) の安全性を
+ * 担保している。**条件を広げると HTML / token スコープ JSON / API までキャッシュし得て、
+ * 即時失効・テナント分離 (RLS) が壊れる**。広げる場合は必ず影響を再評価すること。
  * @param {{ method: string, destination: string }} req
  * @returns {boolean}
  */
