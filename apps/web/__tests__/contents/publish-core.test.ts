@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
 import {
-  PUBLISH_SCOPES,
   PUBLISHER_ROLES,
+  PUBLISH_SCOPES,
   TITLE_MAX_LENGTH,
   isPublishScope,
   isUuid,
