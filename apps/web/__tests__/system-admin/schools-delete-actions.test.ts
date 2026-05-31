@@ -12,12 +12,14 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 
+import { revalidatePath } from "next/cache";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { deleteSchoolAction } from "../../lib/system-admin/schools-actions";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
+const revalidatePathMock = vi.mocked(revalidatePath);
 
 const SCHOOL_ID = "11111111-1111-4111-8111-111111111111";
 const SYS_UID = "99999999-9999-4999-8999-999999999999";
@@ -55,7 +57,14 @@ beforeEach(() => {
   requireRoleMock.mockResolvedValue(sysAdmin);
   captured = [];
   selectRows = [
-    { id: SCHOOL_ID, name: "廃校予定校", prefecture: "岐阜県", code: "X", hierarchyMode: "class" },
+    {
+      id: SCHOOL_ID,
+      name: "廃校予定校",
+      prefecture: "岐阜県",
+      code: "X",
+      hierarchyMode: "class",
+      notes: "統廃合により2026年度末で閉校",
+    },
   ];
   deleteReturning = [{ id: SCHOOL_ID }];
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
@@ -120,5 +129,24 @@ describe("deleteSchoolAction", () => {
       operation: "delete",
     });
     expect((audit?.diff as { before?: { name?: string } })?.before?.name).toBe("廃校予定校");
+  });
+
+  it("監査 before は不可逆削除の立証用に notes を含む (全編集カラム) (#246 Low-1)", async () => {
+    await deleteSchoolAction({ id: SCHOOL_ID });
+    const audit = captured.find((v) => v.tableName === "schools");
+    expect((audit?.diff as { before?: Record<string, unknown> })?.before).toEqual({
+      name: "廃校予定校",
+      prefecture: "岐阜県",
+      code: "X",
+      hierarchyMode: "class",
+      notes: "統廃合により2026年度末で閉校",
+    });
+  });
+
+  it("削除後に一覧・詳細・編集ページを revalidate する (stale ページ防止) (#246 Low-3)", async () => {
+    await deleteSchoolAction({ id: SCHOOL_ID });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/schools");
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/schools/${SCHOOL_ID}`);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/schools/${SCHOOL_ID}/edit`);
   });
 });
