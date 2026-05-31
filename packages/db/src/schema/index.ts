@@ -23,6 +23,8 @@ export * from "./contracts.js";
 export * from "./communications.js";
 export * from "./monthly-reports.js";
 export * from "./system-admins.js";
+// F12 (#48-M): フィードバック (cross-tenant / system_admin_only、非認証投稿)
+export * from "./feedback.js";
 export * from "./audit-log.js";
 // F0 (#48-A): V1 移植 — 階層基盤テーブル
 export * from "./grades.js";

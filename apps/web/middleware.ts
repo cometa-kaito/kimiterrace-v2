@@ -44,14 +44,19 @@ export function middleware(request: NextRequest): NextResponse {
  *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
  *   弾かれ実機破綻する。`/admin/signage-preview` は `admin` 始まりなので本除外の影響外 (保護のまま)。
+ * - /guide, /api/guide/*: F12 (#48-M) フィードバックのガイド画面 + 投稿エンドポイント。教員等が
+ *   ログインせずに送れる匿名公開経路 (V1 feedback 受付の移植)。除外しないと未ログインで /login に
+ *   弾かれ投稿不能。書き込みは SECURITY DEFINER `submit_feedback` 1 行 INSERT に限定、閲覧は
+ *   system_admin のみ (system_admin_only RLS) なので、匿名公開でも閲覧面は漏れない。
  * - _next/static, _next/image, favicon, public assets: 静的アセット
  *
  * negative lookahead で上記を除外し、残り全部を保護対象にする。匿名公開経路 (F05 の `/s`・
- * `/student`、F12 の `/signage/`) を除外しないと「発行→生徒/端末が開く」が /login に弾かれ実機で
- * 破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は __tests__/auth/middleware.test.ts の matcher テスト。
+ * `/student`、F12 の `/signage/`・`/guide`) を除外しないと「発行→生徒/端末が開く」「教員がフィードバック
+ * 投稿」が /login に弾かれ実機で破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は
+ * __tests__/auth/middleware.test.ts の matcher テスト。
  */
 export const config = {
   matcher: [
-    "/((?!login|s/|student|signage/|api/auth|api/health|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login|s/|student|signage/|guide(?:/|$)|api/auth|api/health|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };

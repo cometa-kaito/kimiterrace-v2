@@ -60,6 +60,17 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/signage/abc123_token/data")).toBe(false);
   });
 
+  it("F12/#48-M フィードバック /guide・/api/guide/* はゲート対象外 (除外)", () => {
+    expect(gated.test("/guide")).toBe(false);
+    expect(gated.test("/api/guide/feedback")).toBe(false);
+  });
+
+  it("guide 除外は guide(?:/|$) で厳格、/guidelines 等は過剰除外しない (保護のまま)", () => {
+    // `guide` 単体だと /guidelines も巻き込み静かな保護バイパスになる (PR #227 Reviewer Low-1)。
+    expect(gated.test("/guidelines")).toBe(true);
+    expect(gated.test("/guide-internal")).toBe(true);
+  });
+
   it("既存の認証不要パスも除外のまま", () => {
     expect(gated.test("/login")).toBe(false);
     expect(gated.test("/api/auth/session")).toBe(false);

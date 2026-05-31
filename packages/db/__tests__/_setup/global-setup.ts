@@ -36,6 +36,9 @@ const MAGIC_LINK_CLASS_FK_SQL = join(
 // #48-L (#123): schools に hierarchy_mode 列 + enum を追加 (V1 setSchoolHierarchyMode 相当)。
 // schools (baseline) 作成後ならいつでも流せる列追加。番号は main の 0008 と衝突回避のため 0009。
 const SCHOOL_HIERARCHY_MODE_SQL = join(packageRoot, "drizzle", "0009_school_hierarchy_mode.sql");
+// F12 (#48-M): feedback テーブル DDL (cross-tenant、system_admin_only)。schools (baseline)
+// 作成後に流す (school_id FK のため)。RLS / SECURITY DEFINER は migrations/0010 で後付け。
+const FEEDBACK_SCHEMA_SQL = join(packageRoot, "drizzle", "0010_feedback.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -53,6 +56,10 @@ const EFFECTIVE_ADS_VIEW_SQL = join(packageRoot, "migrations", "0007_effective_a
 const F05_RESOLVE_FN_SQL = join(packageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
 // F02: teacher_inputs / teacher_input_attachments の RLS policy + 監査 FK。新テーブル作成後に流す。
 const F02_RLS_SQL = join(packageRoot, "migrations", "0009_f02_schema_rls.sql");
+// F12 (#48-M): feedback の RLS (system_admin_only) + 匿名 INSERT 用 SECURITY DEFINER 関数
+// submit_feedback。テーブル作成 (FEEDBACK_SCHEMA_SQL) + kimiterrace_app ロール (RLS_POLICIES_SQL)
+// + users 作成後に流す。
+const FEEDBACK_RLS_SQL = join(packageRoot, "migrations", "0010_feedback_rls.sql");
 
 /**
  * Vitest globalSetup: テスト前に DATABASE_URL の DB を初期化する。
@@ -143,6 +150,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, MAGIC_LINK_CLASS_FK_SQL);
     // #48-L (#123): schools.hierarchy_mode 列 + enum を追加 (schools は baseline 作成済)
     await runSqlFile(sql, SCHOOL_HIERARCHY_MODE_SQL);
+    // F12 (#48-M): feedback テーブル DDL (schools 作成後 = school_id FK のため)
+    await runSqlFile(sql, FEEDBACK_SCHEMA_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
@@ -155,6 +164,9 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, F0A_RLS_SQL);
     // F02: 新テーブルの RLS policy + 監査 FK。テーブル作成 (F02_SCHEMA_SQL) と users 作成後に流す。
     await runSqlFile(sql, F02_RLS_SQL);
+    // F12 (#48-M): feedback の RLS (system_admin_only) + submit_feedback SECURITY DEFINER 関数。
+    // テーブル作成 (FEEDBACK_SCHEMA_SQL) + kimiterrace_app ロール (RLS_POLICIES_SQL) + users 後に流す。
+    await runSqlFile(sql, FEEDBACK_RLS_SQL);
 
     // 5) 広告階層マージ VIEW (#48-F)。列追加 + RLS 適用後に作成する。
     await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);
