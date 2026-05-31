@@ -5,6 +5,7 @@ import {
   NoActivePublishError,
   VersionNotFoundError,
   publishContent,
+  recordPublishDenial,
   rollbackContent,
   unpublishContent,
   updateContent,
@@ -26,6 +27,8 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   const APP = { appRole: "kimiterrace_app" };
   let fx: Awaited<ReturnType<typeof seedBaseFixture>>;
   let contentA: string;
+  /** school A に属する非 publisher (生徒)。拒否監査 (#150 L-2) の actor に使う。 */
+  let studentA: string;
 
   /** school A の draft content を 1 件作り直す (BYPASSRLS 接続で投入)。 */
   async function seedDraftA(): Promise<string> {
@@ -39,6 +42,13 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
 
   beforeAll(async () => {
     fx = await seedBaseFixture(raw);
+    // 拒否監査テスト用に school A の生徒を 1 名投入 (seedBaseFixture は school_admin のみ)。
+    const [stu] = await raw<{ id: string }[]>`
+      INSERT INTO users (school_id, identity_uid, role, display_name)
+      VALUES (${fx.schoolA}, 'uid-student-A', 'student', '生徒 A')
+      RETURNING id
+    `;
+    studentA = stu.id;
   });
 
   beforeEach(async () => {
@@ -101,8 +111,11 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
       await raw`SELECT version FROM content_versions WHERE content_id = ${contentA} ORDER BY version`;
     expect(versions.map((v) => v.version)).toEqual([1, 2]);
 
+    // diff.denied IS NULL で拒否試行 (#150 L-2) の行を除外し、実 mutation の監査行だけを見る
+    // (拒否記録テストとの実行順序に依存せず堅牢にする)。
     const [audit] = await raw<{ diff: { before: { body: string }; after: { body: string } } }[]>`
-      SELECT diff FROM audit_log WHERE table_name = 'contents' AND operation = 'update'
+      SELECT diff FROM audit_log
+      WHERE table_name = 'contents' AND operation = 'update' AND (diff->>'denied') IS NULL
       ORDER BY occurred_at DESC LIMIT 1
     `;
     expect(audit.diff.before.body).toBe("初版本文");
@@ -185,8 +198,11 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
 
   it("audit_log の actor_user_id は常に操作者本人 (詐称防止 policy を充足)", async () => {
     await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    // 通常 mutation の監査行はすべて操作者 (userA) 本人。拒否試行行 (#150 L-2, diff.denied) は
+    // 拒否された別ユーザー (生徒) が actor になりうる (それも policy 上は本人一致) ため除外する。
     const rows = await raw<{ actor_user_id: string }[]>`
-      SELECT DISTINCT actor_user_id FROM audit_log WHERE school_id = ${fx.schoolA}
+      SELECT DISTINCT actor_user_id FROM audit_log
+      WHERE school_id = ${fx.schoolA} AND (diff->>'denied') IS NULL
     `;
     for (const r of rows) {
       expect(r.actor_user_id).toBe(fx.userA);
@@ -292,5 +308,88 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
       SELECT id FROM publishes WHERE content_id = ${contentA} AND unpublished_at IS NULL
     `;
     expect(active.length).toBe(1);
+  });
+
+  // ---- #150 L-2: 認可拒否の監査記録 (NFR04) ----
+  // 注: これらは audit_log に actor=studentA の行を残す (append-only)。上の通常 mutation テスト群
+  // (actor=userA) より後に登録され実行されるため、それらの監査アサーションは汚染されない。
+
+  const ctxStudent = () => ({ userId: studentA, schoolId: fx.schoolA, role: "student" as const });
+  const actorStudent = () => ({ userId: studentA, schoolId: fx.schoolA });
+
+  it("L-2: 生徒の publish 拒否試行を audit_log に記録する (operation=insert, diff.denied)", async () => {
+    await withTenantContext(
+      db,
+      ctxStudent(),
+      (tx) =>
+        recordPublishDenial(tx, actorStudent(), {
+          action: "publish",
+          contentId: contentA,
+          attemptedRole: "student",
+        }),
+      APP,
+    );
+
+    const [row] = await raw<
+      {
+        actor_user_id: string;
+        school_id: string;
+        operation: string;
+        table_name: string;
+        record_id: string;
+        diff: { denied: boolean; action: string; attemptedRole: string };
+      }[]
+    >`
+      SELECT actor_user_id, school_id, operation, table_name, record_id, diff FROM audit_log
+      WHERE actor_user_id = ${studentA} AND diff->>'action' = 'publish'
+      ORDER BY occurred_at DESC LIMIT 1
+    `;
+    expect(row.actor_user_id).toBe(studentA); // 拒否された本人 (policy が詐称を禁じる)
+    expect(row.school_id).toBe(fx.schoolA);
+    expect(row.operation).toBe("insert"); // publish → insert に写像
+    expect(row.table_name).toBe("contents");
+    expect(row.record_id).toBe(contentA); // 対象 content
+    expect(row.diff.denied).toBe(true);
+    expect(row.diff.action).toBe("publish");
+    expect(row.diff.attemptedRole).toBe("student");
+  });
+
+  it("L-2: update / unpublish の拒否は operation=update に写像する", async () => {
+    await withTenantContext(
+      db,
+      ctxStudent(),
+      (tx) =>
+        recordPublishDenial(tx, actorStudent(), {
+          action: "unpublish",
+          contentId: contentA,
+          attemptedRole: "student",
+        }),
+      APP,
+    );
+    const [row] = await raw<{ operation: string; diff: { action: string } }[]>`
+      SELECT operation, diff FROM audit_log
+      WHERE actor_user_id = ${studentA} AND diff->>'action' = 'unpublish'
+      ORDER BY occurred_at DESC LIMIT 1
+    `;
+    expect(row.operation).toBe("update");
+    expect(row.diff.action).toBe("unpublish");
+  });
+
+  it("L-2: 詐称防止 — context の本人でない actor で拒否記録しようとすると policy が弾く", async () => {
+    // 生徒の RLS context (app.current_user_id = studentA) で、別ユーザー (userA) を actor に
+    // 詐称した拒否記録は audit_log_insert policy (actor_user_id = app.current_user_id) が拒否する。
+    await expect(
+      withTenantContext(
+        db,
+        ctxStudent(),
+        (tx) =>
+          recordPublishDenial(
+            tx,
+            { userId: fx.userA, schoolId: fx.schoolA },
+            { action: "publish", contentId: contentA, attemptedRole: "student" },
+          ),
+        APP,
+      ),
+    ).rejects.toThrow();
   });
 });
