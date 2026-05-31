@@ -364,35 +364,21 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ---
 
-## 今やっているもの
+## 今やっているもの（→ GitHub が一次ソース）
 
-| 担当 | Issue | タスク | 進捗 |
-|---|---|---|---|
-| Claude | #11 | 既存システム棚卸し | ✅ 完了（V1 機能インベントリ取得） |
-| Claude | #12 | 機能要件 F01-F0X ドラフト | ✅ **`functional/F01-F12.md` 個別分割済** |
-| Claude | #13 | 非機能要件 NFR01-NFR06 ドラフト | ✅ **`non-functional/NFR01-NFR07.md` 個別分割済**（NFR07 追加） |
-| Claude | #14 | ADR 群初稿 | ✅ **ADR-015〜019 起票済**（既存 ADR-001〜014 と合わせて 19 本） |
-| Worker(Mac) | #15 | PostgreSQL DDL 初稿 | ✅ **全完結**。Part A (PR #53) + Part B (PR #71) + Part C1 (PR #77) + Part C2 (PR #93, Desktop Worker mode) merged。後続 PR #97 (dormant bug fix) / PR #99 (CI RLS 実走化) / PR #103 (schools FOR UPDATE/DELETE + audit_log 詐称防止) / PR #104 (drizzle meta enums) で hardening 完了 |
-| Worker(Mac) | #16 | C4 図 + シーケンス図 | ✅ **完結**。Part A (PR #52 merged) + Part B (PR #63 merged) + Part C (PR #68 merged, Desktop Worker mode) |
-| Worker(Mac) | #17 | 脅威モデル STRIDE | ✅ **完結**。Part A (PR #54 merged) + Part B (PR #64 merged) + Part C (PR #72 merged, Desktop Worker mode) — STRIDE 6 カテゴリ全件 3 件以上 + 即公開特有 2 件 = 29 件 |
-| Worker(Mac) | #49 | DDL Part A (9 テナント表 + 共通基盤) | ✅ **PR #53** merged |
-| Worker(Mac) | #50 | C4 Part A (Context/Container/Component+ER) | ✅ **PR #52** merged |
-| Worker(Mac) | #51 | STRIDE Part A (Spoofing+Tampering) | ✅ **PR #54** merged |
-| Worker(Mac) | #56 | シーケンス Part B (教員系 5 種) | ✅ **PR #63** merged |
-| Worker(Mac) | #57? | STRIDE Part B (Repudiation+InfoDisclosure) | ✅ **PR #64** merged |
-| Worker(Local) | #65 | Terraform 雛形 (providers + GCS state + 5 modules + 3 envs) | ✅ **PR #66** merged (admin squash, commit 5872223)。High 2 件は #69 / #70 で follow-up |
-| Worker(Desktop) | #60 | シーケンス Part C (生徒系: F05/F06 + 分析系: F07/F09) | ✅ **PR #68** merged (squash, commit c28e488)。Desktop が Worker mode で実装 |
-| Worker(Desktop) | #55 | DDL Part B (AI/RAG 3 テーブル) | ✅ **PR #71** merged (squash, commit 25bdc68)。Desktop Worker mode 並列実装、Reviewer COMMENT 判定。Critical 0 / High 2 → #73 / #74、Medium 4 → #75 |
-| Worker(Desktop) | #61 | STRIDE Part C (DoS + EoP + 即公開特有) | ✅ **PR #72** merged (squash, commit 64be2b1)。Desktop Worker mode 並列実装、Reviewer 実質 APPROVE。親 Issue #17 自動 close |
-| Worker(Desktop) | #58 | DDL Part C1 (CRM + 横断系 6 テーブル) | ✅ **PR #77** merged (squash, commit 223736a)。Desktop Worker mode 並列実装、Reviewer 実質 APPROVE。Medium 3 / Low 4 は #59 Part C2 で吸収予定 |
-| Worker(Desktop) | #74 | pgvector customType hoist | ✅ **PR #76** merged (squash, commit 42b54f6)。軽量 refactor、Reviewer APPROVE。Issue #74 自動 close |
-| 人間 | #70 | cloud_sql deletion_protection 変数化 | ✅ **PR #80** merged (ユーザー直接実装、commit 1adfd1b)。Issue #70 close |
-| 人間 | (PR #102) | F13 SwitchBot Webhook + ADR-020 docs | ✅ **PR #102** merged (Reviewer Agent APPROVE 相当 → 自律 squash merge、commit 08c59e2)。Issue #106 起票 (Low follow-up) |
-| Claude | #18 | ローカル開発環境 docker-compose | ✅ 完了（PR #26 merged） |
-| 人間 | #19 | gcloud SDK / Terraform インストール | ✅ 完了 |
-| 人間 | #20 | GCP プロジェクト `signage-v2-prod` 作成 | ✅ 完了 |
-| 人間 | #21 | 県教委 Wi-Fi フィルタ方式問合せ | ✅ 完了（ドメインベース） |
-| 人間 | #22 | ペネトレ業者3社見積依頼 | ❌ **実施しない判断（要再検討）** |
+> **2026-05-31 [docs/parallel-lanes.md](parallel-lanes.md) §7 に基づき、ここにあった live 表 (担当×Issue×進捗) を撤去**。
+> 複数 session が同時編集するとこの表 / ヘッダは commit 順で上書きしレースする温床だったため、
+> **「いま誰がどのレーンを持っているか」は race-free な GitHub を唯一の真実**とする
+> （issue/label/assignee/PR はサーバ側で直列化され、ファイルのように上書きされない）:
+>
+> | 知りたいこと | 見る場所 |
+> |---|---|
+> | 稼働中レーンと owner | open issue の `lane:*` ラベル + assignee（`gh issue list --state open`） |
+> | in-flight な PR | `gh pr list --state=open` |
+> | schema/deps/infra トークンの保持者 | `packages/db/**`・lockfile・`infrastructure/**` を触る open PR（各 1 本のはず） |
+>
+> STATUS.md は **append-only の履歴**（「直近の完了」）と**次アクションのポインタ**（「次にやるべき」）に役割限定。
+> 各 PR の一次記録は **PR body**。新レーンの claim 〜 land 〜 release の手順は parallel-lanes.md §5/§6。
 
 ---
 
