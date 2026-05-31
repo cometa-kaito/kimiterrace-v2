@@ -3,6 +3,7 @@ import {
   type TenantRole,
   type TenantTx,
   createDbClient,
+  tenantScopedContext,
   withTenantContext,
 } from "@kimiterrace/db";
 import { type AuthUser, getCurrentUser } from "./auth/session";
@@ -85,6 +86,11 @@ export class ForbiddenError extends Error {
  *   (deny-by-default)。
  * - `options.allowedRoles` を渡すと、user.role がそこに無い場合 `ForbiddenError` を投げる
  *   (tx を開く前に弾く)。RLS が role 境界を守らないテーブルの認可第一層。
+ * - `options.tenantScoped` を渡すと、特定 school を対象にする mutation 用に **system_admin を
+ *   tenant ロールへ降格** する (ADR-019 §#95 / Issue #197)。`system_admin_full_access` policy の
+ *   全校発火を止め、cross-tenant 越権 (自校可視性チェックのすり抜け、#73) を DB レベルで封じる。
+ *   全校横断が必要な経路 (system_admin の学校一覧 #48-L 等) は **指定しない** ことで従来どおり
+ *   全校可視を保つ (opt-in、後方互換)。降格条件・理由は `tenantScopedContext` を参照。
  * - 非 null なら `withTenantContext` (packages/db) に user を渡して `SET LOCAL` 相当を一元処理。
  *   手書きの SET LOCAL は書かない (ADR-008 一元化 / ADR-019)。
  *
@@ -93,7 +99,7 @@ export class ForbiddenError extends Error {
  */
 export async function withSession<T>(
   fn: (tx: TenantTx, user: AuthUser) => Promise<T>,
-  options?: { allowedRoles?: readonly TenantRole[] },
+  options?: { allowedRoles?: readonly TenantRole[]; tenantScoped?: boolean },
 ): Promise<T> {
   const user = await getCurrentUser();
   if (!user) {
@@ -102,9 +108,7 @@ export async function withSession<T>(
   if (options?.allowedRoles && !options.allowedRoles.includes(user.role)) {
     throw new ForbiddenError();
   }
-  return await withTenantContext(
-    getDb(),
-    { userId: user.uid, schoolId: user.schoolId, role: user.role },
-    (tx) => fn(tx, user),
-  );
+  const baseContext = { userId: user.uid, schoolId: user.schoolId, role: user.role };
+  const context = options?.tenantScoped ? tenantScopedContext(baseContext) : baseContext;
+  return await withTenantContext(getDb(), context, (tx) => fn(tx, user));
 }
