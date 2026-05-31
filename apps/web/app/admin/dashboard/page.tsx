@@ -47,6 +47,7 @@ export default async function DashboardPage() {
       <div style={cardsStyle}>
         <SummaryCard label="表示 (view)" value={stats.totals.view} />
         <SummaryCard label="タップ (tap)" value={stats.totals.tap} />
+        <SummaryCard label="Q&A (ask)" value={stats.totals.ask} />
       </div>
 
       <h2 style={sectionTitleStyle}>コンテンツ別の反応</h2>

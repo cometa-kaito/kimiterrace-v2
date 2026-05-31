@@ -1,4 +1,4 @@
-import { eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { contents } from "../schema/contents.js";
 import { events } from "../schema/events.js";
@@ -25,11 +25,11 @@ import { events } from "../schema/events.js";
 type Selectable = Pick<PostgresJsDatabase, "select">;
 
 /**
- * 行動種別ごとの件数。本スライスは F07 が実際に記録する **view / tap** のみを面に出す。
- * `dwell` は滞留秒数の計測手段が未確定で Phase 2 まで書き込み不在、`ask` は F06 生徒対話の経路
- * (本ダッシュボードの後続スライスで Q&A 件数として統合) のため、ここでは集計対象外。
+ * 行動種別ごとの件数。F07 が記録する **view / tap** に加え、F06 生徒対話の **ask** (Q&A 件数、
+ * F08 受け入れ条件) を面に出す。`dwell` は滞留秒数の計測手段が未確定で Phase 2 まで書き込み不在の
+ * ため集計対象外。`ask` を書き込む経路 (F06) が未配線の間は 0 になるが、配線後は自動で反映される。
  */
-export type EventTotals = { view: number; tap: number };
+export type EventTotals = { view: number; tap: number; ask: number };
 
 /** content 1 件あたりの反応集計 (ランキング 1 行)。 */
 export type ContentEngagement = {
@@ -77,18 +77,24 @@ export async function getEventStats(
     .from(events)
     .where(recent)
     .groupBy(events.type);
-  const totals: EventTotals = { view: 0, tap: 0 };
+  const totals: EventTotals = { view: 0, tap: 0, ask: 0 };
   for (const row of totalRows) {
     if (row.type === "view") {
       totals.view = row.n;
     } else if (row.type === "tap") {
       totals.tap = row.n;
+    } else if (row.type === "ask") {
+      totals.ask = row.n;
     }
   }
 
   // --- ranking: content 別反応数 ---
   // title を出すため contents を内部結合する。INNER JOIN により content_id が NULL の event
   // (例: 広告枠そのものへの tap) は自然に除外される。結合先 contents も RLS で自校に絞られる。
+  // ランキングは **view/tap の反応**で並べるため WHERE で ask/dwell を除外する。これにより
+  // `total = count(*)` が views + taps と一致し (UI の 表示/タップ/合計 が整合)、ask は totals 側に
+  // のみ計上される。
+  const reactions = and(recent, inArray(events.type, ["view", "tap"]));
   const views = sql<number>`count(*) filter (where ${events.type} = 'view')`.mapWith(Number);
   const taps = sql<number>`count(*) filter (where ${events.type} = 'tap')`.mapWith(Number);
   const total = sql<number>`count(*)`.mapWith(Number);
@@ -96,7 +102,7 @@ export async function getEventStats(
     .select({ contentId: events.contentId, title: contents.title, views, taps, total })
     .from(events)
     .innerJoin(contents, eq(events.contentId, contents.id))
-    .where(recent)
+    .where(reactions)
     .groupBy(events.contentId, contents.title)
     // total 同数でも順序を決定的にするため title → contentId を二次/三次キーにする。
     .orderBy(sql`count(*) desc`, contents.title, events.contentId)
