@@ -170,6 +170,47 @@ async function writeAudit(
   });
 }
 
+/**
+ * NFR04: 認可拒否された公開系操作の種別 (不正検知用の監査記録に使う)。
+ * 値は audit の `operation` 写像と `diff.action` ラベルの単一ソースになる。
+ */
+export type DeniedPublishAction = "publish" | "update" | "unpublish" | "rollback";
+
+/**
+ * NFR04 / F04.1: **認可拒否された公開系操作の試行**を audit_log に記録する (Issue #150 L-2)。
+ *
+ * 通常 mutation の監査 (publishContent 等の writeAudit) と異なり「実行されなかった拒否試行」を残す。
+ * 権限の無いユーザー (例: student / guardian role) が公開系 Server Action を叩いた事実を事後追跡でき、
+ * なりすまし・権限昇格の試行検知に使う (NFR04 Repudiation 対策)。
+ *
+ * ## 設計
+ * - `audit_op` enum は insert/update/delete のみで「denied」値が無い。enum / migration を増やすと
+ *   並行作業との衝突・破壊的変更リスクがあるため追加せず、**試行した操作種別を operation に写像**し
+ *   (publish/rollback→insert、update/unpublish→update)、`diff.denied=true` で拒否試行と明示する。
+ * - 記録できるのは **tenant context (school_id + user_id) を持つ拒否のみ**。audit_log_insert policy
+ *   (migration 0005) が tenant ロールに `actor_user_id = app.current_user_id` を強制するため、
+ *   actor は現在のセッションユーザー本人である必要があり、他者への詐称記録は DB が弾く。school_id を
+ *   持たない actor (system_admin / 異常) や認証前の invalid_input は tenant-scoped audit_log に
+ *   書けないため、呼び出し側 (Server Action) が記録対象から除外する。
+ *
+ * @param actor 拒否されたユーザー本人 (userId / schoolId は現在の RLS context と一致すること)
+ * @param params action=試行操作、contentId=対象 content、attemptedRole=試行時の role (監査の手がかり)
+ */
+export async function recordPublishDenial(
+  tx: TenantTx,
+  actor: PublishActor,
+  params: { action: DeniedPublishAction; contentId: string; attemptedRole: string },
+): Promise<void> {
+  const operation: "insert" | "update" =
+    params.action === "update" || params.action === "unpublish" ? "update" : "insert";
+  await writeAudit(tx, actor, {
+    tableName: "contents",
+    recordId: params.contentId,
+    operation,
+    diff: { denied: true, action: params.action, attemptedRole: params.attemptedRole },
+  });
+}
+
 /** content が存在しない / 別テナントで不可視のときに投げる。呼び出し側は 404 に変換する。 */
 export class ContentNotFoundError extends Error {
   constructor(contentId: string) {
