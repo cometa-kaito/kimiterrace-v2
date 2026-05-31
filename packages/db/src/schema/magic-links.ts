@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { index, pgTable, timestamp, unique, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { classes } from "./classes.js";
 import { schools } from "./schools.js";
@@ -51,5 +51,7 @@ export const magicLinks = pgTable(
     ixToken: index("ix_magic_links_token_hash").on(t.tokenHash),
     ixSchool: index("ix_magic_links_school_id").on(t.schoolId),
     ixClass: index("ix_magic_links_class_id").on(t.classId),
+    // 子側 (ai_chat_sessions.(magic_link_id, school_id)) から composite FK で参照される (#73)。
+    uqIdSchool: unique("uq_magic_links_id_school").on(t.id, t.schoolId),
   }),
 );

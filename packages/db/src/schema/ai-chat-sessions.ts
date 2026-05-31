@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
+import { foreignKey, index, integer, pgTable, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { classes } from "./classes.js";
 import { magicLinks } from "./magic-links.js";
@@ -21,14 +21,13 @@ export const aiChatSessions = pgTable(
     schoolId: uuid("school_id")
       .notNull()
       .references(() => schools.id, { onDelete: "restrict" }),
-    // 端末認証経路（生徒は magic_link でクラス端末にバインド）
-    magicLinkId: uuid("magic_link_id")
-      .notNull()
-      .references(() => magicLinks.id, { onDelete: "cascade" }),
-    // 検索性向上のため denormalize（class 単位での集計クエリで毎回 join しない）
-    classId: uuid("class_id")
-      .notNull()
-      .references(() => classes.id, { onDelete: "restrict" }),
+    // 端末認証経路（生徒は magic_link でクラス端末にバインド）。
+    // FK は (magic_link_id, school_id) の composite で張る (#73、下記 foreignKey 参照) —
+    // 単純 FK だと magic_link が別テナントを指してもテナント混在を DB が許してしまうため。
+    magicLinkId: uuid("magic_link_id").notNull(),
+    // 検索性向上のため denormalize（class 単位での集計クエリで毎回 join しない）。
+    // こちらも (class_id, school_id) の composite FK で張る (#73)。
+    classId: uuid("class_id").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().default(sql`now()`),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true })
       .notNull()
@@ -47,5 +46,19 @@ export const aiChatSessions = pgTable(
     ixSchool: index("ix_ai_chat_sessions_school_id").on(t.schoolId),
     ixMagicLink: index("ix_ai_chat_sessions_magic_link_id").on(t.magicLinkId),
     ixLastMessage: index("ix_ai_chat_sessions_last_message_at").on(t.lastMessageAt),
+    // 子側から composite FK で参照される (ai_chat_messages.(session_id, school_id))。
+    uqIdSchool: unique("uq_ai_chat_sessions_id_school").on(t.id, t.schoolId),
+    // cross-tenant write 整合を DB 強制 (#73、PR #71 H-1)。RLS は read を守るが write の
+    // テナント混在は守らないため、(fk列, school_id) の composite FK で親と school_id 一致を強制。
+    fkMagicLink: foreignKey({
+      columns: [t.magicLinkId, t.schoolId],
+      foreignColumns: [magicLinks.id, magicLinks.schoolId],
+      name: "fk_ai_chat_sessions_magic_link",
+    }).onDelete("cascade"),
+    fkClass: foreignKey({
+      columns: [t.classId, t.schoolId],
+      foreignColumns: [classes.id, classes.schoolId],
+      name: "fk_ai_chat_sessions_class",
+    }).onDelete("restrict"),
   }),
 );

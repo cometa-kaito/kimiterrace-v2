@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { vector } from "../_shared/pgvector.js";
 import { aiChatSessions } from "./ai-chat-sessions.js";
@@ -25,9 +35,8 @@ export const aiChatMessages = pgTable(
     schoolId: uuid("school_id")
       .notNull()
       .references(() => schools.id, { onDelete: "restrict" }),
-    sessionId: uuid("session_id")
-      .notNull()
-      .references(() => aiChatSessions.id, { onDelete: "cascade" }),
+    // FK は (session_id, school_id) の composite で張る (#73、下記 foreignKey 参照)。
+    sessionId: uuid("session_id").notNull(),
     // user / assistant / system（将来 tool 等が増えうるため enum ではなく varchar）
     role: varchar("role", { length: 16 }).notNull(),
     // PII: マスキング後のテキストのみ。生 PII を入れない（CLAUDE.md ルール 4）
@@ -46,5 +55,11 @@ export const aiChatMessages = pgTable(
   (t) => ({
     ixSchool: index("ix_ai_chat_messages_school_id").on(t.schoolId),
     ixSessionCreated: index("ix_ai_chat_messages_session_created").on(t.sessionId, t.createdAt),
+    // cross-tenant write 整合を DB 強制 (#73)。session と school_id の一致を composite FK で強制。
+    fkSession: foreignKey({
+      columns: [t.sessionId, t.schoolId],
+      foreignColumns: [aiChatSessions.id, aiChatSessions.schoolId],
+      name: "fk_ai_chat_messages_session",
+    }).onDelete("cascade"),
   }),
 );

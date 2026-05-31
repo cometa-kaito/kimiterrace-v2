@@ -22,6 +22,9 @@ const F04_PUBLISH_UNIQUE_SQL = join(
   "drizzle",
   "0005_content_versions_publishes_unique.sql",
 );
+// #73: cross-tenant write 整合の composite FK (ai_chat_sessions / ai_chat_messages)。
+// 親 (magic_links/classes/ai_chat_sessions) と子テーブルが揃った後に張り替える。
+const COMPOSITE_FK_SQL = join(packageRoot, "drizzle", "0006_composite_fk_cross_tenant.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -121,6 +124,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, F02_SCHEMA_SQL);
     // F04 (#145): content_versions / publishes の UNIQUE index 貼り替え (baseline でテーブル作成済)
     await runSqlFile(sql, F04_PUBLISH_UNIQUE_SQL);
+    // #73: 全 DDL (baseline + 階層 + magic_link 列 + F02/F04) 適用後に composite FK を張る
+    await runSqlFile(sql, COMPOSITE_FK_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)
