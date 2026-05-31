@@ -14,6 +14,7 @@ export {
   SOURCE_FORMATS,
   UnsupportedFormatError,
   ExtractorNotConfiguredError,
+  ExtractFailedError,
 } from "./types.js";
 export type {
   SourceFormat,

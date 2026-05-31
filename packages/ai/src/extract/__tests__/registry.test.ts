@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DocxExtractor,
-  ImageExtractor,
-  PdfExtractor,
-  TextExtractor,
-  XlsxExtractor,
-} from "../extractors.js";
+import { ImageExtractor, TextExtractor } from "../extractors.js";
 import { ExtractorRegistry, createDefaultRegistry, extractText } from "../registry.js";
 import {
   type DocumentExtractor,
@@ -32,16 +26,16 @@ describe("TextExtractor", () => {
 });
 
 describe("未配線スタブはフェイルクローズで投げる", () => {
-  it.each([
-    [new PdfExtractor(), "pdf", "pdfjs-dist"],
-    [new DocxExtractor(), "docx", "mammoth"],
-    [new XlsxExtractor(), "xlsx", "exceljs"],
-    [new ImageExtractor(), "image", "@google-cloud/vision"],
-  ] as const)("%s は ExtractorNotConfiguredError（依存名付き）", async (extractor, format, dep) => {
-    const promise = extractor.extract({ bytes: new Uint8Array() });
-    await expect(promise).rejects.toBeInstanceOf(ExtractorNotConfiguredError);
-    await expect(promise).rejects.toMatchObject({ format, dependency: dep });
-  });
+  // pdf / docx / xlsx は #12 でローカルパーサに配線済み（別ファイルで契約検証）。
+  // OCR が外部委託になる image のみ未配線スタブとして残る（ADR-024 決定2）。
+  it.each([[new ImageExtractor(), "image", "@google-cloud/vision"]] as const)(
+    "%s は ExtractorNotConfiguredError（依存名付き）",
+    async (extractor, format, dep) => {
+      const promise = extractor.extract({ bytes: new Uint8Array() });
+      await expect(promise).rejects.toBeInstanceOf(ExtractorNotConfiguredError);
+      await expect(promise).rejects.toMatchObject({ format, dependency: dep });
+    },
+  );
 });
 
 describe("ExtractorRegistry", () => {
@@ -85,9 +79,9 @@ describe("extractText 便宜関数", () => {
     expect(res).toEqual<ExtractedText>({ text: "メモ", format: "text" });
   });
 
-  it("未配線形式は ExtractorNotConfiguredError まで伝播する", async () => {
+  it("未配線形式（image）は ExtractorNotConfiguredError まで伝播する", async () => {
     await expect(
-      extractText({ bytes: new Uint8Array(), filename: "a.pdf" }),
+      extractText({ bytes: new Uint8Array(), filename: "a.png" }),
     ).rejects.toBeInstanceOf(ExtractorNotConfiguredError);
   });
 });
