@@ -4,6 +4,14 @@ import { setClassScheduleAction } from "@/lib/editor/schedule-actions";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import {
+  inputStyle,
+  primaryBtnStyle,
+  removeBtnStyle,
+  secondaryBtnStyle,
+  tdStyle,
+  thStyle,
+} from "./editor-styles";
 
 /**
  * 時間割エディタ (#48-H)。**Client Component** — 行の追加/削除/編集を行い、保存時に
@@ -139,41 +147,3 @@ export function ScheduleEditor({
     </div>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  padding: "0.35rem 0.5rem",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
-};
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  padding: "0.25rem 0.4rem",
-};
-const tdStyle: React.CSSProperties = { padding: "0.25rem 0.4rem", verticalAlign: "top" };
-const primaryBtnStyle: React.CSSProperties = {
-  padding: "0.45rem 1.1rem",
-  background: "#1f2937",
-  color: "#fff",
-  border: "none",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
-const secondaryBtnStyle: React.CSSProperties = {
-  padding: "0.45rem 1.1rem",
-  background: "#fff",
-  color: "#1f2937",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
-  cursor: "pointer",
-};
-const removeBtnStyle: React.CSSProperties = {
-  padding: "0.3rem 0.6rem",
-  background: "transparent",
-  color: "#b91c1c",
-  border: "1px solid #fca5a5",
-  borderRadius: "6px",
-  cursor: "pointer",
-  fontSize: "0.85rem",
-};
