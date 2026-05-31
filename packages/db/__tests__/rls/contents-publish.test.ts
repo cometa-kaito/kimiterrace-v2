@@ -203,4 +203,94 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
     const [v] = await raw`SELECT id FROM content_versions WHERE id = ${versionId}`;
     expect(v).toBeTruthy();
   });
+
+  // ---- #145 M-1: content_versions のバージョン採番レース防止 ----
+
+  it("M-1: content_versions(content_id, version) は UNIQUE — 重複バージョンを DB が弾く", async () => {
+    // v1 を作る (BYPASSRLS 接続で直接 INSERT)。
+    await raw`
+      INSERT INTO content_versions (school_id, content_id, version, snapshot, created_by)
+      VALUES (${fx.schoolA}, ${contentA}, 1, '{}'::jsonb, ${fx.userA})
+    `;
+    // 同一 (content_id, version) の二重 INSERT は ux_content_versions_content_version で失敗する。
+    await expect(
+      raw`
+        INSERT INTO content_versions (school_id, content_id, version, snapshot, created_by)
+        VALUES (${fx.schoolA}, ${contentA}, 1, '{}'::jsonb, ${fx.userA})
+      `,
+    ).rejects.toThrow(/ux_content_versions_content_version|duplicate key/);
+  });
+
+  it("M-1: 連続した publish→update→update でバージョンが 1,2,3 と単調増加し重複しない", async () => {
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => updateContent(tx, actorA(), contentA, { body: "v2" }),
+      APP,
+    );
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => updateContent(tx, actorA(), contentA, { body: "v3" }),
+      APP,
+    );
+    const versions =
+      await raw`SELECT version FROM content_versions WHERE content_id = ${contentA} ORDER BY version`;
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3]);
+  });
+
+  // ---- #145 M-3: 多重 active publish の防止 ----
+
+  it("M-3: 再 publish で既存 active publish が閉じられ、active は常に 1 件 (自動 supersede)", async () => {
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    // 同じ content をもう一度 publish (再公開)。
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+
+    const all = await raw`SELECT unpublished_at FROM publishes WHERE content_id = ${contentA}`;
+    expect(all.length).toBe(2); // publish 行は履歴として 2 件残る
+    const active = await raw`
+      SELECT id FROM publishes WHERE content_id = ${contentA} AND unpublished_at IS NULL
+    `;
+    expect(active.length).toBe(1); // が、active は常に 1 件
+
+    // 旧 publish の supersede が監査に残る (F04.1)。
+    const superseded = await raw<{ diff: { reason?: string } }[]>`
+      SELECT diff FROM audit_log
+      WHERE table_name = 'publishes' AND operation = 'update' AND school_id = ${fx.schoolA}
+      ORDER BY occurred_at DESC LIMIT 1
+    `;
+    expect(superseded[0].diff.reason).toBe("superseded");
+  });
+
+  it("M-3: publishes の部分 UNIQUE index が 2 件目の active publish を DB レベルで弾く", async () => {
+    // v1 を作り publish#1 (active) を立てる。
+    const [v] = await raw<{ id: string }[]>`
+      INSERT INTO content_versions (school_id, content_id, version, snapshot, created_by)
+      VALUES (${fx.schoolA}, ${contentA}, 1, '{}'::jsonb, ${fx.userA})
+      RETURNING id
+    `;
+    await raw`
+      INSERT INTO publishes (school_id, content_id, version_id, created_by)
+      VALUES (${fx.schoolA}, ${contentA}, ${v.id}, ${fx.userA})
+    `;
+    // 同 content に 2 件目の active publish (unpublished_at IS NULL) を入れると失敗する。
+    await expect(
+      raw`
+        INSERT INTO publishes (school_id, content_id, version_id, created_by)
+        VALUES (${fx.schoolA}, ${contentA}, ${v.id}, ${fx.userA})
+      `,
+    ).rejects.toThrow(/ux_publishes_active_per_content|duplicate key/);
+  });
+
+  it("M-3: unpublish 後は同 content を再び publish できる (部分 index は閉じた行を無視)", async () => {
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    await withTenantContext(db, ctxA(), (tx) => unpublishContent(tx, actorA(), contentA), APP);
+    // active が 0 件になったので再 publish が成功する。
+    await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    const active = await raw`
+      SELECT id FROM publishes WHERE content_id = ${contentA} AND unpublished_at IS NULL
+    `;
+    expect(active.length).toBe(1);
+  });
 });
