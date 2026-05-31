@@ -18,3 +18,5 @@ export * from "./queries/ads.js";
 export * from "./queries/school-configs.js";
 // #48-L (#123): システム管理者向け 学校 (テナント) マスタ一覧
 export * from "./queries/schools.js";
+// F12 (#48-M): フィードバック (匿名投稿 submit_feedback / system_admin 一覧)
+export * from "./queries/feedback.js";

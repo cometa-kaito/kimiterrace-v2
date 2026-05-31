@@ -56,6 +56,7 @@ export async function seedBaseFixture(sql: ReturnType<typeof postgres>): Promise
         ads, daily_data, school_configs, departments, grades,
         magic_links, memberships, classes, users,
         monthly_reports,
+        feedback,
         communications, contracts, advertisers,
         system_admins,
         schools
