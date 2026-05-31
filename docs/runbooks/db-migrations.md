@@ -44,8 +44,14 @@ export DATABASE_URL="$(gcloud secrets versions access latest --secret=db-url-mig
 # 2. オーナーロールであることを確認（後述の検証スニペットを先に流してもよい）。
 psql "$DATABASE_URL" -c "SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user;"
 
-# 3. マイグレーション適用（適用ツールは drizzle-kit migrate もしくは loader 相当の順序で）。
-pnpm --filter @kimiterrace/db migrate
+# 3. マイグレーション適用。
+#    適用順の単一ソースは __tests__/_setup/global-setup.ts の loader（drizzle/*.sql の DDL →
+#    migrations/*.sql の RLS/トリガ/SECURITY DEFINER 関数 の順）。本番もこの順で両方を流す。
+#    注意: `drizzle-kit migrate` は drizzle/*.sql しか適用せず、手書きの migrations/*.sql
+#    （RLS policy・audit トリガ・本 runbook の主役 0008 の resolve_magic_link 等）を流さない。
+#    さらに journal ドリフト（Issue #195）の影響も受ける。よって drizzle-kit migrate 単体は不可。
+#    専用の prod 適用ツールが整うまでは loader 順を正とし、両ディレクトリを順に適用する。
+pnpm --filter @kimiterrace/db migrate   # drizzle/ の DDL のみ。migrations/ は別途 loader 順で適用
 ```
 
 ## 検証（成功確認）

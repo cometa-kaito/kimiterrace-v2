@@ -129,6 +129,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
     // 結果は tx 内で収集し、assert は tx 外で行う (sentinel throw で rollback しつつ
     // assertion 失敗を握り潰さないため)。
     const ROLLBACK = Symbol("rollback");
+    // -1 で初期化し、tx が assert 前に抜けた (= 収集前に例外等) 場合は 0/1 と一致せず必ず fail する。
     let atBoundaryLen = -1;
     let justFutureLen = -1;
     try {
