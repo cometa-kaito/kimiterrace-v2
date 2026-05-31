@@ -2,6 +2,14 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# 推移的依存の脆弱性を patched バージョンへ固定 (Dependabot moderate)。
+# どちらも同一メジャー / pre-1.0 minor 内の引き上げで親パッケージの API 互換を維持。
+# - postcss <8.5.10: XSS via unescaped </style> in stringify (GHSA-qx2v-qp2m-jg93)。next 経由で runtime。
+# - jsondiffpatch <0.7.2: XSS in HtmlFormatter::nodeBegin (GHSA-33vc-wfww-vjfv)。ai SDK 経由で runtime。
+overrides:
+  "postcss@<8.5.10": "^8.5.10"
+  "jsondiffpatch@<0.7.2": "^0.7.2"
+
 allowBuilds:
   "@biomejs/biome": true
   "@firebase/util": false
