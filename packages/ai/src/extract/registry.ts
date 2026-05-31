@@ -1,0 +1,72 @@
+import { detectFormat } from "./detect.js";
+import {
+  DocxExtractor,
+  ImageExtractor,
+  PdfExtractor,
+  TextExtractor,
+  XlsxExtractor,
+} from "./extractors.js";
+import {
+  type DocumentExtractor,
+  type ExtractSource,
+  type ExtractedText,
+  type SourceFormat,
+  UnsupportedFormatError,
+} from "./types.js";
+
+/**
+ * F01 抽出オーケストレータ。
+ *
+ * 形式を推定 →（必要なら）対応する {@link DocumentExtractor} を選んでテキスト化する。
+ * 抽出器は依存逆転されており、テストはフェイク抽出器を登録して全分岐を検証できる
+ * （structureContent が ModelClient を差し替えられるのと同じ思想）。
+ */
+export class ExtractorRegistry {
+  private readonly byFormat = new Map<SourceFormat, DocumentExtractor>();
+
+  /** 抽出器を登録する（同一形式は後勝ちで上書き）。 */
+  register(extractor: DocumentExtractor): this {
+    this.byFormat.set(extractor.format, extractor);
+    return this;
+  }
+
+  /** 指定形式の抽出器を返す。未登録なら undefined。 */
+  get(format: SourceFormat): DocumentExtractor | undefined {
+    return this.byFormat.get(format);
+  }
+
+  /**
+   * 素材を形式推定し、対応する抽出器でテキスト化する。
+   * 形式未対応（推定不能 or 抽出器未登録）は {@link UnsupportedFormatError}。
+   * 抽出器が未配線（依存パーサなし）の場合は抽出器が ExtractorNotConfiguredError を投げる。
+   */
+  async extract(source: ExtractSource): Promise<ExtractedText> {
+    const format = detectFormat(source);
+    const extractor = this.byFormat.get(format);
+    if (!extractor) {
+      throw new UnsupportedFormatError(`no extractor registered for '${format}'`);
+    }
+    return extractor.extract(source);
+  }
+}
+
+/**
+ * 既定レジストリ: 全形式の抽出器を登録する。
+ * `text` は即時動作、それ以外は依存配線まで ExtractorNotConfiguredError（フェイルクローズ）。
+ */
+export function createDefaultRegistry(): ExtractorRegistry {
+  return new ExtractorRegistry()
+    .register(new TextExtractor())
+    .register(new PdfExtractor())
+    .register(new DocxExtractor())
+    .register(new XlsxExtractor())
+    .register(new ImageExtractor());
+}
+
+/**
+ * 便宜関数: 既定レジストリで素材をテキスト化する（F01 → F03 接続点）。
+ * 戻り値の `text` を structureContent の `input` に渡せる。**渡す前に PII マスキング必須**（ルール4）。
+ */
+export async function extractText(source: ExtractSource): Promise<ExtractedText> {
+  return createDefaultRegistry().extract(source);
+}
