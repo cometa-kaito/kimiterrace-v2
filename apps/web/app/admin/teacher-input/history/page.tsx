@@ -33,7 +33,6 @@ export default async function TeacherInputHistoryPage() {
       status: input.status,
       transcriptPreview:
         transcript.length > PREVIEW_MAX ? `${transcript.slice(0, PREVIEW_MAX)}…` : transcript,
-      submitted: input.submittedAt !== null,
       createdAt: input.createdAt.toISOString(),
     };
   });

@@ -32,8 +32,6 @@ export type TeacherInputHistoryRow = {
   status: keyof typeof STATUS_LABEL;
   /** 本文の抜粋 (page 側で truncate 済み)。未入力は空文字。 */
   transcriptPreview: string;
-  /** 送信済みか否かの UI 区別用 (submittedAt の有無)。 */
-  submitted: boolean;
   createdAt: string;
 };
 

@@ -15,7 +15,6 @@ const row = (over: Partial<TeacherInputHistoryRow>): TeacherInputHistoryRow => (
   inputType: "chat",
   status: "draft",
   transcriptPreview: "本文",
-  submitted: false,
   createdAt: "2026-05-31T01:00:00.000Z",
   ...over,
 });
