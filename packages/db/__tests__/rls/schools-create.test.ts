@@ -55,39 +55,53 @@ describeOrSkip("#48-L3 createSchool (system_admin のみ INSERT 可 / テナン�
     expect(visible[0].name).toBe("L3テスト高校");
   });
 
+  // drizzle は pg エラーを DrizzleQueryError ("Failed query: ...") でラップし、元の RLS エラーは
+  // `.cause` に入る (raw SQL 経由の crm テストと異なる)。message + cause.message + cause.code
+  // (42501=insufficient_privilege) を合わせて RLS 拒否を判定する。
+  async function expectRlsRejected(p: Promise<unknown>): Promise<void> {
+    const err = (await p.then(
+      () => null,
+      (e) => e,
+    )) as { message?: string; cause?: { message?: string; code?: string } } | null;
+    expect(err, "INSERT は拒否されるべき").not.toBeNull();
+    const text = `${err?.message ?? ""} ${err?.cause?.message ?? ""} ${err?.cause?.code ?? ""}`;
+    expect(text).toMatch(/row-level security|new row violates|42501/i);
+  }
+
   it("school_admin → INSERT は RLS (WITH CHECK) で拒否", async () => {
-    await expect(
+    await expectRlsRejected(
       withTenantContext(
         db,
         { userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" },
         (tx) => createSchool(tx, { ...input, createdBy: fx.userA }),
         APP,
       ),
-    ).rejects.toThrow(/row-level security|new row violates/i);
+    );
   });
 
   it("teacher → INSERT は RLS で拒否", async () => {
-    await expect(
+    await expectRlsRejected(
       withTenantContext(
         db,
         { userId: fx.userA, schoolId: fx.schoolA, role: "teacher" },
         (tx) => createSchool(tx, { ...input, createdBy: fx.userA }),
         APP,
       ),
-    ).rejects.toThrow(/row-level security|new row violates/i);
+    );
   });
 
-  it("作成行は監査カラム既定を持つ (created_at/updated_at)", async () => {
+  it("作成行は監査カラム (created_at/updated_at) が NULL でなく入る", async () => {
     const rows = await withTenantContext(
       db,
       { userId: fx.sysAdmin, role: "system_admin" },
       (tx) => createSchool(tx, input),
       APP,
     );
-    const [row] = await raw<{ created_at: Date; updated_at: Date }[]>`
+    // postgres.js は timestamptz を文字列で返すことがあるため instanceof ではなく非 NULL を確認。
+    const [row] = await raw<{ created_at: unknown; updated_at: unknown }[]>`
       SELECT created_at, updated_at FROM schools WHERE id = ${rows[0].id}
     `;
-    expect(row.created_at).toBeInstanceOf(Date);
-    expect(row.updated_at).toBeInstanceOf(Date);
+    expect(row.created_at).toBeTruthy();
+    expect(row.updated_at).toBeTruthy();
   });
 });
