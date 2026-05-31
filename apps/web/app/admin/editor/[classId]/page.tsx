@@ -1,8 +1,10 @@
-import { requireRole } from "@/lib/auth/guard";
+import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
+import { ADS_ROLES } from "@/lib/school-admin/ads-core";
+import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
@@ -25,8 +27,12 @@ export default async function ClassEditorPage({
   params: Promise<{ classId: string }>;
   searchParams: Promise<{ date?: string }>;
 }) {
-  await requireRole(EDITOR_ROLES);
+  const user = await requireRole(EDITOR_ROLES);
   const { classId } = await params;
+  // 広告管理 / 静粛時間は school_admin / system_admin 専任 (ads-core / quiet-hours-core)。teacher も
+  // このエディタを使うため、teacher には死リンク (403 になる遷移) を出さない (#48-J Low-1 出し分け)。
+  const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
+  const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
   const { date: dateParam } = await searchParams;
   const date =
     dateParam && isValidDate(dateParam)
@@ -52,11 +58,20 @@ export default async function ClassEditorPage({
     <div style={{ display: "grid", gap: "2rem" }}>
       <section>
         <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>{schedule.className}</h1>
-        <p style={{ margin: "0 0 0.75rem" }}>
-          <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-            広告管理 →
-          </Link>
-        </p>
+        {canManageAds || canManageQuietHours ? (
+          <p style={{ margin: "0 0 0.75rem", display: "flex", gap: "1rem" }}>
+            {canManageAds ? (
+              <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                広告管理 →
+              </Link>
+            ) : null}
+            {canManageQuietHours ? (
+              <Link href={`/admin/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
+                静粛時間 →
+              </Link>
+            ) : null}
+          </p>
+        ) : null}
         <h2 style={sectionHeadingStyle}>時間割</h2>
         <ScheduleEditor
           classId={schedule.classId}
