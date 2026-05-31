@@ -1,5 +1,11 @@
 import { hashToken } from "@/lib/magic-link/token";
-import { events, type TenantTx, resolveMagicLink, withTenantContext } from "@kimiterrace/db";
+import {
+  events,
+  type TenantTx,
+  getEffectiveAdsForClass,
+  resolveMagicLink,
+  withTenantContext,
+} from "@kimiterrace/db";
 import { getDb } from "../db";
 
 /**
@@ -112,13 +118,15 @@ export function validateEventInput(
   return { ok: true, value: { type, contentId, payload } };
 }
 
-/** トークンを {schoolId} に解決。無効 (失効/期限切れ/不明) なら null。 */
-async function resolveSchoolId(classToken: string): Promise<string | null> {
+/** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
+async function resolveTenant(
+  classToken: string,
+): Promise<{ schoolId: string; classId: string } | null> {
   if (!classToken) {
     return null;
   }
   const resolved = await resolveMagicLink(getDb(), hashToken(classToken));
-  return resolved ? resolved.schoolId : null;
+  return resolved ? { schoolId: resolved.schoolId, classId: resolved.classId } : null;
 }
 
 /**
@@ -135,19 +143,32 @@ export async function recordSignageEvent(
     return { ok: false, reason: "invalid" };
   }
 
-  const schoolId = await resolveSchoolId(classToken);
-  if (!schoolId) {
+  const tenant = await resolveTenant(classToken);
+  if (!tenant) {
     return { ok: false, reason: "gone" };
   }
 
-  await withTenantContext(getDb(), { schoolId }, async (tx: TenantTx) => {
+  // L-1 (#265): adId は uuid 形式だけでなく**当該クラスの実効広告に実在**する場合のみ採用する。
+  // 有効 classToken 保持者が任意 uuid を送って到達数を水増しするのを防ぎ、集計健全性を担保する
+  // (PR #263 Reviewer L-1)。実在照合は effective_ads_per_class (security_invoker VIEW) を読むため、
+  // RLS 文脈 (withTenantContext) 内で行う。adId 不在の一般 view/tap は従来どおり照合をスキップ。
+  const adId = typeof v.value.payload.adId === "string" ? v.value.payload.adId : null;
+
+  return await withTenantContext(getDb(), { schoolId: tenant.schoolId }, async (tx: TenantTx) => {
+    if (adId !== null) {
+      const ads = await getEffectiveAdsForClass(tx, tenant.classId);
+      if (!ads.some((ad) => ad.adId === adId)) {
+        // spoof / stale な adId。events を書かず invalid に倒す (count 水増し防止)。
+        return { ok: false, reason: "invalid" } as const;
+      }
+    }
     await tx.insert(events).values({
-      schoolId,
+      schoolId: tenant.schoolId,
       contentId: v.value.contentId,
       type: v.value.type,
       // occurred_at は DB 既定 now() に委ねる (クライアント時刻を信用しない)。
       payload: v.value.payload,
     });
+    return { ok: true } as const;
   });
-  return { ok: true };
 }
