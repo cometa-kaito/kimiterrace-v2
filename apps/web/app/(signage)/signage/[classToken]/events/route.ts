@@ -12,11 +12,17 @@ import { NextResponse } from "next/server";
  * 受け入れ条件「beacon API でロスなく送信」)。beacon は `text/plain` の Blob でも飛ぶため、JSON /
  * text の双方を受けて JSON として解釈する。レスポンス body は不要なので成功は **204 No Content**。
  *
- * **濫用対策**: events は実機 (50 台/校) が高頻度に発火し、校内は NAT で同一 IP に集まるため IP 単位の
- * 固定ウィンドウ制限は正規トラフィックを誤って落とす。代わりに ①有効 `classToken` 必須 (濫用は token
- * 保持者に限定、無効 token は単一 index 化された SECURITY DEFINER 解決 1 回で頭打ち)、②body サイズ上限、
- * ③payload allowlist + 厳格検証 で 1 リクエストあたりのコストを抑える。volumetric な保証は infra 層
- * WAF (Cloud Armor) が担う defense-in-depth (アプリ層での過剰な絞りは F07 のデータ欠損を招くため避ける)。
+ * **濫用対策 — `POST /api/guide/feedback` (#234) との方針差を意図的に取る**: feedback は IP 単位の
+ * 固定ウィンドウ制限を最先頭に置くが、events は実機 (50 台/校) が高頻度に発火し校内は NAT で同一 IP に
+ * 集まるため、同じ IP 制限を掛けると**正規の行動ログを誤って落とし F07 のデータを欠損させる**。よって
+ * events はアプリ層 IP 制限を採らず、代わりに:
+ *  1. 有効 `classToken` 必須 — 濫用は token 保持者に限定。無効 token は単一 index 化された SECURITY
+ *     DEFINER 解決 1 回で頭打ち (DB 書込まで到達しない)。
+ *  2. **`Content-Length` を body 読込**前**に検査** + 読込後にバイト長を再検査し、上限超過は 413 で即時棄却
+ *     (大 body をメモリに展開する前にコストを断つ。最終的な platform body 上限は Cloud Run が担保)。
+ *  3. payload allowlist + 厳格検証で 1 リクエストあたりの処理コストを抑える。
+ * volumetric な保証は infra 層 WAF (Cloud Armor) が担う defense-in-depth。アプリ層での過剰な絞りは
+ * F07 のデータ欠損を招くため避ける、という設計判断 (PR #258 Reviewer M-1 で明示化)。
  *
  * `classToken` は credential なのでログ・レスポンスに反射しない (ルール5)。
  */
@@ -26,19 +32,30 @@ const MAX_BODY_BYTES = 2_048;
 
 const NO_STORE = { "cache-control": "no-store" } as const;
 
+function tooLarge(): NextResponse {
+  return NextResponse.json({ error: "too_large" }, { status: 413, headers: NO_STORE });
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ classToken: string }> },
 ): Promise<NextResponse> {
   const { classToken } = await context.params;
 
-  // body を text で受けて JSON として解釈する (beacon は text/plain でも飛ぶ)。サイズ上限超過・
-  // 非 JSON・非オブジェクトは 400 に倒す (DB/解決の前に弾く)。
+  // ① Content-Length が上限超過なら body を読まずに 413。正直な大 body をメモリ展開前に断つ。
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return tooLarge();
+  }
+
+  // body を text で受けて JSON として解釈する (beacon は text/plain でも飛ぶ)。② 読込後に**バイト長**
+  // (char 数でなく) を再検査 — Content-Length 不在/詐称や multibyte に備える。非 JSON・非オブジェクトは
+  // 400 に倒す (DB/解決の前に弾く)。
   let raw: EventIngestInput;
   try {
     const text = await request.text();
-    if (text.length > MAX_BODY_BYTES) {
-      return NextResponse.json({ error: "too_large" }, { status: 413, headers: NO_STORE });
+    if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) {
+      return tooLarge();
     }
     const parsed: unknown = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {

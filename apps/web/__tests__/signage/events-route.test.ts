@@ -54,7 +54,8 @@ describe("POST /signage/{classToken}/events", () => {
     expect(recordSignageEvent).not.toHaveBeenCalled();
   });
 
-  it("body サイズ上限超過は 413 (DB に到達しない)", async () => {
+  it("body サイズ上限超過は 413 (Content-Length 早期検査で DB に到達しない)", async () => {
+    // 大きな body は Content-Length (>2KB) で読込前に 413、不在/詐称時も読込後のバイト長検査で 413。
     const big = JSON.stringify({ type: "view", clientId: "x".repeat(3000) });
     const res = await POST(post(big), ctx(TOKEN));
     expect(res.status).toBe(413);
