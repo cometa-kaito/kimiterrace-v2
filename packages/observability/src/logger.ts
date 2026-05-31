@@ -1,4 +1,5 @@
 import pino, { type DestinationStream, type Logger, type LoggerOptions } from "pino";
+import { redactPii } from "./redact.js";
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
@@ -48,6 +49,12 @@ export function buildLoggerOptions(name: string, opts: CreateLoggerOptions = {})
       level(label: string) {
         return { severity: SEVERITY_MAP[label] ?? "DEFAULT", level: label };
       },
+      // 脅威 I-03 緩和: Cloud Logging へ書き出す前に payload の PII を自動マスキングする
+      // (defense-in-depth、CLAUDE.md ルール4 / NFR03)。`formatters.log` は merge 済 payload を
+      // 受け取り変換後を返す seam。`msg`/`level`/`time` は本関数を通らない (redact.ts の限界参照)。
+      log(payload: Record<string, unknown>) {
+        return redactPii(payload) as Record<string, unknown>;
+      },
     },
   };
 
@@ -77,6 +84,10 @@ export function buildLoggerOptions(name: string, opts: CreateLoggerOptions = {})
  *
  * NOTE (CLAUDE.md rule 4): do not pass raw PII (student names, addresses,
  * phone numbers, guardian names) through any log call. Use stable IDs.
+ * As defense-in-depth, structured payloads are auto-redacted before they reach
+ * Cloud Logging (see redact.ts, threat-model I-03) — but the `msg` string is
+ * NOT redacted, so PII interpolated into the message text still leaks. Keep PII
+ * out of the message and pass identifiers, not people.
  */
 export function createLogger(name: string, opts: CreateLoggerOptions = {}): Logger {
   const options = buildLoggerOptions(name, opts);
