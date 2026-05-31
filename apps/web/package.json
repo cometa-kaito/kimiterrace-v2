@@ -15,6 +15,7 @@
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
+    "@kimiterrace/ai": "workspace:*",
     "@kimiterrace/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "firebase": "^12.14.0",
@@ -30,9 +31,9 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.10.0",
-    "firebase-tools": "^13.29.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "firebase-tools": "^13.29.1",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vitest": "^2.1.8"

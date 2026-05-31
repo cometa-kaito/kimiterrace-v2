@@ -56,6 +56,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@kimiterrace/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@kimiterrace/db':
         specifier: workspace:*
         version: link:../../packages/db

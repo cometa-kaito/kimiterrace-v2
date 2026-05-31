@@ -21,7 +21,11 @@ export interface AiExtractionInsert {
   evidence: EvidenceItem[];
   rawInputHash: string;
   modelVersion: string;
-  status: string;
+  // status は抽出結果の値域 (success/failed) に絞る。これにより db の NewAiExtraction.status
+  // (ai_extraction_status enum) へ追加キャスト無しで代入可能になる (#75 の enum 化と整合、#154 配線)。
+  // ai は db に依存しない (レイヤ分離) ため、db の enum 型ではなく ai 自身の StructureResult["status"]
+  // を単一ソースにする。retry は本マッパー経路では発生しない (リトライ追跡は別経路の責務)。
+  status: StructureResult["status"];
   errorMessage: string | null;
   createdBy: string | null;
   updatedBy: string | null;
