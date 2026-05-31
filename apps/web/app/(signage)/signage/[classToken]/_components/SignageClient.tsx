@@ -1,6 +1,7 @@
 "use client";
 
 import type { MergedSection } from "@/lib/signage/effective-daily-data";
+import { getClientId, sendSignageEvent } from "@/lib/signage/event-beacon";
 import {
   cleanupStaleMedia,
   prefetchMedia,
@@ -99,6 +100,25 @@ export function SignageClient({
     const id = setTimeout(() => setAdIndex((i) => nextIndex(i, adCount)), ms);
     return () => clearTimeout(id);
   }, [safeIndex, adCount]);
+
+  // --- 広告 impression テレメトリ (#43 / F07)。表示中の広告が変わるたびに view を 1 件ベストエフォート
+  //     送信する (広告主の到達数集計 = F07 ユーザーストーリーの基礎データ)。依存は現在広告の adId と
+  //     slotIndex のみ — 内容不変なポーリング (8-12s ごとに新しい配列参照) では再送せず、ローテーション
+  //     前進・データ更新で「表示中の広告が実際に変わった」時だけ送る (rotation/prefetch effect と同じ
+  //     「内容が同じなら据え置き」規律)。送信失敗は表示をブロックしない (event-beacon が握りつぶす)。 ---
+  const currentAdId = adCount > 0 ? (ads[safeIndex]?.adId ?? null) : null;
+  useEffect(() => {
+    if (!currentAdId) {
+      return;
+    }
+    const clientId = getClientId();
+    sendSignageEvent(classToken, {
+      type: "view",
+      adId: currentAdId,
+      slotIndex: safeIndex,
+      ...(clientId ? { clientId } : {}),
+    });
+  }, [currentAdId, safeIndex, classToken]);
 
   // --- Service Worker 登録 (#48-G)。マウント時に 1 度だけ。失敗しても表示はブロックしない。 ---
   useEffect(() => {

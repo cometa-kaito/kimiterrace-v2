@@ -43,6 +43,7 @@ export type EventIngestInput = {
   contentId?: unknown;
   clientId?: unknown;
   slotIndex?: unknown;
+  adId?: unknown;
 };
 
 export type ValidatedEvent = {
@@ -98,6 +99,14 @@ export function validateEventInput(
       return { ok: false, message: "slotIndex が不正です。" };
     }
     payload.slotIndex = raw.slotIndex;
+  }
+  if (raw.adId != null) {
+    // 表示中の広告 (effective_ads_per_class.ad_id) の uuid。広告主の到達数集計 (F07 ユーザーストーリー)
+    // 用。events.content_id は contents への FK なので広告 id は載せられず、payload に持つ。
+    if (typeof raw.adId !== "string" || !UUID_RE.test(raw.adId)) {
+      return { ok: false, message: "adId が不正です。" };
+    }
+    payload.adId = raw.adId;
   }
 
   return { ok: true, value: { type, contentId, payload } };

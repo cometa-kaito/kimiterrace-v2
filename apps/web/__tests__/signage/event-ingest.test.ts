@@ -29,6 +29,7 @@ import {
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const CONTENT_ID = "55555555-5555-4555-8555-555555555555";
 const CLIENT_ID = "66666666-6666-4666-8666-666666666666";
+const AD_ID = "77777777-7777-4777-8777-777777777777";
 
 let captured: Record<string, unknown>[];
 let lastCtx: { schoolId?: string } | null;
@@ -65,17 +66,18 @@ describe("validateEventInput", () => {
     }
   });
 
-  it("contentId/clientId/slotIndex を検証して payload allowlist に載せる", () => {
+  it("contentId/clientId/slotIndex/adId を検証して payload allowlist に載せる", () => {
     const v = validateEventInput({
       type: "tap",
       contentId: CONTENT_ID,
       clientId: CLIENT_ID,
       slotIndex: 3,
+      adId: AD_ID,
     });
     expect(v.ok).toBe(true);
     if (v.ok) {
       expect(v.value.contentId).toBe(CONTENT_ID);
-      expect(v.value.payload).toEqual({ clientId: CLIENT_ID, slotIndex: 3 });
+      expect(v.value.payload).toEqual({ clientId: CLIENT_ID, slotIndex: 3, adId: AD_ID });
     }
   });
 
@@ -85,9 +87,10 @@ describe("validateEventInput", () => {
     }
   });
 
-  it("uuid でない contentId/clientId は invalid", () => {
+  it("uuid でない contentId/clientId/adId は invalid", () => {
     expect(validateEventInput({ type: "view", contentId: "nope" }).ok).toBe(false);
     expect(validateEventInput({ type: "view", clientId: "nope" }).ok).toBe(false);
+    expect(validateEventInput({ type: "view", adId: "nope" }).ok).toBe(false);
   });
 
   it("slotIndex は非負整数のみ (負/小数/非数は invalid)", () => {
