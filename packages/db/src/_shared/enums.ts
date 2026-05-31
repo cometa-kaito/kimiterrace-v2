@@ -6,6 +6,13 @@ export const userRole = pgEnum("user_role", ["school_admin", "teacher", "student
 // コンテンツ発行スコープ（F01-F04）
 export const publishScope = pgEnum("publish_scope", ["school", "class", "homeroom", "private"]);
 
+/**
+ * 発行スコープの型（単一ソース）。アプリ層 (apps/web) は `import type` でこれを引き込み、
+ * `satisfies readonly PublishScope[]` で許可値配列が enum とズレないことをコンパイル時に強制する
+ * (`client.ts` の `TenantRole` と同方針)。型のみなので Next バンドルに enum のランタイム値を引き込まない。
+ */
+export type PublishScope = (typeof publishScope.enumValues)[number];
+
 // コンテンツ状態
 export const contentStatus = pgEnum("content_status", ["draft", "published", "archived"]);
 
