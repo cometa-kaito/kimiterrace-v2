@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, uuid, varchar } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, unique, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { grades } from "./grades.js";
 import { schools } from "./schools.js";
@@ -28,5 +28,7 @@ export const classes = pgTable(
   (t) => ({
     ixSchoolYear: index("ix_classes_school_year").on(t.schoolId, t.academicYear),
     ixGrade: index("ix_classes_grade").on(t.gradeId),
+    // 子側 (ai_chat_sessions.(class_id, school_id)) から composite FK で参照される (#73)。
+    uqIdSchool: unique("uq_classes_id_school").on(t.id, t.schoolId),
   }),
 );
