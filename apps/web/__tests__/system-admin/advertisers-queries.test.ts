@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * F10 (#46): listAdvertisers の射影・並び・passthrough を検証。drizzle tx を構造的なテストダブルに
- * 差し替え、`@kimiterrace/db` の advertisers はカラム placeholder で mock する (desc/asc は実物)。
+ * 差し替え、`@kimiterrace/db` の advertisers はカラム placeholder で mock。drizzle-orm の asc/desc は
+ * 並び順 (方向 + 対象カラム) をアサートできるよう tagged object を返す mock に差し替える。
  */
 
 vi.mock("@kimiterrace/db", () => ({
@@ -15,6 +16,10 @@ vi.mock("@kimiterrace/db", () => ({
     isActive: { name: "is_active" },
     createdAt: { name: "created_at" },
   },
+}));
+vi.mock("drizzle-orm", () => ({
+  desc: (c: { name: string }) => ({ dir: "desc", col: c.name }),
+  asc: (c: { name: string }) => ({ dir: "asc", col: c.name }),
 }));
 
 import { listAdvertisers } from "../../lib/system-admin/advertisers-queries";
@@ -64,10 +69,13 @@ describe("listAdvertisers", () => {
     expect(projection).not.toHaveProperty("contactPhone");
   });
 
-  it("advertisers を 2 キー (is_active / company_name) で並べる", async () => {
+  it("並びは is_active 降順 → company_name 昇順 (稼働中を先頭、会社名昇順)", async () => {
     await listAdvertisers(fakeTx());
     expect(fromArg).toBeDefined();
-    expect(orderByArgs).toHaveLength(2);
+    expect(orderByArgs).toEqual([
+      { dir: "desc", col: "is_active" },
+      { dir: "asc", col: "company_name" },
+    ]);
   });
 
   it("tx の結果をそのまま返す (手書き WHERE を足さない — 可視範囲は RLS)", async () => {

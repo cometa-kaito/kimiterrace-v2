@@ -1,5 +1,5 @@
 import { type TenantTx, advertisers } from "@kimiterrace/db";
-import { asc, desc } from "drizzle-orm";
+import { type InferSelectModel, asc, desc } from "drizzle-orm";
 
 /**
  * F10 (#46): 広告主マスタ (CRM) の読み取り層。**サーバー専用**。
@@ -18,14 +18,10 @@ import { asc, desc } from "drizzle-orm";
  * 一覧 1 行の軽量射影。識別 + ステータス + 主担当連絡先に絞る (住所・電話・備考は詳細ビューに回す)。
  * いずれも営業上のビジネス情報で生徒 PII ではない (ルール4 の対象外)。
  */
-export type AdvertiserSummary = {
-  id: string;
-  companyName: string;
-  industry: string | null;
-  contactEmail: string | null;
-  isActive: boolean;
-  createdAt: Date;
-};
+export type AdvertiserSummary = Pick<
+  InferSelectModel<typeof advertisers>,
+  "id" | "companyName" | "industry" | "contactEmail" | "isActive" | "createdAt"
+>;
 
 /**
  * 広告主一覧を返す。並びは**稼働中 (is_active) を先頭**に、会社名昇順
