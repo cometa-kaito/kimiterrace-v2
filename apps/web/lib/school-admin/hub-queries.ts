@@ -1,5 +1,5 @@
 import { type TenantTx, classes, departments, grades } from "@kimiterrace/db";
-import { asc, desc } from "drizzle-orm";
+import { asc, count, desc, eq } from "drizzle-orm";
 
 /**
  * 学校管理者ハブの読み取り (#48-K)。自校の学科・学年・クラス階層を取得する。
@@ -73,4 +73,28 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
     departments: deptRows,
     grades: gradeRows.map((g) => ({ ...g, classes: byGrade.get(g.id) ?? [] })),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ *  子参照ガード用カウント (#48-K2 delete)
+ *
+ *  FK は `onDelete: "set null"` のため DB は削除を拒否せず子を孤児化する
+ *  (grades.department_id / classes.grade_id)。削除で階層が静かに壊れるのを防ぐため、
+ *  アプリ層で「子が残っているか」を**自校 RLS tx 内**で数えて拒否する。
+ *  RLS により他校の子はカウントされない (テナント分離はここでも DB が強制)。
+ * ------------------------------------------------------------------ */
+
+/** 指定学科に属する学年数 (自校のみ)。> 0 なら学科削除を拒否する。 */
+export async function countGradesInDepartment(tx: TenantTx, departmentId: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: count() })
+    .from(grades)
+    .where(eq(grades.departmentId, departmentId));
+  return row?.n ?? 0;
+}
+
+/** 指定学年に属するクラス数 (自校のみ)。> 0 なら学年削除を拒否する。 */
+export async function countClassesInGrade(tx: TenantTx, gradeId: string): Promise<number> {
+  const [row] = await tx.select({ n: count() }).from(classes).where(eq(classes.gradeId, gradeId));
+  return row?.n ?? 0;
 }

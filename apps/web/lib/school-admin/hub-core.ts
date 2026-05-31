@@ -29,6 +29,9 @@ export function forbidden(message: string): ActionError {
 export function conflict(message: string): ActionError {
   return { ok: false, error: { code: "conflict", message } };
 }
+export function notFound(message: string): ActionError {
+  return { ok: false, error: { code: "not_found", message } };
+}
 
 /**
  * 学年/クラス/学科を操作できるロール。学校横断の system_admin と自校の school_admin。
@@ -165,4 +168,87 @@ export function validateClassInput(raw: {
     return { ok: false, message: "学年の数値は 1〜12 で入力してください。" };
   }
   return { ok: true, value: { gradeId: raw.gradeId, name, academicYear, grade } };
+}
+
+/* ------------------------------------------------------------------ *
+ *  update 用入力検証 (#48-K2)
+ *
+ *  create 系と対称に「id (UUID) + 変更フィールド全置換」を検証する。
+ *  patch (部分更新) ではなく**全フィールド置換**にして、UI から来た現在値で
+ *  上書きする (省略フィールドを null 化する事故を避ける)。フィールド検証は
+ *  create と同じ normalizer を共有する (ルール3 の単一ソース思想を検証層でも維持)。
+ * ------------------------------------------------------------------ */
+
+export type DepartmentUpdate = { id: string; name: string; displayOrder: number };
+export type GradeUpdate = {
+  id: string;
+  name: string;
+  displayOrder: number;
+  hasClasses: boolean;
+  departmentId: string | null;
+};
+export type ClassUpdate = { id: string; name: string; academicYear: number; grade: number };
+
+export function validateDepartmentUpdate(raw: {
+  id?: unknown;
+  name?: unknown;
+  displayOrder?: unknown;
+}): Validated<DepartmentUpdate> {
+  if (!isUuid(raw.id)) {
+    return { ok: false, message: "学科の指定が不正です。" };
+  }
+  const v = validateDepartmentInput(raw);
+  if (!v.ok) {
+    return v;
+  }
+  return { ok: true, value: { id: raw.id, ...v.value } };
+}
+
+export function validateGradeUpdate(raw: {
+  id?: unknown;
+  name?: unknown;
+  displayOrder?: unknown;
+  hasClasses?: unknown;
+  departmentId?: unknown;
+}): Validated<GradeUpdate> {
+  if (!isUuid(raw.id)) {
+    return { ok: false, message: "学年の指定が不正です。" };
+  }
+  const v = validateGradeInput(raw);
+  if (!v.ok) {
+    return v;
+  }
+  return { ok: true, value: { id: raw.id, ...v.value } };
+}
+
+export function validateClassUpdate(raw: {
+  id?: unknown;
+  name?: unknown;
+  academicYear?: unknown;
+  grade?: unknown;
+}): Validated<ClassUpdate> {
+  if (!isUuid(raw.id)) {
+    return { ok: false, message: "クラスの指定が不正です。" };
+  }
+  const name = normalizeName(raw.name);
+  if (!name) {
+    return { ok: false, message: "クラス名は 1〜64 文字で入力してください。" };
+  }
+  const academicYear = normalizeInt(raw.academicYear, 2000, 2100);
+  if (academicYear === null) {
+    return { ok: false, message: "年度は 2000〜2100 で入力してください。" };
+  }
+  const grade = normalizeInt(raw.grade, 1, 12);
+  if (grade === null) {
+    return { ok: false, message: "学年の数値は 1〜12 で入力してください。" };
+  }
+  return { ok: true, value: { id: raw.id, name, academicYear, grade } };
+}
+
+/** delete 系の入力: id (UUID) のみ。 */
+export function validateId(raw: unknown): Validated<{ id: string }> {
+  if (!isUuid(raw)) {
+    return { ok: false, message: "指定が不正です。" };
+  }
+  return { ok: true, value: { id: raw } };
 }
