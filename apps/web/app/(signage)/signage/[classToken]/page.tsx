@@ -17,9 +17,9 @@ import { SignageInvalid } from "./_components/SignageInvalid";
  * 返す標準手段が無いため 200 + 無効表示。F05 `/student` と同方針。コンテンツは一切出さないので漏洩なし)。
  * ポーリング側 (data Route Handler) は 410 を返し、クライアントは失効を検知して無効表示へ倒す。
  *
- * **middleware 依存 (要 #48-B 連携)**: `/signage/` は現状 `apps/web/middleware.ts` の matcher 除外に
- * 含まれず、`__session` 無しで `/login` にリダイレクトされる。公開到達には matcher の negative
- * lookahead に `signage` を追加する必要がある (本スライスは middleware を所掌外として触らない。PR 説明参照)。
+ * **middleware 除外済 (PR #192)**: `/signage/` は `apps/web/middleware.ts` の matcher negative
+ * lookahead で除外済 (`signage/`)。端末は `__session` を持たない匿名公開経路としてゲート対象外で、
+ * `/login` には弾かれない。可否は token 解決が判定する (上記「認証なし・匿名公開」参照)。
  */
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
