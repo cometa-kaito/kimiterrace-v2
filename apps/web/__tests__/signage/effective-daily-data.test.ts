@@ -65,3 +65,75 @@ describe("mergeDailySections", () => {
     expect(merged.notices.source).toBe("class");
   });
 });
+
+/**
+ * 静粛時間 (quiet_hours) の二段フォールバック (#191、#48-J-2 配線)。
+ * 優先順: 当日 daily_data の override (階層マージ結果) > school_configs クラス既定 (永続)。
+ * `quietHoursFallback` は school_configs `{ ranges }` から取り出した配列 (値形ブリッジ済) を渡す。
+ */
+describe("mergeDailySections: quiet_hours 二段フォールバック (#191)", () => {
+  const dailyRange = [{ start: "08:00", end: "08:30" }];
+  const configRange = [{ start: "12:00", end: "13:00" }];
+
+  it("daily_data に quiet_hours override があれば既定より優先 (override > default)", () => {
+    const merged = mergeDailySections(
+      "2026-05-31",
+      [row("class", { quietHours: dailyRange })],
+      configRange,
+    );
+    expect(merged.quietHours).toEqual({ items: dailyRange, source: "class" });
+  });
+
+  it("daily_data に無く school_configs クラス既定があればそれを採用 (default、source=class)", () => {
+    const merged = mergeDailySections("2026-05-31", [], configRange);
+    expect(merged.quietHours).toEqual({ items: configRange, source: "class" });
+  });
+
+  it("daily_data の quiet_hours が空配列でも既定にフォールバックする", () => {
+    const merged = mergeDailySections(
+      "2026-05-31",
+      [row("class", { quietHours: [] })],
+      configRange,
+    );
+    expect(merged.quietHours).toEqual({ items: configRange, source: "class" });
+  });
+
+  it("両方なし (既定 null) → 空 source null", () => {
+    const merged = mergeDailySections("2026-05-31", [], null);
+    expect(merged.quietHours).toEqual({ items: [], source: null });
+  });
+
+  it("既定が空配列のときも空 source null (空既定はフォールバックしない)", () => {
+    const merged = mergeDailySections("2026-05-31", [], []);
+    expect(merged.quietHours).toEqual({ items: [], source: null });
+  });
+
+  it("既定は他セクション (schedules/notices/assignments) には影響しない", () => {
+    const merged = mergeDailySections(
+      "2026-05-31",
+      [row("school", { schedules: ["S校"] })],
+      configRange,
+    );
+    expect(merged.schedules).toEqual({ items: ["S校"], source: "school" });
+    expect(merged.notices).toEqual({ items: [], source: null });
+    expect(merged.assignments).toEqual({ items: [], source: null });
+    // quiet_hours だけ既定が効く
+    expect(merged.quietHours).toEqual({ items: configRange, source: "class" });
+  });
+
+  it("daily_data grade/school scope に quiet_hours があれば既定より優先 (override は scope を問わない)", () => {
+    const gradeRange = [{ start: "15:00", end: "16:00" }];
+    const merged = mergeDailySections(
+      "2026-05-31",
+      [row("grade", { quietHours: gradeRange })],
+      configRange,
+    );
+    // grade の override が既定より優先。source は採用 scope (grade)。
+    expect(merged.quietHours).toEqual({ items: gradeRange, source: "grade" });
+  });
+
+  it("既定引数を省略すると従来挙動 (空 source null)", () => {
+    const merged = mergeDailySections("2026-05-31", []);
+    expect(merged.quietHours).toEqual({ items: [], source: null });
+  });
+});
