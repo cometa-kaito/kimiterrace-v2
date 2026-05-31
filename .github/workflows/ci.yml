@@ -110,6 +110,12 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
+      # @kimiterrace/web は @kimiterrace/db の dist (./dist/index.js) を解決する。
+      # turbo の test/build タスクは ^build で db を先にビルドするが、ここは web の
+      # test:e2e を直接叩くため db の dist を明示的に用意する (これが無いと next build が
+      # Module not found: '@kimiterrace/db' で落ちる)。
+      - name: Build workspace deps (@kimiterrace/db dist)
+        run: pnpm --filter @kimiterrace/db build
       - name: Install Playwright browsers
         run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
       - name: Run e2e (Playwright webServer builds + starts the app)
