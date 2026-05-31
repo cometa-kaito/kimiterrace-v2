@@ -174,10 +174,11 @@ describeOrSkip("F04 content-detail read queries (一覧 / 詳細 + version + 公
   ): Promise<void> {
     await raw`
       INSERT INTO ai_extractions
-        (school_id, content_id, extraction_kind, confidence_score, evidence, model_version, created_by)
+        (school_id, content_id, extraction_kind, confidence_score, evidence, model_version,
+         raw_input_hash, created_by)
       VALUES
         (${fx.schoolA}, ${contentId}, 'summary', ${score}, ${JSON.stringify(evidence)}::jsonb,
-         'gemini-test', ${fx.userA})
+         'gemini-test', ${"c".repeat(64)}, ${fx.userA})
     `;
   }
 
