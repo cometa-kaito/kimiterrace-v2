@@ -28,6 +28,7 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F04 nav 導線完成 — nav に「コンテンツ」を追加 (PR #217 自律 merge `41c6094`、Refs #48-C #166)**: F04 コンテンツ一覧/詳細 (`/admin/contents`、#165) は #166 で `PUBLISHER_ROLES` (school_admin/teacher) 専用化したが nav 導線が無く URL 直打ちでしか到達できなかった。publisher 2 ロールの nav に「コンテンツ」→ `/admin/contents` を追加。**system_admin には出さない** (#166 で 403 になるため死リンク防止)。nav.test.ts で teacher=エディタ+コンテンツ / school_admin に追加 / system_admin 非表示 を固定。純粋表示ロジックのみ、migration/依存なし。web 348 tests green。Reviewer APPROVE (Crit/High 0)。**並行稼働の #214 (system schools edit) と非重複の nav.ts に限定**。これで当 session の衝突回避スライス計 **5 PR merge (#193/#199/#202/#208/#217)**
 - 2026-05-31: **衝突回避モードで #139 L4 auth ハードニング (test-only) 自律 merge (PR #212 `59c657c`、Refs #139 #137)** (「他スレッドとコンフリクトしないよう進めて」指示): 並行稼働 5 領域 (signage quiet_hours #206 / e2e golden-path #210 / system-schools #208 / magic-link-fk #209 / **#150 denial-audit #211**) を `git worktree list` + `gh pr list` で先に洗い出し、**誰も触っていない auth 層**に限定。**migration を伴う #150 L-2 は並行 worktree `kt-wt/150-denial-audit` が着手中**と検知し意図的に回避 (実際 #211 として同時 merge された)。
   - **L4 (revoked セッション専用テスト)**: `verifySessionCookie` が `auth/session-cookie-revoked` reject で null に倒すこと (deny-by-default、ADR-003) を回帰固定。**既定で `checkRevoked=true` を Admin SDK に転送することを引数レベルで assert** (mock 素通り対策=「CI green ≠ 仕様充足」、既定を false に倒すと落ちる非空虚テスト) + opt-out (`checkRevoked=false`) 転送も対称固定。
   - **nit (dead code 除去)**: `adminApp.ts` の `__setAdminAuthForTest` を削除 (確立パターンは `vi.mock`、どのテストからも実呼びされない真の dead code)。本番バンドルの API 面を縮小。docstring 整合。
