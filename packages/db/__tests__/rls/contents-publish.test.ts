@@ -111,8 +111,11 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
       await raw`SELECT version FROM content_versions WHERE content_id = ${contentA} ORDER BY version`;
     expect(versions.map((v) => v.version)).toEqual([1, 2]);
 
+    // diff.denied IS NULL で拒否試行 (#150 L-2) の行を除外し、実 mutation の監査行だけを見る
+    // (拒否記録テストとの実行順序に依存せず堅牢にする)。
     const [audit] = await raw<{ diff: { before: { body: string }; after: { body: string } } }[]>`
-      SELECT diff FROM audit_log WHERE table_name = 'contents' AND operation = 'update'
+      SELECT diff FROM audit_log
+      WHERE table_name = 'contents' AND operation = 'update' AND (diff->>'denied') IS NULL
       ORDER BY occurred_at DESC LIMIT 1
     `;
     expect(audit.diff.before.body).toBe("初版本文");
@@ -195,8 +198,11 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
 
   it("audit_log の actor_user_id は常に操作者本人 (詐称防止 policy を充足)", async () => {
     await withTenantContext(db, ctxA(), (tx) => publishContent(tx, actorA(), contentA), APP);
+    // 通常 mutation の監査行はすべて操作者 (userA) 本人。拒否試行行 (#150 L-2, diff.denied) は
+    // 拒否された別ユーザー (生徒) が actor になりうる (それも policy 上は本人一致) ため除外する。
     const rows = await raw<{ actor_user_id: string }[]>`
-      SELECT DISTINCT actor_user_id FROM audit_log WHERE school_id = ${fx.schoolA}
+      SELECT DISTINCT actor_user_id FROM audit_log
+      WHERE school_id = ${fx.schoolA} AND (diff->>'denied') IS NULL
     `;
     for (const r of rows) {
       expect(r.actor_user_id).toBe(fx.userA);
