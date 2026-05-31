@@ -1,4 +1,8 @@
-import { adMediaType } from "@kimiterrace/db";
+// adMediaType は **client-safe な /schema サブパス**から import する。barrel (`@kimiterrace/db`) は
+// client.ts 経由で postgres ドライバを引き込み、"use client" な AdsManager にバンドルされると
+// Turbopack が fs/net/tls を解決できず next build が落ちる (#48-J Reviewer Critical-1)。
+// /schema は enum/テーブル定義のみで postgres を含まないため client component から安全に使える。
+import { adMediaType } from "@kimiterrace/db/schema";
 import type { AuthUser } from "../auth/session";
 
 /**
