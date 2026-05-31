@@ -320,9 +320,14 @@ export async function updateDepartmentAction(raw: {
  * 学年をリネーム / 表示順・hasClasses 変更 / department_id 付替する。
  *
  * **付替先の cross-tenant 検証 (#73 / L-1)**: departmentId 指定時は付替先学科が**自校で可視か**
- * `existsInSchool` で確認する。RLS は自校に SELECT を限定するため、他校 department の id を渡しても
- * 不可視 → CrossTenantError で弾かれる。system_admin が schoolId 付き (テナント選択済) で操作する場合も、
- * 同 tx の `app.current_school_id` が actor.schoolId に固定されるため、他校 department は不可視のまま。
+ * `existsInSchool` で確認する。**school_admin (通常経路)** では RLS の `tenant_isolation` が SELECT を
+ * 自校に限定するため、他校 department の id を渡しても不可視 → CrossTenantError で弾かれる。
+ *
+ * **注意 (system_admin の越権、ADR-019 #95)**: role=system_admin の tx では `system_admin_full_access`
+ * policy (PERMISSIVE / OR 結合) が `app.current_school_id` に関係なく全校で発火するため、`existsInSchool`
+ * が他校 department も可視と判定し、本チェックを通り抜けて cross-tenant 付替が成立しうる。これは本関数
+ * 固有ではなく create 経路 (#164) にも共通する基盤課題で、テナント操作時に role を tenant ロールへ
+ * 降格する対応 (ADR-019 #95) は別 issue で追う。system_admin は信頼された単独オーナーのため当面許容。
  */
 export async function updateGradeAction(raw: {
   id?: unknown;
