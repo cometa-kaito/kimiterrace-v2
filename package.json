@@ -26,7 +26,7 @@
     "@commitlint/config-conventional": "^21.0.2",
     "husky": "^9.1.7",
     "lint-staged": "^15.2.10",
-    "turbo": "^2.3.3",
+    "turbo": "^2.9.16",
     "typescript": "^6.0.3"
   },
   "lint-staged": {
