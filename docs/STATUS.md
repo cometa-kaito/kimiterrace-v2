@@ -28,6 +28,10 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **#48-L4 学校削除 (#239) + #48-E1/E2 サイネージ rich 描画 (#238) を独立 Reviewer 経由で 2 件自律 merge**（busy CEO「進めて」連続フロー）: in-flight だった 2 PR（CI 全 green・MERGEABLE・未レビュー）に fresh-context Reviewer Agent を並列 spawn → 両者 APPROVE 相当（Critical/High 0）→ 自律 squash merge。
+  - **#239 学校削除（空校のみ hard-delete + FK ガード、`04cf584`）**: `ON DELETE RESTRICT` で非空校は FK 違反（23503）に倒れ削除回避経路なし。RLS（system_admin_full_access + tenant_isolation_delete）+ handler `requireRole(SYSTEM_ADMIN_ROLES)` 403、audit_log は FK 非依存で hard-delete 後も append（hash chain）。Low 3 件 → **follow-up #246**。
+  - **#238 サイネージ rich 描画（確定スキーマ整形、`4a2911b`）**: 静粛時間が公開サイネージに生 JSON を露出していた表示バグを解消、`dangerouslySetInnerHTML` 0 で XSS 安全、未知 kind は exhaustive + fail-soft。Medium 1 件（section-format が editor core 型を実 import せず docstring 過大記述 = ルール3 機械強制の弱さ）→ **follow-up #247**。
+  - **後処理 + 衝突回避**: merged worktree（kt-48l4-wt / signage-format）解放 + merged remote branch 削除。**並行セッション稼働中の migration-0009（#245 として merge 済）/ #234 レーン（worktree 2 本）は非接触で維持**。なお本セッションの未 push ローカル docs commit は並行セッションの `reset → origin/main` で巻き戻ったが、Phase 検証 docs は別経路で origin/main 着地済（内容同一、CRLF 差のみ）のため実損なし（[[concurrent-git-worktree-isolation]] の再確認）。
 - 2026-05-31: **★ Phase 検証（受入テスト）を新設 — 5 Phase 構成へ + 詳細設計一式 (ユーザー判断、PR `docs/phase-verification`)**:
   - 「開発」と「導入」の間に **Claude Code 主導の受入ゲート「Phase 検証」**を新設。PR 単位の shift-left（unit/RLS/API/e2e + CI スキャン）では捕まらない**統合 staging への横断・敵対・要件トレーサブル**な検証を担う
   - **5 トラックの詳細設計を `docs/testing/` に作成**: ① 機能受入 (FUN-001〜023) ② UI/UX/GUI (UX-001〜020、WCAG 2.2 AA) ③ セキュリティ・ペネトレ (SEC-001〜029、STRIDE 全 ID) ④ 非機能 (PERF/LOAD/RESIL/COST、NFR01 閾値) ⑤ 移行・監査・コンプラ (MIG/AUD/CMP) + 横断 (traceability-matrix / defect-log / go-no-go-report)
