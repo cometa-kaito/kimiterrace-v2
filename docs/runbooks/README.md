@@ -8,6 +8,7 @@
 - `rollback.md` — 切り戻し手順
 - `data-migration.md` — Firestore → PostgreSQL データ移行
 - `db-migrations.md` — DB スキーマ/RLS マイグレーション適用（SECURITY DEFINER オーナー固定）
+- `dependency-upgrades.md` — dependabot bump の安全な取り込み（minimumReleaseAge / チョークポイント / 統合）
 - `cutover.md` — 本番切替（DNS切替含む）
 - `incident-response.md` — 障害対応フロー
 - `disaster-recovery.md` — 災害復旧（リージョン障害等）
