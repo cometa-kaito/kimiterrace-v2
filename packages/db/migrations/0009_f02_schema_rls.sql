@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0008_f02_schema_rls.sql
+-- 0009_f02_schema_rls.sql
 -- 目的: F02 で追加した teacher_inputs / teacher_input_attachments に
 --       RLS + 監査 FK を付与する。
 --
