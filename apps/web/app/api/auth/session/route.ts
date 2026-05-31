@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isSameOriginRequest } from "../../../../lib/auth/csrf";
 import { SESSION_COOKIE_NAME, createSessionCookie } from "../../../../lib/auth/session";
 
 /**
@@ -8,6 +9,10 @@ import { SESSION_COOKIE_NAME, createSessionCookie } from "../../../../lib/auth/s
  * 1. クライアント (app/login) が Identity Platform client SDK でサインイン → ID トークン取得
  * 2. その ID トークンを本ハンドラへ POST
  * 3. Admin SDK で session cookie を発行し、httpOnly cookie として Set-Cookie
+ *
+ * **CSRF 防御 (#139 L2)**: idToken を body だけで受けるため login CSRF の対象になりうる。
+ * 発行前に `isSameOriginRequest` で Origin/Referer のホストを到達ホストと突合し、クロスサイト
+ * POST を 403 で弾く (sameSite=lax への多層防御、lib/auth/csrf.ts)。
  *
  * cookie 属性:
  * - `httpOnly`: JS から読めない (XSS でのトークン窃取を防ぐ)
@@ -20,6 +25,11 @@ import { SESSION_COOKIE_NAME, createSessionCookie } from "../../../../lib/auth/s
 const SESSION_EXPIRES_IN_MS = 5 * 24 * 60 * 60 * 1000;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (!isSameOriginRequest(request)) {
+    // クロスサイト POST (login CSRF)。idToken の検証にも進まず即拒否する。
+    return NextResponse.json({ error: "forbidden_origin" }, { status: 403 });
+  }
+
   let idToken: unknown;
   try {
     const body = (await request.json()) as { idToken?: unknown };
