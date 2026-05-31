@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
+import { schoolHierarchyMode } from "../_shared/enums.js";
 
 /**
  * 学校（テナント）マスタ。RLS 上の `school_id` 値の発行元。
@@ -12,6 +13,9 @@ export const schools = pgTable("schools", {
   prefecture: varchar("prefecture", { length: 32 }).notNull(),
   // 学校コード（文科省標準 / 任意）
   code: varchar("code", { length: 32 }),
+  // 階層モード（V1 schools.hierarchyMode 相当）。class=学年>クラス / department=学年>学科>クラス。
+  // 既存校は普通科前提で class をデフォルトとする（#48-L / #123）。
+  hierarchyMode: schoolHierarchyMode("hierarchy_mode").notNull().default("class"),
   notes: text("notes"),
   ...auditColumns,
 });

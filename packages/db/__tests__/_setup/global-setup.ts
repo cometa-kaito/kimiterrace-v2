@@ -33,6 +33,9 @@ const MAGIC_LINK_CLASS_FK_SQL = join(
   "drizzle",
   "0008_magic_link_class_composite_fk.sql",
 );
+// #48-L (#123): schools に hierarchy_mode 列 + enum を追加 (V1 setSchoolHierarchyMode 相当)。
+// schools (baseline) 作成後ならいつでも流せる列追加。番号は main の 0008 と衝突回避のため 0009。
+const SCHOOL_HIERARCHY_MODE_SQL = join(packageRoot, "drizzle", "0009_school_hierarchy_mode.sql");
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -138,6 +141,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, CONTENTS_COMPOSITE_FK_SQL);
     // #204: magic_links.class_id の composite FK (classes UNIQUE = 0006 適用後)
     await runSqlFile(sql, MAGIC_LINK_CLASS_FK_SQL);
+    // #48-L (#123): schools.hierarchy_mode 列 + enum を追加 (schools は baseline 作成済)
+    await runSqlFile(sql, SCHOOL_HIERARCHY_MODE_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)

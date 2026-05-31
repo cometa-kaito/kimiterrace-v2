@@ -72,3 +72,17 @@ export const configKind = pgEnum("config_kind", [
 
 // サイネージ広告のメディア種別（V1 Ad.type）
 export const adMediaType = pgEnum("ad_media_type", ["image", "video"]);
+
+// 学校の階層モード（V1 schools.hierarchyMode）。
+//   class      … 学年 > クラス（普通科高校の標準）
+//   department … 学年 > 学科 > クラス（学科制の高校）
+// V1 setSchoolHierarchyMode 相当の切替対象（#48-L / #123）。
+export const schoolHierarchyMode = pgEnum("school_hierarchy_mode", ["class", "department"]);
+
+/**
+ * 学校の階層モードの型（単一ソース）。アプリ層 (apps/web) は `import type` でこれを引き込み、
+ * `satisfies readonly SchoolHierarchyMode[]` で許可値配列が enum とズレないことをコンパイル時に
+ * 強制する (`client.ts` の `TenantRole` / `PublishScope` と同方針)。型のみなので Next バンドルに
+ * enum のランタイム値を引き込まない。
+ */
+export type SchoolHierarchyMode = (typeof schoolHierarchyMode.enumValues)[number];
