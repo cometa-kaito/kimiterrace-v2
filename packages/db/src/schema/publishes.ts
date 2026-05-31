@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { contentVersions } from "./content-versions.js";
 import { contents } from "./contents.js";
@@ -23,5 +23,13 @@ export const publishes = pgTable(
     unpublishedAt: timestamp("unpublished_at", { withTimezone: true }),
     ...auditColumns,
   },
-  (t) => ({ ixContent: index("ix_publishes_content").on(t.contentId) }),
+  (t) => ({
+    ixContent: index("ix_publishes_content").on(t.contentId),
+    // 1 content = 最大 1 active publish (unpublished_at IS NULL) を DB レベルで強制する
+    // 部分 UNIQUE index (#145 M-3)。publishContent は再公開時に既存 active publish を
+    // 自動 close するため通常は衝突しないが、多重 active publish の混入を構造的に防ぐ。
+    uxActivePerContent: uniqueIndex("ux_publishes_active_per_content")
+      .on(t.contentId)
+      .where(sql`${t.unpublishedAt} IS NULL`),
+  }),
 );

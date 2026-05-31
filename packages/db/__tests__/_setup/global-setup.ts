@@ -15,6 +15,13 @@ const F0F_COLS_SQL = join(packageRoot, "drizzle", "0002_f0f_hierarchy_links.sql"
 const F05_MAGIC_LINK_SQL = join(packageRoot, "drizzle", "0003_f05_magic_link_class.sql");
 // F02: teacher_inputs / teacher_input_attachments テーブル DDL。schools/users (baseline) 作成後に流す。
 const F02_SCHEMA_SQL = join(packageRoot, "drizzle", "0004_f02_teacher_inputs.sql");
+// F04 (#145): content_versions(content_id, version) を UNIQUE 化 + publishes に active 部分 UNIQUE。
+// content_versions / publishes は baseline 作成済なので、その index 貼り替えとして流す。
+const F04_PUBLISH_UNIQUE_SQL = join(
+  packageRoot,
+  "drizzle",
+  "0005_content_versions_publishes_unique.sql",
+);
 const RLS_ENABLE_SQL = join(packageRoot, "migrations", "0001_enable_rls.sql");
 const RLS_POLICIES_SQL = join(packageRoot, "migrations", "0002_rls_policies.sql");
 const AUDIT_TRIGGER_SQL = join(packageRoot, "migrations", "0003_audit_trigger.sql");
@@ -112,6 +119,8 @@ export async function setup(): Promise<void> {
     await runSqlFile(sql, F05_MAGIC_LINK_SQL);
     // F02: teacher_inputs / teacher_input_attachments は schools/users (baseline) 作成後に流す
     await runSqlFile(sql, F02_SCHEMA_SQL);
+    // F04 (#145): content_versions / publishes の UNIQUE index 貼り替え (baseline でテーブル作成済)
+    await runSqlFile(sql, F04_PUBLISH_UNIQUE_SQL);
 
     // 4) RLS 有効化 + policy + audit トリガ + 監査 FK (created_by / updated_by → users.id)
     //    + audit_log_insert で school_admin の actor=NULL を拒否 (Issue #105)

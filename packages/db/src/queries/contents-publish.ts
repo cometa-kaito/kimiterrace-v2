@@ -63,7 +63,15 @@ function toSnapshot(row: {
   };
 }
 
-/** RLS スコープで content を 1 件取得。見つからない (= 別テナント / 不存在) なら throw。 */
+/**
+ * RLS スコープで content を 1 件取得し、**行を FOR UPDATE でロック**する。
+ * 見つからない (= 別テナント / 不存在) なら throw。
+ *
+ * 全 mutation (publish / update / unpublish / rollback) はこの関数を入口に呼ぶ。content 行を
+ * ロックすることで同一 content への同時書き込みを直列化し、`content_versions` のバージョン採番
+ * (max+1) レースと多重 active publish レースをアプリ層で防ぐ (#145)。DB レベルの UNIQUE 制約
+ * (ux_content_versions_content_version / ux_publishes_active_per_content) は最終防壁。
+ */
 async function loadContentOrThrow(tx: TenantTx, contentId: string) {
   const [row] = await tx
     .select({
@@ -77,7 +85,8 @@ async function loadContentOrThrow(tx: TenantTx, contentId: string) {
     })
     .from(contents)
     .where(eq(contents.id, contentId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!row) {
     throw new ContentNotFoundError(contentId);
   }
@@ -265,6 +274,28 @@ export async function publishContent(
     .update(contents)
     .set({ status: "published", updatedBy: actor.userId, updatedAt: sql`now()` })
     .where(eq(contents.id, contentId));
+
+  // 多重 active publish を避ける (#145 M-3): 既存の公開中 publish をすべて閉じてから新規を立てる。
+  // 「1 content = 最大 1 active publish」不変条件を維持し、再公開で旧 publish が放置されるのを防ぐ
+  // (DB の部分 UNIQUE index ux_publishes_active_per_content がこの不変条件を最終強制する)。
+  // 暗黙の unpublish も監査証跡に残す (F04.1)。
+  const superseded = await tx
+    .update(publishes)
+    .set({ unpublishedAt: sql`now()`, updatedBy: actor.userId, updatedAt: sql`now()` })
+    .where(and(eq(publishes.contentId, contentId), isNull(publishes.unpublishedAt)))
+    .returning({ id: publishes.id });
+  for (const closed of superseded) {
+    await writeAudit(tx, actor, {
+      tableName: "publishes",
+      recordId: closed.id,
+      operation: "update",
+      diff: {
+        before: { unpublishedAt: null },
+        after: { unpublishedAt: "now()" },
+        reason: "superseded",
+      },
+    });
+  }
 
   const [pub] = await tx
     .insert(publishes)
