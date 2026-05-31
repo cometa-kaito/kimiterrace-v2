@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-31 (**open PR 片付け + F0 #48-I 実装サイクル**。#140 F16 docs / **#157 F02 backend (Reviewer High-1 権限昇格 自己 fix→再 CI→再 Reviewer→merge)** / **#174 #48-I エディタ Notice/Assignment (Worker spawn→Reviewer APPROVE→merge、daily_data スキーマ確定、回帰なし)** を自律 merge。#119/#120 close、follow-up #175 (editor-styles 単一ソース化) 起票。dependabot 12 PR triage 済 (脆弱性 major は破壊的=ユーザー判断待ち)。自律 merge 連続 **26 回目**)
+最終更新: 2026-05-31 (**Dependabot 脆弱性アラート 8 件トリアージ**。解消可能な moderate 2 件 (postcss/jsondiffpatch) を pnpm overrides で patched 化 → **PR #176 (CI 12/12 + Reviewer APPROVE 相当 → merge `8f9e057`)**。解消不可 6 件は Issue 化: #177 (vite/esbuild dev-only)・#178 (uuid GCP SDK 配下 v11 major)・#179 (ai #153 経由 + provider-utils fix 未リリース)。直前: open PR 片付け + F0 #48-I (#140/#157/#174 merge、#175 起票))
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,14 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **Dependabot 脆弱性アラート 8 件 (moderate 5 / low 3) トリアージ + 解消可能分 merge (PR #176、commit `8f9e057`)**:
+  - **`gh api .../dependabot/alerts` で 8 件取得 → 各 direct/transitive・lockfile 解消可否を `pnpm why` で確定**。全 advisory の全 range を引いて、tree 内の resolved 版が実際に vulnerable かまで突合 (postcss は next 経由の 8.4.31 が vuln・vite 経由 8.5.15 は安全、esbuild は 0.18.20/0.21.5 のみ vuln で 0.25.12/0.28.0 は安全、等)
+  - **解消可能 moderate 2 件を pnpm `overrides` で patched 化 → PR #176**: postcss `<8.5.10`→8.5.15 (GHSA-qx2v-qp2m-jg93、next@16 経由 runtime、同一メジャー) + jsondiffpatch `<0.7.2`→0.7.6 (GHSA-33vc-wfww-vjfv、ai@4.3.19 経由 runtime)。**overrides は `pnpm-workspace.yaml` に記述** (pnpm 11 は package.json の `pnpm.overrides` を無視、[[pnpm11-overrides-location]])
+  - **jsondiffpatch override の互換性をソースで実証**: ai は `ai/rsc` で `import * as jsondiffpatch` し `clone/diff/patch` のみ使用、0.6.0↔0.7.6 で top-level export 同一・ESM 同一、脆弱箇所 `HtmlFormatter` は ai 不使用。ai の `package.json` は 0.6.0 厳密 pin だが override が正しく 0.7.6 へ解決
+  - **検証 (ASCII path 隔離 worktree、origin/main から直接 branch)**: `pnpm install --frozen-lockfile` / `--filter @kimiterrace/db build` / `typecheck 6/6` / `test` (web 213 pass・db 108 は DATABASE_URL 無しで skip→CI Postgres で実行) / `build` (next、postcss 8.5.15) / `biome ci` 全緑。**CI 12/12 緑 (Dependency Review 含む=新規脆弱依存の混入なし)**
+  - **Reviewer (別 Agent spawn、worktree 隔離、fresh context) APPROVE 相当 (Critical/High/Medium/Low 0、nit 1=既存 drizzle.config 警告)**: 脆弱版消滅 (postcss 8.5.15 単一・jsondiffpatch 0.7.6 単一) を `pnpm why` で再確認、jsondiffpatch 0.7.6 の runtime smoke test (namespace import + diff/clone/patch roundtrip) pass。**diff は pnpm-workspace.yaml +8 / pnpm-lock.yaml +15-28 の 2 ファイルのみ** (ルール6)。ユーザーが squash merge
+  - **解消不可 6 件を Issue 化**: **#177** vite/esbuild (moderate×2、dev-only=production 非搭載、fix は vitest 2→3 メジャー移行) / **#178** uuid (moderate、firebase-admin/GCP SDK 推移依存、唯一の fix が uuid@11 ESM major で override は GCP 経路破壊リスク、脆弱パス v3/v5/v6+buf は実質未使用) / **#179** ai+@ai-sdk/provider-utils (low×2、ai は既存 PR #153 の 4→5 破壊的移行、provider-utils は fix 未リリース=上流待ち)
+  - **学び**: 安全側判断 — fix が親パッケージの想定外メジャー (uuid v11/vite v6) を要求する transitive は override 強制せず Issue 化。dev-only (vite/esbuild) と runtime (postcss/jsondiffpatch) を分離し優先度判断。pnpm 11 overrides は workspace.yaml [[pnpm11-overrides-location]]
 - 2026-05-31: **F0 #48-I エディタ Notice/Assignment セクション実装 (PR #174 自律 merge、commit `e0478b2`、Issue #120 close、Refs #12)**:
   - **Worker spawn (worktree 隔離) で実装 → Desktop が Reviewer spawn → 自律 merge** のオーケストレータ構成。直前 merge の #48-H Schedule (PR #171) を template に同型実装。`apps/web/lib/editor/notice-assignment-{core,actions,queries}.ts` + `_components/{NoticeEditor,AssignmentEditor}.tsx` + 共有 `editor-styles.ts` + `page.tsx` 配線 + テスト 2 ファイル
   - **daily_data スキーマ確定**: #48-A で opaque JSONB だった `daily_data.notices` = `{text, isHighlight?}` / `daily_data.assignments` = `{deadline, subject, task}` の要素スキーマを core で型として一元定義 (V1 踏襲、サイネージ描画 #48-E1 と整合)。**migration 不要**。deadline 検証は schedule の `isValidDate` 再利用で堅牢
