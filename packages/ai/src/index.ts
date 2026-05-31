@@ -47,6 +47,7 @@ export {
   ExtractorRegistry,
   createDefaultRegistry,
   extractText,
+  createVisionOcrClient,
   TextExtractor,
   PdfExtractor,
   DocxExtractor,
@@ -54,7 +55,9 @@ export {
   ImageExtractor,
   SOURCE_FORMATS,
   UnsupportedFormatError,
+  LegacyOfficeFormatError,
   ExtractorNotConfiguredError,
+  ExtractFailedError,
 } from "./extract/index.js";
 export type {
   SourceFormat,
@@ -62,4 +65,8 @@ export type {
   ExtractMeta,
   ExtractedText,
   DocumentExtractor,
+  OcrClient,
+  OcrResult,
+  RegistryOptions,
+  VisionOcrConfig,
 } from "./extract/index.js";

@@ -10,9 +10,16 @@ import {
   type DocumentExtractor,
   type ExtractSource,
   type ExtractedText,
+  type OcrClient,
   type SourceFormat,
   UnsupportedFormatError,
 } from "./types.js";
+
+/** 既定レジストリの構成オプション。 */
+export interface RegistryOptions {
+  /** 画像 OCR バックエンド（ADR-024 決定3）。未指定なら image は ExtractorNotConfiguredError。 */
+  ocr?: OcrClient;
+}
 
 /**
  * F01 抽出オーケストレータ。
@@ -52,21 +59,26 @@ export class ExtractorRegistry {
 
 /**
  * 既定レジストリ: 全形式の抽出器を登録する。
- * `text` は即時動作、それ以外は依存配線まで ExtractorNotConfiguredError（フェイルクローズ）。
+ * `text` / `pdf` / `docx` / `xlsx` は即時動作。`image` は `opts.ocr` を渡したときのみ動作し、
+ * 未指定なら ExtractorNotConfiguredError（フェイルクローズ）。
  */
-export function createDefaultRegistry(): ExtractorRegistry {
+export function createDefaultRegistry(opts: RegistryOptions = {}): ExtractorRegistry {
   return new ExtractorRegistry()
     .register(new TextExtractor())
     .register(new PdfExtractor())
     .register(new DocxExtractor())
     .register(new XlsxExtractor())
-    .register(new ImageExtractor());
+    .register(new ImageExtractor(opts.ocr));
 }
 
 /**
  * 便宜関数: 既定レジストリで素材をテキスト化する（F01 → F03 接続点）。
+ * 画像 OCR を使う場合は `opts.ocr` を渡す（ADR-024 決定3）。
  * 戻り値の `text` を structureContent の `input` に渡せる。**渡す前に PII マスキング必須**（ルール4）。
  */
-export async function extractText(source: ExtractSource): Promise<ExtractedText> {
-  return createDefaultRegistry().extract(source);
+export async function extractText(
+  source: ExtractSource,
+  opts: RegistryOptions = {},
+): Promise<ExtractedText> {
+  return createDefaultRegistry(opts).extract(source);
 }

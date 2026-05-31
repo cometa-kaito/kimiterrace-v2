@@ -10,6 +10,9 @@ export {
   XlsxExtractor,
 } from "./extractors.js";
 export { ExtractorRegistry, createDefaultRegistry, extractText } from "./registry.js";
+export type { RegistryOptions } from "./registry.js";
+export { createVisionOcrClient } from "./ocr/vision.js";
+export type { VisionOcrConfig } from "./ocr/vision.js";
 export {
   SOURCE_FORMATS,
   UnsupportedFormatError,
@@ -23,4 +26,6 @@ export type {
   ExtractMeta,
   ExtractedText,
   DocumentExtractor,
+  OcrClient,
+  OcrResult,
 } from "./types.js";
