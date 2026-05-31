@@ -6,15 +6,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * RLS 文脈 (schoolId 強制) と PII allowlist・不正入力の倒し方を検証する。
  */
 
-const { resolveMagicLink, withTenantContext, hashToken } = vi.hoisted(() => ({
-  resolveMagicLink: vi.fn(),
-  withTenantContext: vi.fn(),
-  hashToken: vi.fn((t: string) => `HASH(${t})`),
-}));
+const { resolveMagicLink, withTenantContext, getEffectiveAdsForClass, hashToken } = vi.hoisted(
+  () => ({
+    resolveMagicLink: vi.fn(),
+    withTenantContext: vi.fn(),
+    getEffectiveAdsForClass: vi.fn(),
+    hashToken: vi.fn((t: string) => `HASH(${t})`),
+  }),
+);
 
 vi.mock("@kimiterrace/db", () => ({
   resolveMagicLink,
   withTenantContext,
+  getEffectiveAdsForClass,
   events: { __table: "events" },
 }));
 vi.mock("../../lib/db", () => ({ getDb: () => ({ __db: true }) }));
@@ -156,5 +160,33 @@ describe("recordSignageEvent", () => {
     const res = await recordSignageEvent("", { type: "view" });
     expect(res).toEqual({ ok: false, reason: "gone" });
     expect(resolveMagicLink).not.toHaveBeenCalled();
+  });
+
+  // ---- L-1 (#265): adId 実在照合 (effective_ads_per_class) ----
+  it("L-1: adId が当該クラスの実効広告に実在すれば採用して INSERT", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    getEffectiveAdsForClass.mockResolvedValue([{ adId: AD_ID }]);
+    const res = await recordSignageEvent("THETOKEN", { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: true });
+    // 実在照合は解決した classId に対して行う (RLS 文脈内 = tx 経由)。
+    expect(getEffectiveAdsForClass).toHaveBeenCalledWith(expect.anything(), "c1");
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ payload: { adId: AD_ID } });
+  });
+
+  it("L-1: 実効広告に無い adId は invalid で INSERT しない (到達数の水増し防止)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    getEffectiveAdsForClass.mockResolvedValue([{ adId: "99999999-9999-4999-8999-999999999999" }]);
+    const res = await recordSignageEvent("THETOKEN", { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: false, reason: "invalid" });
+    expect(captured).toHaveLength(0);
+  });
+
+  it("L-1: adId 不在の一般 view は実在照合をスキップし従来どおり INSERT", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    const res = await recordSignageEvent("THETOKEN", { type: "view", clientId: CLIENT_ID });
+    expect(res).toEqual({ ok: true });
+    expect(getEffectiveAdsForClass).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
   });
 });
