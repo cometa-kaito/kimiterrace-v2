@@ -11,7 +11,7 @@ import { teacherInputs } from "./teacher-inputs.js";
  * 発行・バイナリ転送は本 PR に含めない (TODO 参照)。クライアントは別経路で Cloud Storage に
  * アップロードし、その `storage_path` を本テーブルに登録する。
  *
- * **テナント分離 (RLS 対象)**: `school_id` を持つ。0008_f02_schema_rls.sql で policy を貼る。
+ * **テナント分離 (RLS 対象)**: `school_id` を持つ。0009_f02_schema_rls.sql で policy を貼る。
  * 親 `teacher_inputs` 削除時は cascade で添付メタも消す。
  *
  * TODO(添付実体): Cloud Storage 署名付き URL 発行・実アップロード・MIME 検証・ウイルススキャンは

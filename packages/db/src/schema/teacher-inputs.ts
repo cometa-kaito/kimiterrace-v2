@@ -12,7 +12,7 @@ import { users } from "./users.js";
  * F03 (AI 構造化) へ渡す前段の作業領域。ライフサイクルは
  * draft → (transcribing →) ready → submitted。
  *
- * **テナント分離 (RLS 対象)**: `school_id` を持つ。0008_f02_schema_rls.sql で
+ * **テナント分離 (RLS 対象)**: `school_id` を持つ。0009_f02_schema_rls.sql で
  * tenant_isolation + system_admin_full_access policy を貼る (ADR-019 / CLAUDE.md ルール2)。
  *
  * **PII (CLAUDE.md ルール4)**: `transcript` は生徒氏名等の PII を含みうる。本スライスでは

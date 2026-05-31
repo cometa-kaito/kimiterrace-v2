@@ -12,7 +12,7 @@
 -- (CLAUDE.md ルール1)。created_by/updated_by の users(id) FK は migrations/0008 で
 -- 後付け (src/_shared/audit.ts が循環依存回避で FK 未宣言のため、既存 0004/0006 と同パターン)。
 --
--- RLS policy は migrations/0008_f02_schema_rls.sql で貼る。
+-- RLS policy は migrations/0009_f02_schema_rls.sql で貼る。
 -- global-setup.ts の loader 配列にも本ファイル + 0008 を登録すること。
 -- =====================================================================
 
