@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { listAdvertisers } from "@/lib/system-admin/advertisers-queries";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
+import Link from "next/link";
 
 /**
  * F10 (#46): システム管理者の広告主一覧 (`/admin/system/advertisers`)。**Server Component**。
@@ -24,9 +25,14 @@ export default async function SystemAdvertisersPage() {
     <section>
       <header style={headerStyle}>
         <h1 style={titleStyle}>広告主一覧</h1>
-        <span style={countStyle}>
-          稼働 {activeCount} / 全 {advertisers.length} 社
-        </span>
+        <div style={headerRightStyle}>
+          <span style={countStyle}>
+            稼働 {activeCount} / 全 {advertisers.length} 社
+          </span>
+          <Link href="/admin/system/advertisers/new" style={newLinkStyle}>
+            ＋ 新規登録
+          </Link>
+        </div>
       </header>
 
       {advertisers.length === 0 ? (
@@ -87,7 +93,20 @@ const headerStyle: React.CSSProperties = {
   marginBottom: "1rem",
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700 };
+const headerRightStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "1rem",
+};
 const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const newLinkStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#fff",
+  background: "#1d4ed8",
+  padding: "0.4rem 0.9rem",
+  borderRadius: "6px",
+  textDecoration: "none",
+};
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
 const thStyle: React.CSSProperties = {
