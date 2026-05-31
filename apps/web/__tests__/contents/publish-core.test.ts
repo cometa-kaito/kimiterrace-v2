@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { isRoleAllowed } from "../../lib/auth/guard";
 import {
   PUBLISH_SCOPES,
+  PUBLISHER_ROLES,
   TITLE_MAX_LENGTH,
   isPublishScope,
   isUuid,
@@ -16,6 +18,25 @@ describe("PUBLISH_SCOPES", () => {
     // satisfies + exhaustive チェック (publish-core.ts の _ExhaustivePublishScopeCheck) は
     // コンパイル時に enum とのズレを検出する。ここでは値の集合をランタイムでも固定する。
     expect([...PUBLISH_SCOPES].sort()).toEqual(["class", "homeroom", "private", "school"]);
+  });
+});
+
+describe("PUBLISHER_ROLES (#166: /admin/contents を publisher 専用にする認可集合)", () => {
+  // /admin/contents[/[id]] は `requireRole(PUBLISHER_ROLES)` で gate する。requireRole は
+  // 内部で isRoleAllowed を使うため、ここでガード集合の振る舞いを直接固定する。
+  it("school_admin / teacher のみ許可する", () => {
+    expect(isRoleAllowed("school_admin", PUBLISHER_ROLES)).toBe(true);
+    expect(isRoleAllowed("teacher", PUBLISHER_ROLES)).toBe(true);
+  });
+
+  it("system_admin を除外する (cross-tenant 全件可視を自校用画面に晒さない)", () => {
+    // F04 の自校公開フロー画面に system_admin の横断データを混ぜない (方針 A)。403 に倒れる。
+    expect(isRoleAllowed("system_admin", PUBLISHER_ROLES)).toBe(false);
+  });
+
+  it("student / guardian も除外する (管理エリア対象外)", () => {
+    expect(isRoleAllowed("student", PUBLISHER_ROLES)).toBe(false);
+    expect(isRoleAllowed("guardian", PUBLISHER_ROLES)).toBe(false);
   });
 });
 
