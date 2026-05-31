@@ -17,6 +17,7 @@
   "dependencies": {
     "@kimiterrace/ai": "workspace:*",
     "@kimiterrace/db": "workspace:*",
+    "@kimiterrace/observability": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "firebase": "^12.14.0",
     "firebase-admin": "^13.10.0",
