@@ -91,17 +91,37 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
 
   # ---------------------------------------------------------------------------
-  # e2e (Playwright) — F0 #48-O 第 1 増分: 基盤確立のみ。
+  # e2e (Playwright) — F0 #48-O。
   #
-  # スモークは DB / 認証に依存しない /login の描画 1 本だけ。Playwright の webServer が
-  # 本番ビルド (next build) + 起動 (next start) を担うので、このジョブは Postgres service を
-  # 付けない。後続増分で「ログイン→エディタ更新→サイネージ反映」golden path を足す際に
-  # postgres service + DB seed を追加する (test ジョブの services ブロックを参照)。
+  # 第 1 増分 (#205): DB / 認証非依存の /login 描画スモーク。
+  # 第 2 増分 (#48-O-2): 公開サイネージ golden-path。Playwright の globalSetup が下記
+  #   Postgres service を migrate + seed (1 校 1 学年 1 クラス + 有効 magic link + 当日
+  #   daily_data) し、webServer (next build + start) が DATABASE_URL 付きで boot、
+  #   signage.spec.ts が /signage/{token} の描画を実ブラウザで検証する。
+  #   service / DATABASE_URL / KIMITERRACE_TEST_DB_OK は test ジョブと同方針 (使い捨て test DB)。
   # ---------------------------------------------------------------------------
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
     needs: setup
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kimiterrace_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # globalSetup (migrate+seed) / webServer (signage の getDb) / test workers が共有。
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kimiterrace_test
+      # 使い捨て test DB であることを globalSetup のガードに明示 (test ジョブと同方針)。
+      KIMITERRACE_TEST_DB_OK: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -118,7 +138,7 @@ jobs:
         run: pnpm --filter @kimiterrace/db build
       - name: Install Playwright browsers
         run: pnpm --filter @kimiterrace/web exec playwright install --with-deps chromium
-      - name: Run e2e (Playwright webServer builds + starts the app)
+      - name: Run e2e (globalSetup migrate+seed → webServer build+start → signage 描画検証)
         run: pnpm --filter @kimiterrace/web test:e2e
 
   build:
