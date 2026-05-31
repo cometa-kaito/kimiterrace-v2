@@ -1,6 +1,6 @@
 # ADR-008: API は Next.js Route Handlers + Server Actions に統合、Hono 非採用
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [#48-B (#113)](https://github.com/cometa-kaito/kimiterrace-v2/issues/113), [#48-N (#125)](https://github.com/cometa-kaito/kimiterrace-v2/issues/125), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [ADR-003 (Identity Platform)](003-identity-platform.md), [ADR-004 (Drizzle)](004-drizzle-vs-prisma.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [F13 (来場 Webhook)](../requirements/functional/F13-presence-sensor-webhook.md), [CLAUDE.md スタック表](../../CLAUDE.md)
 

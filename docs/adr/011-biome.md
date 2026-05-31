@@ -1,6 +1,6 @@
 # ADR-011: Biome を採用、ESLint + Prettier を却下
 
-- 状態: Proposed
+- 状態: Accepted（2026-05-31 実装稼働により Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-010 (pnpm + Turborepo)](010-pnpm-turborepo.md), [ADR-012 (テスト)](012-testing-stack.md), [CLAUDE.md ルール7 (lint 緑)](../../CLAUDE.md)
 
