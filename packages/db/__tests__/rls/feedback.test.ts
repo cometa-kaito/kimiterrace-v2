@@ -172,21 +172,23 @@ describeOrSkip("F12: feedback RLS + 匿名投稿 (#48-M)", () => {
 
   // --- 入力検証 (1-5 範囲) ---
 
-  it("submitFeedback: studentReaction が範囲外 (0 / 6) なら関数が例外で倒す", async () => {
+  it("submit_feedback: studentReaction / teacherUtility が範囲外なら関数が例外で倒す", async () => {
     // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
     const client = postgres(url!, { max: 1, onnotice: () => {} });
+    // 関数を **生の postgres-js 接続**で直接呼び、RAISE の原メッセージ (フィールド名を含む) を
+    // 検証する。submitFeedback (drizzle) 経由だと DrizzleQueryError が "Failed query: …" で
+    // ラップし、原メッセージが .cause 側に移って .toThrow(message 正規表現) と不一致になる
+    // (上の RLS 拒否テストと同じく raw client で原エラーを取る方針)。
+    const callOutOfRange = (studentReaction: number, teacherUtility: number) =>
+      client.unsafe(
+        "SELECT submit_feedback(NULL, NULL::uuid, NULL, $1::int, $2::int, NULL, NULL)",
+        [studentReaction, teacherUtility],
+      );
     try {
-      const db = drizzle(client);
       await client.unsafe("SET ROLE kimiterrace_app");
-      await expect(submitFeedback(db, { studentReaction: 0, teacherUtility: 3 })).rejects.toThrow(
-        /student_reaction/i,
-      );
-      await expect(submitFeedback(db, { studentReaction: 6, teacherUtility: 3 })).rejects.toThrow(
-        /student_reaction/i,
-      );
-      await expect(submitFeedback(db, { studentReaction: 3, teacherUtility: 9 })).rejects.toThrow(
-        /teacher_utility/i,
-      );
+      await expect(callOutOfRange(0, 3)).rejects.toThrow(/student_reaction/i);
+      await expect(callOutOfRange(6, 3)).rejects.toThrow(/student_reaction/i);
+      await expect(callOutOfRange(3, 9)).rejects.toThrow(/teacher_utility/i);
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
