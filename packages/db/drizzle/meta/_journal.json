@@ -29,6 +29,48 @@
       "when": 1780148514485,
       "tag": "0003_f05_magic_link_class",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780200000000,
+      "tag": "0004_f02_teacher_inputs",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780250000000,
+      "tag": "0005_content_versions_publishes_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780300000000,
+      "tag": "0006_composite_fk_cross_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780350000000,
+      "tag": "0007_contents_composite_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0008_magic_link_class_composite_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780450000000,
+      "tag": "0009_school_hierarchy_mode",
+      "breakpoints": true
     }
   ]
 }
