@@ -34,7 +34,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "firebase-tools": "^13.29.1",
+    "firebase-tools": "^15.19.0",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vitest": "^2.1.8"
