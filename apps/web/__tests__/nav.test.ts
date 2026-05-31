@@ -32,15 +32,24 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタのみ", () => {
+  it("teacher はエディタ + コンテンツ (#48-C 導線、F04 公開ハブ)", () => {
     const items = navItemsForRole("teacher");
-    expect(items.map((i) => i.href)).toEqual(["/admin/editor"]);
+    expect(items.map((i) => i.href)).toEqual(["/admin/editor", "/admin/contents"]);
   });
 
-  it("school_admin は学校管理 + エディタ", () => {
+  it("school_admin は学校管理 + エディタ + コンテンツ", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/editor");
+    expect(hrefs).toContain("/admin/contents");
+  });
+
+  it("コンテンツ (/admin/contents) は publisher (school_admin/teacher) のみに出す (#166 と整合)", () => {
+    // /admin/contents は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため、
+    // nav からも system_admin には出さない (死リンク防止)。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/contents");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/contents");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/contents");
   });
 
   it("system_admin は学校一覧 + フィードバック（自校エディタは出さない）", () => {
