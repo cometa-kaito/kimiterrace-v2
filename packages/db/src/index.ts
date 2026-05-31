@@ -16,3 +16,5 @@ export * from "./queries/teacher-inputs.js";
 export * from "./queries/ads.js";
 // #48-J-2: 学校設定 (school_configs) の読み取り / upsert クエリ層 (quiet_hours 等)
 export * from "./queries/school-configs.js";
+// #48-L (#123): システム管理者向け 学校 (テナント) マスタ一覧
+export * from "./queries/schools.js";
