@@ -7,7 +7,8 @@ import { advertisers } from "./advertisers.js";
 /**
  * F10: 広告主との契約。
  *
- * **cross-tenant / RLS 対象外**（middleware で `system_admin` 確認）。
+ * **cross-tenant マスタ（テナント分離なし）だが RLS 有効**。`system_admin_full_access` ポリシー
+ * （migration 0002）で DB 層も system_admin のみ全アクセス可。middleware（第一層）+ RLS（DB 層）の二層。
  *
  * - `target_schools` は配信対象校 (`schools.id`) の jsonb 配列。学校ごとの紐付けを正規化テーブル
  *   ではなく jsonb で持つのは、契約改定時の上書きを 1 行で扱いたい運用要件のため。

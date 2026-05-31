@@ -5,7 +5,8 @@ import { auditColumns } from "../_shared/audit.js";
 /**
  * F11: システム管理者 allowlist。
  *
- * **cross-tenant / RLS 対象外**。ADR-019 (RLS 二層) における **system_admin の唯一の真実の源**。
+ * **cross-tenant マスタ（テナント分離なし）だが RLS 有効**（`system_admin_full_access` ポリシーで
+ * DB 層も system_admin のみ全アクセス可）。ADR-019 (RLS 二層) における **system_admin の唯一の真実の源**。
  *
  * - `users` テーブルとは別管理（`users` は school_id でテナントに紐付くが、system_admin は
  *   テナント外）。これにより「system_admin 判定 = `system_admins.is_active = true` AND

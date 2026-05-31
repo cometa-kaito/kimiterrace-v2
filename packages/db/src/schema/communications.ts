@@ -8,7 +8,8 @@ import { contracts } from "./contracts.js";
 /**
  * F10: 広告主とのコミュニケーション履歴（メール / 電話 / 商談など）。
  *
- * **cross-tenant / RLS 対象外**（middleware で `system_admin` 確認）。
+ * **cross-tenant マスタ（テナント分離なし）だが RLS 有効**。`system_admin_full_access` ポリシー
+ * （migration 0002）で DB 層も system_admin のみ全アクセス可。middleware（第一層）+ RLS（DB 層）の二層。
  *
  * - 特定契約に紐付かない問い合わせ（新規 inbound 等）は `contract_id` を null にする。
  * - 親 `advertisers` の削除（実運用ではほぼ無いが）は cascade で履歴も消す。

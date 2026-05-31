@@ -6,8 +6,10 @@ import { auditOp } from "../_shared/enums.js";
 /**
  * NFR04: 監査ログ（append-only、hash chain）。
  *
- * **cross-tenant / RLS 対象外**。`school_id` は nullable（system_admin 操作のように
- * テナント横断のものは null）。
+ * **cross-tenant マスタ（テナント分離なし）だが RLS 有効（FORCE RLS）**。`audit_log_tenant_read`
+ * （SELECT: 自テナント or system_admin）+ `audit_log_insert`（INSERT のみ）ポリシー（migration 0002）で
+ * 保護し、UPDATE/DELETE は append-only トリガ + REVOKE で封じる（下記）。`school_id` は nullable
+ * （system_admin 操作のようにテナント横断のものは null）。
  *
  * ## 不変条件（Part C2 で SQL レベルに強制する）
  * - **append-only**: UPDATE / DELETE 禁止。Part C2 で RLS policy + REVOKE で物理的に封じる。
