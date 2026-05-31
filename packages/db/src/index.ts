@@ -24,3 +24,5 @@ export * from "./queries/feedback.js";
 export * from "./queries/ai-extractions.js";
 // F08 (#44): 効果ダッシュボードの行動ログ集計読み取り層 (view/tap totals + content ランキング)
 export * from "./queries/event-stats.js";
+// F09 (#45): 月次レポートの学校別サマリー集計読み取り層 (JST 暦月の totals/ranking/稼働日数)
+export * from "./queries/monthly-report.js";
