@@ -192,9 +192,13 @@ export async function createSchoolAction(raw: {
 }
 
 /**
- * 学校 (テナント) を削除する (#48-L4)。**空の学校のみ削除可** — 子データ (学年/クラス/学科/
+ * 学校 (テナント) を削除する (#48-L4)。**空の学校のみ削除可** — テナント所有の子データ (学年/クラス/学科/
  * コンテンツ/ユーザー等) が残る学校は FK RESTRICT で DB が削除を拒否し (23503)、`conflict` に写像する
  * (soft-delete を導入せず hard-delete を安全側に倒す、ルール2)。
+ *
+ * **cross-tenant 例外**: `feedback` は school_id が非テナントキーの任意参照で `ON DELETE SET NULL`
+ * (schema/feedback.ts)。feedback だけを持つ学校は「空校」として削除でき、feedback 行 (PII 含む) は
+ * school_id=NULL で生存し system_admin の閲覧対象に残る (deleteSchool の doc 参照、#239 Reviewer H-1)。
  *
  * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。削除と監査を同一 tx で行い、FK 違反時は
  * tx がロールバックされ監査も残らない。`audit_log.school_id` は FK ではないため作成時監査行は削除を阻まない。

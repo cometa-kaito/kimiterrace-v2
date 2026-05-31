@@ -36,6 +36,8 @@ describeOrSkip(
     });
 
     afterAll(async () => {
+      // feedback は school_id=NULL になって生存しうる (SET NULL 例外テスト) ため school_name で掃除。
+      await raw`DELETE FROM feedback WHERE school_name = 'L4空校'`;
       await raw`DELETE FROM schools WHERE name LIKE 'L4空校%'`;
       await raw.end({ timeout: 5 });
     });
@@ -76,6 +78,35 @@ describeOrSkip(
       // 拒否後も schoolA は残る。
       const remaining = await raw`SELECT id FROM schools WHERE id = ${fx.schoolA}`;
       expect(remaining).toHaveLength(1);
+    });
+
+    it("system_admin → feedback だけ参照する学校は削除でき、feedback.school_id は SET NULL で PII 行が生存 (#239 H-1 cross-tenant 例外)", async () => {
+      // feedback.school_id は cross-tenant の任意参照で ON DELETE SET NULL (schema/feedback.ts)。
+      // 子が feedback のみの学校は「空校」扱いで削除でき、PII (student_episode) を含む feedback 行は
+      // school_id=NULL で生存して system_admin の閲覧対象に残る (RESTRICT ではない = doc の例外)。
+      const [fb] = await raw<{ id: string }[]>`
+        INSERT INTO feedback (school_id, school_name, student_reaction, teacher_utility, student_episode)
+        VALUES (${emptyId}, 'L4空校', 4, 4, '田中太郎さんが喜んでいた')
+        RETURNING id
+      `;
+      const rows = await withTenantContext(
+        db,
+        { userId: fx.sysAdmin, role: "system_admin" },
+        (tx) => deleteSchool(tx, emptyId),
+        APP,
+      );
+      // 学校は削除される (feedback の存在は RESTRICT を発火させない)。
+      expect(rows.map((r) => r.id)).toEqual([emptyId]);
+      const remainingSchool = await raw`SELECT id FROM schools WHERE id = ${emptyId}`;
+      expect(remainingSchool).toHaveLength(0);
+      // feedback 行は SET NULL で生存し、PII (student_episode) は失われない。
+      const survived = await raw<{ school_id: string | null; student_episode: string | null }[]>`
+        SELECT school_id, student_episode FROM feedback WHERE id = ${fb.id}
+      `;
+      expect(survived).toHaveLength(1);
+      expect(survived[0]?.school_id).toBeNull();
+      expect(survived[0]?.student_episode).toBe("田中太郎さんが喜んでいた");
+      await raw`DELETE FROM feedback WHERE id = ${fb.id}`;
     });
 
     it("school_admin (B) → 他校 (空校) の削除は 0 行 (tenant_isolation_delete で不可視)", async () => {
