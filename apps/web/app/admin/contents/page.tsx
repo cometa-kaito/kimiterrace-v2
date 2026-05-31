@@ -1,4 +1,5 @@
-import type { PublishScopeValue } from "@/lib/contents/publish-core";
+import { requireRole } from "@/lib/auth/guard";
+import { PUBLISHER_ROLES, type PublishScopeValue } from "@/lib/contents/publish-core";
 import { scopeLabel } from "@/lib/contents/publish-view";
 import { withSession } from "@/lib/db";
 import { listContents } from "@kimiterrace/db";
@@ -8,11 +9,19 @@ import { ContentStatusBadge } from "./_components/ContentStatusBadge";
 /**
  * F04: コンテンツ一覧 (`/admin/contents`)。**Server Component**。
  *
+ * **認可 (#166)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
+ * `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。F04 は「自校の公開フロー」が
+ * 対象で、system_admin は `system_admin_full_access` policy (0002, ADR-019) により**全校横断で
+ * 全件可視**になるため、学校識別の無いこの自校用一覧に混ぜると区別不能になる (UX 破綻)。
+ * mutation 自体は `toActor`→null→forbidden で既に封じ済 (セキュリティ違反ではない) だが、
+ * 横断データを自校用画面に晒さない方針で system_admin は早期 403 (`/forbidden`) に倒す。
+ * 横断コンテンツ管理が要れば system_admin 専用画面を別途用意する (本 Issue の方針 A)。
+ *
  * `withSession` で RLS context を張って自校のコンテンツを取得する (`listContents`、PR #156)。
- * 認可は `/admin` レイアウトの `requireRole(ADMIN_ROLES)` が担保済 (本体は RLS、ADR-019)。
  * 行をクリックすると詳細 (公開操作 / バージョンタイムライン) へ。
  */
 export default async function ContentsListPage() {
+  await requireRole(PUBLISHER_ROLES);
   const items = await withSession((tx) => listContents(tx));
 
   return (
