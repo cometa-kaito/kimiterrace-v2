@@ -47,9 +47,18 @@ export type RoleDenyReason =
 const ALLOWED: RoleDecision = { allowed: true };
 const deny = (reason: RoleDenyReason): RoleDecision => ({ allowed: false, reason });
 
-/** `actor.schoolId` が非 null かつ `targetSchoolId` と一致するか（自校スコープ）。 */
+/**
+ * actor が有効な所属校スコープを持つか。**空文字 `""` は null と同じく「未設定」**として扱う
+ * （`client.ts` の `if (ctx.schoolId)` truthy 判定・`ctx.schoolId !== ""`・RLS の `NULLIF(...,'')`
+ * と同じ規律。下流の正規化に依存せず primitive 自身で空文字=未設定を弾く多層防御、PR #133 と同方針）。
+ */
+function hasSchoolScope(actor: RoleActor): boolean {
+  return actor.schoolId != null && actor.schoolId !== "";
+}
+
+/** actor が有効な自校スコープを持ち、それが `targetSchoolId` と一致するか（自校スコープ）。 */
 function isSameSchool(actor: RoleActor, targetSchoolId: string | null): boolean {
-  return actor.schoolId != null && actor.schoolId === targetSchoolId;
+  return hasSchoolScope(actor) && actor.schoolId === targetSchoolId;
 }
 
 /**
@@ -68,7 +77,7 @@ export function canAssignRole(
     case "system_admin":
       return ALLOWED;
     case "school_admin":
-      if (actor.schoolId == null) return deny("missing_school_scope");
+      if (!hasSchoolScope(actor)) return deny("missing_school_scope");
       if (target.targetRole !== "teacher") return deny("target_role_not_assignable");
       if (!isSameSchool(actor, target.targetSchoolId)) return deny("cross_school");
       return ALLOWED;
@@ -100,7 +109,7 @@ export function canModifyTargetUser(
     case "system_admin":
       return ALLOWED;
     case "school_admin":
-      if (actor.schoolId == null) return deny("missing_school_scope");
+      if (!hasSchoolScope(actor)) return deny("missing_school_scope");
       if (target.targetCurrentRole !== "teacher") return deny("target_not_teacher");
       if (!isSameSchool(actor, target.targetSchoolId)) return deny("cross_school");
       return ALLOWED;

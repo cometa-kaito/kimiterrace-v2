@@ -115,7 +115,37 @@ describe("canModifyTargetUser / canDisableAccount", () => {
   });
 });
 
+describe("空文字 schoolId は未設定として弾く（client.ts の sentinel 規律）", () => {
+  it("空文字所属の school_admin は付与できない（missing_school_scope）", () => {
+    const emptyScope: RoleActor = { role: "school_admin", schoolId: "" };
+    expect(canAssignRole(emptyScope, { targetRole: "teacher", targetSchoolId: "" })).toEqual({
+      allowed: false,
+      reason: "missing_school_scope",
+    });
+    expect(
+      canModifyTargetUser(emptyScope, { targetCurrentRole: "teacher", targetSchoolId: "" }),
+    ).toEqual({ allowed: false, reason: "missing_school_scope" });
+  });
+
+  it("有効校の school_admin は空文字 target 校を自校扱いしない（cross_school）", () => {
+    expect(canAssignRole(schoolAdminA, { targetRole: "teacher", targetSchoolId: "" })).toEqual({
+      allowed: false,
+      reason: "cross_school",
+    });
+  });
+});
+
 describe("canChangeRole", () => {
+  it("school_admin は自校 teacher を teacher のまま再付与できる（対象ゲート∧付与可の合成 ALLOWED）", () => {
+    expect(
+      canChangeRole(schoolAdminA, {
+        targetCurrentRole: "teacher",
+        targetSchoolId: SCHOOL_A,
+        nextRole: "teacher",
+      }),
+    ).toEqual({ allowed: true });
+  });
+
   it("system_admin は teacher を school_admin に昇格できる", () => {
     expect(
       canChangeRole(systemAdmin, {
