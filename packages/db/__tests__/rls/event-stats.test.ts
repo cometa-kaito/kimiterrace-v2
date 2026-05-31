@@ -26,8 +26,6 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   const ctxA = () => ({ userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" as const });
   const ctxB = () => ({ userId: fx.userB, schoolId: fx.schoolB, role: "school_admin" as const });
 
-  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
-
   async function seedContent(schoolId: string, title: string): Promise<string> {
     const [row] = await raw<{ id: string }[]>`
       INSERT INTO contents (school_id, title, body, publish_scope, status)
@@ -37,17 +35,19 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
     return row.id;
   }
 
-  // events は BYPASSRLS 接続 (postgres スーパーユーザー) で直接投入する。occurred_at は JS Date を
-  // bind し timestamptz として保存 (期間窓テスト用に明示)。content_id は NULL も許容。
+  // events は BYPASSRLS 接続 (postgres スーパーユーザー) で直接投入する。occurred_at は DB 側で
+  // `now() - make_interval(days => N)` として算出する (JS Date を bind すると postgres@3.4.9 が
+  // enum 列を含む INSERT で timestamptz パラメータの Date を直列化できず ERR_INVALID_ARG_TYPE に
+  // なるため。DB 時刻基準で期間窓を再現でき、本体クエリの now() 基準とも揃う)。content_id は NULL も許容。
   async function seedEvent(
     schoolId: string,
     contentId: string | null,
     type: "view" | "tap",
-    occurredAt: Date,
+    daysAgo: number,
   ): Promise<void> {
     await raw`
       INSERT INTO events (school_id, content_id, type, occurred_at)
-      VALUES (${schoolId}, ${contentId}, ${type}, ${occurredAt})
+      VALUES (${schoolId}, ${contentId}, ${type}, now() - make_interval(days => ${daysAgo}::int))
     `;
   }
 
@@ -71,9 +71,9 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
 
   it("集計正当性: type 別 totals と content 別 ranking を返す", async () => {
     // A1: view×3 + tap×2 (total 5)、A2: view×1 (total 1)
-    for (let i = 0; i < 3; i++) await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1));
-    for (let i = 0; i < 2; i++) await seedEvent(fx.schoolA, contentA1, "tap", daysAgo(1));
-    await seedEvent(fx.schoolA, contentA2, "view", daysAgo(1));
+    for (let i = 0; i < 3; i++) await seedEvent(fx.schoolA, contentA1, "view", 1);
+    for (let i = 0; i < 2; i++) await seedEvent(fx.schoolA, contentA1, "tap", 1);
+    await seedEvent(fx.schoolA, contentA2, "view", 1);
 
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
     expect(stats.totals).toEqual({ view: 4, tap: 2 });
@@ -84,8 +84,8 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   });
 
   it("期間窓: sinceDays より古い event は totals/ranking に含めない (DB now() 基準)", async () => {
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1)); // 範囲内
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(40)); // 既定 30 日の範囲外
+    await seedEvent(fx.schoolA, contentA1, "view", 1); // 範囲内
+    await seedEvent(fx.schoolA, contentA1, "view", 40); // 既定 30 日の範囲外
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
     expect(stats.totals).toEqual({ view: 1, tap: 0 });
     expect(stats.ranking).toEqual([
@@ -103,8 +103,8 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   });
 
   it("content_id NULL の event は ranking から除外し totals には含む", async () => {
-    await seedEvent(fx.schoolA, null, "tap", daysAgo(1)); // 広告枠そのものへの tap 想定
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1));
+    await seedEvent(fx.schoolA, null, "tap", 1); // 広告枠そのものへの tap 想定
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
     expect(stats.totals).toEqual({ view: 1, tap: 1 });
     // ranking には content_id を持つ A1 のみ (NULL 行は出ない)
@@ -112,9 +112,9 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   });
 
   it("テナント分離: A コンテキストからは B 校の events が一切集計に漏れない (RLS)", async () => {
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1));
-    await seedEvent(fx.schoolB, contentB1, "view", daysAgo(1));
-    await seedEvent(fx.schoolB, contentB1, "tap", daysAgo(1));
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
+    await seedEvent(fx.schoolB, contentB1, "view", 1);
+    await seedEvent(fx.schoolB, contentB1, "tap", 1);
 
     const a = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
     expect(a.totals).toEqual({ view: 1, tap: 0 });
@@ -126,16 +126,16 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   });
 
   it("空コンテキストは deny-by-default で totals 0 + ranking 空", async () => {
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1));
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
     const stats = await withTenantContext(db, {}, (tx) => getEventStats(tx), APP);
     expect(stats.totals).toEqual({ view: 0, tap: 0 });
     expect(stats.ranking).toEqual([]);
   });
 
   it("rankingLimit: 上位 N 件だけ返す (total 降順)", async () => {
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1));
-    await seedEvent(fx.schoolA, contentA1, "view", daysAgo(1)); // A1 total 2
-    await seedEvent(fx.schoolA, contentA2, "view", daysAgo(1)); // A2 total 1
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
+    await seedEvent(fx.schoolA, contentA1, "view", 1); // A1 total 2
+    await seedEvent(fx.schoolA, contentA2, "view", 1); // A2 total 1
     const stats = await withTenantContext(
       db,
       ctxA(),
