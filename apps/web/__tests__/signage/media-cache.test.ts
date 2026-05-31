@@ -97,6 +97,8 @@ describe("shouldCacheRequest (SW intercept ガード)", () => {
     expect(
       shouldCacheRequest(req("GET", "image", "https://signage.example.test:8443/a.png"), ORIGIN),
     ).toBe(false);
+    // protocol-relative `//host` は相対に見えて別オリジンに解決する (origin-confusion 経路)。false。
+    expect(shouldCacheRequest(req("GET", "image", "//cdn.example.com/a.png"), ORIGIN)).toBe(false);
   });
 
   it("相対 URL は selfOrigin 基準で same-origin と解決し true", () => {
