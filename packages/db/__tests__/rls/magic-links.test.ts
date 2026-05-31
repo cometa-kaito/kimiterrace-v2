@@ -120,6 +120,40 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
     }
   });
 
+  it("resolve: expires_at = now() ちょうどは null、now()+1μs は解決 (strict > 境界、#147 L2)", async () => {
+    // 同一トランザクション内では now() = transaction_timestamp() で固定される。
+    // INSERT の expires_at = now() と resolve_magic_link 内の now() が**完全一致**するため、
+    // `expires_at > now()` (strict) なら境界ちょうどは 0 件、`>=` に退行すると 1 件になる。
+    // これにより「期限ちょうどのリンクは失効扱い」という strict 比較を決定論的に固定する。
+    // (関数は SECURITY DEFINER だがトランザクションは呼出側と同一なので now() は共有)。
+    // 結果は tx 内で収集し、assert は tx 外で行う (sentinel throw で rollback しつつ
+    // assertion 失敗を握り潰さないため)。
+    const ROLLBACK = Symbol("rollback");
+    let atBoundaryLen = -1;
+    let justFutureLen = -1;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`
+          INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+          VALUES (${fx.schoolA}, ${classA}, 'hash-boundary-eq', now())
+        `;
+        await tx`
+          INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+          VALUES (${fx.schoolA}, ${classA}, 'hash-boundary-future', now() + interval '1 microsecond')
+        `;
+        atBoundaryLen = (await tx`SELECT id FROM resolve_magic_link('hash-boundary-eq')`).length;
+        justFutureLen = (await tx`SELECT id FROM resolve_magic_link('hash-boundary-future')`)
+          .length;
+        // fixture を汚さないよう sentinel で rollback (INSERT は永続化しない)。
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) throw e;
+    }
+    expect(atBoundaryLen).toBe(0); // expires_at = now() は失効扱い (strict >)
+    expect(justFutureLen).toBe(1); // 1μs でも未来なら有効
+  });
+
   it("resolve: 非クラスリンク (class_id NULL = 旧保護者リンク) は null", async () => {
     const db = drizzle(sql);
     await sql.unsafe("SET ROLE kimiterrace_app");
