@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-31 (**Dependabot 脆弱性アラート 8 件トリアージ**。解消可能な moderate 2 件 (postcss/jsondiffpatch) を pnpm overrides で patched 化 → **PR #176 (CI 12/12 + Reviewer APPROVE 相当 → merge `8f9e057`)**。解消不可 6 件は Issue 化: #177 (vite/esbuild dev-only)・#178 (uuid GCP SDK 配下 v11 major)・#179 (ai #153 経由 + provider-utils fix 未リリース)。直前: open PR 片付け + F0 #48-I (#140/#157/#174 merge、#175 起票))
+最終更新: 2026-05-31 (**F0 #48-J クラス広告管理 #181 自律 merge** (Worker 実装→Reviewer Critical-1 [client bundle に postgres 混入→next build 失敗] を `@kimiterrace/db/schema` サブパスで自己 fix→再 CI→merge `711d0b1`、Issue #121 close + #185 [quiet_hours] 起票)。並行: **Dependabot 8 件トリアージ + 解消可能 moderate 2 件 PR #176 merge `8f9e057`** (解消不可 6 件は #177/#178/#179)。本セッション計 #140/#157/#174/#176/#181 merge + #175/#185 起票)
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,13 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F0 #48-J クラス広告管理 UI + Server Actions 実装 (PR #181 自律 merge、commit `711d0b1`、Issue #121 close + #185 起票、Refs #12)**:
+  - **Worker spawn 実装 → Reviewer spawn → 自律 merge**。V1 `HierarchicalAdsTab` 相当: あるクラスの自クラススコープ広告 (scope=class) の CRUD UI + Server Actions、親階層からの**継承広告 (is_inherited) は read-only 表示**。`packages/db/src/queries/ads.ts` (listClassOwnAds/findVisibleClass/findClassOwnAd) + `lib/school-admin/ads-{core,actions}.ts` + `app/admin/editor/[classId]/ads/` (page + AdsManager) + 実 PG RLS テスト
+  - **Worker が停滞並行 worktree を非破壊 salvage**: 着手時、別 worktree が同タスクを 6h idle・未コミットで放置 → clean ブランチ (off main) に救出し検証・PR 化、相手 worktree は不触 ([[parallel-worktree-commit-recovery]])
+  - **認可設計 (Reviewer 確認)**: `ADS_ROLES`=school_admin/system_admin (**teacher 除外**、V1 `class-settings` が school_admin gate のため整合)。cross-tenant classId は `findVisibleClass` で自校可視確認後に結線 (#73)、update/delete は `scope='class'`+自校可視で二重強制し継承広告を編集不可。全 mutation を同一 tx で audit_log (caption/mediaUrl は要約)、型は `InferSelectModel<typeof ads>`/`adMediaType` enum 単一ソース
+  - **Reviewer (worktree 隔離、fresh context) が Critical-1 検出 → Desktop 自己 fix → 再 CI**: `"use client"` な AdsManager → ads-core の値 import → ads-core が **barrel `@kimiterrace/db` から実行時値 import → client.ts 経由で postgres ドライバを client bundle に混入** → Turbopack が fs/net/tls 解決失敗で **next build 失敗** (typecheck/test は通るため Worker がローカル `next build` 未検証ですり抜け、PR #148 の教訓再現)。**修正: `@kimiterrace/db/schema` サブパス (enum/テーブルのみ、postgres 非依存) 経由に 1 行変更** (commit `c4f5575`、ルール3 維持)。隔離 worktree で **`next build` PASS (/admin/editor/[classId]/ads 含む) + web 238 tests + typecheck + biome** をローカル実証 (今回は next build まで確認) → push → CI Build green (head_sha 検証) → 自律 merge
+  - **ルール6 (+1492 行)**: Reviewer 許容判定 (テスト 433 + UI 400 + ロジック ~657、CRUD は凝集単位)。**quiet_hours は当初からスコープ外で #48-J-2 (Issue #185) に分離**。Medium-1 (system_admin cross-tenant 広告閲覧 UX) / Low-1 (teacher に死リンク「広告管理→」) も #185 に集約
+  - **本サイクル成果**: 1 PR (#181) merged、Issue #121 close + #185 起票。F0 は #48-H/#48-I (エディタ) + #48-J 広告 が揃い、残 #48-J-2 (quiet_hours) / #48-E (#117 サイネージ本体) / #48-G (#118 prefetch) / #48-K2 (#167 admin update/delete) 等
 - 2026-05-31: **Dependabot 脆弱性アラート 8 件 (moderate 5 / low 3) トリアージ + 解消可能分 merge (PR #176、commit `8f9e057`)**:
   - **`gh api .../dependabot/alerts` で 8 件取得 → 各 direct/transitive・lockfile 解消可否を `pnpm why` で確定**。全 advisory の全 range を引いて、tree 内の resolved 版が実際に vulnerable かまで突合 (postcss は next 経由の 8.4.31 が vuln・vite 経由 8.5.15 は安全、esbuild は 0.18.20/0.21.5 のみ vuln で 0.25.12/0.28.0 は安全、等)
   - **解消可能 moderate 2 件を pnpm `overrides` で patched 化 → PR #176**: postcss `<8.5.10`→8.5.15 (GHSA-qx2v-qp2m-jg93、next@16 経由 runtime、同一メジャー) + jsondiffpatch `<0.7.2`→0.7.6 (GHSA-33vc-wfww-vjfv、ai@4.3.19 経由 runtime)。**overrides は `pnpm-workspace.yaml` に記述** (pnpm 11 は package.json の `pnpm.overrides` を無視、[[pnpm11-overrides-location]])
