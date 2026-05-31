@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
-import { getEventStats } from "@kimiterrace/db";
+import { type DailyEventCount, getDailyEventCounts, getEventStats } from "@kimiterrace/db";
 
 /**
  * F08 (#44): 効果ダッシュボード 第1スライス (`/admin/dashboard`)。**Server Component**。
@@ -14,17 +14,21 @@ import { getEventStats } from "@kimiterrace/db";
  * cross-tenant ビューは別スライス (専用画面) で用意する。コンテンツ一覧 (#166) と同じ方針で
  * system_admin はここでは早期 403 (`/forbidden`) に倒し、自校用画面に横断データを混ぜない。
  *
- * `withSession` で RLS context を張り `getEventStats` で集計する (school 境界は RLS が DB レベルで
- * 強制、CLAUDE.md ルール2)。本スライスは数値サマリ + content 別ランキング表のみ。グラフ
- * (Recharts/Visx)・人感センサーヒートマップ・AI 効果コメントは後続スライスで追加する (依存追加を
- * 避け、まず集計の正しさと導線を確立する)。
+ * `withSession` で RLS context を張り集計する (school 境界は RLS が DB レベルで強制、CLAUDE.md
+ * ルール2)。サマリ + content 別ランキング + **日次の推移** (JST 暦日、第2スライス) を表示。
+ * 重い描画ライブラリ (Recharts/Visx) は導入せず、時系列は **CSS バーの軽量 SSR** で描く (依存追加を
+ * 避ける)。人感センサーヒートマップ・AI 効果コメントは後続スライスで追加する。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きで提示し、色のみに依存しない。
- * ランキングは `<table>` + `<th scope>` の意味付き構造で読み上げ可能にする。
+ * ランキングは `<table>` + `<th scope>`、時系列バーも各行に件数テキストを併記して読み上げ可能にする。
  */
 export default async function DashboardPage() {
   await requireRole(PUBLISHER_ROLES);
-  const stats = await withSession((tx) => getEventStats(tx));
+  // 同一 RLS context (1 tx) で両クエリを実行する。
+  const { stats, daily } = await withSession(async (tx) => ({
+    stats: await getEventStats(tx),
+    daily: await getDailyEventCounts(tx),
+  }));
 
   return (
     <section>
@@ -81,6 +85,9 @@ export default async function DashboardPage() {
           </tbody>
         </table>
       )}
+
+      <h2 style={sectionTitleStyle}>日次の推移</h2>
+      <DailyTrend daily={daily} />
     </section>
   );
 }
@@ -92,6 +99,42 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
       <span style={cardValueStyle}>{value.toLocaleString("ja-JP")}</span>
     </div>
   );
+}
+
+/**
+ * 日次推移を CSS バーで軽量描画する (Recharts 等の依存を持たない)。バー長は各日の合計を
+ * 最大日比で正規化。色のみに依存しないよう、各行に日付ラベルと view/tap の件数テキストを併記する
+ * (WCAG 2.2 AA、NFR05)。
+ */
+function DailyTrend({ daily }: { daily: DailyEventCount[] }) {
+  if (daily.length === 0) {
+    return <p style={emptyStyle}>対象期間の推移データはまだありません。</p>;
+  }
+  const max = Math.max(...daily.map((d) => d.views + d.taps), 1);
+  return (
+    <ul style={trendListStyle}>
+      {daily.map((d) => {
+        const total = d.views + d.taps;
+        return (
+          <li key={d.day} style={trendRowStyle}>
+            <span style={trendDayStyle}>{formatDay(d.day)}</span>
+            <span style={trendBarTrackStyle}>
+              <span style={{ ...trendBarFillStyle, width: `${(total / max) * 100}%` }} />
+            </span>
+            <span style={trendCountStyle}>
+              表示 {d.views} / タップ {d.taps}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** "YYYY-MM-DD" を "M/D" 表示にする (DB が返す JST 暦日文字列をそのまま整形)。 */
+function formatDay(day: string): string {
+  const parts = day.split("-");
+  return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : day;
 }
 
 const headerStyle: React.CSSProperties = {
@@ -174,3 +217,36 @@ const tdNumStyle: React.CSSProperties = {
   fontVariantNumeric: "tabular-nums",
 };
 const tdNumTotalStyle: React.CSSProperties = { ...tdNumStyle, fontWeight: 700 };
+const trendListStyle: React.CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+};
+const trendRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "3rem 1fr auto",
+  alignItems: "center",
+  gap: "0.75rem",
+  fontSize: "0.85rem",
+};
+const trendDayStyle: React.CSSProperties = { color: "#6b7280", textAlign: "right" };
+const trendBarTrackStyle: React.CSSProperties = {
+  display: "block",
+  background: "#f3f4f6",
+  borderRadius: "4px",
+  height: "0.9rem",
+  overflow: "hidden",
+};
+const trendBarFillStyle: React.CSSProperties = {
+  display: "block",
+  background: "#3b82f6",
+  height: "100%",
+};
+const trendCountStyle: React.CSSProperties = {
+  color: "#374151",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};

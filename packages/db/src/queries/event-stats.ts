@@ -113,3 +113,41 @@ export async function getEventStats(
 
   return { sinceDays, totals, ranking };
 }
+
+/** 1 日 (JST 暦日) あたりの view/tap 件数。時系列表示用。 */
+export type DailyEventCount = {
+  /** JST 暦日 (YYYY-MM-DD)。 */
+  day: string;
+  views: number;
+  taps: number;
+};
+
+/**
+ * 自校の view/tap を **JST 暦日**ごとに集計する (RLS で school スコープ)。日付昇順。
+ *
+ * バケットは `occurred_at` (timestamptz) を Asia/Tokyo に変換してから日に丸める。UTC のまま
+ * 丸めると深夜帯 (例 JST 8:00 = UTC 23:00 前日) の event が前日にずれるため、日本の学校向けに
+ * JST 暦日へ寄せる (signage の jstDateString と同じ思想)。期間窓は `getEventStats` と同じく
+ * DB の `now()` 基準。集計は件数のみで `payload` の匿名 clientId は読まない (ルール4)。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。
+ */
+export async function getDailyEventCounts(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<DailyEventCount[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const recent = gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`);
+
+  const day = sql<string>`to_char(date_trunc('day', ${events.occurredAt} at time zone 'Asia/Tokyo'), 'YYYY-MM-DD')`;
+  const views = sql<number>`count(*) filter (where ${events.type} = 'view')`.mapWith(Number);
+  const taps = sql<number>`count(*) filter (where ${events.type} = 'tap')`.mapWith(Number);
+  const rows = await db
+    .select({ day, views, taps })
+    .from(events)
+    .where(recent)
+    .groupBy(day)
+    .orderBy(day);
+
+  return rows.map((r) => ({ day: r.day, views: r.views, taps: r.taps }));
+}

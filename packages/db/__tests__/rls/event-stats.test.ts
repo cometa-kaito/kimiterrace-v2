@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getEventStats } from "../../src/queries/event-stats.js";
+import { getDailyEventCounts, getEventStats } from "../../src/queries/event-stats.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -143,5 +143,46 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
       APP,
     );
     expect(stats.ranking.map((r) => r.contentId)).toEqual([contentA1]);
+  });
+
+  // --- getDailyEventCounts (時系列) ---
+
+  it("getDailyEventCounts: JST 暦日ごとに view/tap を日付昇順で集計", async () => {
+    // 2 日以上離して seed すれば JST 暦日が確実に分かれる (深夜境界の取り違えを回避)。
+    await seedEvent(fx.schoolA, contentA1, "view", 0); // 今日
+    await seedEvent(fx.schoolA, contentA1, "view", 0); // 今日
+    await seedEvent(fx.schoolA, contentA1, "tap", 0); // 今日
+    await seedEvent(fx.schoolA, contentA1, "view", 2); // 2 日前
+    await seedEvent(fx.schoolA, contentA2, "view", 5); // 5 日前 (既定 30 日窓内)
+
+    const daily = await withTenantContext(db, ctxA(), (tx) => getDailyEventCounts(tx), APP);
+    expect(daily.length).toBe(3);
+    // 日付昇順
+    const days = daily.map((d) => d.day);
+    expect([...days].sort()).toEqual(days);
+    // 最新日 (= 今日) は view×2 / tap×1
+    expect(daily[daily.length - 1]).toEqual({ day: days[2], views: 2, taps: 1 });
+    // 全期間合計
+    expect(daily.reduce((s, d) => s + d.views, 0)).toBe(4);
+    expect(daily.reduce((s, d) => s + d.taps, 0)).toBe(1);
+  });
+
+  it("getDailyEventCounts: sinceDays 窓外 / 別テナントの event は含めない", async () => {
+    await seedEvent(fx.schoolA, contentA1, "view", 1); // 範囲内
+    await seedEvent(fx.schoolA, contentA1, "view", 40); // 既定 30 日の範囲外
+    await seedEvent(fx.schoolB, contentB1, "view", 1); // 別校 (RLS で不可視)
+
+    const daily = await withTenantContext(db, ctxA(), (tx) => getDailyEventCounts(tx), APP);
+    expect(daily.length).toBe(1);
+    expect(daily[0].views).toBe(1);
+
+    // 窓を広げれば窓外の日も現れる (= 2 日分)
+    const wide = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getDailyEventCounts(tx, { sinceDays: 90 }),
+      APP,
+    );
+    expect(wide.length).toBe(2);
   });
 });
