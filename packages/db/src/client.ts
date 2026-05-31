@@ -111,3 +111,39 @@ export async function withTenantContext<T>(
     return await fn(tx);
   });
 }
+
+/**
+ * テナントスコープ操作用にコンテキストを正規化する (ADR-019 §#95, Issue #197)。
+ *
+ * 特定の school を対象にする mutation (学校管理者ハブの create/update/delete 等) では、
+ * actor が system_admin でも **tenant ロール (school_admin) に降格** してから GUC を SET する。
+ *
+ * 背景 (cross-tenant 越権の封じ): `system_admin_full_access` policy は
+ * `current_setting('app.current_user_role', true) = 'system_admin'` を USING/WITH CHECK に持ち、
+ * `app.current_school_id` に関係なく **全校に対し PERMISSIVE に発火** する (0002/0006 RLS migration)。
+ * これが効いていると、自校可視性チェック (existsInSchool 等、#73) が他校行も可視と判定し、
+ * 他テナント行に子をぶら下げる / 付け替える cross-tenant 操作が通り抜ける。role を school_admin に
+ * 倒すと当該 policy の述語が false になり、`tenant_isolation`
+ * (`school_id = NULLIF(current_setting('app.current_school_id', true), '')::uuid`) だけが残るため
+ * 他校行は不可視になる (CLAUDE.md ルール2 = DB レベルでテナント越境を止める)。
+ *
+ * **schoolId が無い system_admin は降格しない**: 降格すると tenant_isolation の述語が成立せず
+ * (school_id が定まらない) 全件不可視になり、そもそも対象 school が無い全校横断経路
+ * (system_admin の学校一覧 #48-L 等) が壊れる。これらの経路は本変換を **通さない** ことで
+ * 従来どおり全校可視を保つ (= opt-in)。tenant ロール (school_admin/teacher/...) は元から
+ * full_access policy 非該当のため何も変えない。
+ *
+ * 監査への影響なし: 降格は `app.current_user_role` のみを変え、`app.current_user_id` は actor の
+ * uid のまま。audit_log_insert policy (0005) の actor 節は `actor_user_id = app.current_user_id`
+ * を満たし、school_id 節も操作対象 school = app.current_school_id で満たすため、降格後も監査記録は
+ * 成立する (role=system_admin 節に依存しない)。
+ *
+ * 純粋関数 (副作用なし)。`withTenantContext` 自体は変更せず、呼出側 (apps/web の withSession が
+ * `tenantScoped` 指定時) がこの変換を適用した ctx を渡す。
+ */
+export function tenantScopedContext(ctx: TenantContext): TenantContext {
+  if (ctx.role === "system_admin" && ctx.schoolId != null && ctx.schoolId !== "") {
+    return { ...ctx, role: "school_admin" };
+  }
+  return ctx;
+}

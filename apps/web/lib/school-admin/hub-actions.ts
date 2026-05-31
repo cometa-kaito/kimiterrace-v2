@@ -35,6 +35,13 @@ import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
  * 他校の id を渡しても「不可視 → not found」で弾かれ、別テナント行に子をぶら下げられない。
  * これは create の親結線だけでなく、update の対象再取得・grade の department_id 付替先確認にも適用する。
  *
+ * **system_admin の降格 (ADR-019 §#95 / Issue #197)**: 本ハブは常に特定 school を対象にする
+ * テナントスコープ操作のため、`finish` は `withSession(..., { tenantScoped: true })` で実行する。
+ * これにより actor が system_admin でも tx 内 role が school_admin に降格され、`system_admin_full_access`
+ * policy の全校発火が止まる。結果、上記の自校可視性チェック (existsInSchool) は system_admin でも
+ * 自校のみを可視と判定し、cross-tenant 付替が DB レベルで成立しなくなる (従来は full_access が効き
+ * すり抜けていた)。全校横断が必要な system_admin 専用経路は tenantScoped を指定しない。
+ *
  * **子参照ガード (#48-K2 delete)**: FK は `onDelete: "set null"` のため DB は削除を拒否せず子を
  * 孤児化する。階層が静かに壊れるのを防ぐため、削除前に子 (学科→学年 / 学年→クラス) の有無を
  * 自校 RLS tx で数え、残っていれば `conflict` で拒否する。
@@ -70,7 +77,9 @@ async function finish<T>(
   conflictMessage: string,
 ): Promise<ActionResult<T>> {
   try {
-    const data = await withSession(build);
+    // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
+    // (ADR-019 §#95 / Issue #197)。ハブは常に特定 school を対象にするテナントスコープ操作。
+    const data = await withSession(build, { tenantScoped: true });
     revalidatePath("/admin/school");
     return { ok: true, data };
   } catch (error) {
@@ -320,14 +329,14 @@ export async function updateDepartmentAction(raw: {
  * 学年をリネーム / 表示順・hasClasses 変更 / department_id 付替する。
  *
  * **付替先の cross-tenant 検証 (#73 / L-1)**: departmentId 指定時は付替先学科が**自校で可視か**
- * `existsInSchool` で確認する。**school_admin (通常経路)** では RLS の `tenant_isolation` が SELECT を
- * 自校に限定するため、他校 department の id を渡しても不可視 → CrossTenantError で弾かれる。
+ * `existsInSchool` で確認する。RLS の `tenant_isolation` が SELECT を自校に限定するため、他校
+ * department の id を渡しても不可視 → CrossTenantError で弾かれる。
  *
- * **注意 (system_admin の越権、ADR-019 #95)**: role=system_admin の tx では `system_admin_full_access`
- * policy (PERMISSIVE / OR 結合) が `app.current_school_id` に関係なく全校で発火するため、`existsInSchool`
- * が他校 department も可視と判定し、本チェックを通り抜けて cross-tenant 付替が成立しうる。これは本関数
- * 固有ではなく create 経路 (#164) にも共通する基盤課題で、テナント操作時に role を tenant ロールへ
- * 降格する対応 (ADR-019 #95) は別 issue で追う。system_admin は信頼された単独オーナーのため当面許容。
+ * **system_admin も封じ済 (ADR-019 §#95 / Issue #197)**: 以前は role=system_admin の tx で
+ * `system_admin_full_access` policy が全校発火し `existsInSchool` が他校も可視と判定するため
+ * cross-tenant 付替が成立しえたが、本ハブは `finish` が `tenantScoped: true` で system_admin を
+ * school_admin に降格するようになった (file header 参照)。降格後は full_access が効かず、付替先
+ * 可視性チェックが自校のみを通すため system_admin でも cross-tenant 付替は不成立。
  */
 export async function updateGradeAction(raw: {
   id?: unknown;
