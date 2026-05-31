@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { SEED, isSignageDbAvailable } from "./global-setup";
+import { SEED, SEED2, isSignageDbAvailable } from "./global-setup";
 
 /**
  * 公開サイネージ golden-path e2e (F0 #48-O 第 2 増分)。
@@ -34,6 +34,18 @@ test.describe("公開サイネージ /signage/{token}", () => {
     await expect(page.getByText(SEED.SCHEDULE_TEXT)).toBeVisible();
     await expect(page.getByText(SEED.NOTICE_TEXT)).toBeVisible();
     await expect(page.getByText(SEED.ASSIGNMENT_TEXT)).toBeVisible();
+  });
+
+  test("別校トークンは自校のコンテンツのみ描画する (RLS テナント分離)", async ({ page }) => {
+    // webServer は kimiterrace_app (非 BYPASSRLS) 接続で動くため、これは RLS が効いた状態の検証。
+    // SCHOOL2 の token → resolveMagicLink が SCHOOL2 に解決 → app.current_school_id=SCHOOL2 →
+    // daily_data の tenant_isolation で SCHOOL2 の行のみ可視。
+    await page.goto(`/signage/${SEED2.KNOWN_TOKEN}`);
+
+    // SCHOOL2 の連絡は描画される。
+    await expect(page.getByText(SEED2.NOTICE_TEXT)).toBeVisible();
+    // SCHOOL1 の連絡は **一切出ない** (越境不可)。RLS がバイパスされていれば検知される。
+    await expect(page.getByText(SEED.NOTICE_TEXT)).toHaveCount(0);
   });
 
   test("無効トークンは無効画面になる (コンテンツを出さない)", async ({ page }) => {

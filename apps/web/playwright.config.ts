@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { toAppDatabaseUrl } from "./e2e/global-setup";
 
 /**
  * Playwright e2e 設定 (F0 #48-O)。
@@ -13,17 +14,20 @@ import { defineConfig, devices } from "@playwright/test";
  * **DATABASE_URL の扱い (CLAUDE.md ルール5)**:
  *   - `/login` スモークは middleware 除外 + Server で `getDb()` を呼ばないので DB 不要。
  *   - `/signage/{token}` は Server で `getDb()` を呼ぶため **実 DB 接続が要る**。
- *   - そこで webServer には `process.env.DATABASE_URL` を**そのまま継承**させる。CI は
- *     postgres service の URL を渡し (signage 描画まで検証)、未設定のローカルでは明らかな
- *     placeholder を渡す (この場合 signage spec は globalSetup 側で skip され、/login のみ走る)。
+ *   - webServer は `toAppDatabaseUrl(...)` で **kimiterrace_app (非 BYPASSRLS) 接続**にする (#213)。
+ *     migrate / seed は globalSetup が superuser で行うが、描画経路はアプリロールで走らせて
+ *     **RLS を実際に効かせる** (superuser のままだと RLS がバイパスされ end-to-end が名ばかりになる)。
+ *   - CI は postgres service の URL を渡し (signage 描画まで RLS 下で検証)、未設定のローカルでは
+ *     明らかな placeholder を渡す (この場合 signage spec は globalSetup 側で skip され /login のみ走る)。
  *     実シークレットはコード/設定に置かない (placeholder は localhost の自明値)。
  */
 const PORT = 3100;
 const baseURL = `http://localhost:${PORT}`;
 
-// 実 DB があれば継承 (CI / ローカル PG)、無ければ /login スモーク用の明らかな placeholder。
+// 実 DB があれば kimiterrace_app に差し替えて継承 (CI / ローカル PG)、無ければ placeholder。
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? "postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder";
+  toAppDatabaseUrl(process.env.DATABASE_URL) ??
+  "postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder";
 
 export default defineConfig({
   testDir: "./e2e",
