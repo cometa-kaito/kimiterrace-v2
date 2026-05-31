@@ -38,6 +38,12 @@ export const magicLinks = pgTable(
       .default(sql`now() + interval '90 days'`),
     /** 失効時刻。非 null = 失効済 (生徒アクセスは 410 Gone)。漏洩検知時に即時設定。 */
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /**
+     * 旧・保護者単回リンクの「消費済み」時刻。**F05 クラスリンクでは未使用** (クラスリンクは
+     * 期限/失効まで多数の生徒が再利用するため消費の概念がなく、`resolve_magic_link` も参照しない)。
+     * 旧用途の名残として残置。#147 L3 で「当面 keep」判断 — 列削除はデータ消失を伴うため
+     * 移行完了後の別 migration 候補に留める。
+     */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     ...auditColumns,
   },
