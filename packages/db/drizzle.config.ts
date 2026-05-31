@@ -18,6 +18,10 @@ export default defineConfig({
   dbCredentials: {
     url: databaseUrl ?? "postgresql://postgres:postgres@localhost:5432/kimiterrace_dev",
   },
+  // 並行レーンが migration 番号で衝突しないよう timestamp prefix で採番 (docs/parallel-lanes.md §4)。
+  // 生成名は `<epoch>_name.sql` となり既存 `0000..0010_*.sql` より後にソートされるので、loader の
+  // ファイル名昇順 auto-discovery (= 適用順) で「既存 DDL が先・新規が後」の不変条件を保つ。
+  migrations: { prefix: "timestamp" },
   strict: true,
   verbose: true,
 });

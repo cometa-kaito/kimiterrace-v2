@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDbClient } from "@kimiterrace/db";
+import { collectMigrationFiles, runMigrationFile } from "@kimiterrace/db/migrate-files";
 
 /**
  * 生 SQL 適用に使う postgres-js クライアント型。`@kimiterrace/db` の `createDbClient` が返す
@@ -33,34 +33,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // apps/web/e2e → リポジトリルートの packages/db
 const dbPackageRoot = join(__dirname, "..", "..", "..", "packages", "db");
 
-// --- DDL (drizzle 生成、baseline → 0007 の順。上記の真実ソースと厳密一致させること) ---
-const BASELINE_SQL = join(dbPackageRoot, "drizzle", "0000_initial_baseline.sql");
-const F0A_SCHEMA_SQL = join(dbPackageRoot, "drizzle", "0001_f0a_hierarchy_tables.sql");
-const F0F_COLS_SQL = join(dbPackageRoot, "drizzle", "0002_f0f_hierarchy_links.sql");
-const F05_MAGIC_LINK_SQL = join(dbPackageRoot, "drizzle", "0003_f05_magic_link_class.sql");
-const F02_SCHEMA_SQL = join(dbPackageRoot, "drizzle", "0004_f02_teacher_inputs.sql");
-const F04_PUBLISH_UNIQUE_SQL = join(
-  dbPackageRoot,
-  "drizzle",
-  "0005_content_versions_publishes_unique.sql",
-);
-const COMPOSITE_FK_SQL = join(dbPackageRoot, "drizzle", "0006_composite_fk_cross_tenant.sql");
-const CONTENTS_COMPOSITE_FK_SQL = join(dbPackageRoot, "drizzle", "0007_contents_composite_fk.sql");
-
-// --- RLS / audit / VIEW / SECURITY DEFINER 関数 (手書き migration、0001 → 0009 の順) ---
-const RLS_ENABLE_SQL = join(dbPackageRoot, "migrations", "0001_enable_rls.sql");
-const RLS_POLICIES_SQL = join(dbPackageRoot, "migrations", "0002_rls_policies.sql");
-const AUDIT_TRIGGER_SQL = join(dbPackageRoot, "migrations", "0003_audit_trigger.sql");
-const AUDIT_FK_SQL = join(dbPackageRoot, "migrations", "0004_audit_fk.sql");
-const AUDIT_LOG_ACTOR_NULL_SQL = join(
-  dbPackageRoot,
-  "migrations",
-  "0005_audit_log_actor_null_school_admin.sql",
-);
-const F0A_RLS_SQL = join(dbPackageRoot, "migrations", "0006_f0a_schema_rls.sql");
-const EFFECTIVE_ADS_VIEW_SQL = join(dbPackageRoot, "migrations", "0007_effective_ads_view.sql");
-const F05_RESOLVE_FN_SQL = join(dbPackageRoot, "migrations", "0008_f05_magic_link_resolve_fn.sql");
-const F02_RLS_SQL = join(dbPackageRoot, "migrations", "0009_f02_schema_rls.sql");
+// マイグレーションの列挙・適用は @kimiterrace/db/migrate-files の collectMigrationFiles /
+// runMigrationFile に委譲する (vitest RLS テストと共有の単一ソース)。ここでハードコードしない
+// = migration 追加時に e2e 側を編集する必要がなくなる (docs/parallel-lanes.md §4)。applyMigrations 参照。
 
 /**
  * seed が使う既知の値。`signage.spec.ts` から再利用するため fixtures として公開する。
@@ -297,36 +272,20 @@ async function seedGoldenClass(sql: RawSql): Promise<void> {
   );
 }
 
-/** 真実ソース (packages/db/__tests__/_setup/global-setup.ts) と厳密一致させた適用順序。 */
+/**
+ * 適用順の真実ソースは `@kimiterrace/db/migrate-files` の `collectMigrationFiles`
+ * (vitest RLS テストの globalSetup と共有)。drizzle/ → migrations/ をファイル名昇順で**全件**適用する
+ * (旧実装は subset をハードコードしていたが、prod スキーマと完全一致させる)。CI Postgres は新品なので
+ * `DROP SCHEMA` は不要。superuser (postgres) で適用する。
+ */
 async function applyMigrations(sql: RawSql): Promise<void> {
-  // 拡張 (pgvector + pgcrypto)。CI Postgres は新品なので DROP SCHEMA は不要。
+  // 拡張 (pgvector + pgcrypto)。
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector;");
   await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
 
-  // DDL
-  await runSqlFile(sql, BASELINE_SQL);
-  await runSqlFile(sql, F0A_SCHEMA_SQL);
-  await runSqlFile(sql, F0F_COLS_SQL);
-  await runSqlFile(sql, F05_MAGIC_LINK_SQL);
-  await runSqlFile(sql, F02_SCHEMA_SQL);
-  await runSqlFile(sql, F04_PUBLISH_UNIQUE_SQL);
-  await runSqlFile(sql, COMPOSITE_FK_SQL);
-  await runSqlFile(sql, CONTENTS_COMPOSITE_FK_SQL);
-
-  // RLS + audit + 階層 policy
-  await runSqlFile(sql, RLS_ENABLE_SQL);
-  await runSqlFile(sql, RLS_POLICIES_SQL);
-  await runSqlFile(sql, AUDIT_TRIGGER_SQL);
-  await runSqlFile(sql, AUDIT_FK_SQL);
-  await runSqlFile(sql, AUDIT_LOG_ACTOR_NULL_SQL);
-  await runSqlFile(sql, F0A_RLS_SQL);
-  await runSqlFile(sql, F02_RLS_SQL);
-
-  // 広告階層マージ VIEW
-  await runSqlFile(sql, EFFECTIVE_ADS_VIEW_SQL);
-
-  // magic link 匿名解決の SECURITY DEFINER 関数
-  await runSqlFile(sql, F05_RESOLVE_FN_SQL);
+  for (const file of collectMigrationFiles(dbPackageRoot)) {
+    await runMigrationFile(sql, file);
+  }
 }
 
 /**
@@ -412,86 +371,5 @@ async function seed(sql: RawSql): Promise<void> {
   );
 }
 
-/**
- * SQL ファイルを適用する。真実ソース (packages/db/__tests__/_setup/global-setup.ts) の
- * `runSqlFile` / `splitSqlStatements` ロジックを踏襲する (drizzle の statement-breakpoint
- * 分割、関数本体 `$$...$$` と文字列の保護)。両者を一致させ適用挙動を揃える。
- */
-async function runSqlFile(sql: RawSql, path: string): Promise<void> {
-  const raw = readFileSync(path, "utf-8");
-  if (raw.includes("--> statement-breakpoint")) {
-    for (const stmt of raw.split("--> statement-breakpoint")) {
-      const trimmed = stmt.trim();
-      if (trimmed.length > 0) {
-        await sql.unsafe(trimmed);
-      }
-    }
-  } else {
-    for (const stmt of splitSqlStatements(raw)) {
-      const trimmed = stmt.trim();
-      if (trimmed.length > 0) {
-        await sql.unsafe(trimmed);
-      }
-    }
-  }
-}
-
-/**
- * `;` で SQL を分割するが、`$$ ... $$` (PL/pgSQL 関数本体) や `'...'` リテラル中の `;` は無視する。
- * `--` 行コメントは (文字列/関数本体の外なら) 行末まで読み飛ばす。真実ソースと同一実装。
- */
-function splitSqlStatements(input: string): string[] {
-  const out: string[] = [];
-  let buf = "";
-  let i = 0;
-  let inDollar = false;
-  let inSingle = false;
-  while (i < input.length) {
-    const ch = input[i];
-    const next2 = input.slice(i, i + 2);
-
-    if (!inDollar && !inSingle && next2 === "--") {
-      const nl = input.indexOf("\n", i);
-      if (nl === -1) {
-        i = input.length;
-      } else {
-        buf += "\n";
-        i = nl + 1;
-      }
-      continue;
-    }
-
-    if (!inSingle && next2 === "$$") {
-      inDollar = !inDollar;
-      buf += next2;
-      i += 2;
-      continue;
-    }
-
-    if (!inDollar && ch === "'") {
-      if (inSingle && input[i + 1] === "'") {
-        buf += "''";
-        i += 2;
-        continue;
-      }
-      inSingle = !inSingle;
-      buf += ch;
-      i += 1;
-      continue;
-    }
-
-    if (!inDollar && !inSingle && ch === ";") {
-      out.push(buf);
-      buf = "";
-      i += 1;
-      continue;
-    }
-
-    buf += ch;
-    i += 1;
-  }
-  if (buf.trim().length > 0) {
-    out.push(buf);
-  }
-  return out;
-}
+// 旧 runSqlFile / splitSqlStatements は @kimiterrace/db/migrate-files の runMigrationFile に統合した
+// (真実ソースの手動コピーを廃止 = 同期負債を解消、docs/parallel-lanes.md §4)。

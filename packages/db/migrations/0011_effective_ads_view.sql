@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0007_effective_ads_view.sql
+-- 0011_effective_ads_view.sql (旧 0007、loader auto-discovery のリナンバ)
 -- 目的: 広告の「学校 → 学科 → 学年 → クラス」階層マージを 1 クラス単位で
 --       解決する VIEW `effective_ads_per_class` を作成する (#48-F)。
 --

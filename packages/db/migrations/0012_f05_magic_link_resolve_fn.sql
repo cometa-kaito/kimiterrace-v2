@@ -1,5 +1,5 @@
 -- =====================================================================
--- 0008_f05_magic_link_resolve_fn.sql
+-- 0012_f05_magic_link_resolve_fn.sql (旧 0008、loader auto-discovery のリナンバ)
 -- 目的: F05 クラス magic link の「生徒匿名アクセス」のための token 解決を、
 --       RLS をくぐる唯一の細い扉 (SECURITY DEFINER 関数) に閉じ込める。
 --
