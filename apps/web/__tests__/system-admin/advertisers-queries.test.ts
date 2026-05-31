@@ -13,6 +13,9 @@ vi.mock("@kimiterrace/db", () => ({
     companyName: { name: "company_name" },
     industry: { name: "industry" },
     contactEmail: { name: "contact_email" },
+    contactPhone: { name: "contact_phone" },
+    address: { name: "address" },
+    notes: { name: "notes" },
     isActive: { name: "is_active" },
     createdAt: { name: "created_at" },
   },
@@ -20,9 +23,10 @@ vi.mock("@kimiterrace/db", () => ({
 vi.mock("drizzle-orm", () => ({
   desc: (c: { name: string }) => ({ dir: "desc", col: c.name }),
   asc: (c: { name: string }) => ({ dir: "asc", col: c.name }),
+  eq: (c: { name: string }, v: unknown) => ({ op: "eq", col: c.name, value: v }),
 }));
 
-import { listAdvertisers } from "../../lib/system-admin/advertisers-queries";
+import { getAdvertiserDetail, listAdvertisers } from "../../lib/system-admin/advertisers-queries";
 
 let projection: Record<string, unknown> | null;
 let fromArg: unknown;
@@ -91,5 +95,74 @@ describe("listAdvertisers", () => {
     ];
     const res = await listAdvertisers(fakeTx());
     expect(res).toEqual(rows);
+  });
+});
+
+let detailProjection: Record<string, unknown> | null;
+let whereArg: unknown;
+let limitArg: number | undefined;
+let detailRows: unknown[];
+
+/** select(p).from(t).where(cond).limit(n) → detailRows を返す最小 tx ダブル。 */
+function fakeDetailTx(): TenantTx {
+  const chain = {
+    from: () => chain,
+    where: (cond: unknown) => {
+      whereArg = cond;
+      return chain;
+    },
+    limit: (n: number) => {
+      limitArg = n;
+      return Promise.resolve(detailRows);
+    },
+  };
+  const tx = {
+    select: (p: Record<string, unknown>) => {
+      detailProjection = p;
+      return chain;
+    },
+  };
+  return tx as unknown as TenantTx;
+}
+
+describe("getAdvertiserDetail", () => {
+  beforeEach(() => {
+    detailProjection = null;
+    whereArg = undefined;
+    limitArg = undefined;
+    detailRows = [];
+  });
+
+  it("射影は編集可能フィールド全部 (住所/電話/備考を含む)、is_active は含めない", async () => {
+    await getAdvertiserDetail(fakeDetailTx(), "a1");
+    expect(Object.keys(detailProjection ?? {}).sort()).toEqual(
+      ["address", "companyName", "contactEmail", "contactPhone", "id", "industry", "notes"].sort(),
+    );
+    expect(detailProjection).not.toHaveProperty("isActive");
+  });
+
+  it("id で eq フィルタ + limit(1) を掛ける", async () => {
+    await getAdvertiserDetail(fakeDetailTx(), "a1");
+    expect(whereArg).toEqual({ op: "eq", col: "id", value: "a1" });
+    expect(limitArg).toBe(1);
+  });
+
+  it("ヒットしたら 1 行をそのまま返す", async () => {
+    const row = {
+      id: "a1",
+      companyName: "X社",
+      industry: "広告",
+      contactEmail: "a@example.com",
+      contactPhone: null,
+      address: null,
+      notes: null,
+    };
+    detailRows = [row];
+    expect(await getAdvertiserDetail(fakeDetailTx(), "a1")).toEqual(row);
+  });
+
+  it("ヒット無し (RLS 不可視 / 不存在) は null", async () => {
+    detailRows = [];
+    expect(await getAdvertiserDetail(fakeDetailTx(), "a1")).toBeNull();
   });
 });

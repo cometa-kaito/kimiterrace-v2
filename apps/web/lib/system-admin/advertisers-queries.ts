@@ -1,5 +1,5 @@
 import { type TenantTx, advertisers } from "@kimiterrace/db";
-import { type InferSelectModel, asc, desc } from "drizzle-orm";
+import { type InferSelectModel, asc, desc, eq } from "drizzle-orm";
 
 /**
  * F10 (#46): 広告主マスタ (CRM) の読み取り層。**サーバー専用**。
@@ -40,4 +40,39 @@ export async function listAdvertisers(tx: TenantTx): Promise<AdvertiserSummary[]
     })
     .from(advertisers)
     .orderBy(desc(advertisers.isActive), asc(advertisers.companyName));
+}
+
+/**
+ * 編集フォームの初期値に使う**編集可能フィールドの全射影** (id + 6 フィールド)。一覧の軽量射影
+ * (`AdvertiserSummary`) と違い、住所・電話・備考も含む。is_active は別アクション (稼働トグル) の
+ * 管轄なので含めない。生徒 PII ではなく営業上のビジネス情報 (ルール4 の対象外)。
+ */
+export type AdvertiserDetail = Pick<
+  InferSelectModel<typeof advertisers>,
+  "id" | "companyName" | "industry" | "contactEmail" | "contactPhone" | "address" | "notes"
+>;
+
+/**
+ * 単一広告主を id で取得する。**WHERE は対象特定であってテナント境界ではない** — 可視範囲は RLS
+ * (`system_admin_full_access`) が決め、非 system_admin context では 0 行に倒れる (ルール2)。
+ * 見つからなければ `null` (RLS 不可視 / 不存在は呼出側で区別しない、どちらも 404 相当)。
+ */
+export async function getAdvertiserDetail(
+  tx: TenantTx,
+  id: string,
+): Promise<AdvertiserDetail | null> {
+  const [row] = await tx
+    .select({
+      id: advertisers.id,
+      companyName: advertisers.companyName,
+      industry: advertisers.industry,
+      contactEmail: advertisers.contactEmail,
+      contactPhone: advertisers.contactPhone,
+      address: advertisers.address,
+      notes: advertisers.notes,
+    })
+    .from(advertisers)
+    .where(eq(advertisers.id, id))
+    .limit(1);
+  return row ?? null;
 }
