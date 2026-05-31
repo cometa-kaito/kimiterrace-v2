@@ -47,6 +47,7 @@ export default async function SystemAdvertisersPage() {
               <th style={thStyle}>担当連絡先</th>
               <th style={thStyle}>状態</th>
               <th style={thStyle}>登録日</th>
+              <th style={thStyle}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -66,6 +67,11 @@ export default async function SystemAdvertisersPage() {
                   </span>
                 </td>
                 <td style={tdStyle}>{formatJstDate(a.createdAt)}</td>
+                <td style={tdStyle}>
+                  <Link href={`/admin/system/advertisers/${a.id}/edit`} style={editLinkStyle}>
+                    編集
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -116,6 +122,11 @@ const newLinkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
+const editLinkStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#2563eb",
+  textDecoration: "none",
+};
 const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
 const thStyle: React.CSSProperties = {
   textAlign: "left",
