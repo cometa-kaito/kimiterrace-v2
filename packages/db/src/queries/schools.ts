@@ -177,12 +177,20 @@ export async function updateSchool(
 /**
  * 学校 (テナント) を削除し、削除行の id を返す (#48-L4)。0 行 = RLS で不可視 / 不存在。
  *
- * **子データ保護は DB が強制する (ルール2)**: schools を参照する全テーブル (users / grades / classes /
- * departments / contents / events / ai_* / teacher_inputs / magic_links / ads / daily_data /
+ * **子データ保護は DB が強制する (ルール2)**: schools を参照する**テナント所有**テーブル (users / grades /
+ * classes / departments / contents / events / ai_* / teacher_inputs / magic_links / ads / daily_data /
  * school_configs / memberships / publishes / monthly_reports 等) は `ON DELETE RESTRICT` のため、
  * 子行が 1 つでも残る学校の DELETE は FK 違反 (SQLSTATE 23503) になる。呼び出し側はこれを conflict に
  * 写像し「空の学校のみ削除可」を担保する (soft-delete を導入せず hard-delete を安全側に倒す)。
- * `audit_log.school_id` は FK ではない (cross-tenant 用) ため、作成時監査行は削除を阻まない。
+ *
+ * **例外 (cross-tenant 参照)**: 一部のテーブルは school_id が**テナント分離キーではない任意参照**で、
+ * 学校の生存期間に結合しない設計のため RESTRICT ではない (= 上記は「全テーブル RESTRICT」ではない):
+ * - `feedback.school_id` … `ON DELETE SET NULL` (匿名・自己申告参照、system_admin のみ閲覧、
+ *   schema/feedback.ts)。feedback だけを持つ学校は「空校」扱いで削除でき、削除後 feedback 行は
+ *   school_id=NULL で生存する (PII を含む `student_episode` も保持され、引き続き system_admin の閲覧対象)。
+ *   feedback をテナント生存期間と decouple する**意図的設計** — テナント所有でない feedback が 1 件でも
+ *   あれば学校を永久に削除不能 (RESTRICT) にしてしまうのを避ける (#239 Reviewer H-1)。
+ * - `audit_log.school_id` … FK ではない (cross-tenant 用) ため、作成時監査行は削除を阻まない。
  *
  * RLS: `system_admin_full_access` (全校 DELETE 可) / `tenant_isolation_delete` (自校のみ)。`WHERE id` は
  * 対象特定であってテナント境界ではない (越権は RLS が弾く、本ページは system_admin 専用)。
