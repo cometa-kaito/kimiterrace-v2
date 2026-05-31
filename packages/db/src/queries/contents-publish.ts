@@ -187,6 +187,9 @@ export type DeniedPublishAction = "publish" | "update" | "unpublish" | "rollback
  * - `audit_op` enum は insert/update/delete のみで「denied」値が無い。enum / migration を増やすと
  *   並行作業との衝突・破壊的変更リスクがあるため追加せず、**試行した操作種別を operation に写像**し
  *   (publish/rollback→insert、update/unpublish→update)、`diff.denied=true` で拒否試行と明示する。
+ *   **監査の消費側 (NFR04 検知クエリ / 集計) への注意**: 拒否行は成功 mutation と同じ `operation` を持つため、
+ *   実 mutation を数えるクエリは必ず `(diff->>'denied') IS NULL` で拒否行を除外すること
+ *   (逆に拒否試行の検知は `diff->>'denied' = 'true'` で抽出する)。
  * - 記録できるのは **tenant context (school_id + user_id) を持つ拒否のみ**。audit_log_insert policy
  *   (migration 0005) が tenant ロールに `actor_user_id = app.current_user_id` を強制するため、
  *   actor は現在のセッションユーザー本人である必要があり、他者への詐称記録は DB が弾く。school_id を
