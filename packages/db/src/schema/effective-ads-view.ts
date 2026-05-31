@@ -4,7 +4,7 @@ import { adMediaType, hierarchyScope } from "../_shared/enums.js";
 /**
  * 広告階層マージ VIEW `effective_ads_per_class` の型定義 (#48-F)。
  *
- * 実体は手書き SQL (`migrations/0007_effective_ads_view.sql`) で
+ * 実体は手書き SQL (`migrations/0011_effective_ads_view.sql`) で
  * `security_invoker = true` 付き通常 VIEW として作成する。drizzle-kit には
  * `.existing()` で「既存・管理対象外」と伝え、CREATE VIEW を生成させない
  * (列型だけを単一ソースとして共有し、型安全な SELECT を可能にする / CLAUDE.md ルール3)。

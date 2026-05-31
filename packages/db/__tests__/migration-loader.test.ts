@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { collectMigrationFiles } from "./_setup/global-setup";
+import { collectMigrationFiles } from "../src/migrate-files";
 
 // テストファイルは packages/db/__tests__/ にあるので、packageRoot は 1 つ上 (= packages/db)。
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
