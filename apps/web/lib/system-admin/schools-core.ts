@@ -95,7 +95,44 @@ export type SchoolUpdateInput = {
   hierarchyMode: SchoolHierarchyMode;
 };
 
+/** 学校新規作成の検証済み入力 (#48-L3、id なし)。型は DB 由来の値域に合わせる。 */
+export type SchoolCreateInput = {
+  name: string;
+  prefecture: string;
+  code: string | null;
+  hierarchyMode: SchoolHierarchyMode;
+};
+
 type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
+
+/**
+ * 学校新規作成の入力検証 (#48-L3)。検証規則は update と共通 (id を要求しない点のみ差分)。
+ * name / prefecture は必須、code は任意 (null 可)、hierarchyMode は enum 値のみ。
+ */
+export function validateSchoolCreate(raw: {
+  name?: unknown;
+  prefecture?: unknown;
+  code?: unknown;
+  hierarchyMode?: unknown;
+}): Validated<SchoolCreateInput> {
+  const name = normalizeRequired(raw.name, NAME_MAX);
+  if (!name) {
+    return { ok: false, message: `学校名は 1〜${NAME_MAX} 文字で入力してください。` };
+  }
+  const prefecture = normalizeRequired(raw.prefecture, PREF_MAX);
+  if (!prefecture) {
+    return { ok: false, message: `都道府県は 1〜${PREF_MAX} 文字で入力してください。` };
+  }
+  const code = normalizeOptional(raw.code, CODE_MAX);
+  if (code === undefined) {
+    return { ok: false, message: `学校コードは ${CODE_MAX} 文字以内で入力してください。` };
+  }
+  const hierarchyMode = normalizeMode(raw.hierarchyMode);
+  if (!hierarchyMode) {
+    return { ok: false, message: "階層モードは class か department を指定してください。" };
+  }
+  return { ok: true, value: { name, prefecture, code, hierarchyMode } };
+}
 
 /**
  * 学校編集の入力検証。patch ではなく**全フィールド置換**にして、UI から来た現在値で上書きする

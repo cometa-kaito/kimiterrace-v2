@@ -31,7 +31,12 @@ export default async function SystemSchoolsPage() {
     <section>
       <header style={headerStyle}>
         <h1 style={titleStyle}>学校一覧</h1>
-        <span style={countStyle}>{schools.length} 校</span>
+        <div style={headerRightStyle}>
+          <span style={countStyle}>{schools.length} 校</span>
+          <Link href="/admin/system/schools/new" style={newLinkStyle}>
+            ＋ 新規登録
+          </Link>
+        </div>
       </header>
 
       {schools.length === 0 ? (
@@ -92,6 +97,19 @@ const headerStyle: React.CSSProperties = {
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700 };
 const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const headerRightStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "1rem",
+};
+const newLinkStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#fff",
+  background: "#1d4ed8",
+  padding: "0.4rem 0.9rem",
+  borderRadius: "6px",
+  textDecoration: "none",
+};
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
 const thStyle: React.CSSProperties = {

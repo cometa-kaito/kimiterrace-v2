@@ -25,6 +25,8 @@ import { schools } from "../schema/schools.js";
 type Selectable = Pick<PostgresJsDatabase, "select">;
 /** SELECT + UPDATE が要る編集系 (トランザクションを受ける)。 */
 type Mutable = Pick<PostgresJsDatabase, "select" | "update">;
+/** INSERT が要る作成系 (トランザクションを受ける)。 */
+type Insertable = Pick<PostgresJsDatabase, "insert">;
 
 type SchoolRow = InferSelectModel<typeof schools>;
 
@@ -48,6 +50,9 @@ export type SchoolDetail = {
 
 /** updateSchool が書き込む基本フィールド (型は schema 由来、ルール3)。 */
 export type SchoolUpdate = Pick<SchoolRow, "name" | "prefecture" | "code" | "hierarchyMode">;
+
+/** createSchool が書き込む基本フィールド (型は schema 由来、ルール3)。 */
+export type SchoolCreate = Pick<SchoolRow, "name" | "prefecture" | "code" | "hierarchyMode">;
 
 /**
  * 学校一覧を取得する。可視範囲は RLS が決める (system_admin=全校 / テナント=自校のみ)。
@@ -114,6 +119,31 @@ export async function getSchoolDetail(db: Selectable, id: string): Promise<Schoo
       departments: departmentRow[0]?.n ?? 0,
     },
   };
+}
+
+/**
+ * 学校 (テナント) を新規作成し、作成行の id を返す (#48-L3)。
+ *
+ * RLS: schools への INSERT は `system_admin_full_access` の WITH CHECK (role=system_admin) でのみ通る。
+ * テナント (school_admin/teacher) 向けの INSERT policy は無いため、RLS が拒否する (越権防止、ルール2)。
+ * `created_by` / `updated_by` は呼び出し側 (Server Action) が actor から渡す (system_admin は users 行で
+ * ないため NULL、ルール1 / FK は users(id))。
+ */
+export async function createSchool(
+  db: Insertable,
+  input: SchoolCreate & { createdBy: string | null },
+): Promise<{ id: string }[]> {
+  return db
+    .insert(schools)
+    .values({
+      name: input.name,
+      prefecture: input.prefecture,
+      code: input.code,
+      hierarchyMode: input.hierarchyMode,
+      createdBy: input.createdBy,
+      updatedBy: input.createdBy,
+    })
+    .returning({ id: schools.id });
 }
 
 /**
