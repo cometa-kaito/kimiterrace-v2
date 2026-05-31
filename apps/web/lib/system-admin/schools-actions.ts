@@ -223,16 +223,23 @@ export async function deleteSchoolAction(raw: { id?: unknown }): Promise<
         throw new SchoolNotFoundError();
       }
       await writeSchoolAudit(tx, user, id, "delete", {
+        // hard-delete は不可逆。漏洩/係争時の「削除前に何があったか」を立証できるよう、削除前
+        // スナップショットは getSchool が返す編集対象カラムを全て含める (notes 欠落を防ぐ、#246 Low-1)。
         before: {
           name: before.name,
           prefecture: before.prefecture,
           code: before.code,
           hierarchyMode: before.hierarchyMode,
+          notes: before.notes,
         },
       });
       return { id };
     });
+    // 一覧に加え、削除済みの詳細/編集ページのキャッシュも purge する。次アクセスは getSchoolDetail /
+    // getSchool が 0 行 → notFound() に倒れ、消えた学校の stale ページを返さない (#246 Low-3)。
     revalidatePath("/admin/system/schools");
+    revalidatePath(`/admin/system/schools/${id}`);
+    revalidatePath(`/admin/system/schools/${id}/edit`);
     return { ok: true, data };
   } catch (error) {
     if (error instanceof SchoolNotFoundError) {
