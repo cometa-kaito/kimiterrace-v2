@@ -77,6 +77,22 @@ export class UnsupportedFormatError extends Error {
 }
 
 /**
+ * レガシーバイナリ Office 形式（.doc / .xls）を検出したときに投げる。
+ * OOXML（.docx / .xlsx）と異なり本レイヤのパーサでは解析できないため、変換を促す。
+ * `UnsupportedFormatError` を継承するので既存の catch でも拾える一方、`suggested` で
+ * 呼び出し側が「.docx に変換して再アップロード」と具体的に案内できる。
+ */
+export class LegacyOfficeFormatError extends UnsupportedFormatError {
+  constructor(
+    public readonly legacyExt: string,
+    public readonly suggested: string,
+  ) {
+    super(`legacy binary Office format '.${legacyExt}'; convert to '.${suggested}' and re-upload`);
+    this.name = "LegacyOfficeFormatError";
+  }
+}
+
+/**
  * 具象抽出器がまだ依存パーサ未配線で実行できないときに投げる（フェイルクローズ）。
  * `dependency` には別 PR で追加すべきパッケージ名を入れ、配線者が一目で分かるようにする。
  */

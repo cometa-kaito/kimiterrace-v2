@@ -12,3 +12,5 @@ export * from "./queries/magic-links.js";
 export * from "./queries/content-detail.js";
 // F02: 教員音声 / チャット入力 (作成 / 一覧 / 詳細 / transcript 編集 / 下書き / submit / 削除 / 添付メタ)
 export * from "./queries/teacher-inputs.js";
+// #48-J: クラススコープ広告の読み取りクエリ層 (自クラス広告一覧 / 可視クラス確認 / 単件取得)
+export * from "./queries/ads.js";

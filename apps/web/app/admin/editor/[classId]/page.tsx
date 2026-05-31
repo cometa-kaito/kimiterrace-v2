@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
 import { NoticeEditor } from "./_components/NoticeEditor";
@@ -51,6 +52,11 @@ export default async function ClassEditorPage({
     <div style={{ display: "grid", gap: "2rem" }}>
       <section>
         <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>{schedule.className}</h1>
+        <p style={{ margin: "0 0 0.75rem" }}>
+          <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+            広告管理 →
+          </Link>
+        </p>
         <h2 style={sectionHeadingStyle}>時間割</h2>
         <ScheduleEditor
           classId={schedule.classId}
