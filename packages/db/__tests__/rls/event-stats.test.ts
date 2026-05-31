@@ -42,7 +42,7 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
   async function seedEvent(
     schoolId: string,
     contentId: string | null,
-    type: "view" | "tap",
+    type: "view" | "tap" | "ask",
     daysAgo: number,
   ): Promise<void> {
     await raw`
@@ -76,10 +76,25 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
     await seedEvent(fx.schoolA, contentA2, "view", 1);
 
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
-    expect(stats.totals).toEqual({ view: 4, tap: 2 });
+    expect(stats.totals).toEqual({ view: 4, tap: 2, ask: 0 });
     expect(stats.ranking).toEqual([
       { contentId: contentA1, title: "体育祭のお知らせ", views: 3, taps: 2, total: 5 },
       { contentId: contentA2, title: "文化祭のお知らせ", views: 1, taps: 0, total: 1 },
+    ]);
+  });
+
+  it("Q&A (ask) 件数: totals.ask に反映、ranking には混ぜない (F06 経路の Q&A)", async () => {
+    // ask は F06 生徒対話の経路で記録される (content 紐付けなしの Q&A もありうる)。
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
+    await seedEvent(fx.schoolA, contentA1, "ask", 1);
+    await seedEvent(fx.schoolA, null, "ask", 1);
+
+    const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
+    expect(stats.totals).toEqual({ view: 1, tap: 0, ask: 2 });
+    // ranking は WHERE で view/tap に限定するため ask は寄与しない。contentA1 は view 1 件だけで
+    // 拾われ total=views+taps が保たれる (ask は totals.ask にのみ計上)。
+    expect(stats.ranking).toEqual([
+      { contentId: contentA1, title: "体育祭のお知らせ", views: 1, taps: 0, total: 1 },
     ]);
   });
 
@@ -87,7 +102,7 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
     await seedEvent(fx.schoolA, contentA1, "view", 1); // 範囲内
     await seedEvent(fx.schoolA, contentA1, "view", 40); // 既定 30 日の範囲外
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
-    expect(stats.totals).toEqual({ view: 1, tap: 0 });
+    expect(stats.totals).toEqual({ view: 1, tap: 0, ask: 0 });
     expect(stats.ranking).toEqual([
       { contentId: contentA1, title: "体育祭のお知らせ", views: 1, taps: 0, total: 1 },
     ]);
@@ -99,14 +114,14 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
       (tx) => getEventStats(tx, { sinceDays: 90 }),
       APP,
     );
-    expect(wide.totals).toEqual({ view: 2, tap: 0 });
+    expect(wide.totals).toEqual({ view: 2, tap: 0, ask: 0 });
   });
 
   it("content_id NULL の event は ranking から除外し totals には含む", async () => {
     await seedEvent(fx.schoolA, null, "tap", 1); // 広告枠そのものへの tap 想定
     await seedEvent(fx.schoolA, contentA1, "view", 1);
     const stats = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
-    expect(stats.totals).toEqual({ view: 1, tap: 1 });
+    expect(stats.totals).toEqual({ view: 1, tap: 1, ask: 0 });
     // ranking には content_id を持つ A1 のみ (NULL 行は出ない)
     expect(stats.ranking.map((r) => r.contentId)).toEqual([contentA1]);
   });
@@ -117,18 +132,18 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
     await seedEvent(fx.schoolB, contentB1, "tap", 1);
 
     const a = await withTenantContext(db, ctxA(), (tx) => getEventStats(tx), APP);
-    expect(a.totals).toEqual({ view: 1, tap: 0 });
+    expect(a.totals).toEqual({ view: 1, tap: 0, ask: 0 });
     expect(a.ranking.map((r) => r.contentId)).toEqual([contentA1]);
 
     const b = await withTenantContext(db, ctxB(), (tx) => getEventStats(tx), APP);
-    expect(b.totals).toEqual({ view: 1, tap: 1 });
+    expect(b.totals).toEqual({ view: 1, tap: 1, ask: 0 });
     expect(b.ranking.map((r) => r.contentId)).toEqual([contentB1]);
   });
 
   it("空コンテキストは deny-by-default で totals 0 + ranking 空", async () => {
     await seedEvent(fx.schoolA, contentA1, "view", 1);
     const stats = await withTenantContext(db, {}, (tx) => getEventStats(tx), APP);
-    expect(stats.totals).toEqual({ view: 0, tap: 0 });
+    expect(stats.totals).toEqual({ view: 0, tap: 0, ask: 0 });
     expect(stats.ranking).toEqual([]);
   });
 
