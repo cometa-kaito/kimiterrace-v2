@@ -14,6 +14,7 @@ import {
   jstDateString,
   nextIndex,
 } from "@/lib/signage/rotation";
+import { type SignageSectionKind, formatSignageItem } from "@/lib/signage/section-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignageInvalid } from "./SignageInvalid";
@@ -126,10 +127,10 @@ export function SignageClient({
       <main style={contentStyle}>
         <header style={dateHeaderStyle}>{data.date}</header>
         <div style={gridStyle}>
-          <Section title="時間割" section={data.daily.schedules} />
-          <Section title="連絡" section={data.daily.notices} />
-          <Section title="課題" section={data.daily.assignments} />
-          <Section title="静粛時間" section={data.daily.quietHours} />
+          <Section title="時間割" kind="schedules" section={data.daily.schedules} />
+          <Section title="連絡" kind="notices" section={data.daily.notices} />
+          <Section title="課題" kind="assignments" section={data.daily.assignments} />
+          <Section title="静粛時間" kind="quietHours" section={data.daily.quietHours} />
         </div>
       </main>
 
@@ -157,7 +158,11 @@ export function SignageClient({
   );
 }
 
-function Section({ title, section }: { title: string; section: MergedSection }) {
+function Section({
+  title,
+  kind,
+  section,
+}: { title: string; kind: SignageSectionKind; section: MergedSection }) {
   return (
     <section aria-label={title} style={sectionStyle}>
       <h2 style={sectionTitleStyle}>
@@ -170,37 +175,20 @@ function Section({ title, section }: { title: string; section: MergedSection }) 
         <p style={emptyStyle}>なし</p>
       ) : (
         <ol style={itemsStyle}>
-          {section.items.map((item, i) => (
-            // 順序が意味を持ち再並びしない静的リストなので index key で十分。
-            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-            <li key={i} style={itemStyle}>
-              {itemLabel(item)}
-            </li>
-          ))}
+          {section.items.map((item, i) => {
+            const line = formatSignageItem(kind, item);
+            return (
+              // 順序が意味を持ち再並びしない静的リストなので index key で十分。
+              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+              <li key={i} style={line.emphasis ? itemEmphasisStyle : itemStyle}>
+                {line.text}
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>
   );
-}
-
-/**
- * opaque な JSONB 要素から代表ラベルを防御的に取り出す (#48-E1 SignageBoard と同方針・同キー順で
- * 描画一貫性を保つ。Notice=`text` / Assignment=`subject` がヒットする)。
- */
-function itemLabel(item: unknown): string {
-  if (typeof item === "string") {
-    return item;
-  }
-  if (item && typeof item === "object") {
-    const rec = item as Record<string, unknown>;
-    for (const key of ["title", "label", "text", "subject", "name", "content"]) {
-      const v = rec[key];
-      if (typeof v === "string" && v.length > 0) {
-        return v;
-      }
-    }
-  }
-  return JSON.stringify(item);
 }
 
 /** ローテーション位置のドット表示 (現在位置を ● 他を ○)。 */
@@ -254,6 +242,8 @@ const itemsStyle: React.CSSProperties = {
   gap: "0.3rem",
 };
 const itemStyle: React.CSSProperties = { fontSize: "1.1rem" };
+// 重要マーク付き連絡 (isHighlight) は太字で強調する。
+const itemEmphasisStyle: React.CSSProperties = { fontSize: "1.1rem", fontWeight: 700 };
 const emptyStyle: React.CSSProperties = { color: "#64748b", margin: 0, fontSize: "1rem" };
 const adPaneStyle: React.CSSProperties = {
   display: "flex",
