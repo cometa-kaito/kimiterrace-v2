@@ -1,6 +1,13 @@
 "use server";
 
-import { type TenantTx, auditLog, createSchool, getSchool, updateSchool } from "@kimiterrace/db";
+import {
+  type TenantTx,
+  auditLog,
+  createSchool,
+  deleteSchool,
+  getSchool,
+  updateSchool,
+} from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -9,6 +16,7 @@ import {
   type ActionResult,
   conflict,
   invalid,
+  isUuid,
   notFound,
   validateSchoolCreate,
   validateSchoolUpdate,
@@ -36,14 +44,30 @@ import {
  * (system_admin context では任意 school_id が許可される、0005 policy)。
  */
 
+/**
+ * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す。drizzle は元の pg エラーを
+ * DrizzleQueryError ("Failed query: …") でラップし、SQLSTATE は `.cause.code` 側に入るため、
+ * top-level と cause の両方を見る (top-level だけだと取りこぼす)。
+ */
+function pgErrorCode(error: unknown): string | undefined {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  if (e && typeof e.code === "string") {
+    return e.code;
+  }
+  if (e?.cause && typeof e.cause.code === "string") {
+    return e.cause.code;
+  }
+  return undefined;
+}
+
 /** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。学校コード重複など。 */
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "23505"
-  );
+  return pgErrorCode(error) === "23505";
+}
+
+/** PostgreSQL の FK 制約違反 (SQLSTATE 23503)。子データが残る学校の削除など。 */
+function isForeignKeyViolation(error: unknown): boolean {
+  return pgErrorCode(error) === "23503";
 }
 
 /** 対象校が RLS で不可視 (他校 / 不存在) のとき tx をロールバックさせる。 */
@@ -168,6 +192,58 @@ export async function createSchoolAction(raw: {
 }
 
 /**
+ * 学校 (テナント) を削除する (#48-L4)。**空の学校のみ削除可** — 子データ (学年/クラス/学科/
+ * コンテンツ/ユーザー等) が残る学校は FK RESTRICT で DB が削除を拒否し (23503)、`conflict` に写像する
+ * (soft-delete を導入せず hard-delete を安全側に倒す、ルール2)。
+ *
+ * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。削除と監査を同一 tx で行い、FK 違反時は
+ * tx がロールバックされ監査も残らない。`audit_log.school_id` は FK ではないため作成時監査行は削除を阻まない。
+ */
+export async function deleteSchoolAction(raw: { id?: unknown }): Promise<
+  ActionResult<{ id: string }>
+> {
+  if (!isUuid(raw.id)) {
+    return invalid("学校の指定が不正です。");
+  }
+  const id = raw.id;
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  try {
+    const data = await withSession(async (tx: TenantTx, user) => {
+      const before = await getSchool(tx, id);
+      if (!before) {
+        throw new SchoolNotFoundError();
+      }
+      const deleted = await deleteSchool(tx, id);
+      if (deleted.length === 0) {
+        throw new SchoolNotFoundError();
+      }
+      await writeSchoolAudit(tx, user, id, "delete", {
+        before: {
+          name: before.name,
+          prefecture: before.prefecture,
+          code: before.code,
+          hierarchyMode: before.hierarchyMode,
+        },
+      });
+      return { id };
+    });
+    revalidatePath("/admin/system/schools");
+    return { ok: true, data };
+  } catch (error) {
+    if (error instanceof SchoolNotFoundError) {
+      return notFound("指定された学校が見つかりません。");
+    }
+    if (isForeignKeyViolation(error)) {
+      return conflict(
+        "学年・クラス・コンテンツ等の関連データが存在するため削除できません。先に配下データを削除してください。",
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。
  * system_admin は users 行ではないため actor 系は NULL、school_id には対象校 id を記録する。
  */
@@ -175,7 +251,7 @@ async function writeSchoolAudit(
   tx: TenantTx,
   user: { uid: string; role: string },
   schoolId: string,
-  operation: "insert" | "update",
+  operation: "insert" | "update" | "delete",
   diff: unknown,
 ): Promise<void> {
   const isSystemAdmin = user.role === "system_admin";
