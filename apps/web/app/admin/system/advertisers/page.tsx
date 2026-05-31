@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { listAdvertisers } from "@/lib/system-admin/advertisers-queries";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import Link from "next/link";
+import { AdvertiserActiveToggle } from "./_components/AdvertiserActiveToggle";
 
 /**
  * F10 (#46): システム管理者の広告主一覧 (`/admin/system/advertisers`)。**Server Component**。
@@ -55,7 +56,14 @@ export default async function SystemAdvertisersPage() {
                 <td style={tdStyle}>{a.industry ?? "—"}</td>
                 <td style={tdStyle}>{a.contactEmail ?? "—"}</td>
                 <td style={tdStyle}>
-                  <StatusBadge isActive={a.isActive} />
+                  <span style={statusCellStyle}>
+                    <StatusBadge isActive={a.isActive} />
+                    <AdvertiserActiveToggle
+                      advertiserId={a.id}
+                      isActive={a.isActive}
+                      companyName={a.companyName}
+                    />
+                  </span>
                 </td>
                 <td style={tdStyle}>{formatJstDate(a.createdAt)}</td>
               </tr>
@@ -120,6 +128,11 @@ const tdStyle: React.CSSProperties = {
   padding: "0.5rem 0.6rem",
   borderBottom: "1px solid #f3f4f6",
   fontSize: "0.9rem",
+};
+const statusCellStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.6rem",
 };
 const activeBadgeStyle: React.CSSProperties = {
   fontSize: "0.75rem",
