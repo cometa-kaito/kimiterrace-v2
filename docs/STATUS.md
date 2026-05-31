@@ -3,7 +3,7 @@
 > このファイルは Claude Code セッションの起点。新セッションは必ずこれを読む。
 > セッション終了時に必ず更新する。
 
-最終更新: 2026-05-31 (**F0 #48-J クラス広告管理 #181 自律 merge** (Worker 実装→Reviewer Critical-1 [client bundle に postgres 混入→next build 失敗] を `@kimiterrace/db/schema` サブパスで自己 fix→再 CI→merge `711d0b1`、Issue #121 close + #185 [quiet_hours] 起票)。並行: **Dependabot 8 件トリアージ + 解消可能 moderate 2 件 PR #176 merge `8f9e057`** (解消不可 6 件は #177/#178/#179)。本セッション計 #140/#157/#174/#176/#181 merge + #175/#185 起票)
+最終更新: 2026-05-31 (**F0 #48-J クラス設定 完了** — 広告管理 #181 + 静粛時間 quiet_hours #190 自律 merge。#190 は Reviewer Medium-1 [orphan write: school_configs 保存だが signage 未消費] を follow-up #191 化 + 境界明示で解消、Low-1 死リンクも同梱修正、Worker が next build までローカル検証 (#181 Critical-1 教訓)。Issue #121/#185 close、#175/#191 起票。本セッション計 **#140/#157/#174/#176/#181/#190 の 6 PR merge**。並行セッションは F01/#48-E/ADR を別途進行 (#182/#189 等))
 更新者: Claude Code
 
 リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public)
@@ -28,6 +28,11 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-05-31: **F0 #48-J-2 クラス静粛時間 quiet_hours 設定 UI + Server Action 実装 (PR #190 自律 merge、commit `1c92f93`、Issue #185 close + #191 起票、Refs #12)**:
+  - **Worker spawn → Reviewer → 自律 merge**。クラスの quiet_hours (サイネージ静音時間帯) を `school_configs` (scope=class, kind='quiet_hours', value=`{ranges:[{start,end}]}`) に upsert。`packages/db/src/queries/school-configs.ts` (getClassConfigValue/upsertClassConfig) + `lib/school-admin/quiet-hours-{core,actions}.ts` + `app/admin/editor/[classId]/quiet-hours/` (page + QuietHoursManager) + 実 PG RLS テスト 5 件。**#181 review の Low-1 (editor の「広告管理→」死リンク) も同梱解消** (teacher に広告/静粛時間リンクを role 出し分けで非表示)
+  - **#181 の教訓を適用**: client component の db import を `@kimiterrace/db/schema` type-only に限定し、**Worker がローカルで `next build` まで実行**して client bundle 問題 (Critical-1 再発) を未然防止。認可 QUIET_HOURS_ROLES (school_admin/system_admin、teacher 除外)、cross-tenant classId は findVisibleClass で弾く (#73)、audit 同一 tx、型 `InferSelectModel`/configKind enum 単一ソース
+  - **Reviewer (worktree 隔離) が Medium-1 (orphan write) 検出**: 設定は `school_configs` に保存されるが signage の `effective-daily-data.ts` は `daily_data.quiet_hours` 配列のみ読み `school_configs` を参照しないため **signage に届かない**。他 (認可/cross-tenant/Low-1/client import/RLS テスト) は全て正しく Critical/High 0。**Reviewer 提示の解消策 (b) を採用**: signage への消費マージ配線は (1) 永続設定 vs 当日 override の優先順位という要件判断 + (2) `effective-daily-data.ts`=#48-E 領域で同ファイル衝突回避のため**別スライス化** → **follow-up Issue #191 起票** + PR コメント/STATUS で境界明示して merge。保存+UI スライスとしては完結
+  - **本サイクル成果**: 1 PR (#190) merged、Issue #185 close + #191 起票。#48-J (広告 #181 + quiet_hours #190) のクラス設定が UI として揃った (signage 反映配線は #191)
 - 2026-05-31: **F0 #48-J クラス広告管理 UI + Server Actions 実装 (PR #181 自律 merge、commit `711d0b1`、Issue #121 close + #185 起票、Refs #12)**:
   - **Worker spawn 実装 → Reviewer spawn → 自律 merge**。V1 `HierarchicalAdsTab` 相当: あるクラスの自クラススコープ広告 (scope=class) の CRUD UI + Server Actions、親階層からの**継承広告 (is_inherited) は read-only 表示**。`packages/db/src/queries/ads.ts` (listClassOwnAds/findVisibleClass/findClassOwnAd) + `lib/school-admin/ads-{core,actions}.ts` + `app/admin/editor/[classId]/ads/` (page + AdsManager) + 実 PG RLS テスト
   - **Worker が停滞並行 worktree を非破壊 salvage**: 着手時、別 worktree が同タスクを 6h idle・未コミットで放置 → clean ブランチ (off main) に救出し検証・PR 化、相手 worktree は不触 ([[parallel-worktree-commit-recovery]])
