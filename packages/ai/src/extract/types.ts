@@ -37,8 +37,8 @@ export interface ExtractMeta {
   /** Excel のシート名一覧。 */
   sheetNames?: string[];
   /**
-   * 外部 OCR（Vertex Vision 等）を経由したか。
-   * true の場合、画像そのものが Vertex へ送られた＝外部委託（ルール4）。監査側が記録する。
+   * 外部 OCR（ADR-024 決定2: Cloud Vision）を経由したか。
+   * true の場合、画像そのものが外部委託に送られた（ルール4）。監査側が記録する。
    */
   ocrUsed?: boolean;
   /** 抽出器が信頼度を出せる場合（0..1）。OCR の確信度など。 */
@@ -53,6 +53,27 @@ export interface ExtractedText {
   format: SourceFormat;
   /** 形式別の補足（任意）。 */
   meta?: ExtractMeta;
+}
+
+/** OCR バックエンドの認識結果（テキスト + 任意の信頼度）。 */
+export interface OcrResult {
+  /** 認識した素テキスト。**PII 未マスク**（画像中の生徒氏名・手書き等を含みうる）。 */
+  text: string;
+  /** バックエンドが返す信頼度（0..1）。出せない場合は省略。 */
+  confidence?: number;
+}
+
+/**
+ * 画像 OCR バックエンドの境界（ADR-024 決定3: 依存逆転でテスタブルに）。
+ * `ModelClient`（ADR-006）と同じ思想で、実 Cloud Vision アダプタを差し替え可能にし、
+ * credential を要する実呼び出しを単体テスト/CI に持ち込まない。
+ *
+ * ⚠ ADR-024 決定2: OCR は **画像そのものを外部委託に送る**。実装側は呼び出しを `audit_log` に
+ * 記録し（who/school_id/画像ハッシュ/結果文字数）、結果テキストは下流で必ず PII マスキングを通すこと。
+ */
+export interface OcrClient {
+  /** バイト列（画像）を OCR してテキストを返す。 */
+  recognize(bytes: Uint8Array): Promise<OcrResult>;
 }
 
 /**

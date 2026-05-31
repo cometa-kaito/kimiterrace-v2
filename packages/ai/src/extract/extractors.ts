@@ -5,6 +5,7 @@ import {
   type ExtractSource,
   type ExtractedText,
   ExtractorNotConfiguredError,
+  type OcrClient,
   type SourceFormat,
 } from "./types.js";
 
@@ -16,8 +17,8 @@ import {
  *   - pdf  → `pdfjs-dist`（Node legacy build）
  *   - docx → `mammoth`
  *   - xlsx → `exceljs`
- * - `image` は OCR が外部委託（ルール4 / ADR-024 決定2）になるため、ガードが整うまでスタブのまま。
- *   配線前は {@link ExtractorNotConfiguredError} を投げるフェイルクローズスタブ。
+ * - `image` は OCR が外部委託（ルール4 / ADR-024 決定2）。OcrClient を注入して使う（決定3 の依存逆転）。
+ *   未注入なら {@link ExtractorNotConfiguredError} を投げるフェイルクローズ。
  *
  * 抽出済みテキストは **PII 未マスク** のまま返す契約（types.ts の注記参照、ルール4）。
  * マスキングは下流の structureContent / embedding 経路の責務。ここでは絶対にマスクしない。
@@ -163,15 +164,40 @@ export class XlsxExtractor extends BaseExtractor {
 }
 
 /**
- * 画像 OCR 抽出スタブ（#12 では触らない / ADR-024 決定2）。
- * TODO(F01-ocr): OCR バックエンドを追加して `meta.ocrUsed = true` を立てる。
- * ⚠ ルール4: 外部 OCR（Vertex Vision / Cloud Vision）は **画像そのものを外部委託に送る**。
- * 生徒の顔・氏名が写る画像をそのまま送らない設計（オンデバイス OCR か、送信前同意・監査必須）を
- * 配線時に ADR 化すること。抽出後テキストは下流で必ず PII マスキングを通す。
+ * 画像 OCR 抽出器（ADR-024 決定2/3）。
+ *
+ * OCR バックエンドは {@link OcrClient} として注入する（依存逆転）。実体は Cloud Vision アダプタ
+ * （{@link "./ocr/vision".createVisionOcrClient}）を想定するが、本クラスは Vision SDK を直接
+ * import せず、テストはフェイク OcrClient で全分岐を検証できる。
+ *
+ * ⚠ ADR-024 決定2（フェイルセーフ三段ガード）— 本クラスは技術的な抽出のみを担い、以下は呼び出し側の責務:
+ *   1. **オプトイン**: 教員が「画像から読み取る」を選んだ場合のみ画像 OCR を起動する。
+ *   2. **監査**: OCR 呼び出しを `audit_log` に記録（who / school_id / 画像ハッシュ / 結果文字数）。
+ *      画像ハッシュは生 PII 画像由来で 10 年保管対象になりうる点を運用で確認（ADR-024 M2）。
+ *   3. **下流マスキング**: 返す `text` は **PII 未マスク**。structureContent / embedding に渡す前に必ずマスクする。
+ *
+ * OCR を通したことは `meta.ocrUsed = true` で明示し、監査側が外部委託の発生を判別できるようにする。
+ * OcrClient 未注入なら {@link ExtractorNotConfiguredError}（フェイルクローズ。黙って空を返さない）。
  */
 export class ImageExtractor extends BaseExtractor {
   readonly format = "image" as const;
-  async extract(_source: ExtractSource): Promise<ExtractedText> {
-    throw new ExtractorNotConfiguredError("image", "@google-cloud/vision");
+  constructor(private readonly ocr?: OcrClient) {
+    super();
+  }
+  async extract(source: ExtractSource): Promise<ExtractedText> {
+    if (!this.ocr) {
+      throw new ExtractorNotConfiguredError("image", "@google-cloud/vision");
+    }
+    let result: Awaited<ReturnType<OcrClient["recognize"]>>;
+    try {
+      result = await this.ocr.recognize(source.bytes);
+    } catch (cause) {
+      throw new ExtractFailedError("image", "@google-cloud/vision", cause);
+    }
+    return {
+      text: result.text,
+      format: "image",
+      meta: { ocrUsed: true, confidence: result.confidence },
+    };
   }
 }
