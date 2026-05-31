@@ -71,10 +71,24 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/guide-internal")).toBe(true);
   });
 
-  it("既存の認証不要パスも除外のまま", () => {
+  it("既存の認証不要パスも除外のまま (bare とサブパスの両方)", () => {
     expect(gated.test("/login")).toBe(false);
+    expect(gated.test("/student")).toBe(false);
     expect(gated.test("/api/auth/session")).toBe(false);
+    expect(gated.test("/api/auth/signout")).toBe(false);
     expect(gated.test("/api/health")).toBe(false);
+  });
+
+  it("境界厳格化 (#139 L3): prefix 一致だった token が look-alike な保護ルートを過剰除外しない", () => {
+    // 素の `login`/`student`/`api/auth`/`api/health` は前方一致なので、これらが将来の
+    // 保護対象ルートを静かにゲート対象外にしていた。`(?:/|$)` 境界化で gate 対象に戻す。
+    expect(gated.test("/loginland")).toBe(true);
+    expect(gated.test("/students")).toBe(true); // 生徒一覧のような保護ルートを想定
+    expect(gated.test("/student-records")).toBe(true);
+    expect(gated.test("/api/authority")).toBe(true);
+    expect(gated.test("/api/auth-admin")).toBe(true);
+    expect(gated.test("/api/healthcheck")).toBe(true);
+    expect(gated.test("/api/health-internal")).toBe(true);
   });
 
   it("保護対象 (/admin 等) は引き続きゲート対象、s で始まる別パスは過剰除外しない", () => {

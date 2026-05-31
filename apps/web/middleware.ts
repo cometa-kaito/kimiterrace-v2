@@ -54,9 +54,17 @@ export function middleware(request: NextRequest): NextResponse {
  * `/student`、F12 の `/signage/`・`/guide`) を除外しないと「発行→生徒/端末が開く」「教員がフィードバック
  * 投稿」が /login に弾かれ実機で破綻する (PR #160 Reviewer Critical-1、#48-E)。回帰は
  * __tests__/auth/middleware.test.ts の matcher テスト。
+ *
+ * **境界の厳格化 (#139 L3)**: prefix 一致の token は `(?:/|$)` で path 境界に縛る。素の `login` /
+ * `student` / `api/auth` / `api/health` は前方一致なので、将来の**保護対象**ルート (`/students`,
+ * `/api/authority`, `/api/healthcheck`, `/loginland` 等) を**静かにゲート対象外**にし得る (認可は
+ * Server 側が最終防衛線だが、middleware 除外の取りこぼしは defense-in-depth を 1 枚剥がす)。
+ * `guide` を `guide(?:/|$)` に縛った前例 (PR #227 Reviewer Low-1) と同方針で、残りの prefix token も
+ * 境界化する。`s/` / `signage/` / `api/guide/` は末尾 `/` で既に境界済 (例: `s/` は `/settings` に
+ * 一致しない)。
  */
 export const config = {
   matcher: [
-    "/((?!login|s/|student|signage/|guide(?:/|$)|api/auth|api/health|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
