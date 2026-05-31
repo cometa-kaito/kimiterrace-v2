@@ -62,6 +62,9 @@ importers:
       '@kimiterrace/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@kimiterrace/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.2.17)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
