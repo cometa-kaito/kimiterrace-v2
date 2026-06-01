@@ -56,7 +56,11 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /問題を解/,
   /教科書/,
   // やさしい日本語 / ひらがな
-  /べんきょう/,
+  // `べんきょう`（ひらがな）は kanji `勉強` と同様、掲示物文脈（勉強会 / 勉強の予定・場所等）だけを
+  // negative lookahead で除外し対称化する（#401-2: kanji/hiragana 非対称の解消）。やさしい日本語の
+  // 分かち書き（`べんきょうの よてい`）を吸収するため助詞 `の` 前後の空白を許容する。NFKC で全角空白は
+  // 半角化済。`べんきょうの しかた`（学習依頼）は除外語に無いので引き続き study。
+  /べんきょう(?!かい|\s*の\s*(?:よてい|にってい|ばしょ|かいじょう|しゅうごう|じかん|はんい|もちもの))/,
   /しゅくだい/,
   /こたえをおしえ/,
   // 英語
@@ -69,7 +73,14 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /\bsolve (?:this |that |these |the |my |your )?(?:equation|exercise|inequality|integral|worksheet|homework)\b/i,
   /\bsolve for [a-z]\b/i,
   /\bteach me (?:how|the|math|english|science|to solve)/i,
-  /\b(?:math|algebra|geometry|calculus|physics) (?:problem|question)/i,
+  // 教科語 + 学習名詞の共起で study とする。教科語で束縛するので `social studies`（社会科）や
+  // `science fair`（掲示物イベント）は noun 側に無く誤検出しない（#401-1: 英語 recall を新偽陽性なしで拡張）。
+  // `solve this chemistry problem` 等は `solve` 単独パターンに無くても本パターンで拾える。
+  /\b(?:math|maths|algebra|geometry|calculus|physics|chemistry|biology|science|english|japanese|history|geography) (?:problem|question|exercise|worksheet)\b/i,
+  // `assignment` は「席替え/部屋割り」(seating/room assignment = 掲示物) と曖昧。学習依頼を示す動詞
+  // （do/finish/complete/help with）の直後に assignment が来る形だけ study にする。`the seating assignment`
+  // は動詞直後に assignment が来ないので除外。締切質問 `when is the assignment due` も動詞非該当で in_scope（#401-1）。
+  /\b(?:do|finish|complete|help (?:me )?with) (?:my |the |this |that |our )?assignment\b/i,
   /\bequation\b/i,
   // ポルトガル語
   /\bdever de casa\b/i,
