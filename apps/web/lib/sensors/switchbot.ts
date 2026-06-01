@@ -74,8 +74,10 @@ function isTimeOfSampleSane(ms: number, nowMs: number): boolean {
  *
  * **時刻窓（#437 Low-1）**: `timeOfSample` が sane window 外なら、検知イベント自体は保持しつつ
  * `timeOfSampleMs=null` に倒す（= DB の受信時刻 `now()` を使う）。共有シークレット保持攻撃者による
- * occurred_at 汚染（F08 集計歪曲）と dedup キー `(device_mac, occurred_at)` 水増しを無力化する。
+ * **occurred_at 汚染（任意の過去/未来時刻で F08 時間帯/日次集計を歪曲）を無力化**する（受信時刻に倒す）。
  * presence 検知は実在しうるため event は捨てない（時刻のみ中和）。
+ * 注: 同一検知の連投による行数膨張は本処理では止まらない（null 時刻は dedup を経ず受信時刻で記録される）。
+ * 行数膨張は IP レート制限（route.ts）が律速する。
  */
 export function parsePresenceWebhook(
   body: unknown,
