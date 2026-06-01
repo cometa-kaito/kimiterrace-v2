@@ -3,6 +3,7 @@
 
 export { detectFormat } from "./detect.js";
 export {
+  assertStandardFontsAvailable,
   DocxExtractor,
   ImageExtractor,
   PdfExtractor,

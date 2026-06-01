@@ -57,6 +57,7 @@ export {
   DocxExtractor,
   XlsxExtractor,
   ImageExtractor,
+  assertStandardFontsAvailable,
   SOURCE_FORMATS,
   UnsupportedFormatError,
   LegacyOfficeFormatError,
