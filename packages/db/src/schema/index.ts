@@ -11,6 +11,8 @@ export * from "./contents.js";
 export * from "./content-versions.js";
 export * from "./publishes.js";
 export * from "./events.js";
+// F13 (#391, ADR-020): 来場検知センサーのデバイス登録（presence events は events テーブルへ）
+export * from "./sensor-devices.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";

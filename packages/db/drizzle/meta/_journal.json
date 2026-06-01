@@ -92,6 +92,13 @@
       "when": 1780286346406,
       "tag": "20260601035906_ai_rate_limit_windows",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780296238272,
+      "tag": "20260601064358_f13_sensor_devices",
+      "breakpoints": true
     }
   ]
 }
