@@ -30,6 +30,20 @@ export {
 } from "./prompt/chat.js";
 export type { ChatContext, ChatPrompt } from "./prompt/chat.js";
 
+// F08 (#44, ADR-005) AI 効果コメント生成プロンプト builder（決定論的・PII マスク前提、slice 1）
+export {
+  buildEffectCommentPrompt,
+  buildEffectCommentSystemPrompt,
+  buildStatsBlock,
+  formatDelta,
+} from "./prompt/effect-comment.js";
+export type {
+  EffectCommentPrompt,
+  EffectCommentStats,
+  EffectMetric,
+  EffectTopContent,
+} from "./prompt/effect-comment.js";
+
 // モデル境界 + Vertex アダプタ（ADR-005/006）
 export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./model/client.js";
 export { createVertexModelClient } from "./model/vertex.js";
