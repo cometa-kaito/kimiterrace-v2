@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { Workbook as ExceljsWorkbook } from "exceljs";
@@ -52,30 +53,87 @@ function toBuffer(bytes: Uint8Array): Buffer {
   return Buffer.from(bytes);
 }
 
+/** pdfjs-dist が standard_fonts/ に同梱するフォント実体の拡張子（.pfb / .ttf / .otf / .bcmap）。 */
+const STANDARD_FONT_FILE_RE = /\.(pfb|ttf|otf|bcmap)$/i;
+
 /**
- * pdfjs-dist v6 の標準フォント (Helvetica 等の標準14フォント) データ所在を解決する。
- *
- * v5 では未設定でも警告のみで text 抽出は成功したが、**v6 では `standardFontDataUrl` 未設定だと
- * 標準フォント PDF の `getTextContent()` が `UnknownErrorException` で壊れる**（実 smoke で確認）。
- * 配布物に同梱される `pdfjs-dist/standard_fonts/` ディレクトリの `file://` URL（末尾スラッシュ必須）を
- * `createRequire(import.meta.url).resolve` で解決して返す。
- *
- * **本番バンドル (Cloud Run / Turbopack) で `pdfjs-dist/package.json` が解決できない環境**では
- * `undefined` を返し、呼び出し側は standardFontDataUrl 無しで抽出を試みる（v5 同等の defensive 動作。
- * 標準フォント以外の埋め込みフォント PDF は引き続き抽出可能）。フォント解決不能を理由に抽出全体を
- * 落とさない（フェイルクローズではなく best-effort 側に倒す。テキスト皆無なら下流が検知する）。
+ * `pdfjs-dist/standard_fonts/` ディレクトリの絶対パスを解決する（存在検査なしの純粋なパス計算）。
+ * `pdfjs-dist/package.json` を `createRequire(...).resolve` で解決し、その隣の `standard_fonts` を指す。
+ * package.json すら解決できない環境（pdfjs-dist 未 trace 等）では `undefined`。
  */
-function resolveStandardFontDataUrl(): string | undefined {
+function locateStandardFontsDir(): string | undefined {
   try {
     const require = createRequire(import.meta.url);
     // package.json は exports に依存せず常に解決できる（v6 は exports フィールド無し）。
     const pkgJsonPath = require.resolve("pdfjs-dist/package.json");
     const pkgRoot = pkgJsonPath.slice(0, pkgJsonPath.length - "package.json".length);
-    // pathToFileURL はディレクトリに末尾スラッシュを付与する。pdfjs は末尾スラッシュを要求。
-    return pathToFileURL(`${pkgRoot}standard_fonts/`).href;
+    return `${pkgRoot}standard_fonts`;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * `standard_fonts/` にフォント実体が 1 つ以上あるか。
+ *
+ * `package.json` が解決できても、Next standalone の file-tracing は **実行時の動的 `file://`
+ * アクセスを追えず** `standard_fonts/` を同梱しないことがある。その場合ディレクトリが欠落 or 空に
+ * なる。パス解決だけで「ある」と誤判定しないよう、実ファイルの存在まで確認する。
+ */
+function hasStandardFontData(dir: string): boolean {
+  try {
+    return existsSync(dir) && readdirSync(dir).some((name) => STANDARD_FONT_FILE_RE.test(name));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * pdfjs-dist v6 の標準フォント (Helvetica 等の標準14フォント) データの `file://` URL を解決する。
+ *
+ * v5 では未設定でも警告のみで text 抽出は成功したが、**v6 では `standardFontDataUrl` 未設定だと
+ * 標準フォント PDF の `getTextContent()` が `UnknownErrorException` で壊れる**（実 smoke で確認）。
+ * 配布物に同梱される `pdfjs-dist/standard_fonts/` ディレクトリの `file://` URL（末尾スラッシュ必須）を返す。
+ *
+ * **フォント実体が見つからない環境**（本番 Cloud Run / Turbopack standalone でディレクトリが
+ * 同梱漏れ、または pdfjs-dist 未解決）では `undefined` を返す。呼び出し側は standardFontDataUrl
+ * 無しで抽出を試みる（v5 同等の defensive 動作。埋め込みフォント PDF は引き続き抽出可能）。
+ * 解決不能を理由に抽出全体を落とさず best-effort に倒す（テキスト皆無なら下流が検知する）。
+ *
+ * 注: パス解決成功 ≠ フォント実体存在。{@link hasStandardFontData} で実ファイルまで確認するため、
+ * 同梱漏れ時に「URL は返るがフォントは無い」サイレント空振りを起こさない（Issue #311）。
+ */
+function resolveStandardFontDataUrl(): string | undefined {
+  const dir = locateStandardFontsDir();
+  if (!dir || !hasStandardFontData(dir)) {
+    return undefined;
+  }
+  // pathToFileURL はディレクトリに末尾スラッシュを付与する。pdfjs は末尾スラッシュを要求。
+  return pathToFileURL(`${dir}/`).href;
+}
+
+/**
+ * 本番起動時の fail-fast ガード（Issue #311）。
+ *
+ * Next standalone バンドルで `pdfjs-dist/standard_fonts/` が同梱漏れすると、標準フォント PDF の
+ * text 抽出が **サイレントに空** になる（下流は fail-close で検知するが、F03 教員入力 PDF 構造化が
+ * 本番で機能しなくなる）。サイレント劣化より loud failure を選ぶため、起動時にフォント実体の解決可否を
+ * 検査し、解決不能なら throw してデプロイ/起動を早期に落とす。
+ *
+ * 呼び出しは production の起動経路（apps/web `instrumentation.ts` の `register`）から行う。
+ * 開発/テストでは node_modules にフォント実体があるため通常 throw しない。
+ */
+export function assertStandardFontsAvailable(): void {
+  if (resolveStandardFontDataUrl() !== undefined) {
+    return;
+  }
+  const dir = locateStandardFontsDir() ?? "pdfjs-dist 未解決";
+  throw new Error(
+    `pdfjs-dist standard_fonts のフォント実体を解決できません (${dir})。` +
+      "標準フォント PDF の text 抽出がサイレントに空になります。" +
+      "Cloud Run standalone バンドルに standard_fonts/ が同梱されているか確認してください " +
+      "(apps/web/next.config.ts の outputFileTracingIncludes)。Issue #311。",
+  );
 }
 
 /**
