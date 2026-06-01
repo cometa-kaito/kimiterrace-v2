@@ -1,5 +1,6 @@
-import { type InferSelectModel, asc, desc, inArray } from "drizzle-orm";
+import { type InferSelectModel, asc, desc, eq, inArray } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
+import { schools } from "../schema/schools.js";
 import { users } from "../schema/users.js";
 
 /**
@@ -82,4 +83,48 @@ export async function listSchoolMembers(tx: TenantTx): Promise<SchoolMember[]> {
     .from(users)
     .where(inArray(users.role, [...STAFF_ROLES]))
     .orderBy(desc(users.isActive), asc(users.role), asc(users.displayName));
+}
+
+/**
+ * F11 (#47 / #324): system_admin **全校横断**の教職員ディレクトリ 1 行。`listSchoolMembers` の自校版に対する
+ * 全校版で、所属校 (`schoolId` / `schoolName`) を併せて返す。**`email` 等の PII は射影しない**
+ * (一覧の PII 露出面を最小化、ルール4)。
+ */
+export type StaffDirectoryEntry = Pick<
+  InferSelectModel<typeof users>,
+  "id" | "displayName" | "role" | "isActive"
+> & { schoolId: string; schoolName: string };
+
+/**
+ * F11 (#47 / #324): **全校横断**の教職員一覧を返す。**SELECT のみ**。system_admin のユーザー管理面
+ * (`/admin/system/users`) が消費し、ADR-026 のロール変更 / 無効化 操作系 (D2 / 全校無効化) の土台となる。
+ *
+ * ## 認可 / テナント (CLAUDE.md ルール2、多層防御)
+ * `WHERE school_id` を書かない — 可視範囲は RLS が決める。`users` / `schools` の
+ * `system_admin_full_access` policy により **system_admin context では全校**が見える (ADR-019)。万一
+ * テナントロール (school_admin) の context で本クエリが呼ばれても、`users.tenant_isolation` /
+ * `schools.tenant_self_read` が **自校のみ**に絞る (越境しない) — RLS が最終境界。呼出側は
+ * `requireRole(SYSTEM_ADMIN_ROLES)` + `withSession` で system_admin context を張ること。
+ *
+ * `role IN (教職員)` は student / guardian を除外する対象絞り込みで、テナント境界の手書き WHERE では
+ * ない。`INNER JOIN schools` は `users.school_id` (notNull FK) で常に 1 校に対応する。
+ *
+ * ## 並び
+ * 学校名昇順 → ロール昇順 (school_admin → teacher) → 表示名昇順で決定的にする。無効化済みアカウントも
+ * 残し、過去在籍のトレース用に閲覧できるようにする (is_active では並べ替えず学校単位で固める)。
+ */
+export async function listAllStaff(tx: TenantTx): Promise<StaffDirectoryEntry[]> {
+  return await tx
+    .select({
+      id: users.id,
+      displayName: users.displayName,
+      role: users.role,
+      isActive: users.isActive,
+      schoolId: users.schoolId,
+      schoolName: schools.name,
+    })
+    .from(users)
+    .innerJoin(schools, eq(users.schoolId, schools.id))
+    .where(inArray(users.role, [...STAFF_ROLES]))
+    .orderBy(asc(schools.name), asc(users.role), asc(users.displayName));
 }
