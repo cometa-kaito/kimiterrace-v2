@@ -11,9 +11,12 @@ import {
 } from "@kimiterrace/ai";
 import { getTeacherInput, listStaffDisplayNames } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
-import { getCurrentUser } from "../auth/session";
 import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
-import { type RunAndPersistParams, runAndPersistExtraction } from "./run-extraction";
+import {
+  type RunAndPersistParams,
+  getAuthorizedExtractionUser,
+  runAndPersistExtraction,
+} from "./run-extraction";
 
 /**
  * F03 (#154 item 2b + 4): 教員入力 transcript → AI 構造化抽出を起動する **トリガ**。
@@ -94,10 +97,8 @@ function getExtractionModel(): ModelClient {
 }
 
 async function defaultLoadTranscript(inputId: string): Promise<LoadedInput> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new UnauthenticatedError();
-  }
+  // gate-first: transcript 読取の前に role を弾く (非作者に他教員の transcript を読ませない、ルール2)。
+  const user = await getAuthorizedExtractionUser();
   return withUserSession(user, async (tx) => {
     const row = await getTeacherInput(tx, inputId);
     return row ? { transcript: row.transcript } : null;
@@ -105,10 +106,8 @@ async function defaultLoadTranscript(inputId: string): Promise<LoadedInput> {
 }
 
 async function defaultLoadStaffPiiEntries(): Promise<PiiEntry[]> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new UnauthenticatedError();
-  }
+  // gate-first: 職員氏名 roster (PII) 読取の前に role を弾く (ルール2 / ルール4)。
+  const user = await getAuthorizedExtractionUser();
   const names = await withUserSession(user, (tx) => listStaffDisplayNames(tx));
   return names.map((value) => ({ value, category: "STAFF" as const }));
 }
