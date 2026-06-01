@@ -53,7 +53,7 @@ export default async function SystemDashboardPage() {
       </p>
 
       <div style={cardsStyle}>
-        <SummaryCard label="表示 (view)" value={overall.view} />
+        <SummaryCard label="延べ表示数 (engagement)" value={overall.view} />
         <SummaryCard label="タップ (tap)" value={overall.tap} />
         <SummaryCard label="Q&A (ask)" value={overall.ask} />
       </div>
@@ -102,6 +102,13 @@ export default async function SystemDashboardPage() {
           </tbody>
         </table>
       )}
+
+      {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
+      <p style={footnoteStyle}>
+        「延べ表示数
+        (engagement)」は表示の延べ回数で、同じ内容を複数回・複数端末で表示した分も数えます。
+        広告主向けの「到達数 (reach)」は別指標 (重複排除済) です。
+      </p>
     </section>
   );
 }
@@ -201,3 +208,8 @@ const tdNumStyle: React.CSSProperties = {
   fontVariantNumeric: "tabular-nums",
 };
 const tdNumTotalStyle: React.CSSProperties = { ...tdNumStyle, fontWeight: 700 };
+const footnoteStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontSize: "0.8rem",
+  marginTop: "1.5rem",
+};

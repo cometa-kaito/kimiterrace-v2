@@ -90,7 +90,7 @@ describe("GET /api/reports/monthly", () => {
     const res = await GET(get("2026-03"));
     const text = await res.text();
     expect(text).toContain("キミテラス 月次レポート,2026年3月");
-    expect(text).toContain("表示 (view),10");
+    expect(text).toContain("延べ表示数 (engagement),10");
     expect(text).toContain("1,お知らせ,8,2,10");
   });
 

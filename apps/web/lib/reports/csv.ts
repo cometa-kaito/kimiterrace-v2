@@ -63,7 +63,7 @@ export function monthlySummaryToCsv(summary: MonthlySchoolSummary): string {
     toRow(["集計基準", "日本時間(JST) 暦月"]),
     "",
     toRow(["指標", "件数"]),
-    toRow(["表示 (view)", summary.totals.view]),
+    toRow(["延べ表示数 (engagement)", summary.totals.view]),
     toRow(["タップ (tap)", summary.totals.tap]),
     toRow(["Q&A (ask)", summary.totals.ask]),
     toRow(["稼働日数", summary.activeDays]),

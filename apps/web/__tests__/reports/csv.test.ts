@@ -74,7 +74,7 @@ describe("monthlySummaryToCsv", () => {
     expect(lines[2]).toBe("");
     expect(lines[3]).toBe("指標,件数");
     // 桁区切りを入れず生の整数で出す (表計算が数値として扱える)。
-    expect(lines[4]).toBe("表示 (view),1234");
+    expect(lines[4]).toBe("延べ表示数 (engagement),1234");
     expect(lines[5]).toBe("タップ (tap),56");
     expect(lines[6]).toBe("Q&A (ask),7");
     expect(lines[7]).toBe("稼働日数,20");

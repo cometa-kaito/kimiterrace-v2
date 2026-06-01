@@ -93,7 +93,7 @@ export default async function MonthlyReportPage({
       </p>
 
       <div style={cardsStyle}>
-        <SummaryCard label="表示 (view)" value={summary.totals.view} />
+        <SummaryCard label="延べ表示数 (engagement)" value={summary.totals.view} />
         <SummaryCard label="タップ (tap)" value={summary.totals.tap} />
         <SummaryCard label="Q&A (ask)" value={summary.totals.ask} />
         <SummaryCard label="稼働日数" value={summary.activeDays} unit="日" />
@@ -137,8 +137,10 @@ export default async function MonthlyReportPage({
       )}
 
       <p style={footnoteStyle}>
-        集計は日本時間 (JST) の暦月基準です。上のリンクからこの表を CSV でダウンロードできます。
-        広告主別レポートと PDF ダウンロードは今後のスライスで追加します。
+        集計は日本時間 (JST) の暦月基準です。「延べ表示数
+        (engagement)」は表示の延べ回数で、同じ内容を 複数回・複数端末で表示した分も数えます
+        (広告主向けの「到達数 (reach)」とは別指標です)。 上のリンクからこの表を CSV
+        でダウンロードできます。広告主別レポートと PDF ダウンロードは今後の スライスで追加します。
       </p>
     </section>
   );
