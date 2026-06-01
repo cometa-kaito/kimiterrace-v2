@@ -1,6 +1,6 @@
 # ADR-022: TV リモート設定はポーリング方式を採用（push 型 WebSocket/FCM 不採用）
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [F15 (TVリモート管理)](../requirements/functional/F15-tv-device-management.md), [F13 (来場検知 Webhook)](../requirements/functional/F13-presence-sensor-webhook.md), [ADR-020 (SwitchBot Webhook)](020-presence-sensor-switchbot-webhook.md), [NFR01](../requirements/non-functional/NFR01-performance.md), [NFR03](../requirements/non-functional/NFR03-security.md)
 

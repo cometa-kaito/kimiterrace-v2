@@ -1,6 +1,6 @@
 # ADR-016: クラス magic link による生徒匿名アクセス
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-28
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [F05](../requirements/functional/F05-class-magic-link.md), [F06](../requirements/functional/F06-student-qa.md), [v2-mvp.md §3](../requirements/v2-mvp.md)
 

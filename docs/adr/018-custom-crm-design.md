@@ -1,6 +1,6 @@
 # ADR-018: CRM 機能の独自設計（既存 SaaS 連携を採用しない）
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-28
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [F10](../requirements/functional/F10-crm.md), [F09](../requirements/functional/F09-monthly-report.md), [v2-mvp.md §3](../requirements/v2-mvp.md)
 

@@ -1,6 +1,6 @@
 # F14: サイネージ天気予報表示（気象庁データ）
 
-- 状態: Draft（新規）
+- 状態: Draft（Phase 2 後回し確定 2026-06-01、MVP=F06–F11 優先）
 - 関連 ADR: [ADR-021 (天気データソース = 気象庁 JMA)](../../adr/021-weather-data-source-jma.md), [ADR-019 (RLS 二層)](../../adr/019-rls-two-layer-tenant-isolation.md)。ADR-002 (Cloud Run) / ADR-001 (PostgreSQL) / ADR-009 (Terraform) は未作成（[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
 - 関連要件: [F12 (V1 機能移植 / サイネージ)](F12-v1-port.md), [NFR01 (性能)](../non-functional/NFR01-performance.md), [NFR03 (セキュリティ)](../non-functional/NFR03-security.md), [NFR04 (監査ログ)](../non-functional/NFR04-audit-log.md), [NFR05 (アクセシビリティ)](../non-functional/NFR05-accessibility.md), [NFR06 (コスト)](../non-functional/NFR06-cost-policy.md)
 - 関連 issue: [#128](https://github.com/cometa-kaito/kimiterrace-v2/issues/128)
@@ -82,7 +82,9 @@
 - 監査 / 観測: [NFR04](../non-functional/NFR04-audit-log.md)、ADR-013 (Sentry) / ADR-014 (Observability)（いずれも未作成 [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
 - テスト: `apps/jobs/weather-fetch/__tests__/`, `__tests__/rls/weather-forecasts.test.ts`
 
-## 要決定（次セッション / 着手前に確認）
+## 要決定（Phase 2 着手時に確定）
+
+> **2026-06-01 ユーザー判断: F14 は Phase 2 へ後回し**（MVP=F06–F11 完成を優先、PoC 前倒しは行わない）。表示範囲・地域粒度は着手時に確定する。地域コードマップは確定時 **コード定数**（`packages/` 内）を既定とする（Reviewer M2 / 固定的・小規模）。
 
 - 表示範囲: 本日のみ / 本日 + 翌日 / 週間（情報量とサイネージの視認性のバランス）
 - 地域粒度: 府県予報区（既定）で十分か、市区単位まで必要か（JMA の地域コード階層次第）

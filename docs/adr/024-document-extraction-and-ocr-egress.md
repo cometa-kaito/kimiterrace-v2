@@ -1,6 +1,6 @@
 # ADR-024: 文書テキスト抽出と画像 OCR の外部委託境界
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-31
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [#180 (抽出レイヤ scaffold)](https://github.com/cometa-kaito/kimiterrace-v2/pull/180), [ADR-005 (Vertex AI)](005-vertex-ai.md), [ADR-017 (Gemini 構造化 + confidence)](017-gemini-ai-structuring-with-confidence.md), [CLAUDE.md ルール4 (PII マスキング)](../../CLAUDE.md)
 

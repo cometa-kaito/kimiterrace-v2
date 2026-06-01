@@ -1,6 +1,6 @@
 # ADR-006: Vercel AI SDK でストリーミング UI を実装
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-005 (Vertex AI)](005-vertex-ai.md), [ADR-008 (Route Handlers)](008-nextjs-route-handlers.md), [ADR-017 (Gemini 構造化 + confidence)](017-gemini-ai-structuring-with-confidence.md), [F02 教員音声/チャット入力](../requirements/functional/F02-teacher-voice-chat-input.md), [F06 生徒 Q&A](../requirements/functional/F06-student-qa.md), [NFR06 コストポリシー](../requirements/non-functional/NFR06-cost-policy.md)
 

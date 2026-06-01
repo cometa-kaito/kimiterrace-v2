@@ -1,6 +1,6 @@
 # ADR-013: エラー追跡は Sentry を採用
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-014 (観測)](014-observability.md), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [NFR03 セキュリティ](../requirements/non-functional/NFR03-security.md), [CLAUDE.md ルール4 (PII マスキング)](../../CLAUDE.md)
 
