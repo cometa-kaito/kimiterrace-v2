@@ -87,9 +87,11 @@ export async function structureContent(req: StructureRequest): Promise<Structure
   const maxRetries = req.maxRetries ?? 2;
 
   // レート制限（任意）。マスキングやモデル呼び出しより前に弾く。
+  // tryAcquire は Awaitable<boolean>: インメモリ版は同期 boolean、共有ストア版（ADR-027）は
+  // Promise<boolean>。await すれば両実装を透過に扱える（依存逆転、PR #155 / ADR-027）。
   if (req.rateLimiter && req.schoolId) {
     const now = req.nowMs ?? Date.now();
-    if (!req.rateLimiter.tryAcquire(req.schoolId, now)) {
+    if (!(await req.rateLimiter.tryAcquire(req.schoolId, now))) {
       throw new RateLimitExceededError(req.schoolId);
     }
   }
