@@ -34,3 +34,5 @@ export * from "./queries/ad-reach.js";
 export * from "./queries/ai-rate-limit.js";
 // F06 (#364, ADR-028): 生徒 Q&A の RAG 検索 (公開中 content_versions を pgvector で top-k、RLS 委譲)
 export * from "./queries/rag-search.js";
+// F13 (#408, ADR-020): SwitchBot Webhook の presence イベント書込み (cross-tenant 解決 + scoped insert)
+export * from "./queries/sensor-presence.js";
