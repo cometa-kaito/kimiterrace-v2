@@ -1,13 +1,16 @@
 import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
+import { densifyPresenceHourly, hasPresenceData } from "@/lib/dashboard/presence";
 import { withSession } from "@/lib/db";
 import {
   type DailyEventCount,
   getDailyEventCounts,
   getEventStats,
   getHourlyEventCounts,
+  getHourlyPresenceCounts,
   type HourlyEventCount,
+  type HourlyPresenceCount,
 } from "@kimiterrace/db";
 
 /**
@@ -32,10 +35,11 @@ import {
 export default async function DashboardPage() {
   await requireRole(PUBLISHER_ROLES);
   // 同一 RLS context (1 tx) で全クエリを実行する。
-  const { stats, daily, hourly } = await withSession(async (tx) => ({
+  const { stats, daily, hourly, presence } = await withSession(async (tx) => ({
     stats: await getEventStats(tx),
     daily: await getDailyEventCounts(tx),
     hourly: await getHourlyEventCounts(tx),
+    presence: await getHourlyPresenceCounts(tx),
   }));
 
   return (
@@ -100,6 +104,9 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>時間帯別の傾向</h2>
       <HourlyTrend hourly={hourly} />
+
+      <h2 style={sectionTitleStyle}>時間帯別の在室 (人感センサー)</h2>
+      <PresenceTrend presence={presence} />
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>
@@ -183,6 +190,34 @@ function HourlyTrend({ hourly }: { hourly: HourlyEventCount[] }) {
           </li>
         );
       })}
+    </ul>
+  );
+}
+
+/**
+ * 時間帯別 (JST hour-of-day) の **在室 (presence)** を CSS バーで軽量描画する。F13 人感 (PIR)
+ * センサー由来の `type='presence'` を集計したもので、view/tap (反応) とは別の「人がいたか」指標。
+ * 0〜23 時を密に並べ、バー長は最大時比で正規化。色のみに依存せず各行に「時」ラベルと在室件数
+ * テキストを併記する (WCAG 2.2 AA、NFR05)。バー色も view/tap (青) と分けて緑にする (ADR-020:
+ * 来場検知はカメラ非使用の PIR、ページ上部の「カメラ不使用」バッジと整合)。
+ */
+function PresenceTrend({ presence }: { presence: HourlyPresenceCount[] }) {
+  if (!hasPresenceData(presence)) {
+    return <p style={emptyStyle}>対象期間の在室データはまだありません。</p>;
+  }
+  const dense = densifyPresenceHourly(presence);
+  const max = Math.max(...dense.map((h) => h.presence), 1);
+  return (
+    <ul style={trendListStyle}>
+      {dense.map((h) => (
+        <li key={h.hour} style={trendRowStyle}>
+          <span style={trendDayStyle}>{formatHour(h.hour)}</span>
+          <span style={trendBarTrackStyle}>
+            <span style={{ ...presenceBarFillStyle, width: `${(h.presence / max) * 100}%` }} />
+          </span>
+          <span style={trendCountStyle}>在室 {h.presence}</span>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -293,6 +328,12 @@ const trendBarTrackStyle: React.CSSProperties = {
 const trendBarFillStyle: React.CSSProperties = {
   display: "block",
   background: "#3b82f6",
+  height: "100%",
+};
+// 在室 (presence) バーは view/tap (青) と区別するため緑。色のみに依存しない (件数テキスト併記、NFR05)。
+const presenceBarFillStyle: React.CSSProperties = {
+  display: "block",
+  background: "#10b981",
   height: "100%",
 };
 const trendCountStyle: React.CSSProperties = {
