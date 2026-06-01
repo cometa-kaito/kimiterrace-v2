@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Workbook as ExceljsWorkbook } from "exceljs";
 import {
@@ -57,13 +58,28 @@ function toBuffer(bytes: Uint8Array): Buffer {
 const STANDARD_FONT_FILE_RE = /\.(pfb|ttf|otf)$/i;
 
 /**
- * `pdfjs-dist/standard_fonts/` ディレクトリの絶対パスを解決する（存在検査なしの純粋なパス計算）。
- * `pdfjs-dist/package.json` を `createRequire(...).resolve` で解決し、その隣の `standard_fonts` を指す。
- * package.json すら解決できない環境（pdfjs-dist 未 trace 等）では `undefined`。
+ * `pdfjs-dist` の解決起点（anchor）候補。先頭から順に試し、最初に **フォント実体を持つ**
+ * `standard_fonts/` を解決できた anchor を採用する。
+ *
+ * - `import.meta.url`: 開発 / vitest / 非バンドル実行で有効（ソースの実位置から解決）。
+ * - `process.cwd()`: **Turbopack バンドル後の本番 server で必須**。バンドル後は `import.meta.url` が
+ *   `.next/server/chunks/...` を指し、バンドラがリゾルバを書き換えるため pdfjs-dist を解決できない。
+ *   一方 `process.cwd()`（`next start`=apps/web / standalone=ルート）は **実ファイルシステム上の
+ *   node_modules** を持ち、Node 実リゾルバで解決できる（apps/web に pdfjs-dist を直接依存化済み）。
+ *   anchor のファイル自体は存在不要（`createRequire` は親ディレクトリを解決基点に使うだけ）。
  */
-function locateStandardFontsDir(): string | undefined {
+function standardFontAnchors(): string[] {
+  return [import.meta.url, pathToFileURL(join(process.cwd(), "noop.cjs")).href];
+}
+
+/**
+ * 指定 anchor 起点で `pdfjs-dist/standard_fonts/` ディレクトリの絶対パスを解決する（存在検査なし）。
+ * `pdfjs-dist/package.json` を `createRequire(anchor).resolve` で解決し、その隣の `standard_fonts` を指す。
+ * 解決できなければ `undefined`。
+ */
+function standardFontsDirFrom(anchor: string): string | undefined {
   try {
-    const require = createRequire(import.meta.url);
+    const require = createRequire(anchor);
     // package.json は exports に依存せず常に解決できる（v6 は exports フィールド無し）。
     const pkgJsonPath = require.resolve("pdfjs-dist/package.json");
     const pkgRoot = pkgJsonPath.slice(0, pkgJsonPath.length - "package.json".length);
@@ -71,6 +87,17 @@ function locateStandardFontsDir(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** 診断/メッセージ用: 最初に解決できた standard_fonts ディレクトリ（存在検査なし）。 */
+function locateStandardFontsDir(): string | undefined {
+  for (const anchor of standardFontAnchors()) {
+    const dir = standardFontsDirFrom(anchor);
+    if (dir) {
+      return dir;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -104,12 +131,16 @@ function hasStandardFontData(dir: string): boolean {
  * 同梱漏れ時に「URL は返るがフォントは無い」サイレント空振りを起こさない（Issue #311）。
  */
 function resolveStandardFontDataUrl(): string | undefined {
-  const dir = locateStandardFontsDir();
-  if (!dir || !hasStandardFontData(dir)) {
-    return undefined;
+  // anchor を順に試し、**フォント実体まで揃った**最初のディレクトリを採用する。
+  // 異なる anchor が別の pdfjs コピー（片方はフォント欠落）を指す可能性があるため、存在検査込みで選ぶ。
+  for (const anchor of standardFontAnchors()) {
+    const dir = standardFontsDirFrom(anchor);
+    if (dir && hasStandardFontData(dir)) {
+      // pathToFileURL はディレクトリに末尾スラッシュを付与する。pdfjs は末尾スラッシュを要求。
+      return pathToFileURL(`${dir}/`).href;
+    }
   }
-  // pathToFileURL はディレクトリに末尾スラッシュを付与する。pdfjs は末尾スラッシュを要求。
-  return pathToFileURL(`${dir}/`).href;
+  return undefined;
 }
 
 /**

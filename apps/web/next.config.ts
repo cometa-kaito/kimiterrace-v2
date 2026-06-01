@@ -26,6 +26,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ["@kimiterrace/db", "@kimiterrace/ai", "@kimiterrace/observability"],
+  // pdfjs-dist はバンドルせず runtime に node_modules から require させる。バンドルすると
+  // (a) PdfExtractor の `createRequire(import.meta.url).resolve("pdfjs-dist/package.json")` が
+  // chunk 位置から解決できず standard_fonts を見失う、(b) legacy build の worker/font 資産が壊れる。
+  // external 化 + apps/web の直接依存化で、server (next start) と standalone の双方で解決可能にする (#311)。
+  serverExternalPackages: ["pdfjs-dist"],
   outputFileTracingRoot: monorepoRoot,
   outputFileTracingIncludes: {
     // 抽出 route は標準フォント PDF を扱う。pnpm の入れ子 (.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist) を
