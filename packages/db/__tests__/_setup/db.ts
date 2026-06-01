@@ -51,7 +51,7 @@ export async function seedBaseFixture(sql: ReturnType<typeof postgres>): Promise
       TRUNCATE
         audit_log,
         teacher_input_attachments, teacher_inputs,
-        ai_chat_messages, ai_chat_sessions, ai_extractions,
+        ai_chat_messages, ai_chat_sessions, ai_extractions, ai_rate_limit_windows,
         events, publishes, content_versions, contents,
         ads, daily_data, school_configs, departments, grades,
         magic_links, memberships, classes, users,
