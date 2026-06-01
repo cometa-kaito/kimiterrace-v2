@@ -1,8 +1,7 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { type RoleActor, canModifyTargetUser } from "@/lib/role-management/policy";
-import { listSchoolMembers } from "@/lib/role-management/members-queries";
-import type { TenantRole } from "@kimiterrace/db";
+import { type TenantRole, listSchoolMembers } from "@kimiterrace/db";
 
 /**
  * F11 (#47) 第2スライス: 自校 **教職員一覧** (`/admin/school/members`)。**Server Component**。

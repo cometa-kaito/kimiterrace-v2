@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { type InferSelectModel, asc, desc, inArray } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { users } from "../schema/users.js";
 
@@ -42,4 +42,44 @@ export async function listStaffDisplayNames(tx: TenantTx): Promise<string[]> {
     names.push(name);
   }
   return names;
+}
+
+/**
+ * F11 (#47 / #320): 自校メンバー一覧 1 行の軽量射影。識別 + ロール + 稼働状態のみ。
+ * **`email` 等の PII は射影しない** (一覧の PII 露出面を最小化、ルール4)。
+ */
+export type SchoolMember = Pick<
+  InferSelectModel<typeof users>,
+  "id" | "displayName" | "role" | "isActive"
+>;
+
+/**
+ * F11 (#47 第2スライス / #320): 自校の教職員一覧を返す。**SELECT のみ**。
+ *
+ * 学校管理者 (school_admin) が自校の教職員 (school_admin / teacher) を一覧し、誰のロールを管理できるか
+ * を把握するための read 層。PR #318 では並行レーン #289 (本ファイル新規追加) との衝突回避のため
+ * apps/web に inline していたが、#317 land 後に本ファイルへ**昇格**し、専用の実 PG RLS テストで
+ * テナント分離を直接証明する (#318 Reviewer Low-1)。
+ *
+ * ## テナント分離 (CLAUDE.md ルール2)
+ * `WHERE school_id` を書かない — 可視範囲は `users` の RLS (`tenant_isolation`) が決める。呼出側は
+ * `withSession` / `withTenantContext` 済み (school_admin context、自校 school_id) の `tx` を渡すこと。
+ * 自校外のメンバーは 0 行に倒れる。`role IN (教職員)` は**対象絞り込み**で、テナント境界の手書き WHERE
+ * ではない (RLS のバイパスではない) — student / guardian は対象外なので除外し PII 露出を最小化する。
+ *
+ * ## 並び
+ * 稼働中 (is_active) を先頭に、ロール昇順 (enum 定義順: school_admin → teacher) → 表示名昇順で決定的に
+ * する。無効化済みアカウントも末尾に残し、過去在籍のトレース用に閲覧できるようにする。
+ */
+export async function listSchoolMembers(tx: TenantTx): Promise<SchoolMember[]> {
+  return await tx
+    .select({
+      id: users.id,
+      displayName: users.displayName,
+      role: users.role,
+      isActive: users.isActive,
+    })
+    .from(users)
+    .where(inArray(users.role, [...STAFF_ROLES]))
+    .orderBy(desc(users.isActive), asc(users.role), asc(users.displayName));
 }
