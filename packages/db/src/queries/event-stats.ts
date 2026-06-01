@@ -285,3 +285,53 @@ export async function getHourlyEventCounts(
 
   return rows.map((r) => ({ hour: r.hour, views: r.views, taps: r.taps }));
 }
+
+/** JST の時 (0-23) ごとの presence (在室) 件数。F08 人感ヒートマップ用。 */
+export type HourlyPresenceCount = {
+  /** JST の時 (0-23)。 */
+  hour: number;
+  /** その時間帯の presence イベント数。 */
+  presence: number;
+};
+
+/**
+ * 自校の presence イベント (F13 人感センサー由来、`events.type='presence'`) を **JST の時
+ * (hour-of-day, 0-23)** ごとに集計する (RLS で school スコープ)。時昇順。
+ *
+ * view/tap (`getHourlyEventCounts`) が「掲示物への反応」を示すのに対し、これは反応の有無に依らない
+ * 「人の在室」を示す F08 人感ヒートマップの基盤。occupancy 指標は将来 `sensor_devices` 結合で
+ * class/location 別に拡張しうる (sensor-devices.ts の `class_id` コメント参照) ため、content 反応集計
+ * (getHourlyEventCounts) とは別関数に分け、既存の返却形を壊さない。
+ *
+ * - JST 変換は `getHourlyEventCounts` と同じ (`at time zone 'Asia/Tokyo'` 後に `extract(hour ...)`)。
+ *   UTC のまま取ると JST と 9h ずれる。期間窓は DB の `now()` 基準 (クライアント時刻を信用しない、F07 と同思想)。
+ * - **テナント分離 (ルール2)**: `school_id` を書かず `events` の RLS (`tenant_isolation`) に委譲。
+ * - 件数のみ。`payload` (device 詳細) は読まない。presence/sensor_devices に PII は無い (ADR-020 §6) が
+ *   個人別粒度には落とさない (ルール4)。
+ * - 返す行は presence が存在する時のみ (sparse、`WHERE type='presence'`)。0-23 の密化は表示層の責務。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。
+ */
+export async function getHourlyPresenceCounts(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<HourlyPresenceCount[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const where = and(
+    eq(events.type, "presence"),
+    gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`),
+  );
+  const hour =
+    sql<number>`extract(hour from ${events.occurredAt} at time zone 'Asia/Tokyo')::int`.mapWith(
+      Number,
+    );
+  const presence = sql<number>`count(*)`.mapWith(Number);
+  const rows = await db
+    .select({ hour, presence })
+    .from(events)
+    .where(where)
+    .groupBy(hour)
+    .orderBy(hour);
+
+  return rows.map((r) => ({ hour: r.hour, presence: r.presence }));
+}
