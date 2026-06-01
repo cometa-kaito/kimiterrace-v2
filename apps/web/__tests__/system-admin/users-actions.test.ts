@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * - 教職員以外 (student/guardian) は forbidden。
  * - **last-admin ガード**: 学校で唯一の有効な school_admin の無効化は conflict (IdP を呼ばない)。
  *   有効管理者が複数なら通る。teacher / 再有効化はガード対象外。
+ * - **last-admin TOCTOU 根治 (#355 Low-2)**: gate を通過しても mirror tx の FOR UPDATE 再カウントが
+ *   最後の 1 人を検出したら、IdP を補償 (再有効化 / ロール復元) して conflict を返し、DB mirror は未更新。
  * - **IdP-first 順序** (ADR-026): IdP が失敗したら DB mirror に到達しない。
  * - 監査: table=users / op=update / **school_id=対象校** / **actor NULL (system_admin)** / diff before-after。
  */
@@ -48,29 +50,32 @@ const sysAdmin = { uid: SYS_UID, role: "system_admin" as const, schoolId: null }
 
 // fakeTx の振る舞いを各テストで差し替える状態。
 let targetRow: { role: string; isActive: boolean; schoolId: string } | undefined;
-let activeAdminCount: number; // last-admin ガードの count(*) 戻り値
+let activeAdminCount: number; // gate の last-admin count(*) 戻り値 (lock 無し)
+let lockedAdminCount: number | null; // mirror tx の FOR UPDATE 再カウント (#355)。null なら activeAdminCount を流用。
 let updateRows: { id: string }[];
 let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
 
 function fakeTx() {
-  let selectCall = 0;
   return {
-    // 1 回目の select = 対象 1 行、2 回目 = last-admin の count。
-    select: () => {
-      selectCall += 1;
-      const isCount = selectCall >= 2;
-      return {
-        from: () => ({
-          where: (..._a: unknown[]) =>
-            isCount
-              ? // count クエリ: .where(...) で直接 await される
-                Promise.resolve([{ n: activeAdminCount }])
-              : // 対象取得: .where(...).limit(1)
-                { limit: () => Promise.resolve(targetRow ? [targetRow] : []) },
-        }),
-      };
-    },
+    // where() の戻り値を 3 つの呼び出し形に同時対応させる (drizzle の thenable query builder を模す):
+    //  - gate の last-admin count: select({n}).from().where() を直接 await → [{ n: activeAdminCount }]
+    //  - 対象取得: select({...}).from().where().limit(1) → [targetRow]
+    //  - mirror tx の TOCTOU 再カウント: select({id}).from().where().for("update") → lockedAdminCount 行
+    select: () => ({
+      from: () => ({
+        where: (..._a: unknown[]) =>
+          Object.assign(Promise.resolve([{ n: activeAdminCount }]), {
+            limit: () => Promise.resolve(targetRow ? [targetRow] : []),
+            for: (..._f: unknown[]) =>
+              Promise.resolve(
+                Array.from({ length: lockedAdminCount ?? activeAdminCount }, (_v, i) => ({
+                  id: `admin-${i}`,
+                })),
+              ),
+          }),
+      }),
+    }),
     update: () => ({
       set: (v: Record<string, unknown>) => {
         updateValues = v;
@@ -96,6 +101,7 @@ beforeEach(() => {
   changeRoleMock.mockResolvedValue(undefined);
   targetRow = { role: "teacher", isActive: true, schoolId: SCHOOL_ID };
   activeAdminCount = 2;
+  lockedAdminCount = null;
   updateRows = [{ id: TEACHER_ID }];
   updateValues = null;
   auditValues = null;
@@ -162,6 +168,23 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
     const res = await setStaffActiveAction({ userId: ADMIN_ID, isActive: false });
     expect(res).toEqual({ ok: true, data: { id: ADMIN_ID, isActive: false } });
     expect(deactivateMock).toHaveBeenCalledWith(ADMIN_ID);
+  });
+
+  it("TOCTOU レース (#355 Low-2): gate 通過後 mirror tx の FOR UPDATE 再カウントが最後の 1 人を検出 → IdP 補償 + conflict", async () => {
+    // gate は lock 無し count=2 で通過するが、並行無効化が間に commit され mirror tx の FOR UPDATE
+    // 再カウントは 1 を返す (= この無効化で学校が管理者ゼロになる)。
+    targetRow = { role: "school_admin", isActive: true, schoolId: SCHOOL_ID };
+    activeAdminCount = 2;
+    lockedAdminCount = 1;
+    const res = await setStaffActiveAction({ userId: ADMIN_ID, isActive: false });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    // IdP revoke は ADR-026 IdP-first ゆえ確定済 → 補償で再有効化される。
+    expect(deactivateMock).toHaveBeenCalledWith(ADMIN_ID);
+    expect(reactivateMock).toHaveBeenCalledWith(ADMIN_ID);
+    // mirror tx は番兵でロールバック: UPDATE / 監査に到達せず revalidate もしない。
+    expect(updateValues).toBeNull();
+    expect(auditValues).toBeNull();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("school_admin の再有効化は last-admin ガード対象外 (count を見ずに通る)", async () => {
@@ -267,6 +290,20 @@ describe("changeStaffRoleAction (#324 ADR-026 D2 ロール変更)", () => {
     const res = await changeStaffRoleAction({ userId: ADMIN_ID, nextRole: "teacher" });
     expect(res).toEqual({ ok: true, data: { id: ADMIN_ID, role: "teacher" } });
     expect(changeRoleMock).toHaveBeenCalledWith(ADMIN_ID, "teacher", SCHOOL_ID);
+  });
+
+  it("TOCTOU レース (#355 Low-2): 降格 gate 通過後 mirror tx 再カウントが最後の 1 人を検出 → IdP ロール復元 + conflict", async () => {
+    targetRow = { role: "school_admin", isActive: true, schoolId: SCHOOL_ID };
+    activeAdminCount = 2; // gate 通過
+    lockedAdminCount = 1; // 並行降格が間に commit
+    const res = await changeStaffRoleAction({ userId: ADMIN_ID, nextRole: "teacher" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    // 1 回目=降格 (確定済) → 2 回目=補償で school_admin へ復元。
+    expect(changeRoleMock).toHaveBeenNthCalledWith(1, ADMIN_ID, "teacher", SCHOOL_ID);
+    expect(changeRoleMock).toHaveBeenNthCalledWith(2, ADMIN_ID, "school_admin", SCHOOL_ID);
+    expect(updateValues).toBeNull();
+    expect(auditValues).toBeNull();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 
   it("昇格 teacher→school_admin は last-admin ガード対象外 (count を見ずに通る)", async () => {
