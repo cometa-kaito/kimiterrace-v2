@@ -59,6 +59,7 @@
 | 026 | [アカウント無効化 / ロール変更のエンフォース経路](026-account-deactivation-role-change-enforcement.md)（IdP を単一ソース: disable + revokeRefreshTokens / claims 再付与、既定 checkRevoked で即時失効。DB is_active は mirror、DB-only mutation を無効化と称さない） | Accepted |
 | 027 | [F03 分散レート制限（Cloud SQL カウンタ行 vs Memorystore）](027-distributed-f03-rate-limit.md)（分散レート制限は Cloud SQL カウンタ行採用、Memorystore 不採用） | Accepted |
 | 028 | [F06 生徒対話チャットボットの回答ポリシー](028-f06-chatbot-answer-policy.md)（対象=生徒+教員 / 掲示物 Q&A のみ・学習進路は拒否 / 根拠なし時はラベル付き一般補足だが学校固有事実は推測禁止 / 多言語対応 / コスト天井なし+rate limit） | Accepted |
+| 029 | [公開エンドポイントの URL 内シークレット/トークンのロギング露出方針](029-url-secret-logging-exposure.md)（Cloud Run 自動 request log の URL secret 露出は補償統制下で情報ある受容＋本番はヘッダ優先推奨、ログ除外は NFR04 監査盲目化で不採用。#437 Low-2 / #439 を解決） | Accepted |
 
 ## ルール
 
