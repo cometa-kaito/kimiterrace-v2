@@ -36,6 +36,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // システム管理者: 全校横断の運用 (RLS bypass ではなく system_admin policy 経由、ADR-019)。
   system_admin: [
     { label: "学校一覧", href: "/admin/system/schools" },
+    // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。自校ビューの
+    // /admin/dashboard とは別ルート (そちらは PUBLISHER_ROLES 専用)。
+    { label: "全校ダッシュボード", href: "/admin/system/dashboard" },
     { label: "フィードバック", href: "/admin/system/feedback" },
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。

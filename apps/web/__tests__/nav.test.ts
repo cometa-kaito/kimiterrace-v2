@@ -76,10 +76,24 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/dashboard");
   });
 
-  it("system_admin は学校一覧 + フィードバック（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 全校ダッシュボード + フィードバック（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
-    expect(hrefs).toEqual(["/admin/system/schools", "/admin/system/feedback"]);
+    expect(hrefs).toEqual([
+      "/admin/system/schools",
+      "/admin/system/dashboard",
+      "/admin/system/feedback",
+    ]);
     expect(hrefs).not.toContain("/admin/editor");
+  });
+
+  it("全校ダッシュボード (/admin/system/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /admin/dashboard とは別ルート)", () => {
+    // cross-tenant の横断ビューは requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
+    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/dashboard は別ルートで存続。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/system/dashboard");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain(
+      "/admin/system/dashboard",
+    );
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/dashboard");
   });
 
   it("管理エリア対象外ロール (student/guardian) は空配列 — UI に管理ナビを出さない", () => {

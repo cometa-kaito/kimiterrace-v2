@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { contents } from "../schema/contents.js";
 import { events } from "../schema/events.js";
+import { schools } from "../schema/schools.js";
 
 /**
  * F08 (#44): 効果ダッシュボードの集計読み取り層。**SELECT のみ**。
@@ -156,4 +157,86 @@ export async function getDailyEventCounts(
     .orderBy(day);
 
   return rows.map((r) => ({ day: r.day, views: r.views, taps: r.taps }));
+}
+
+/** 全校横断ダッシュボードの 1 行 (= 1 校分の行動サマリー)。 */
+export type SchoolEventSummary = {
+  schoolId: string;
+  /** 学校名 (schools.name)。 */
+  schoolName: string;
+  /** 都道府県 (schools.prefecture)。一覧の地域別把握用。 */
+  prefecture: string;
+  /** view / tap / ask の期間内総数。 */
+  totals: EventTotals;
+  /** view + tap (= 反応総数)。並べ替えキー。 */
+  reactions: number;
+};
+
+/**
+ * **全校横断**で学校別の行動サマリーを集計する (system_admin 専用の cross-tenant ビュー)。
+ *
+ * F08 第1〜3スライス (`getEventStats` / `getDailyEventCounts`) が **自校スコープ** (school_admin /
+ * teacher) のダッシュボードを担うのに対し、本クエリは運営 (system_admin) が全校の活動量を横断で
+ * 把握するための学校別サマリーを返す。
+ *
+ * ## テナント分離 (CLAUDE.md ルール2)
+ * ここでも `school_id` 条件は**書かない** — events / schools の RLS に委譲する。**system_admin
+ * コンテキスト** (`app.current_user_role = 'system_admin'`、ADR-019) では `system_admin_full_access`
+ * policy が全校行に PERMISSIVE 発火し、横断集計になる。tenant ロール (school_admin / teacher) で
+ * 呼んだ場合は `tenant_isolation` が自校行のみに絞るため**自校 1 行**だけが返る (多層防御。ただし
+ * UX 層では `requireRole(SYSTEM_ADMIN_ROLES)` で先に弾く)。空コンテキストは deny-by-default で空配列。
+ *
+ * ## 集計対象 / PII (ルール4)
+ * events を schools に **INNER JOIN** して school 名/都道府県を付す。events.school_id は NOT NULL かつ
+ * schools 参照のため、期間内に 1 件以上 event があった学校だけが行として現れる (活動ゼロの学校は
+ * 本スライスでは省略する。全校網羅一覧は学校マスタ #48-L 側に存在する)。集計は件数のみで、
+ * `events.payload` の匿名 clientId 等は読まない。
+ *
+ * 並びは反応数 (view+tap) 降順 → 学校名昇順 → schoolId 昇順で決定的にする。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。期間窓は DB の `now()` 基準 (クライアント時刻不信)。
+ */
+export async function getEventStatsBySchool(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<SchoolEventSummary[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const recent = gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`);
+
+  const views = sql<number>`count(*) filter (where ${events.type} = 'view')`.mapWith(Number);
+  const taps = sql<number>`count(*) filter (where ${events.type} = 'tap')`.mapWith(Number);
+  const asks = sql<number>`count(*) filter (where ${events.type} = 'ask')`.mapWith(Number);
+  // 反応数 = view + tap (ask は別指標として totals.ask にのみ計上、getEventStats と同方針)。
+  const reactions = sql<number>`count(*) filter (where ${events.type} in ('view', 'tap'))`.mapWith(
+    Number,
+  );
+
+  const rows = await db
+    .select({
+      schoolId: schools.id,
+      schoolName: schools.name,
+      prefecture: schools.prefecture,
+      views,
+      taps,
+      asks,
+      reactions,
+    })
+    .from(events)
+    .innerJoin(schools, eq(events.schoolId, schools.id))
+    .where(recent)
+    .groupBy(schools.id, schools.name, schools.prefecture)
+    // 反応数同数でも順序を決定的にするため schoolName → schoolId を二次/三次キーにする。
+    .orderBy(
+      sql`count(*) filter (where ${events.type} in ('view', 'tap')) desc`,
+      schools.name,
+      schools.id,
+    );
+
+  return rows.map((r) => ({
+    schoolId: r.schoolId,
+    schoolName: r.schoolName,
+    prefecture: r.prefecture,
+    totals: { view: r.views, tap: r.taps, ask: r.asks },
+    reactions: r.reactions,
+  }));
 }
