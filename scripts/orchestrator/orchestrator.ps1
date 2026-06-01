@@ -203,7 +203,11 @@ function Spawn-LocalWorker {
   }
 
   $shortName = "issue-$Issue"
-  $worktreePath = Join-Path $worktreeBase "worker-$shortName"
+  # Distinct worktree path per role even for the same issue/PR number (#67 Med-2). With a shared
+  # path, the launcher "already exists -> reuse" branch would mistake roles (e.g. a reviewer reusing
+  # a worker's branch-backed worktree instead of creating a detached one).
+  $wtPrefix = if ($RoleArg -eq "reviewer") { "reviewer" } else { "worker" }
+  $worktreePath = Join-Path $worktreeBase "$wtPrefix-$shortName"
   $branchName = "feat/$Issue-orchestrated"
   $dirs = Get-StateDir
   $logPath = Join-Path $dirs.Logs "worker-issue-$Issue-$(Get-Date -Format 'yyyyMMddTHHmmss').log"
@@ -337,6 +341,15 @@ function Cmd-Cleanup {
     $_.status -in @("completed", "failed") -and $_.worktree -and (Test-Path $_.worktree)
   } | ForEach-Object {
     $s = $_
+    # Reviewer worktrees are detached read-only (#67): they create no branch, so they never match
+    # the merge gate and would leak (#67 Med-1). Remove unconditionally when completed/failed
+    # (no risk of losing unsaved work since reviewers are read-only).
+    if ($s.role -eq "reviewer") {
+      Write-Host "[local] Removing reviewer worktree: $($s.worktree)"
+      git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
+      $removed.Add("local:$($s.worktree)")
+      return
+    }
     $merged = git -C $repoRoot branch --merged main 2>$null | Out-String
     if ($merged -match [regex]::Escape($s.branch)) {
       Write-Host "[local] Removing merged worktree: $($s.worktree)"
@@ -353,7 +366,10 @@ cd $($m.remoteRepoPath) && \
 git fetch origin && \
 for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | grep -v "$($m.remoteRepoPath)$"); do
   br=`$(git -C "`$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  if [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; then
+  if [ "`$br" = "HEAD" ]; then
+    echo "removing detached (reviewer): `$wt"
+    git worktree remove "`$wt" --force
+  elif [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; then
     echo "removing: `$wt"
     git worktree remove "`$wt" --force
   fi

@@ -247,7 +247,9 @@ function Start-RemoteWorker {
   $worktreeBase = $Machine.worktreeBaseDir
   if (-not $worktreeBase) { $worktreeBase = '$HOME/work/.kimiterrace-workers' }
 
-  $worktreePath = "$worktreeBase/worker-issue-$Issue"
+  # Distinct worktree path per role (#67 Med-2), symmetric with the local path.
+  $wtPrefix = if ($Role -eq "reviewer") { "reviewer" } else { "worker" }
+  $worktreePath = "$worktreeBase/$wtPrefix-issue-$Issue"
   $logPath = "$stateDir/logs/$WorkerId.log"
   $statePath = "$stateDir/workers/$WorkerId.json"
   $briefPath = "$stateDir/logs/$WorkerId.brief.md"
