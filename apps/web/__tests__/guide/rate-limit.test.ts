@@ -45,6 +45,41 @@ describe("FixedWindowRateLimiter", () => {
     // リセット後は同ウィンドウ時刻でも再び許可される。
     expect(limiter.tryAcquire("ip", 100)).toBe(true);
   });
+
+  // --- メモリ境界 (公開エンドポイントの DoS 対策): 詐称 key flood で Map を無制限に肥大化させない ---
+
+  it("ユニーク key を maxKeys 超で流し込んでも追跡 key 数は maxKeys 以内に収まる (同一ウィンドウ flood)", () => {
+    const maxKeys = 5;
+    const limiter = new FixedWindowRateLimiter(1, 1000, maxKeys);
+    // 同一ウィンドウ時刻 (nowMs=0) で 100 個のユニーク key を投入 (期限切れ無し = 最古間引きが効く)。
+    for (let i = 0; i < 100; i += 1) {
+      expect(limiter.tryAcquire(`ip-${i}`, 0)).toBe(true);
+    }
+    expect(limiter.size()).toBeLessThanOrEqual(maxKeys);
+  });
+
+  it("上限到達後の新規 key 追加で期限切れウィンドウが一掃される", () => {
+    const maxKeys = 3;
+    const limiter = new FixedWindowRateLimiter(1, 1000, maxKeys);
+    // t=0 で上限ぶんの key を埋める。
+    expect(limiter.tryAcquire("a", 0)).toBe(true);
+    expect(limiter.tryAcquire("b", 0)).toBe(true);
+    expect(limiter.tryAcquire("c", 0)).toBe(true);
+    expect(limiter.size()).toBe(3);
+    // windowMs 経過後に新 key を追加 → 既存 3 件は期限切れで一掃され、サイズは上限内のまま。
+    expect(limiter.tryAcquire("d", 2000)).toBe(true);
+    expect(limiter.size()).toBeLessThanOrEqual(maxKeys);
+    // 一掃された a は新ウィンドウとして再び許可される (期限切れ済のため)。
+    expect(limiter.tryAcquire("a", 2000)).toBe(true);
+  });
+
+  it("間引きは挙動を緩める方向のみ (既存 key のウィンドウ内 limit 判定は不変)", () => {
+    const limiter = new FixedWindowRateLimiter(2, 1000, 10);
+    // 通常の limit 判定が eviction 導入後も壊れていないことを確認。
+    expect(limiter.tryAcquire("x", 0)).toBe(true);
+    expect(limiter.tryAcquire("x", 100)).toBe(true);
+    expect(limiter.tryAcquire("x", 200)).toBe(false); // limit=2 超過
+  });
 });
 
 describe("clientKeyFromHeaders", () => {
