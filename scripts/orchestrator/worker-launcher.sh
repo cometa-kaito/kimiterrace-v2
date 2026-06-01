@@ -206,8 +206,16 @@ fi
 CLAUDE_EXIT=${PIPESTATUS[0]}
 log "claude exited with $CLAUDE_EXIT"
 
-# Try to extract PR number from log (worker should have created one)
-PR_NUM=$(grep -oP 'pull/\K\d+' "$LOG_PATH" | tail -1 || echo "")
+# Try to extract PR number from log (worker should have created one).
+# Portable PR-number extraction. The old `grep -oP 'pull/\K\d+'` was the SAME
+# broken pattern fixed for the config reader in 5054cef (see lines 114-120):
+# macOS BSD grep has no -P, and Git-Bash GNU grep refuses -P outside a UTF-8/
+# unibyte locale — so on remote (Mac) workers this silently returned empty,
+# `prNumber` was never recorded, and the orchestrator's auto PR detection /
+# Reviewer pipeline broke for those workers. Use node (guaranteed present, same
+# rationale as _cfg_raw): scan the whole log for `pull/<digits>` and emit the
+# LAST match's digits — identical behavior on both hosts.
+PR_NUM=$(node -e 'const fs=require("fs");try{const s=fs.readFileSync(process.argv[1],"utf8");const re=/pull\/(\d+)/g;let m,last="";while((m=re.exec(s))!==null)last=m[1];process.stdout.write(last);}catch(e){}' "$LOG_PATH" 2>/dev/null || echo "")
 if [[ -n "$PR_NUM" ]]; then
   update_state "prNumber" "$PR_NUM"
   log "Detected PR #$PR_NUM"
