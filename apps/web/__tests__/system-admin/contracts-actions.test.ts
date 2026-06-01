@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F10 (#46): createContractAction の配線テスト。next/cache・guard・db を mock。fakeTx は
- * contracts の insert().values().returning() と audit の insert().values() を提供する。
- * 検証失敗・認可 (system_admin)・監査 (school_id/actor NULL, table=contracts, op=insert, 日付 ISO)・
- * FK 違反 (存在しない広告主) → not_found を確認する。
+ * F10 (#46): createContractAction / updateContractStatusAction の配線テスト。next/cache・guard・db を
+ * mock。fakeTx は insert().values().returning()、select().from().where().limit()、
+ * update().set().where().returning() を提供する。検証失敗・認可 (system_admin)・監査・FK・遷移ガード
+ * (許可/不許可/同一/not_found) を確認する。
  */
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -15,7 +15,11 @@ import { auditLog } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
-import { createContractAction } from "../../lib/system-admin/contracts-actions";
+import {
+  createContractAction,
+  updateContractStatusAction,
+} from "../../lib/system-admin/contracts-actions";
+import type { ContractStatus } from "../../lib/system-admin/contracts-core";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
@@ -27,9 +31,14 @@ const SYS_UID = "99999999-9999-4999-8999-999999999999";
 const sysAdmin = { uid: SYS_UID, role: "system_admin" as const, schoolId: null };
 
 let contractValues: Record<string, unknown> | null;
+let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
 let returningRows: { id: string }[];
 let fkViolation: boolean;
+/** select().limit() が返す現在行 (undefined = not_found)。 */
+let beforeRow: { status: ContractStatus; advertiserId: string } | undefined;
+/** update().returning() が返す行。 */
+let updateReturning: { id: string }[];
 
 function fakeTx() {
   return {
@@ -44,6 +53,19 @@ function fakeTx() {
           returning: () =>
             fkViolation ? Promise.reject({ code: "23503" }) : Promise.resolve(returningRows),
         };
+      },
+    }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve(beforeRow === undefined ? [] : [beforeRow]),
+        }),
+      }),
+    }),
+    update: () => ({
+      set: (v: Record<string, unknown>) => {
+        updateValues = v;
+        return { where: () => ({ returning: () => Promise.resolve(updateReturning) }) };
       },
     }),
   };
@@ -65,9 +87,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   requireRoleMock.mockResolvedValue(sysAdmin);
   contractValues = null;
+  updateValues = null;
   auditValues = null;
   returningRows = [{ id: CONTRACT_ID }];
   fkViolation = false;
+  beforeRow = { status: "active", advertiserId: ADV_ID };
+  updateReturning = [{ id: CONTRACT_ID }];
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
     Promise.resolve(fn(fakeTx(), sysAdmin))) as typeof withSession);
 });
@@ -122,6 +147,71 @@ describe("createContractAction", () => {
   it("存在しない広告主 (FK 23503) は not_found を返す", async () => {
     fkViolation = true;
     const res = await createContractAction(validRaw());
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+});
+
+describe("updateContractStatusAction", () => {
+  it("id が UUID でないと invalid、認可も DB も走らせない", async () => {
+    const res = await updateContractStatusAction({ id: "x", status: "paused" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("status が enum 外だと invalid", async () => {
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "expired" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("requireRole を SYSTEM_ADMIN_ROLES で呼ぶ", async () => {
+    await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
+    expect(requireRoleMock).toHaveBeenCalledWith(["system_admin"]);
+  });
+
+  it("許可遷移 (active→paused): status と updated_at を更新し id/status を返す", async () => {
+    beforeRow = { status: "active", advertiserId: ADV_ID };
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
+    expect(res).toEqual({ ok: true, data: { id: CONTRACT_ID, status: "paused" } });
+    expect(updateValues).toMatchObject({ status: "paused", updatedBy: null });
+    // updated_at を明示更新する (ルール1)。
+    expect(updateValues?.updatedAt).toBeInstanceOf(Date);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/advertisers/${ADV_ID}/edit`);
+  });
+
+  it("監査: op=update / diff に before・after の status / school_id・actor NULL", async () => {
+    beforeRow = { status: "active", advertiserId: ADV_ID };
+    await updateContractStatusAction({ id: CONTRACT_ID, status: "terminated" });
+    expect(auditValues).toMatchObject({
+      schoolId: null,
+      actorUserId: null,
+      tableName: "contracts",
+      recordId: CONTRACT_ID,
+      operation: "update",
+    });
+    expect(auditValues?.diff).toEqual({
+      before: { status: "active" },
+      after: { status: "terminated" },
+    });
+  });
+
+  it("不許可遷移 (terminated→active) は conflict、UPDATE しない", async () => {
+    beforeRow = { status: "terminated", advertiserId: ADV_ID };
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "active" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(updateValues).toBeNull();
+  });
+
+  it("同一ステータスへの no-op (active→active) は conflict", async () => {
+    beforeRow = { status: "active", advertiserId: ADV_ID };
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "active" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+
+  it("対象契約が無い (select 0 行) は not_found", async () => {
+    beforeRow = undefined;
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
     expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 });

@@ -21,6 +21,27 @@ const TARGET_SCHOOLS_MAX = 1000;
 export const CONTRACT_STATUSES = ["draft", "active", "paused", "terminated"] as const;
 export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 
+/**
+ * 契約ステータスのライフサイクル遷移表 (F10)。各 from から許される to の集合。
+ * - draft: 起案中 → 有効化 (active) か取消 (terminated)。
+ * - active: 稼働中 → 一時停止 (paused) か終了 (terminated)。
+ * - paused: 一時停止中 → 再開 (active) か終了 (terminated)。
+ * - terminated: 終端 → 以降の遷移は無い (再契約は新規行で表現する)。
+ *
+ * 同一ステータスへの「遷移」は集合に含めない (no-op を不正扱いにし、呼出側で弾く)。
+ */
+export const CONTRACT_STATUS_TRANSITIONS: Record<ContractStatus, readonly ContractStatus[]> = {
+  draft: ["active", "terminated"],
+  active: ["paused", "terminated"],
+  paused: ["active", "terminated"],
+  terminated: [],
+};
+
+/** from → to が許可された遷移か。同一・終端 (terminated) からの遷移は false。 */
+export function isValidContractStatusTransition(from: ContractStatus, to: ContractStatus): boolean {
+  return CONTRACT_STATUS_TRANSITIONS[from].includes(to);
+}
+
 /** 検証済みの契約作成入力。任意項目は未指定を null / 空配列に正規化する。 */
 export type ContractCreateInput = {
   advertiserId: string;
