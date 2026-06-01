@@ -113,6 +113,16 @@ module "logging_iam" {
   enabled    = false # TODO(Phase 開発): true + log_viewer_members を設定
 }
 
+# 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。
+# staging は recreate 容易性優先で force_destroy=true（Issue #70 同規律）。
+module "report_storage" {
+  source        = "../../modules/report_storage"
+  project_id    = var.project_id
+  env           = local.env
+  enabled       = false # TODO(Phase 開発)
+  force_destroy = true
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 
