@@ -5,6 +5,7 @@ import {
   type ContractStatus,
   isValidContractStatusTransition,
   validateContractCreate,
+  validateContractUpdate,
 } from "../../lib/system-admin/contracts-core";
 
 /**
@@ -149,5 +150,54 @@ describe("isValidContractStatusTransition", () => {
 
   it("遷移表のキーは contract_status enum を網羅する", () => {
     expect(Object.keys(CONTRACT_STATUS_TRANSITIONS).sort()).toEqual([...CONTRACT_STATUSES].sort());
+  });
+});
+
+describe("validateContractUpdate", () => {
+  it("可変フィールドのみで ok (advertiserId / status は不要)", () => {
+    const v = validateContractUpdate({ startedAt: "2026-04-01", monthlyFeeJpy: 50000 });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.value.startedAt.toISOString()).toBe("2026-04-01T00:00:00.000Z");
+    expect(v.value.endedAt).toBeNull();
+    expect(v.value.targetSchools).toEqual([]);
+    expect(v.value.notes).toBeNull();
+    // ContractTerms には advertiserId / status を含めない。
+    expect("advertiserId" in v.value).toBe(false);
+    expect("status" in v.value).toBe(false);
+  });
+
+  it("全条件 (endedAt / targetSchools / notes) を受け付ける", () => {
+    const v = validateContractUpdate({
+      startedAt: "2026-04-01",
+      endedAt: "2027-03-31",
+      monthlyFeeJpy: "80000",
+      targetSchools: [SCHOOL_A],
+      notes: " 改定 ",
+    });
+    expect(v.ok).toBe(true);
+    if (!v.ok) return;
+    expect(v.value.monthlyFeeJpy).toBe(80000);
+    expect(v.value.targetSchools).toEqual([SCHOOL_A]);
+    expect(v.value.notes).toBe("改定");
+  });
+
+  it("開始日欠落 / 終了日 < 開始日 / 月額不正 / targetSchools 非UUID は invalid", () => {
+    expect(validateContractUpdate({ monthlyFeeJpy: 1000 }).ok).toBe(false);
+    expect(
+      validateContractUpdate({
+        startedAt: "2026-04-01",
+        endedAt: "2026-03-31",
+        monthlyFeeJpy: 1000,
+      }).ok,
+    ).toBe(false);
+    expect(validateContractUpdate({ startedAt: "2026-04-01", monthlyFeeJpy: -1 }).ok).toBe(false);
+    expect(
+      validateContractUpdate({
+        startedAt: "2026-04-01",
+        monthlyFeeJpy: 1000,
+        targetSchools: ["bad"],
+      }).ok,
+    ).toBe(false);
   });
 });

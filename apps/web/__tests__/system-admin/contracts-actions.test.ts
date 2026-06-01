@@ -17,9 +17,9 @@ import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import {
   createContractAction,
+  updateContractAction,
   updateContractStatusAction,
 } from "../../lib/system-admin/contracts-actions";
-import type { ContractStatus } from "../../lib/system-admin/contracts-core";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
@@ -35,8 +35,8 @@ let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
 let returningRows: { id: string }[];
 let fkViolation: boolean;
-/** select().limit() が返す現在行 (undefined = not_found)。 */
-let beforeRow: { status: ContractStatus; advertiserId: string } | undefined;
+/** select().limit() が返す現在行 (undefined = not_found)。status 遷移 / 編集で形が異なるため広く持つ。 */
+let beforeRow: Record<string, unknown> | undefined;
 /** update().returning() が返す行。 */
 let updateReturning: { id: string }[];
 
@@ -222,5 +222,85 @@ describe("updateContractStatusAction", () => {
     const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
     expect(auditValues).toBeNull();
+  });
+});
+
+describe("updateContractAction", () => {
+  const editRaw = (over: Record<string, unknown> = {}) => ({
+    startedAt: "2026-05-01",
+    endedAt: "2027-04-30",
+    monthlyFeeJpy: 60000,
+    notes: "更新後メモ",
+    ...over,
+  });
+  // SELECT が返す更新前の可変フィールド (drizzle mode:date は Date を返す)。
+  const beforeEdit = {
+    startedAt: new Date("2026-04-01T00:00:00.000Z"),
+    endedAt: new Date("2027-03-31T00:00:00.000Z"),
+    monthlyFeeJpy: 50000,
+    targetSchools: [],
+    notes: "旧メモ",
+    advertiserId: ADV_ID,
+  };
+
+  it("id が UUID でないと invalid、認可も DB も走らせない", async () => {
+    const res = await updateContractAction("x", editRaw());
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("検証失敗 (終了日 < 開始日) は invalid、DB を走らせない", async () => {
+    const res = await updateContractAction(
+      CONTRACT_ID,
+      editRaw({ startedAt: "2026-05-01", endedAt: "2026-04-30" }),
+    );
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("requireRole を SYSTEM_ADMIN_ROLES で呼ぶ", async () => {
+    beforeRow = beforeEdit;
+    await updateContractAction(CONTRACT_ID, editRaw());
+    expect(requireRoleMock).toHaveBeenCalledWith(["system_admin"]);
+  });
+
+  it("成功: 可変フィールドを UPDATE し updated_at 明示、id を返す", async () => {
+    beforeRow = beforeEdit;
+    const res = await updateContractAction(CONTRACT_ID, editRaw({ monthlyFeeJpy: 60000 }));
+    expect(res).toEqual({ ok: true, data: { id: CONTRACT_ID } });
+    expect(updateValues).toMatchObject({
+      monthlyFeeJpy: 60000,
+      notes: "更新後メモ",
+      updatedBy: null,
+    });
+    expect(updateValues?.updatedAt).toBeInstanceOf(Date);
+    expect((updateValues?.startedAt as Date).toISOString()).toBe("2026-05-01T00:00:00.000Z");
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/advertisers/${ADV_ID}/edit`);
+  });
+
+  it("監査: op=update / diff に before・after の契約条件 (日付 ISO) / NULL", async () => {
+    beforeRow = beforeEdit;
+    await updateContractAction(CONTRACT_ID, editRaw({ monthlyFeeJpy: 60000 }));
+    expect(auditValues).toMatchObject({
+      tableName: "contracts",
+      operation: "update",
+      schoolId: null,
+      actorUserId: null,
+    });
+    const diff = auditValues?.diff as {
+      before: Record<string, unknown>;
+      after: Record<string, unknown>;
+    };
+    expect(diff.before.startedAt).toBe("2026-04-01T00:00:00.000Z");
+    expect(diff.before.monthlyFeeJpy).toBe(50000);
+    expect(diff.after.startedAt).toBe("2026-05-01T00:00:00.000Z");
+    expect(diff.after.monthlyFeeJpy).toBe(60000);
+  });
+
+  it("対象契約が無い (select 0 行) は not_found", async () => {
+    beforeRow = undefined;
+    const res = await updateContractAction(CONTRACT_ID, editRaw());
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 });
