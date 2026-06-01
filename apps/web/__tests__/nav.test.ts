@@ -32,17 +32,18 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果)", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート)", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
       "/admin/teacher-input",
       "/admin/contents",
       "/admin/dashboard",
+      "/admin/reports",
     ]);
   });
 
-  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード", () => {
+  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/school/members");
@@ -50,6 +51,7 @@ describe("navItemsForRole", () => {
     expect(hrefs).toContain("/admin/teacher-input");
     expect(hrefs).toContain("/admin/contents");
     expect(hrefs).toContain("/admin/dashboard");
+    expect(hrefs).toContain("/admin/reports");
   });
 
   it("教職員 (/admin/school/members) は school_admin 専用 (F11 第2スライス、自校運用)。teacher / system_admin には出さない (死リンク防止)", () => {
@@ -85,6 +87,14 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/dashboard");
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/dashboard");
+  });
+
+  it("月次レポート (/admin/reports) も publisher 専用 (F09 第1スライスは自校の教員向けビュー、system_admin は対象外)", () => {
+    // /admin/reports は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止。
+    // 自校スコープの月次サマリーで、system_admin 向け cross-tenant レポートは後続スライス。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/reports");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
   it("system_admin は学校一覧 + 全校ダッシュボード + フィードバック（自校エディタは出さない）", () => {
