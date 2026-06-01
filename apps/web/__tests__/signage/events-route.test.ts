@@ -6,7 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const { recordSignageEvent } = vi.hoisted(() => ({ recordSignageEvent: vi.fn() }));
-vi.mock("@/lib/signage/event-ingest", () => ({ recordSignageEvent }));
+// route は 429 の Retry-After 用に SIGNAGE_EVENT_WINDOW_MS も import するため mock に含める。
+vi.mock("@/lib/signage/event-ingest", () => ({
+  recordSignageEvent,
+  SIGNAGE_EVENT_WINDOW_MS: 60_000,
+}));
 
 import { POST } from "../../app/(signage)/signage/[classToken]/events/route";
 
@@ -40,6 +44,15 @@ describe("POST /signage/{classToken}/events", () => {
     recordSignageEvent.mockResolvedValue({ ok: false, reason: "invalid" });
     const res = await POST(post(JSON.stringify({ type: "dwell" })), ctx(TOKEN));
     expect(res.status).toBe(400);
+  });
+
+  it("per-token 上限超過 (reason=rate_limited) は 429 + Retry-After (#464 M-2)", async () => {
+    recordSignageEvent.mockResolvedValue({ ok: false, reason: "rate_limited" });
+    const res = await POST(post(JSON.stringify({ type: "view" })), ctx(TOKEN));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    // 窓幅 (秒) を Retry-After に返し、正規端末が窓明けに再送できる。
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
   });
 
   it("非 JSON body は 400 (解決/記録に到達しない)", async () => {

@@ -1,4 +1,8 @@
-import { type EventIngestInput, recordSignageEvent } from "@/lib/signage/event-ingest";
+import {
+  type EventIngestInput,
+  SIGNAGE_EVENT_WINDOW_MS,
+  recordSignageEvent,
+} from "@/lib/signage/event-ingest";
 import { NextResponse } from "next/server";
 
 /**
@@ -15,14 +19,18 @@ import { NextResponse } from "next/server";
  * **濫用対策 — `POST /api/guide/feedback` (#234) との方針差を意図的に取る**: feedback は IP 単位の
  * 固定ウィンドウ制限を最先頭に置くが、events は実機 (50 台/校) が高頻度に発火し校内は NAT で同一 IP に
  * 集まるため、同じ IP 制限を掛けると**正規の行動ログを誤って落とし F07 のデータを欠損させる**。よって
- * events はアプリ層 IP 制限を採らず、代わりに:
+ * events は IP 単位の制限を採らず、代わりに:
  *  1. 有効 `classToken` 必須 — 濫用は token 保持者に限定。無効 token は単一 index 化された SECURITY
  *     DEFINER 解決 1 回で頭打ち (DB 書込まで到達しない)。
  *  2. **`Content-Length` を body 読込**前**に検査** + 読込後にバイト長を再検査し、上限超過は 413 で即時棄却
  *     (大 body をメモリに展開する前にコストを断つ。最終的な platform body 上限は Cloud Run が担保)。
  *  3. payload allowlist + 厳格検証で 1 リクエストあたりの処理コストを抑える。
- * volumetric な保証は infra 層 WAF (Cloud Armor) が担う defense-in-depth。アプリ層での過剰な絞りは
- * F07 のデータ欠損を招くため避ける、という設計判断 (PR #258 Reviewer M-1 で明示化)。
+ *  4. **per-`classToken` 固定窓レートリミット (M-2, #464)** — IP ではなく token 単位で寛容な上限を掛け、
+ *     有効 token を握った flood (素の `view`/`tap` 連打) を 429 に倒す。token 単位なので NAT 共有 IP の
+ *     正規ログは落とさない (詳細は {@link recordSignageEvent} / `event-ingest.ts`)。超過時は 429 +
+ *     `Retry-After`。
+ * volumetric な hard guarantee は依然 infra 層 WAF (Cloud Armor) が担う defense-in-depth。アプリ層での
+ * 過剰な絞りは F07 のデータ欠損を招くため避ける、という設計判断 (PR #258 Reviewer M-1 / #464 で明示化)。
  *
  * `classToken` は credential なのでログ・レスポンスに反射しない (ルール5)。
  */
@@ -72,6 +80,17 @@ export async function POST(
   }
   if (result.reason === "gone") {
     return NextResponse.json({ error: "gone" }, { status: 410, headers: NO_STORE });
+  }
+  if (result.reason === "rate_limited") {
+    // M-2 (#464): per-token 固定窓の上限超過。Retry-After は窓幅 (秒) を返し、正規端末が窓明け後に
+    // 再送できるようにする。IP 制限は採らず token 単位で絞るため NAT 共有環境の正規ログは落ちない。
+    return NextResponse.json(
+      { error: "rate_limited" },
+      {
+        status: 429,
+        headers: { ...NO_STORE, "retry-after": String(SIGNAGE_EVENT_WINDOW_MS / 1000) },
+      },
+    );
   }
   return NextResponse.json({ error: "invalid" }, { status: 400, headers: NO_STORE });
 }

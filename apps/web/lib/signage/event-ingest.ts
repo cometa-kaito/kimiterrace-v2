@@ -1,11 +1,14 @@
+import { FixedWindowRateLimiter } from "@/lib/guide/rate-limit";
 import { hashToken } from "@/lib/magic-link/token";
 import {
+  contents,
   events,
   type TenantTx,
   getEffectiveAdsForClass,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 
 /**
@@ -61,7 +64,35 @@ export type ValidatedEvent = {
 export type EventIngestResult =
   | { ok: true }
   | { ok: false; reason: "invalid" }
-  | { ok: false; reason: "gone" };
+  | { ok: false; reason: "gone" }
+  | { ok: false; reason: "rate_limited" };
+
+/**
+ * M-2 (#464, #243 検証由来): per-`classToken` 固定窓レートリミット。
+ *
+ * `POST /signage/{classToken}/events` は **意図的に IP 制限を採らない** (校内は NAT 共有 IP で
+ * 50 端末/校が高頻度発火するため、IP 制限は正規ログを落とす — route.ts / PR #258 参照)。しかし
+ * `classToken` は QR/URL に載り base64url で可読・最長 90 日 rotate なしのため、これを得た者が
+ * `{"type":"view"}` を loop POST すると有効 token のまま無制限に `INSERT events` でき、特定校の
+ * events 肥大・F08 集計/到達数の歪曲を招く (越境ではない integrity / DoS スメル)。
+ *
+ * 対策として **token 単位** (per-IP ではない) の固定窓 limiter を `guide/rate-limit.ts` の
+ * {@link FixedWindowRateLimiter} 再利用で置く。per-token キーなら IP 制限を退けた NAT 懸念を回避し、
+ * 単一 token を握った flood だけを頭打ちにできる。key は **raw token でなく hashToken** で、
+ * credential を limiter Map・ログに残さない (ルール5)。volumetric な hard guarantee は依然 infra
+ * 層 WAF (Cloud Armor) が担う defense-in-depth であり、本 limiter は WAF が land するまでの安全網。
+ *
+ * 上限は正規トラフィック (ADR-025: 50 端末/校 × 分次ハートビート + ローテーション毎の view/tap、
+ * 1 token = 1 クラス表示なので実際は更に少数) を十分上回る寛容値にし、正規ログを落とさない。
+ * 状態は module-level の per-instance Map (guide/student-qa と同じ限界。複数インスタンスの全体上限は
+ * 共有ストア版 #155 が要る)。`nowMs` 注入でテスト決定的。
+ */
+export const SIGNAGE_EVENT_LIMIT = 600;
+export const SIGNAGE_EVENT_WINDOW_MS = 60 * 1000;
+export const signageEventRateLimiter = new FixedWindowRateLimiter(
+  SIGNAGE_EVENT_LIMIT,
+  SIGNAGE_EVENT_WINDOW_MS,
+);
 
 /**
  * 入力検証 (純関数)。許可した形だけを通し、payload は PII を持たない最小集合に正規化する。
@@ -132,15 +163,25 @@ async function resolveTenant(
 /**
  * 行動イベントを 1 件記録する。匿名サイネージ端末からの呼び出しを想定。
  *
- * @returns `{ok:true}` 記録成功 / `{reason:"invalid"}` 入力不正 / `{reason:"gone"}` トークン無効。
+ * @param nowMs レート判定の時刻 (注入式、既定 `Date.now()`)。テストで決定的に窓を制御する。
+ * @returns `{ok:true}` 記録成功 / `{reason:"invalid"}` 入力不正 / `{reason:"gone"}` トークン無効
+ *   / `{reason:"rate_limited"}` per-token 上限超過 (M-2)。
  */
 export async function recordSignageEvent(
   classToken: string,
   raw: EventIngestInput,
+  nowMs: number = Date.now(),
 ): Promise<EventIngestResult> {
   const v = validateEventInput(raw);
   if (!v.ok) {
     return { ok: false, reason: "invalid" };
+  }
+
+  // M-2 (#464): DB 解決 (resolveMagicLink) の**前**に per-token 固定窓 limit を掛け、有効 token を
+  // 握った flood を頭打ちにする。key は hashToken (raw credential を Map に残さない、ルール5)。
+  // 上限内の正規トラフィックは素通りし、超過時のみ rate_limited に倒す (route が 429 + Retry-After)。
+  if (!signageEventRateLimiter.tryAcquire(hashToken(classToken), nowMs)) {
+    return { ok: false, reason: "rate_limited" };
   }
 
   const tenant = await resolveTenant(classToken);
@@ -162,9 +203,29 @@ export async function recordSignageEvent(
         return { ok: false, reason: "invalid" } as const;
       }
     }
+
+    // L-1 (#464): contentId の**自テナント可視性**を insert 前に確認する。events.content_id FK は
+    // school 述語を持たず、参照先 contents は FORCE RLS でないため FK 整合チェック (table owner 権限)
+    // が他校の content uuid を受理してしまう。校 A の token 保持者が校 B の content uuid を送ると
+    // `school_id=A` 行に校 B を指す dangling 参照が残る (読取は RLS で解決不能化されるため越境漏洩
+    // ではないが、integrity スメル)。ここは RLS 文脈 (withTenantContext) 内なので、`kimiterrace_app`
+    // (非 BYPASSRLS) からの SELECT は自校行しか返さない。不可視 (他校/不在) なら contentId を null に
+    // 落として焼き込みを防ぐ (adId の実在チェックと同方針)。同校 content は状態を問わず素通り。
+    let contentId = v.value.contentId;
+    if (contentId !== null) {
+      const visible = await tx
+        .select({ id: contents.id })
+        .from(contents)
+        .where(eq(contents.id, contentId))
+        .limit(1);
+      if (visible.length === 0) {
+        contentId = null;
+      }
+    }
+
     await tx.insert(events).values({
       schoolId: tenant.schoolId,
-      contentId: v.value.contentId,
+      contentId,
       type: v.value.type,
       // occurred_at は DB 既定 now() に委ねる (クライアント時刻を信用しない)。
       payload: v.value.payload,
