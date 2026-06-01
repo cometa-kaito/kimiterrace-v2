@@ -1,6 +1,7 @@
 "use server";
 
 import { type TenantRole, type TenantTx, auditLog, users } from "@kimiterrace/db";
+import { createLogger } from "@kimiterrace/observability";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { changeIdpUserRole, deactivateIdpUser, reactivateIdpUser } from "../auth/admin-mutations";
@@ -24,6 +25,19 @@ class LastAdminRaceError extends Error {
     this.name = "LastAdminRaceError";
   }
 }
+
+/**
+ * 構造化ロガー (#395 L1 / NFR04, ADR-026 L1 観測性)。
+ *
+ * last-admin TOCTOU レース (#355 Low-2) 検出時、mirror tx は **監査 insert の前にロールバック**するため、
+ * 実行された「IdP revoke → 補償 (reactivate / role 復元)」の往復が `audit_log` に残らない。net DB state は
+ * 不変 (対象は元の active / school_admin のまま) で ADR-026 L1 (system_admin の同定はアプリ/IdP ログ側) とも
+ * 整合するが、**確定実行された IdP の往復は観測したい**。そこで race パスで 1 件 `warn` を出す。
+ *
+ * PII は載せない (ルール4 / NFR03): user_id / school_id は UUID であり個人情報ではない。structured payload は
+ * `@kimiterrace/observability` 側で redact されるが (defense-in-depth)、ID のみで PII を渡さない規律を守る。
+ */
+const logger = createLogger("system-admin-users");
 
 /**
  * F11 (#47 / #324, ADR-026): system_admin が **全校横断**で教職員のアカウントを無効化 / 再有効化する
@@ -128,6 +142,19 @@ export async function setStaffActiveAction(raw: {
     );
   } catch (e) {
     if (e instanceof LastAdminRaceError) {
+      // #395 L1: race パスは mirror tx ロールバックで audit_log に残らないため、確定実行された IdP の往復
+      // (revoke→補償) を構造化ログで 1 件記録する (NFR04 観測性, ADR-026 L1)。補償**前**に出すことで、
+      // 補償が二重障害で失敗しても「レース検出 + IdP revoke 確定」のイベントは残る。
+      logger.warn(
+        {
+          event: "last_admin_race_detected",
+          action: "deactivate",
+          schoolId: gate.schoolId,
+          targetUserId: userId,
+          compensation: "reactivate_idp_user",
+        },
+        "last-admin race detected at mirror tx; compensating IdP-first deactivation",
+      );
       // 補償 (ADR-026 IdP-first ゆえ revoke は確定済): IdP を再有効化して巻き戻す。DB は未更新 = 元から
       // active のまま。これで「学校が管理者ゼロ」を防ぐ。再有効化も失敗する二重障害は loud に投げて手動復旧へ。
       await reactivateIdpUser(userId);
@@ -315,6 +342,18 @@ export async function changeStaffRoleAction(raw: {
     );
   } catch (e) {
     if (e instanceof LastAdminRaceError) {
+      // #395 L1: race パスは mirror tx ロールバックで audit_log に残らないため、確定実行された IdP の往復
+      // (降格→補償) を構造化ログで 1 件記録する (NFR04 観測性, ADR-026 L1)。補償**前**に出す。
+      logger.warn(
+        {
+          event: "last_admin_race_detected",
+          action: "change_role",
+          schoolId: gate.schoolId,
+          targetUserId: userId,
+          compensation: "restore_school_admin_role",
+        },
+        "last-admin race detected at mirror tx; compensating IdP-first demotion",
+      );
       // 補償: IdP のロールを school_admin に戻す (revoke 済のため再ログインは要るが claim は復元)。DB は未更新。
       await changeIdpUserRole(userId, "school_admin", gate.schoolId);
       return conflict(
