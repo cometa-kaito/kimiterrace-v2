@@ -51,15 +51,17 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
+    { label: "月次レポート", href: "/admin/reports" },
   ],
-  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 効果ダッシュボード (F08)。
-  // コンテンツ一覧 (/admin/contents) / ダッシュボード (/admin/dashboard) は
-  // PUBLISHER_ROLES=school_admin/teacher 専用 (#166 / F08 第1スライス)。
+  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 効果ダッシュボード (F08) + 月次レポート (F09)。
+  // コンテンツ一覧 (/admin/contents) / ダッシュボード (/admin/dashboard) / 月次レポート (/admin/reports) は
+  // PUBLISHER_ROLES=school_admin/teacher 専用 (#166 / F08 第1スライス / F09 第1スライス)。
   teacher: [
     { label: "エディタ", href: "/admin/editor" },
     { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
+    { label: "月次レポート", href: "/admin/reports" },
   ],
 };
 
