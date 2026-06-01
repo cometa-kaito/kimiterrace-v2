@@ -99,13 +99,14 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + フィードバック（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
       "/admin/system/users",
       "/admin/system/dashboard",
       "/admin/system/sensors",
+      "/admin/system/reports",
       "/admin/system/feedback",
     ]);
     expect(hrefs).not.toContain("/admin/editor");

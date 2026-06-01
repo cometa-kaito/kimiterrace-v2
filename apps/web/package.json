@@ -15,6 +15,7 @@
     "clean": "rm -rf .next .turbo node_modules"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@kimiterrace/ai": "workspace:*",
     "@kimiterrace/db": "workspace:*",
     "@kimiterrace/observability": "workspace:*",

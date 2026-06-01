@@ -46,6 +46,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 自校ビュー /admin/sensors (PUBLISHER_ROLES 専用) とは別ルート。#485/#486 が後続へ defer していた
     // system_admin 横断ビューがこれ。requireRole(SYSTEM_ADMIN_ROLES) で publisher は 403 → 死リンク防止。
     { label: "センサー管理（全校）", href: "/admin/system/sensors" },
+    // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (system_admin 専用、cross-tenant)。自校の月次
+    // サマリービュー /admin/reports (PUBLISHER_ROLES) とは別ルート。
+    { label: "月次レポート", href: "/admin/system/reports" },
     { label: "フィードバック", href: "/admin/system/feedback" },
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。
