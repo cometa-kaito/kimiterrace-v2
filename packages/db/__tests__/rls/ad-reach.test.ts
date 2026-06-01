@@ -188,6 +188,22 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
   describe("getMonthlyAdReach (JST 暦月窓)", () => {
     const Y = 2026;
     const M = 3; // 対象月 = 2026 年 3 月 (JST)
+    const AD_GHOST = "33333333-3333-4333-8333-333333333333"; // ads 行の無い (削除済相当) adId
+
+    // caption は ads を LEFT JOIN して付すため ads をケースごとに掃除する (outer beforeEach は events のみ
+    // 削除)。caption 検証ケースだけ ads 行を投入し、他ケースは ads 不在 → caption は全て null。
+    beforeEach(async () => {
+      await raw`DELETE FROM ads`;
+    });
+
+    // caption 検証用に ads 行を 1 件投入する (scope='school' は grade/dept/class id が NULL で check 充足)。
+    // id を payload.adId と一致させ LEFT JOIN で caption が引かれることを確かめる。
+    async function seedAd(adId: string, schoolId: string, caption: string | null): Promise<void> {
+      await raw`
+        INSERT INTO ads (id, school_id, scope, media_url, media_type, caption)
+        VALUES (${adId}, ${schoolId}, 'school', 'https://cdn.example/a.png', 'image', ${caption})
+      `;
+    }
 
     it("対象月内で同一 (client, ad, 分) は 1、別分は別計上する", async () => {
       // 同一 JST 分 (03/10 12:00) の重複 → 1、別分 (03/10 12:05) → +1
@@ -200,7 +216,7 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
         (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
         APP,
       );
-      expect(reach).toEqual([{ adId: AD1, reach: 2 }]);
+      expect(reach).toEqual([{ adId: AD1, caption: null, reach: 2 }]);
     });
 
     it("前月・翌月の view は対象月の到達数に含めない (月窓 [当月, 翌月) )", async () => {
@@ -213,7 +229,7 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
         (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
         APP,
       );
-      expect(reach).toEqual([{ adId: AD1, reach: 1 }]);
+      expect(reach).toEqual([{ adId: AD1, caption: null, reach: 1 }]);
     });
 
     it("月境界は JST で判定する (UTC ではない)", async () => {
@@ -227,7 +243,7 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
         (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
         APP,
       );
-      expect(reach).toEqual([{ adId: AD1, reach: 1 }]);
+      expect(reach).toEqual([{ adId: AD1, caption: null, reach: 1 }]);
     });
 
     it("ad 別に group し、到達数降順 → adId 昇順で返す", async () => {
@@ -241,8 +257,8 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
         APP,
       );
       expect(reach).toEqual([
-        { adId: AD1, reach: 2 },
-        { adId: AD2, reach: 1 },
+        { adId: AD1, caption: null, reach: 2 },
+        { adId: AD2, caption: null, reach: 1 },
       ]);
     });
 
@@ -256,7 +272,7 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
         (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
         APP,
       );
-      expect(a).toEqual([{ adId: AD1, reach: 1 }]);
+      expect(a).toEqual([{ adId: AD1, caption: null, reach: 1 }]);
     });
 
     it("空コンテキストは deny-by-default で空配列", async () => {
@@ -277,6 +293,41 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
       await expect(
         withTenantContext(db, ctxA(), (tx) => getMonthlyAdReach(tx, { year: Y, month: 13 }), APP),
       ).rejects.toThrow(RangeError);
+    });
+
+    it("ads を LEFT JOIN し caption を付す (caption 未設定 / 削除済 ad は null)", async () => {
+      await seedAd(AD1, fx.schoolA, "体育祭ポスター"); // caption あり
+      await seedAd(AD2, fx.schoolA, null); // caption 未設定 → null
+      // 各 ad 到達 1。AD_GHOST は ads 行が無い (削除済相当) → LEFT JOIN 不一致で caption null。
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 6, h: 10, mi: 0 });
+      await seedViewAt(fx.schoolA, AD2, CLIENT1, { y: Y, mo: M, d: 6, h: 10, mi: 0 });
+      await seedViewAt(fx.schoolA, AD_GHOST, CLIENT1, { y: Y, mo: M, d: 6, h: 10, mi: 0 });
+      const reach = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      // 到達数同数 (各 1) は adId 昇順 (AD1 < AD2 < AD_GHOST)。
+      expect(reach).toEqual([
+        { adId: AD1, caption: "体育祭ポスター", reach: 1 },
+        { adId: AD2, caption: null, reach: 1 },
+        { adId: AD_GHOST, caption: null, reach: 1 },
+      ]);
+    });
+
+    it("caption ラベルもテナント分離される (B 校の ad caption は A から引けない)", async () => {
+      // A・B 同一 adId (AD1) に ads 行を別々の caption で投入。A コンテキストでは A の caption のみ。
+      await seedAd(AD1, fx.schoolA, "A 校ポスター");
+      await seedAd(AD2, fx.schoolB, "B 校ポスター");
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 7, h: 10, mi: 0 });
+      const a = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(a).toEqual([{ adId: AD1, caption: "A 校ポスター", reach: 1 }]);
     });
   });
 });
