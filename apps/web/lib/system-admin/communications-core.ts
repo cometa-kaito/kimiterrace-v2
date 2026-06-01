@@ -49,11 +49,21 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // timestamptz は曖昧さを避けるため明示的な timezone (Z または ±HH:MM) を必須にする。
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 
+/** "YYYY-MM-DD" の暦日が実在するか (2026-02-30 等の桁あふれを round-trip 不一致で弾く)。 */
+function isRealCalendarDate(datePart: string): boolean {
+  const d = new Date(`${datePart}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === datePart;
+}
+
 /**
  * occurred_at を Date へ正規化する。受け付けるのは
- * - "YYYY-MM-DD" (日付のみ → UTC 0 時。実在日でない 2026-02-30 等は round-trip 不一致で弾く)
+ * - "YYYY-MM-DD" (日付のみ → UTC 0 時)
  * - 明示 timezone 付き ISO 8601 datetime ("...Z" / "...+09:00")
  * timezone 無し datetime は instant が曖昧なため受け付けない。範囲外の年は弾く。
+ *
+ * 暦日の実在性は両形式で検証する。V8 は datetime の日付桁あふれ (例 2026-02-30T..Z) を翌月へ
+ * rollover して valid Date を返すため、先頭 10 文字 (入力ローカルの暦日) を date-only と同じ
+ * round-trip で確認して弾く。時刻の範囲 (25 時等) は new Date が NaN にするので別途検出される。
  */
 function parseOccurredAt(value: unknown): Date | null {
   if (typeof value !== "string") {
@@ -62,11 +72,14 @@ function parseOccurredAt(value: unknown): Date | null {
   const trimmed = value.trim();
   let d: Date;
   if (DATE_RE.test(trimmed)) {
-    d = new Date(`${trimmed}T00:00:00.000Z`);
-    if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== trimmed) {
+    if (!isRealCalendarDate(trimmed)) {
       return null;
     }
+    d = new Date(`${trimmed}T00:00:00.000Z`);
   } else if (DATETIME_RE.test(trimmed)) {
+    if (!isRealCalendarDate(trimmed.slice(0, 10))) {
+      return null;
+    }
     d = new Date(trimmed);
     if (Number.isNaN(d.getTime())) {
       return null;

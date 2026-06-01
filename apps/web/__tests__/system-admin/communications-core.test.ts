@@ -103,6 +103,15 @@ describe("validateCommunicationCreate — occurredAt", () => {
       false,
     );
   });
+  it("datetime でも実在しない暦日 (2026-02-30T..Z の桁あふれ) は invalid", () => {
+    // V8 は翌月へ rollover して valid Date を返すが、暦日 round-trip で弾く。
+    expect(validateCommunicationCreate(validRaw({ occurredAt: "2026-02-30T00:00:00Z" })).ok).toBe(
+      false,
+    );
+    expect(
+      validateCommunicationCreate(validRaw({ occurredAt: "2026-04-31T12:00:00+09:00" })).ok,
+    ).toBe(false);
+  });
   it("形式不正・年範囲外は invalid", () => {
     expect(validateCommunicationCreate(validRaw({ occurredAt: "yesterday" })).ok).toBe(false);
     expect(validateCommunicationCreate(validRaw({ occurredAt: "1999-12-31" })).ok).toBe(false);
