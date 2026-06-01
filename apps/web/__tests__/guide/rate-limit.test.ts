@@ -80,6 +80,35 @@ describe("FixedWindowRateLimiter", () => {
     expect(limiter.tryAcquire("x", 100)).toBe(true);
     expect(limiter.tryAcquire("x", 200)).toBe(false); // limit=2 超過
   });
+
+  it("同一 key のウィンドウ内反復試行は Map を増やさない (in-place 更新で size 不変)", () => {
+    // 正規利用 (1 IP からの連続投稿) が maxKeys 枠を食い潰さないことを縛る:
+    // 有効ウィンドウ内の同一 key は in-place で count を進めるだけで、新規 key 追加経路
+    // (evictToBound の発火対象) には乗らない。size は終始 1 のまま。
+    const limiter = new FixedWindowRateLimiter(100, 1000, 3);
+    for (let i = 0; i < 50; i += 1) {
+      // nowMs=i (< windowMs=1000) は常に同一ウィンドウ。limit=100 内なので全て許可。
+      expect(limiter.tryAcquire("same-ip", i)).toBe(true);
+    }
+    expect(limiter.size()).toBe(1);
+  });
+
+  it("期限切れの無い flood は最古 windowStart の key から間引く (新しい key は残す)", () => {
+    // 既存の flood テストは全 key が同一 windowStart=0 のため間引き「順序」を縛れない。
+    // ここは windowStart を時刻でずらし、最古 (windowStart=0) が落ちて最新が残ることを
+    // 振る舞いから決定的に検出する (newest を誤って落とせば最後の assert が壊れて検知できる)。
+    const limiter = new FixedWindowRateLimiter(1, 1000, 2);
+    expect(limiter.tryAcquire("old", 0)).toBe(true); // windowStart=0 (最古)
+    expect(limiter.tryAcquire("new", 100)).toBe(true); // windowStart=100、size=2 (上限)
+    expect(limiter.size()).toBe(2);
+    // 3 つ目の新規 key で eviction 発火。全て window 内 = 期限切れ無し → 最古の "old" を間引く。
+    expect(limiter.tryAcquire("trigger", 200)).toBe(true);
+    expect(limiter.size()).toBeLessThanOrEqual(2);
+    // "new" は生存しているはず: t=100 で limit=1 を消費済みなので window 内の再試行は拒否される
+    // (in-place 判定経路、size も eviction も動かさない)。最古優先が壊れて "new" が間引かれて
+    // いたら、ここが新ウィンドウ扱いで true になり回帰を検知できる。
+    expect(limiter.tryAcquire("new", 300)).toBe(false);
+  });
 });
 
 describe("clientKeyFromHeaders", () => {
