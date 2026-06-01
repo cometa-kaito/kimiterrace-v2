@@ -33,6 +33,14 @@ function clampLimit(value: number | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.floor(value)));
 }
 
+/** offset を非負整数へ。未指定 / 非有限 (NaN/Infinity) は 0 (clampLimit と対称、`.offset(NaN)` を防ぐ)。 */
+function normalizeOffset(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(value));
+}
+
 /**
  * ある広告主のコミュニケーション履歴を新しい順に返す。並びは発生日時降順、同時刻は記録時刻降順
  * (`ix_communications_occurred_at` を利用)。`advertiserId` での絞り込みは対象特定であって
@@ -44,7 +52,7 @@ export async function listCommunicationsByAdvertiser(
   opts: { limit?: number; offset?: number } = {},
 ): Promise<CommunicationSummary[]> {
   const limit = clampLimit(opts.limit);
-  const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+  const offset = normalizeOffset(opts.offset);
   return await tx
     .select({
       id: communications.id,

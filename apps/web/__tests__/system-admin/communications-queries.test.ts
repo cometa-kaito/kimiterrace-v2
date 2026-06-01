@@ -115,6 +115,21 @@ describe("listCommunicationsByAdvertiser", () => {
     expect(limitArg).toBe(1);
   });
 
+  it("非有限 (NaN/Infinity) と小数は既定/floor に正規化 (.offset(NaN) を防ぐ)", async () => {
+    await listCommunicationsByAdvertiser(fakeListTx(), ADV_ID, {
+      limit: Number.NaN,
+      offset: Number.NaN,
+    });
+    expect(limitArg).toBe(100); // 既定
+    expect(offsetArg).toBe(0); // 既定 (NaN ガード)
+    await listCommunicationsByAdvertiser(fakeListTx(), ADV_ID, {
+      limit: Number.POSITIVE_INFINITY,
+      offset: 12.9,
+    });
+    expect(limitArg).toBe(100); // Infinity は非有限 → 既定 (上限 500 へは丸めない)
+    expect(offsetArg).toBe(12); // floor
+  });
+
   it("tx の結果をそのまま返す (手書きテナント WHERE を足さない — 可視範囲は RLS)", async () => {
     rows = [
       {
