@@ -39,7 +39,15 @@ export interface ScopeClassification {
 // 掲示物の周辺語（テスト/持ち物/予定/お知らせ）は意図的に除外する。
 const STUDY_PATTERNS: readonly RegExp[] = [
   // 日本語（漢字混じり）
-  /勉強/,
+  // `勉強` は原則 study とするが、掲示物起源の文脈だけ negative lookahead で除外する:
+  //   - `勉強会`（学習イベント名）
+  //   - `勉強の(予定|日程|場所|会場|集合|時間|範囲|持ち物|スケジュール)`（イベントの予定/所在 Q&A）
+  // これにより `勉強会の集合場所` / `テスト勉強の予定` は in_scope に保ちつつ（#389 Reviewer M-1）、
+  // `勉強したい` / `勉強について教えて` / `数学の勉強で困っている` のような素朴な学習依頼は
+  // 取りこぼさない（#397 Reviewer Low-1: bare 限定だと recall が後退する）。`勉強の仕方` 等の
+  // 学習依頼は除外語に含めないので引き続き study。ひらがな `べんきょう` は別パターンで bare のまま
+  // （やさしい日本語は表記ゆれが大きく、既存の `べんきょうの しかた`（分かち書き）を取りこぼさないため）。
+  /勉強(?!会|の(?:予定|日程|スケジュール|場所|会場|集合|時間|範囲|持ち物))/,
   /宿題/,
   /自習/,
   /解き方/,
@@ -55,7 +63,11 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /\bstudy\b/i,
   /\bstudying\b/i,
   /\bhomework\b/i,
-  /\bsolve (?:this|the|my|for)\b/i,
+  // `solve` は学習目的語（equation/exercise/homework 等）に束縛する。`solve my issue with the
+  // printer` のような非学習の依頼を study 扱いしないため（#389 Reviewer M-2）。equation/homework は
+  // 下の単独パターンでも捕捉される。変数解法 `solve for x` のみ別途許容。
+  /\bsolve (?:this |that |these |the |my |your )?(?:equation|exercise|inequality|integral|worksheet|homework)\b/i,
+  /\bsolve for [a-z]\b/i,
   /\bteach me (?:how|the|math|english|science|to solve)/i,
   /\b(?:math|algebra|geometry|calculus|physics) (?:problem|question)/i,
   /\bequation\b/i,
