@@ -12,6 +12,7 @@
 - `incident-response-playbook.md` — 漏洩時の対応フロー
 - `vendor-management.md` — 委託先管理表（GCP、Vertex AI、Sentry 等）
 - `data-retention-policy.md` — データ保管期間ポリシー
+- `oss-licenses.md` — 同梱 OSS（フォント等のバイナリ資産）のライセンス台帳
 
 ## 重要なベース文書
 
