@@ -120,6 +120,24 @@ export function SignageClient({
     });
   }, [currentAdId, safeIndex, classToken]);
 
+  // --- 広告タップ (click-through) テレメトリ (#43 / F07 第3スライス)。インタラクティブ端末で生徒が
+  //     linkUrl 付き広告をタップした時に `tap` を 1 件送る (view と別種、広告主のクリック到達計測)。
+  //     view (表示) と違いユーザー起点なので effect でなくハンドラで都度送る。遷移自体は <a> が担い、
+  //     送信失敗は遷移をブロックしない (event-beacon が握りつぶす)。adId は ingest 側で当該クラスの
+  //     実効広告に実在照合される (#265 L-1) ので、水増しは DB 層でも弾かれる。 ---
+  const handleAdTap = useCallback(
+    (adId: string, slotIndex: number) => {
+      const clientId = getClientId();
+      sendSignageEvent(classToken, {
+        type: "tap",
+        adId,
+        slotIndex,
+        ...(clientId ? { clientId } : {}),
+      });
+    },
+    [classToken],
+  );
+
   // --- Service Worker 登録 (#48-G)。マウント時に 1 度だけ。失敗しても表示はブロックしない。 ---
   useEffect(() => {
     void registerSignageServiceWorker();
@@ -141,6 +159,8 @@ export function SignageClient({
   }
 
   const ad = adCount > 0 ? ads[safeIndex] : null;
+  // linkUrl が http(s) 絶対 URL の時だけクリック遷移にする (javascript:/data: 等は弾く = 安全側、ルール)。
+  const adLink = ad ? safeHttpUrl(ad.linkUrl) : null;
 
   return (
     <div style={rootStyle}>
@@ -157,17 +177,22 @@ export function SignageClient({
       <aside aria-label="広告" style={adPaneStyle}>
         {ad ? (
           <figure style={adFigureStyle} key={ad.adId}>
-            {ad.mediaType === "video" ? (
-              <video src={ad.mediaUrl} autoPlay muted loop playsInline style={adMediaStyle} />
+            {adLink ? (
+              // linkUrl 付き広告はタップで遷移可能 (インタラクティブ端末)。新規タブ + reverse
+              // tabnabbing 防止 (noopener noreferrer)。タップで tap イベントを送る (遷移は阻害しない)。
+              <a
+                href={adLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={adLinkStyle}
+                aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
+                onClick={() => handleAdTap(ad.adId, safeIndex)}
+              >
+                <AdMedia ad={ad} />
+              </a>
             ) : (
-              // 外部 CDN URL の広告画像。Next/Image の最適化対象外のため素の img を使う。
-              <img src={ad.mediaUrl} alt={ad.caption ?? ""} style={adMediaStyle} />
+              <AdMedia ad={ad} />
             )}
-            {ad.caption ? (
-              <figcaption style={{ ...adCaptionStyle, fontSize: `${ad.captionFontScale}rem` }}>
-                {ad.caption}
-              </figcaption>
-            ) : null}
           </figure>
         ) : (
           <p style={adEmptyStyle}>　</p>
@@ -213,6 +238,42 @@ function Section({
       )}
     </section>
   );
+}
+
+/** 広告の media (image/video) + caption。リンク有無で <a> でラップされるため共通部品に切り出す。 */
+function AdMedia({ ad }: { ad: SignagePayload["ads"][number] }) {
+  return (
+    <>
+      {ad.mediaType === "video" ? (
+        <video src={ad.mediaUrl} autoPlay muted loop playsInline style={adMediaStyle} />
+      ) : (
+        // 外部 CDN URL の広告画像。Next/Image の最適化対象外のため素の img を使う。
+        <img src={ad.mediaUrl} alt={ad.caption ?? ""} style={adMediaStyle} />
+      )}
+      {ad.caption ? (
+        <figcaption style={{ ...adCaptionStyle, fontSize: `${ad.captionFontScale}rem` }}>
+          {ad.caption}
+        </figcaption>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * linkUrl が **http(s) の絶対 URL** の時だけ遷移先として採用する。`javascript:` / `data:` 等の
+ * 危険スキームや相対・不正値は null に倒し <a> 化しない (XSS/オープンリダイレクト防止 = 安全側)。
+ * linkUrl は広告管理で管理者が設定するが、表示層でも多層防御する。
+ */
+function safeHttpUrl(linkUrl: string | null): string | null {
+  if (!linkUrl) {
+    return null;
+  }
+  try {
+    const u = new URL(linkUrl);
+    return u.protocol === "http:" || u.protocol === "https:" ? linkUrl : null;
+  } catch {
+    return null;
+  }
 }
 
 /** ローテーション位置のドット表示 (現在位置を ● 他を ○)。 */
@@ -286,6 +347,18 @@ const adFigureStyle: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   gap: "0.5rem",
+};
+// リンク付き広告のラッパ。figure の flex 列レイアウトを引き継ぎつつ下線・文字色を継承する。
+const adLinkStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.5rem",
+  width: "100%",
+  height: "100%",
+  color: "inherit",
+  textDecoration: "none",
 };
 const adMediaStyle: React.CSSProperties = {
   maxWidth: "100%",

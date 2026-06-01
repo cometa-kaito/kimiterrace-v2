@@ -1,10 +1,11 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F07 (#43): SignageClient が広告 impression の view を送る追加配線のテスト。event-beacon と
- * media-cache を mock し、tuned な rotation/polling を起動させずに「マウント時の現在広告で view を
- * 1 件送る / 広告ゼロでは送らない / clientId 空は載せない」を検証する。
+ * F07 (#43): SignageClient が広告 impression の view / click-through の tap を送る追加配線のテスト。
+ * event-beacon と media-cache を mock し、tuned な rotation/polling を起動させずに「マウント時の現在広告で
+ * view を 1 件送る / 広告ゼロでは送らない / clientId 空は載せない」+「linkUrl 付き広告はタップで tap を
+ * 送る / linkUrl 無しや危険スキームはリンク化しない」を検証する。
  */
 
 const { sendSignageEvent, getClientId } = vi.hoisted(() => ({
@@ -25,6 +26,8 @@ import type { SignagePayload } from "../../lib/signage/signage-display";
 
 const TOKEN = "TOK";
 const AD_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+// 文字列リテラルで javascript: を書くと lint が反応するため分割して組み立てる (検証用の危険スキーム)。
+const DANGEROUS_URL = `${"java"}script:alert(1)`;
 
 const emptySection = { items: [] as unknown[], source: null };
 const daily = {
@@ -51,6 +54,10 @@ function ad(adId: string): SignagePayload["ads"][number] {
     captionFontScale: 1,
     displayOrder: 0,
   };
+}
+
+function adWithLink(adId: string, linkUrl: string | null, caption: string | null = null) {
+  return { ...ad(adId), linkUrl, caption };
 }
 
 function payload(ads: SignagePayload["ads"]): SignagePayload {
@@ -87,5 +94,59 @@ describe("SignageClient view impression (#43 / F07)", () => {
       adId: AD_A,
       slotIndex: 0,
     });
+  });
+});
+
+describe("SignageClient ad click-through tap (#43 / F07)", () => {
+  it("linkUrl 付き広告はリンク化され、タップで tap を送る (adId/slotIndex/clientId 付き)", () => {
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={payload([adWithLink(AD_A, "https://sponsor.example/lp", "スポンサー")])}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "広告: スポンサー" });
+    expect(link).toHaveAttribute("href", "https://sponsor.example/lp");
+    // 新規タブ + reverse tabnabbing 防止。
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    // マウント時の view 送信を除外してタップ分だけを見る。
+    sendSignageEvent.mockClear();
+    fireEvent.click(link);
+    expect(sendSignageEvent).toHaveBeenCalledTimes(1);
+    expect(sendSignageEvent).toHaveBeenCalledWith(TOKEN, {
+      type: "tap",
+      adId: AD_A,
+      slotIndex: 0,
+      clientId: "cid-123",
+    });
+  });
+
+  it("caption 無し linkUrl 付き広告は汎用 aria-label でリンク化する", () => {
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={payload([adWithLink(AD_A, "https://sponsor.example/lp", null)])}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "広告を開く" })).toBeInTheDocument();
+  });
+
+  it("linkUrl 無しの広告はリンク化しない (タップ送信もしない)", () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([adWithLink(AD_A, null)])} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("危険スキーム (javascript:) はリンク化しない (XSS 防止 = 安全側)", () => {
+    render(
+      <SignageClient classToken={TOKEN} initial={payload([adWithLink(AD_A, DANGEROUS_URL)])} />,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("相対 URL もリンク化しない (絶対 http(s) のみ許可)", () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([adWithLink(AD_A, "/relative")])} />);
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });
