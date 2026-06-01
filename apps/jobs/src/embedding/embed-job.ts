@@ -51,6 +51,18 @@ async function main(): Promise<void> {
   const summary = await runEmbeddingBatch(config);
   // 件数サマリのみ info ログに（Cloud Logging の構造化ログ）。secret / PII は出さない。
   console.info(JSON.stringify({ event: "embedding.batch.done", summary }));
+  // fail-closed ゲートが PII 残存で version を skip した場合は WARN を立て、Cloud Logging の
+  // severity ベースのアラート対象にする（ルール4 / docs/compliance/embedding-pii-masking.md の runbook）。
+  // 件数のみ（生 PII は出さない）。skip された version は次回バッチで再処理される（冪等）。
+  if (summary.blockedUnmaskedPii > 0) {
+    console.warn(
+      JSON.stringify({
+        event: "embedding.batch.pii_blocked",
+        blockedUnmaskedPii: summary.blockedUnmaskedPii,
+        schools: summary.schools,
+      }),
+    );
+  }
 }
 
 main().catch((err) => {
