@@ -49,7 +49,7 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
       INSERT INTO events (school_id, type, occurred_at, payload)
       VALUES (
         ${schoolId}, ${type},
-        date_trunc('minute', now()) - make_interval(days => 1) - make_interval(minutes => ${minuteOffset}::int),
+        date_trunc('minute', now()) - make_interval(days => 1) - make_interval(mins => ${minuteOffset}::int),
         ${JSON.stringify(payload)}::jsonb
       )
     `;
