@@ -1,0 +1,59 @@
+name: Terraform
+
+# CLAUDE.md ルール8 / ADR-009: infrastructure/terraform/ の fmt・validate を PR ゲート化する。
+# path filter で terraform を触る PR のみ起動 (それ以外の PR には pending check を出さない)。
+# terraform plan (GCS backend + WIF creds が必要) は対象外 — enabled=false 雛形段階は
+# "No changes" 設計のため、plan の CI 自動投稿は別 follow-up (#438 スコープ外)。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infrastructure/terraform/**"
+      - ".github/workflows/terraform.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "infrastructure/terraform/**"
+      - ".github/workflows/terraform.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # README の required_version (>= 1.9.0, < 2.0.0) を満たす最新 1.x を解決する。
+  TF_VERSION: "<2.0.0"
+
+jobs:
+  fmt:
+    name: Format (fmt -check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - name: terraform fmt -check
+        run: terraform fmt -recursive -check infrastructure/terraform
+
+  validate:
+    name: Validate (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [prod, staging, dev]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      # backend=false で remote state に触らず init (provider のみ取得、GCP creds 不要)。
+      - name: terraform init (no backend)
+        run: terraform -chdir=infrastructure/terraform/envs/${{ matrix.env }} init -backend=false -input=false
+      - name: terraform validate
+        run: terraform -chdir=infrastructure/terraform/envs/${{ matrix.env }} validate -no-color
