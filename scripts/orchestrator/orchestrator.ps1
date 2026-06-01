@@ -414,6 +414,16 @@ function Cmd-Cleanup {
     }
     Write-Host "[local] Removing ($reason): $($s.worktree)"
     git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
+    # GC the merged worker branch too (#376): leaving feat/N-orchestrated behind makes a re-dispatch
+    # of the same issue fail at `git worktree add -b`. Only workers create a branch (reviewers run
+    # detached), and we reach here only when that worker's PR is MERGED, so the delete is safe.
+    if ($s.role -eq "worker" -and $s.branch) {
+      # Swallow failures (most commonly: the branch is already gone). Under the script's
+      # $ErrorActionPreference="Stop", a native stderr write ("error: branch ... not found") is a
+      # terminating error that would otherwise abort the whole cleanup loop and leak the remaining
+      # worktrees. try/catch mirrors the remote path's `|| true`, keeping branch GC fail-open.
+      try { git -C $repoRoot branch -D $s.branch 2>&1 | Out-Null } catch {}
+    }
     $removed.Add("local:$($s.worktree)")
   }
 
@@ -475,6 +485,9 @@ for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | gre
     else
       echo "removing: `$wt"
       git worktree remove "`$wt" --force
+      # GC the merged worker branch too (#376), mirroring the local reaper: a detached reviewer
+      # (br=HEAD) has no branch, so skip it; otherwise the branch is MERGED here and safe to drop.
+      if [ "`$br" != "HEAD" ] && [ -n "`$br" ]; then git branch -D "`$br" >/dev/null 2>&1 || true; fi
     fi
   fi
 done
