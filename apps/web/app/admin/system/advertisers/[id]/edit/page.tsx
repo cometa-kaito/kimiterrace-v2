@@ -36,6 +36,9 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
       </Link>
       <h1 style={titleStyle}>広告主の編集</h1>
       <AdvertiserEditForm advertiser={advertiser} />
+      <Link href={`/admin/system/advertisers/${id}/contracts`} style={contractsLinkStyle}>
+        契約管理 →
+      </Link>
     </section>
   );
 }
@@ -46,3 +49,8 @@ const backLinkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
+const contractsLinkStyle: React.CSSProperties = {
+  fontSize: "0.9rem",
+  color: "#2563eb",
+  textDecoration: "none",
+};
