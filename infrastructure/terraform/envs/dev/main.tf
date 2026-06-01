@@ -95,6 +95,15 @@ module "cloud_run" {
   enabled    = false
 }
 
+# F06 embedding バッチの Cloud Run Job + Scheduler（#416）。dev は通常起動しない。
+module "cloud_run_job" {
+  source     = "../../modules/cloud_run_job"
+  project_id = var.project_id
+  region     = var.region
+  env        = local.env
+  enabled    = false
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 

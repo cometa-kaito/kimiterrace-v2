@@ -15,6 +15,7 @@ infrastructure/terraform/
 ├── README.md                      # このファイル
 ├── modules/
 │   ├── cloud_run/                 # Next.js web 用 (ADR-002, ADR-008)
+│   ├── cloud_run_job/             # F06 embedding バッチ Job + Scheduler (ADR-005/007, #416)
 │   ├── cloud_sql/                 # PostgreSQL 16 + pgvector (ADR-001, ADR-007)
 │   ├── identity_platform/         # IDP tenant (ADR-003)
 │   ├── secret_manager/            # secret + IAM (CLAUDE.md ルール5)
