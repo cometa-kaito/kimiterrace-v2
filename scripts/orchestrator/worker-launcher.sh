@@ -163,12 +163,17 @@ CLAUDE_ARGS=(
   --max-budget-usd "$MAX_BUDGET"
   --name "$WORKER_ID"
   --permission-mode "$PERMISSION_MODE"
-  --allowedTools $ALLOWED_TOOLS
+  --allowedTools "$ALLOWED_TOOLS"
   --verbose
 )
 
+# Quote the tool lists: config stores them comma-separated as a SINGLE value
+# (e.g. "Bash(git:*),Edit"). Passing them unquoted word-splits on spaces, which
+# leaked the "-g" inside "Bash(npm install -g:*)" as a standalone token →
+# `claude` (commander) aborted with "error: unknown option '-g'". Claude accepts
+# a comma/space-separated list as one arg, so a single quoted value is correct.
 if [[ -n "$DISALLOWED_TOOLS" ]]; then
-  CLAUDE_ARGS+=(--disallowedTools $DISALLOWED_TOOLS)
+  CLAUDE_ARGS+=(--disallowedTools "$DISALLOWED_TOOLS")
 fi
 
 if [[ "$UNSAFE_AUTO" == "true" ]]; then

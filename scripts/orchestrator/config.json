@@ -60,8 +60,9 @@
   "claudeModel": "claude-opus-4-7",
   "claudeEffort": "medium",
   "claudePermissionMode": "acceptEdits",
-  "claudeAllowedTools": "Bash(git *) Bash(gh *) Bash(pnpm *) Bash(npx *) Edit Write Read Glob Grep Agent WebFetch WebSearch",
-  "claudeDisallowedTools": "Bash(rm *) Bash(sudo *) Bash(curl *) Bash(wget *) Bash(npm install -g *)",
+  "claudeAllowedTools": "Bash(git:*),Bash(gh:*),Bash(pnpm:*),Bash(npx:*),Edit,Write,Read,Glob,Grep,Agent,WebFetch,WebSearch",
+  "_tools_format_note": "Comma-separated, colon-prefixed Bash matchers (Bash(git:*)) per `claude --allowedTools` help. MUST stay comma-separated: the launcher passes these as a single quoted arg, and specs with internal spaces (e.g. 'npm install -g') would be mis-split by claude on spaces. Space-separated values also leaked '-g' as a CLI flag (commander: unknown option '-g') back when the launcher passed them unquoted.",
+  "claudeDisallowedTools": "Bash(rm:*),Bash(sudo:*),Bash(curl:*),Bash(wget:*),Bash(npm install -g:*)",
 
   "_unsafeAutoApprove_comment": "Set to true ONLY if you accept the risk of workers running without permission prompts. Required for fully unattended overnight runs. Read CLAUDE.md ルール5 before enabling.",
   "unsafeAutoApprove": false
