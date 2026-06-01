@@ -95,9 +95,11 @@ export type RunMonthlyReportsConfig = {
 export async function runMonthlyReports(
   config: RunMonthlyReportsConfig,
 ): Promise<MonthlyReportsResult> {
-  const { sql, db } = createDbClient(config.databaseUrl);
   // 同梱 Noto Sans JP を 1 度だけ読み、全校のレンダリングで共有する（校ごとの再読込を避ける）。
+  // **DB 接続より前に読む**: フォント不在で throw しても DB 接続を開かず、接続リークを避ける
+  // （#441 Reviewer Low-1）。
   const font = loadDefaultJpFont();
+  const { sql, db } = createDbClient(config.databaseUrl);
   const appRoleOptions: WithTenantContextOptions =
     config.appRole !== undefined ? { appRole: config.appRole } : {};
   const { year, month } = config;
