@@ -231,9 +231,13 @@ describe("F06 スコープ分類器 (ADR-028, #366)", () => {
       expect(classifyScope("Help me with the homework assignment").reason).toBe("study");
     });
 
-    it("掲示物起源の assignment（席替え/部屋割り）は in_scope — false positive を出さない", () => {
+    it("掲示物起源の assignment（席替え/部屋割り/クラス分け）は in_scope — false positive を出さない", () => {
       expect(classifyScope("When is the seating assignment announced?").verdict).toBe("in_scope");
       expect(classifyScope("What is my room assignment for the trip?").verdict).toBe("in_scope");
+      // #406 Reviewer M-1: `class assignment`（配属・クラス分け）は掲示物中核トピック。study にしない。
+      expect(
+        classifyScope("Where can I see my class assignment for the new semester?").verdict,
+      ).toBe("in_scope");
     });
 
     it("`solve this question`（学習設問）は study", () => {
@@ -242,6 +246,12 @@ describe("F06 スコープ分類器 (ADR-028, #366)", () => {
 
     it("`solve my question about X`（非学習）は in_scope — 指示代名詞限定で巻き込まない", () => {
       expect(classifyScope("Can you solve my question about the lunch menu?").verdict).toBe(
+        "in_scope",
+      );
+    });
+
+    it("`solve the X question`（語を挟む非学習）は in_scope — question 直後限定（#406 Low-1）", () => {
+      expect(classifyScope("Can you solve the printer question for the office?").verdict).toBe(
         "in_scope",
       );
     });

@@ -65,17 +65,20 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /\bstudying\b/i,
   /\bhomework\b/i,
   // `assignment` は **教科/学習語に共起する場合のみ** study とする（#401）。`seating assignment`
-  // （席替え）/ `room assignment`（部屋割り）など掲示物起源の割り当ては弾かない（false positive 回避）。
+  // （席替え）/ `room assignment`（部屋割り）/ `class assignment`（クラス分け・配属）など掲示物起源の
+  // 割り当ては弾かない（false positive 回避、#406 Reviewer M-1: `class` は配属義で掲示物中核トピック）。
   // 単独の `studies` は "social studies"（社会科の授業名）を巻き込むため**意図的に追加しない**。
-  /\b(?:homework|math|science|reading|english|class) assignment\b/i,
+  /\b(?:homework|math|science|reading|english) assignment\b/i,
   // `solve` は学習目的語（equation/exercise/homework 等）に束縛する。`solve my issue with the
   // printer` のような非学習の依頼を study 扱いしないため（#389 Reviewer M-2）。equation/homework は
   // 下の単独パターンでも捕捉される。変数解法 `solve for x` のみ別途許容。
   /\bsolve (?:this |that |these |the |my |your )?(?:equation|exercise|inequality|integral|worksheet|homework)\b/i,
   /\bsolve for [a-z]\b/i,
   // `solve this/the question`（学習設問）。`solve my question about lunch` 等を巻き込まないよう
-  // 指示代名詞 this/that/these/the に限定（my/your は除外、#401）。
-  /\bsolve (?:this|that|these|the) (?:\w+ )?question\b/i,
+  // 指示代名詞 this/that/these/the に限定（my/your は除外、#401）。`question` を直後に要求し、
+  // `solve the printer question` のような語を挟む非学習は弾かない（#406 Reviewer Low-1）。
+  // `solve this math question` は下の `(math|…) question` パターンで別途捕捉される。
+  /\bsolve (?:this|that|these|the) question\b/i,
   /\bteach me (?:how|the|math|english|science|to solve)/i,
   /\b(?:math|algebra|geometry|calculus|physics) (?:problem|question)/i,
   /\bequation\b/i,
