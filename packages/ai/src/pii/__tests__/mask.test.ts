@@ -95,6 +95,68 @@ describe("maskPII — パターン検出", () => {
   });
 });
 
+// F06 多言語チャットボット: 主要外国語（英語・ポルトガル語・やさしい日本語等）でもマスクが機能すること。
+// 設計上、名簿置換はリテラル一致で文字体系非依存、メールは ASCII で言語非依存。日本語前提だったのは
+// 電話検出のみだったため、ここでは国際電話・外国語名簿・別名（表記体系の橋渡し）を言語別に固定する。
+describe("maskPII — 多言語 (F06: 主要外国語)", () => {
+  it("英語: ラテン文字氏名 + 北米 国際電話 (+1)", () => {
+    const entries: PiiEntry[] = [{ value: "John Smith", category: "STUDENT" }];
+    const { masked, dictionary } = maskPII("John Smith called +1-202-555-0173", entries);
+    expect(masked).toBe("{{STUDENT_001}} called {{PHONE_001}}");
+    expect(dictionary["{{PHONE_001}}"]).toBe("+1-202-555-0173");
+  });
+
+  it("ポルトガル語: 保護者氏名 + ブラジル 国際電話 (+55)", () => {
+    const entries: PiiEntry[] = [{ value: "Ana Souza", category: "GUARDIAN" }];
+    const { masked } = maskPII("Ana Souza: +55 11 91234-5678", entries);
+    expect(masked).toBe("{{GUARDIAN_001}}: {{PHONE_001}}");
+  });
+
+  it("やさしい日本語: ひらがな別名を正規表記（漢字）に集約して逆変換する", () => {
+    const entries: PiiEntry[] = [
+      { value: "山田花子", category: "STUDENT", aliases: ["やまだ はなこ", "ヤマダハナコ"] },
+    ];
+    const { masked, dictionary } = maskPII(
+      "やまだ はなこ さんの でんわは 090-1234-5678 です",
+      entries,
+    );
+    expect(masked).toBe("{{STUDENT_001}} さんの でんわは {{PHONE_001}} です");
+    expect(unmaskPII(masked, dictionary)).toBe("山田花子 さんの でんわは 090-1234-5678 です");
+  });
+
+  it("外国ドメインのメールも検出する (言語非依存)", () => {
+    const { masked, dictionary } = maskPII("メールは maria@escola.com.br へ", []);
+    expect(masked).toBe("メールは {{EMAIL_001}} へ");
+    expect(dictionary["{{EMAIL_001}}"]).toBe("maria@escola.com.br");
+  });
+
+  it("各国番号の国際電話 (E.164) を区切り差異込みで検出する", () => {
+    for (const phone of [
+      "+44 20 7946 0958", // 英国
+      "+63 917 123 4567", // フィリピン
+      "+1 (202) 555-0173", // 北米（括弧区切り）
+      "+8613800138000", // 中国（区切りなし）
+    ]) {
+      const { masked, dictionary } = maskPII(`連絡先: ${phone}`, []);
+      expect(masked).toBe("連絡先: {{PHONE_001}}");
+      expect(dictionary["{{PHONE_001}}"]).toBe(phone);
+    }
+  });
+
+  it("名簿氏名 + 国際電話 + 外国メールのラウンドトリップ", () => {
+    const entries: PiiEntry[] = [{ value: "Maria Silva", category: "GUARDIAN" }];
+    const original = "Maria Silva (+55 11 91234-5678) maria@escola.com.br";
+    const { masked, dictionary } = maskPII(original, entries);
+    expect(masked).not.toContain("Maria Silva");
+    expect(masked).not.toContain("+55");
+    expect(unmaskPII(masked, dictionary)).toBe(original);
+  });
+
+  it("fail-closed: マスク漏れの国際電話を検出する", () => {
+    expect(findUnmaskedPii("Brazil guardian +55 11 91234-5678", [])).toContain("+55 11 91234-5678");
+  });
+});
+
 describe("unmaskPII", () => {
   it("マスク→逆変換でラウンドトリップする", () => {
     const entries: PiiEntry[] = [
