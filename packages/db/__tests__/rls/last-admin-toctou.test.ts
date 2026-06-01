@@ -55,7 +55,15 @@ describeOrSkip("F11 last-admin TOCTOU 実 PG 並行 (#395 L3, #355 Low-2)", () =
 
   /** 対象校の有効 school_admin を n 名だけにリセットして id 配列を返す (BYPASSRLS スーパーユーザー)。 */
   async function freshAdmins(n: number): Promise<string[]> {
-    await sql`DELETE FROM users WHERE school_id = ${testSchool}`;
+    // #395 L2: migration 0015 のトリガが「最後の有効 school_admin の DELETE」を弾くため、arrange の
+    // 一括 DELETE 中だけトリガを無効化する (seedBaseFixture が audit トリガを止めるのと同じ規律)。
+    // act (attemptGuardedDeactivate) では再び有効。INSERT はトリガ対象外なので囲む必要はない。
+    await sql.unsafe("ALTER TABLE users DISABLE TRIGGER trg_enforce_school_has_active_admin");
+    try {
+      await sql`DELETE FROM users WHERE school_id = ${testSchool}`;
+    } finally {
+      await sql.unsafe("ALTER TABLE users ENABLE TRIGGER trg_enforce_school_has_active_admin");
+    }
     const ids: string[] = [];
     for (let i = 0; i < n; i += 1) {
       const [u] = await sql<{ id: string }[]>`

@@ -27,6 +27,40 @@ class LastAdminRaceError extends Error {
 }
 
 /**
+ * DB トリガ (#395 L2 / migration 0015) の「各校に有効 school_admin >= 1」不変条件違反を表す
+ * カスタム SQLSTATE。アプリ層の FOR UPDATE 再カウント (#392) を**バイパスする経路**で last-admin を
+ * 取り除こうとしたとき、トリガがこのコードで RAISE する。正常系 (本 seam 経由) ではアプリ側ガードが
+ * 先に `LastAdminRaceError` を投げて UPDATE に到達しないため、このコードは通常出ない (= 多層防御)。
+ */
+const LAST_ADMIN_INVARIANT_SQLSTATE = "KT001";
+
+/**
+ * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す。drizzle は元の pg エラーを
+ * DrizzleQueryError でラップし SQLSTATE は `.cause.code` 側に入るため、top-level と cause の両方を見る
+ * (schools-actions.ts と同規律)。
+ */
+function pgErrorCode(error: unknown): string | undefined {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  if (e && typeof e.code === "string") {
+    return e.code;
+  }
+  if (e?.cause && typeof e.cause.code === "string") {
+    return e.cause.code;
+  }
+  return undefined;
+}
+
+/**
+ * mirror tx の失敗が last-admin ロックアウト防止に由来するか。アプリ層 FOR UPDATE 再カウントの番兵
+ * (#355) と、それを越えた DB トリガ (#395 L2) の不変条件違反の**両方**を同じ補償パスに合流させる。
+ */
+function isLastAdminRace(error: unknown): boolean {
+  return (
+    error instanceof LastAdminRaceError || pgErrorCode(error) === LAST_ADMIN_INVARIANT_SQLSTATE
+  );
+}
+
+/**
  * 構造化ロガー (#395 L1 / NFR04, ADR-026 L1 観測性)。
  *
  * last-admin TOCTOU レース (#355 Low-2) 検出時、mirror tx は **監査 insert の前にロールバック**するため、
@@ -141,14 +175,17 @@ export async function setStaffActiveAction(raw: {
       { allowedRoles: SYSTEM_ADMIN_ROLES },
     );
   } catch (e) {
-    if (e instanceof LastAdminRaceError) {
+    if (isLastAdminRace(e)) {
       // #395 L1: race パスは mirror tx ロールバックで audit_log に残らないため、確定実行された IdP の往復
       // (revoke→補償) を構造化ログで 1 件記録する (NFR04 観測性, ADR-026 L1)。補償**前**に出すことで、
       // 補償が二重障害で失敗しても「レース検出 + IdP revoke 確定」のイベントは残る。
+      // detectedBy=db_trigger_kt001 は本 seam の FOR UPDATE 再カウントを越えてトリガ (#395 L2) が
+      // 弾いたことを示す = seam バイパス経路の異常シグナル (通常は app_recount)。
       logger.warn(
         {
           event: "last_admin_race_detected",
           action: "deactivate",
+          detectedBy: e instanceof LastAdminRaceError ? "app_recount" : "db_trigger_kt001",
           schoolId: gate.schoolId,
           targetUserId: userId,
           compensation: "reactivate_idp_user",
@@ -341,13 +378,15 @@ export async function changeStaffRoleAction(raw: {
       { allowedRoles: SYSTEM_ADMIN_ROLES },
     );
   } catch (e) {
-    if (e instanceof LastAdminRaceError) {
+    if (isLastAdminRace(e)) {
       // #395 L1: race パスは mirror tx ロールバックで audit_log に残らないため、確定実行された IdP の往復
       // (降格→補償) を構造化ログで 1 件記録する (NFR04 観測性, ADR-026 L1)。補償**前**に出す。
+      // detectedBy=db_trigger_kt001 は seam の FOR UPDATE 再カウントを越えてトリガ (#395 L2) が弾いた異常シグナル。
       logger.warn(
         {
           event: "last_admin_race_detected",
           action: "change_role",
+          detectedBy: e instanceof LastAdminRaceError ? "app_recount" : "db_trigger_kt001",
           schoolId: gate.schoolId,
           targetUserId: userId,
           compensation: "restore_school_admin_role",
