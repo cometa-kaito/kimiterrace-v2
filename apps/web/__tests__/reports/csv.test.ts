@@ -1,4 +1,4 @@
-import type { MonthlySchoolSummary } from "@kimiterrace/db";
+import type { AdReachByAd, MonthlySchoolSummary } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
 import {
   escapeCsvField,
@@ -8,8 +8,8 @@ import {
 } from "../../lib/reports/csv";
 
 /**
- * F09 (#45) 第2スライス: 月次サマリー CSV シリアライズの単体テスト。純粋関数なので DB 不要。
- * RFC 4180 のエスケープ・BOM・ブロック構成・ファイル名規約を検証する。
+ * F09 (#45): 月次サマリー CSV シリアライズの単体テスト。純粋関数なので DB 不要。
+ * RFC 4180 のエスケープ・BOM・ブロック構成 (サマリー + 広告別到達数)・ファイル名規約を検証する。
  */
 
 const baseSummary: MonthlySchoolSummary = {
@@ -22,6 +22,11 @@ const baseSummary: MonthlySchoolSummary = {
     { contentId: "c2", title: "図書だより", views: 40, taps: 5, total: 45 },
   ],
 };
+
+const baseAdReach: AdReachByAd[] = [
+  { adId: "a1", caption: "スポンサー広告A", reach: 42 },
+  { adId: "a2", caption: null, reach: 7 },
+];
 
 describe("escapeCsvField", () => {
   it("特殊文字を含まない値はそのまま", () => {
@@ -60,15 +65,15 @@ describe("neutralizeCsvFormula (CWE-1236)", () => {
 
 describe("monthlySummaryToCsv", () => {
   it("BOM で始まり CRLF 区切りで終わる", () => {
-    const csv = monthlySummaryToCsv(baseSummary);
+    const csv = monthlySummaryToCsv(baseSummary, []);
     expect(csv.startsWith("﻿")).toBe(true);
     expect(csv.endsWith("\r\n")).toBe(true);
     // レコード区切りは CRLF (素の LF を使っていない)。
     expect(csv.replace(/\r\n/g, "")).not.toContain("\n");
   });
 
-  it("ヘッダ・指標・ランキングの 3 ブロックを空行で区切る", () => {
-    const lines = monthlySummaryToCsv(baseSummary).replace(/^﻿/, "").split("\r\n");
+  it("ヘッダ・指標・ランキング・広告別到達数の 4 ブロックを空行で区切る", () => {
+    const lines = monthlySummaryToCsv(baseSummary, baseAdReach).replace(/^﻿/, "").split("\r\n");
     expect(lines[0]).toBe("キミテラス 月次レポート,2026年6月");
     expect(lines[1]).toBe("集計基準,日本時間(JST) 暦月");
     expect(lines[2]).toBe("");
@@ -82,10 +87,15 @@ describe("monthlySummaryToCsv", () => {
     expect(lines[9]).toBe("順位,コンテンツ,表示,タップ,合計");
     expect(lines[10]).toBe("1,体育祭のお知らせ,100,30,130");
     expect(lines[11]).toBe("2,図書だより,40,5,45");
+    // 第4ブロック: 広告別 到達数 (reach)。caption null は「（無題の広告）」表示。
+    expect(lines[12]).toBe("");
+    expect(lines[13]).toBe("広告,到達数 (reach)");
+    expect(lines[14]).toBe("スポンサー広告A,42");
+    expect(lines[15]).toBe("（無題の広告）,7");
   });
 
   it("ランキングが空でも列ヘッダ行は出す", () => {
-    const csv = monthlySummaryToCsv({ ...baseSummary, ranking: [] });
+    const csv = monthlySummaryToCsv({ ...baseSummary, ranking: [] }, []);
     const lines = csv.replace(/^﻿/, "").split("\r\n");
     expect(lines).toContain("順位,コンテンツ,表示,タップ,合計");
     // ヘッダの次はデータ行が無く末尾の空文字 (trailing CRLF) のみ。
@@ -94,20 +104,46 @@ describe("monthlySummaryToCsv", () => {
   });
 
   it("数式始まりのタイトルは中和されてから出る (formula injection 防止)", () => {
-    const csv = monthlySummaryToCsv({
-      ...baseSummary,
-      ranking: [{ contentId: "c1", title: '=HYPERLINK("evil")', views: 1, taps: 0, total: 1 }],
-    });
+    const csv = monthlySummaryToCsv(
+      {
+        ...baseSummary,
+        ranking: [{ contentId: "c1", title: '=HYPERLINK("evil")', views: 1, taps: 0, total: 1 }],
+      },
+      [],
+    );
     // 先頭 ' が前置され、さらに " を含むため RFC4180 で引用される。
     expect(csv).toContain('1,"\'=HYPERLINK(""evil"")",1,0,1');
   });
 
   it("コンテンツ名にカンマがあってもエスケープされ列がずれない", () => {
-    const csv = monthlySummaryToCsv({
-      ...baseSummary,
-      ranking: [{ contentId: "c1", title: "運動会, 雨天延期", views: 1, taps: 2, total: 3 }],
-    });
+    const csv = monthlySummaryToCsv(
+      {
+        ...baseSummary,
+        ranking: [{ contentId: "c1", title: "運動会, 雨天延期", views: 1, taps: 2, total: 3 }],
+      },
+      [],
+    );
     expect(csv).toContain('1,"運動会, 雨天延期",1,2,3');
+  });
+
+  it("広告別到達数ブロック: caption の formula injection を中和し、null は無題ラベルにする", () => {
+    const csv = monthlySummaryToCsv({ ...baseSummary, ranking: [] }, [
+      { adId: "a1", caption: "=1+1", reach: 99 }, // 数式始まり → ' 前置で中和 (特殊文字なしなので引用なし)
+      { adId: "a2", caption: "+SUM(A1),B1", reach: 5 }, // 数式始まり + カンマ → 中和してから RFC4180 で引用
+      { adId: "a3", caption: null, reach: 3 }, // 未設定 → 無題ラベル
+    ]);
+    expect(csv).toContain("'=1+1,99");
+    expect(csv).toContain('"\'+SUM(A1),B1",5');
+    expect(csv).toContain("（無題の広告）,3");
+  });
+
+  it("広告別到達数が空でも列ヘッダ行は出す (列構造を一定に保つ)", () => {
+    const csv = monthlySummaryToCsv(baseSummary, []);
+    const lines = csv.replace(/^﻿/, "").split("\r\n");
+    expect(lines).toContain("広告,到達数 (reach)");
+    // ヘッダの次はデータ行が無く末尾の空文字 (trailing CRLF) のみ。
+    const idx = lines.indexOf("広告,到達数 (reach)");
+    expect(lines[idx + 1]).toBe("");
   });
 });
 

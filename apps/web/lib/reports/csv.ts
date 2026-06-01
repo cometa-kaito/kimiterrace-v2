@@ -1,4 +1,4 @@
-import type { MonthlySchoolSummary } from "@kimiterrace/db";
+import type { AdReachByAd, MonthlySchoolSummary } from "@kimiterrace/db";
 import { formatYearMonth } from "./month";
 
 /**
@@ -50,13 +50,21 @@ const BOM = "﻿";
 /** RFC 4180 のレコード区切り。 */
 const CRLF = "\r\n";
 
+/** caption 未設定 / 削除済 広告の表示名 (画面の `/admin/reports` と揃える)。 */
+const UNTITLED_AD_LABEL = "（無題の広告）";
+
 /**
- * `MonthlySchoolSummary` を月次レポート CSV 文字列へ変換する (BOM 付き、CRLF 区切り)。
+ * `MonthlySchoolSummary` + `AdReachByAd[]` を月次レポート CSV 文字列へ変換する (BOM 付き、CRLF 区切り)。
  *
- * 構成は「ヘッダ → 指標サマリー (表示/タップ/Q&A/稼働日数) → コンテンツ反応ランキング」の 3 ブロックを
- * 空行で区切る。ランキングが空でもヘッダ行は出し、列構造を一定に保つ (取り込み側のパースを安定させる)。
+ * 構成は「ヘッダ → 指標サマリー (表示/タップ/Q&A/稼働日数) → コンテンツ反応ランキング → 広告別 到達数」の
+ * 4 ブロックを空行で区切る。ランキング・到達数が空でもヘッダ行は出し、列構造を一定に保つ (取り込み側の
+ * パースを安定させる)。
+ *
+ * 「延べ表示数 (engagement)」と「到達数 (reach)」は別指標 (ADR-025)。reach は `(client_id, ad_id, JST 分)`
+ * で集計時 minute-dedup 済の値で、延べ件数を到達数として出さない。広告ラベル `caption` は untrusted 自由入力
+ * のため formula injection を中和してから出す (件数のみで匿名 clientId は含まない / ルール4)。
  */
-export function monthlySummaryToCsv(summary: MonthlySchoolSummary): string {
+export function monthlySummaryToCsv(summary: MonthlySchoolSummary, adReach: AdReachByAd[]): string {
   const ym = formatYearMonth({ year: summary.year, month: summary.month });
   const rows: string[] = [
     toRow(["キミテラス 月次レポート", ym]),
@@ -72,6 +80,12 @@ export function monthlySummaryToCsv(summary: MonthlySchoolSummary): string {
     ...summary.ranking.map((row, i) =>
       // title は untrusted 自由入力なので formula injection を中和してから出す。
       toRow([i + 1, neutralizeCsvFormula(row.title), row.views, row.taps, row.total]),
+    ),
+    "",
+    toRow(["広告", "到達数 (reach)"]),
+    ...adReach.map((a) =>
+      // caption も untrusted 自由入力なので中和。未設定 / 削除済 (null) は無題ラベルへ。
+      toRow([neutralizeCsvFormula(a.caption ?? UNTITLED_AD_LABEL), a.reach]),
     ),
   ];
   return BOM + rows.join(CRLF) + CRLF;

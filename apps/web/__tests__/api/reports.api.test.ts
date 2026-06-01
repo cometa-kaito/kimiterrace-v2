@@ -47,7 +47,8 @@ vi.mock("@/lib/contents/publish-core", () => ({
 
 // ---- モック: @kimiterrace/db 集計関数 ---------------------------------------
 const getMonthlySchoolSummary = vi.fn();
-vi.mock("@kimiterrace/db", () => ({ getMonthlySchoolSummary }));
+const getMonthlyAdReach = vi.fn();
+vi.mock("@kimiterrace/db", () => ({ getMonthlySchoolSummary, getMonthlyAdReach }));
 
 const { GET } = await import("../../app/api/reports/monthly/route");
 
@@ -58,6 +59,11 @@ const SAMPLE = {
   activeDays: 5,
   ranking: [{ contentId: "c1", title: "お知らせ", views: 8, taps: 2, total: 10 }],
 };
+
+const AD_SAMPLE = [
+  { adId: "a1", caption: "スポンサー広告", reach: 33 },
+  { adId: "a2", caption: null, reach: 4 },
+];
 
 function get(ym?: string): Request {
   const url = ym
@@ -71,6 +77,7 @@ beforeEach(() => {
   authed = true;
   currentRole = "teacher";
   getMonthlySchoolSummary.mockResolvedValue(SAMPLE);
+  getMonthlyAdReach.mockResolvedValue(AD_SAMPLE);
 });
 
 describe("GET /api/reports/monthly", () => {
@@ -92,6 +99,16 @@ describe("GET /api/reports/monthly", () => {
     expect(text).toContain("キミテラス 月次レポート,2026年3月");
     expect(text).toContain("延べ表示数 (engagement),10");
     expect(text).toContain("1,お知らせ,8,2,10");
+  });
+
+  it("本文の CSV に広告別 到達数 (reach) ブロックが反映される (caption null は無題ラベル)", async () => {
+    const res = await GET(get("2026-03"));
+    const text = await res.text();
+    expect(text).toContain("広告,到達数 (reach)");
+    expect(text).toContain("スポンサー広告,33");
+    expect(text).toContain("（無題の広告）,4");
+    // 同じ月解決が両集計に渡る。
+    expect(getMonthlyAdReach).toHaveBeenCalledWith({}, { year: 2026, month: 3 });
   });
 
   it("?ym=YYYY-MM を集計に渡す (過去月)", async () => {
