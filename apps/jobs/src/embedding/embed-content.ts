@@ -1,4 +1,10 @@
-import { type EmbeddingClient, type PiiEntry, maskPII } from "@kimiterrace/ai";
+import {
+  type EmbeddingClient,
+  type MaskOptions,
+  type PiiEntry,
+  findUnmaskedPii,
+  maskPII,
+} from "@kimiterrace/ai";
 import { snapshotToEmbeddingText } from "./text.js";
 
 /**
@@ -46,6 +52,13 @@ export interface EmbedPendingOptions {
    * 校スコープの roster を渡す。
    */
   maskEntries?: readonly PiiEntry[];
+  /**
+   * `maskPII` のパターン検出 ON/OFF（structure.ts と対称）。**本番は既定（電話・メール検出 ON）で
+   * 呼ぶこと** — 掲示物本文は常にマスク全開が正しい。検出を弱めても下流の `findUnmaskedPii` ゲートが
+   * 残存 PII を捕捉して当該 version を embedding 対象から外す（fail-closed）ため、誤設定が生 PII の
+   * Vertex 送信・永続にはつながらない。
+   */
+  maskOptions?: MaskOptions;
 }
 
 export interface EmbedPendingResult {
@@ -55,6 +68,11 @@ export interface EmbedPendingResult {
   embedded: number;
   /** 埋め込みテキストが空で skip した件数。 */
   skippedEmptyText: number;
+  /**
+   * マスキング後も PII 形跡が残ったため Vertex へ送らず skip した件数（fail-closed、ルール4）。
+   * 0 が正常。非 0 は roster 欠落 / 新しい PII 書式の兆候で、運用上は調査対象（#394 Reviewer L3）。
+   */
+  blockedUnmaskedPii: number;
 }
 
 /**
@@ -74,13 +92,22 @@ export async function embedPendingContent(
   // ルール4: ここで maskPII を通すことで、以降 client.embed へ渡るのは必ずマスク済みテキスト。
   const targets: { versionId: string; masked: string }[] = [];
   let skippedEmptyText = 0;
+  let blockedUnmaskedPii = 0;
   for (const v of pending) {
     const text = snapshotToEmbeddingText(v.snapshot);
     if (text.length === 0) {
       skippedEmptyText += 1;
       continue;
     }
-    targets.push({ versionId: v.versionId, masked: maskPII(text, maskEntries).masked });
+    const masked = maskPII(text, maskEntries, options.maskOptions ?? {}).masked;
+    // 多層防御（ルール4、#394 Reviewer L3）: embedding は永続するため、マスク後にも検出可能な PII
+    // （roster 漏れの氏名・未対応書式の電話/メール）が残る version は **Vertex へ送らず skip** する
+    // （fail-closed）。生成バッチ全体を 1 件で止めず、件数だけ記録して運用が調査できるようにする。
+    if (findUnmaskedPii(masked, maskEntries).length > 0) {
+      blockedUnmaskedPii += 1;
+      continue;
+    }
+    targets.push({ versionId: v.versionId, masked });
   }
 
   let embedded = 0;
@@ -104,5 +131,5 @@ export async function embedPendingContent(
     }
   }
 
-  return { scanned: pending.length, embedded, skippedEmptyText };
+  return { scanned: pending.length, embedded, skippedEmptyText, blockedUnmaskedPii };
 }
