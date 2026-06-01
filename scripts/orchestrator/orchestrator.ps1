@@ -107,6 +107,14 @@ function Compute-Plan {
   Sync-WorkerStatuses
   $machines = Get-EnabledMachines
 
+  # Reconcile remote worker states too: mark crashed/SIGKILLed remote workers whose
+  # tmux window is gone as failed. Sync-WorkerStatuses above only checks local PIDs;
+  # without this a remote state stuck at "running" would make the in-flight dedup
+  # below permanently block re-dispatch of that issue (Reviewer Low-1 on PR #354).
+  foreach ($rm in @($machines | Where-Object { $_.kind -eq "ssh" })) {
+    Sync-RemoteWorkerStatuses -Machine $rm
+  }
+
   $perMachine = foreach ($m in $machines) {
     $p = Probe-Machine -M $m
     $active = Count-ActiveOnMachine -MachineName $m.name -RoleArg $RoleArg
