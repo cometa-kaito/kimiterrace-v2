@@ -181,10 +181,12 @@ describeOrSkip("F06 embedding バッチ DB クエリ (listPending / saveEmbeddin
     expect(affected).toBe(1);
 
     // superuser で実体を検証 (RLS 非依存に row を読む)。
+    // updated_at 前進の比較は PG 側で計算する: postgres-js は timestamptz を文字列で返すため
+    // JS の Date パース (engine 依存) に頼らず `updated_at > created_at` を boolean で受ける。
     const [row] = await raw<
-      { embedding: string | null; updated_by: string | null; updated_at: Date; created_at: Date }[]
+      { embedding: string | null; updated_by: string | null; updated_advanced: boolean }[]
     >`
-      SELECT embedding, updated_by, updated_at, created_at
+      SELECT embedding, updated_by, (updated_at > created_at) AS updated_advanced
       FROM content_versions WHERE id = ${pendingA.versionId}
     `;
     expect(row.embedding).not.toBeNull();
@@ -196,7 +198,7 @@ describeOrSkip("F06 embedding バッチ DB クエリ (listPending / saveEmbeddin
     // システムバッチ書込み: updated_by は null (ルール1)。
     expect(row.updated_by).toBeNull();
     // updated_at を明示更新 (作成時刻 = 1 日前 aged から前進、ルール1)。
-    expect(row.updated_at.getTime()).toBeGreaterThan(row.created_at.getTime());
+    expect(row.updated_advanced).toBe(true);
 
     // 保存後は embedding 非 NULL になり listPending から外れる。
     const after = await withTenantContext(db, ctxA(), (tx) => listPendingEmbeddings(tx), APP);
