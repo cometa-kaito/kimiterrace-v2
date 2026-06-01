@@ -22,6 +22,17 @@ export const CONTRACT_STATUSES = ["draft", "active", "paused", "terminated"] as 
 export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 
 /**
+ * 契約ステータスの日本語表示ラベル。一覧・遷移ボタン等の UI で共有する単一ソース
+ * (Server / Client 両方から import 可。本ファイルは server-only 値を引き込まない)。
+ */
+export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
+  draft: "下書き",
+  active: "稼働中",
+  paused: "一時停止",
+  terminated: "終了",
+};
+
+/**
  * 契約ステータスのライフサイクル遷移表 (F10)。各 from から許される to の集合。
  * - draft: 起案中 → 有効化 (active) か取消 (terminated)。
  * - active: 稼働中 → 一時停止 (paused) か終了 (terminated)。

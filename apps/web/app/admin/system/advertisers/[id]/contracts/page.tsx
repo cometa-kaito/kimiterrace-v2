@@ -1,15 +1,14 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getAdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
-import {
-  type ContractSummary,
-  listContractsByAdvertiser,
-} from "@/lib/system-admin/contracts-queries";
+import { CONTRACT_STATUS_LABEL } from "@/lib/system-admin/contracts-core";
+import { listContractsByAdvertiser } from "@/lib/system-admin/contracts-queries";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ContractCreateForm } from "./_components/ContractCreateForm";
+import { ContractStatusControl } from "./_components/ContractStatusControl";
 
 /**
  * F10 (#46): ある広告主の契約一覧 + 新規登録 (`/admin/system/advertisers/{id}/contracts`)。
@@ -17,19 +16,12 @@ import { ContractCreateForm } from "./_components/ContractCreateForm";
  *
  * **認可**: `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ、契約は cross-tenant)。`withSession` の
  * RLS tx で広告主詳細 (見出し用) + 契約一覧を取得 — 可視範囲は RLS が決め、不可視 / 不存在 / 不正 id は
- * 404。作成・検証・監査・状態遷移・編集は各 Server Action が担う (本画面は表示 + 作成フォーム呼出)。
+ * 404。作成・検証・監査・状態遷移・編集は各 Server Action が担う (本画面は表示 + 作成フォーム + 遷移ボタン)。
  */
-
-const STATUS_LABEL: Record<ContractSummary["status"], string> = {
-  draft: "下書き",
-  active: "稼働中",
-  paused: "一時停止",
-  terminated: "終了",
-};
 
 /** Date | null を YYYY-MM-DD へ (null は "—")。drizzle mode:date で Date が来る。 */
 function formatDate(d: Date | null): string {
-  return d ? new Date(d).toISOString().slice(0, 10) : "—";
+  return d ? d.toISOString().slice(0, 10) : "—";
 }
 
 export default async function AdvertiserContractsPage({
@@ -71,16 +63,20 @@ export default async function AdvertiserContractsPage({
               <th style={thStyle}>開始日</th>
               <th style={thStyle}>終了日</th>
               <th style={{ ...thStyle, textAlign: "right" }}>月額（税抜）</th>
+              <th style={thStyle}>状態変更</th>
             </tr>
           </thead>
           <tbody>
             {data.contracts.map((c) => (
               <tr key={c.id}>
-                <td style={tdStyle}>{STATUS_LABEL[c.status]}</td>
+                <td style={tdStyle}>{CONTRACT_STATUS_LABEL[c.status]}</td>
                 <td style={tdStyle}>{formatDate(c.startedAt)}</td>
                 <td style={tdStyle}>{formatDate(c.endedAt)}</td>
                 <td style={{ ...tdStyle, textAlign: "right" }}>
                   ¥{c.monthlyFeeJpy.toLocaleString("ja-JP")}
+                </td>
+                <td style={tdStyle}>
+                  <ContractStatusControl contractId={c.id} status={c.status} />
                 </td>
               </tr>
             ))}
