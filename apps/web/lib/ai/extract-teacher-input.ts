@@ -1,6 +1,7 @@
 import {
   type ExtractionKind,
   type ModelClient,
+  type PiiEntry,
   PiiLeakError,
   type RateLimiter,
   RateLimitExceededError,
@@ -8,7 +9,7 @@ import {
   createPerSchoolRateLimiter,
   createVertexModelClient,
 } from "@kimiterrace/ai";
-import { getTeacherInput } from "@kimiterrace/db";
+import { getTeacherInput, listStaffDisplayNames } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
 import { getCurrentUser } from "../auth/session";
 import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
@@ -25,12 +26,17 @@ import { type RunAndPersistParams, runAndPersistExtraction } from "./run-extract
  * ## PII マスキング (CLAUDE.md ルール4) の現状と限界 — 重要
  * `structureContent` は送信前に **電話・メールを常時マスク**（書式 PII、`maskPII` の正規表現）し、
  * 送信直前の `findUnmaskedPii` fail-closed ガードで電話・メール・**名簿エントリ**の残存を検出して
- * `PiiLeakError` で中止する。一方、本トリガが渡す `piiEntries` は現状 **空**（本システムは生徒匿名設計で
- * 生徒/保護者氏名のロスターを持たないため）。対象 kind は schedule / announcement / summary / tag の
- * **行事・連絡文**で、フィードバック同様「氏名記入不要」の運用ガイドが効く前提だが、**自由記述に紛れた
- * 氏名は roster 不在のためマスクされない**残存リスクがある。職員氏名 roster + 生徒氏名ソースを
- * `piiEntries` に供給する強化は #154 後続スライス（本 PR の限界として明記）。生 transcript / 応答本文は
- * ログに出さない。
+ * `PiiLeakError` で中止する。
+ *
+ * **#289 で本トリガは当該 school の職員氏名 roster（{@link listStaffDisplayNames}、教員 / 学校管理者の
+ * `display_name`）を `piiEntries`（category=STAFF）として供給する**ようになった。これで自由記述に紛れた
+ * 職員氏名は確定トークン化され、fail-closed ガードの監視対象にも入る。
+ *
+ * ただし **生徒 / 保護者氏名は依然 roster 不在**（本システムは生徒匿名設計）でマスクできない残存リスクが
+ * ある。対象 kind は schedule / announcement / summary / tag の **行事・連絡文**で、フィードバック同様
+ * 「生徒氏名は記入不要」の運用ガイドが効く前提。生徒/保護者氏名の扱い（記入抑止 UI / NER / kind 制約の
+ * いずれか）の確定と、それを満たすまで実 Vertex 呼び出し（#154 item 3）を有効化しないゲート化は #289 の
+ * 後続項目。生 transcript / 応答本文はログに出さない。
  */
 
 /** 抽出トリガの結果（route が HTTP に写像する判別共用体）。 */
@@ -54,6 +60,11 @@ type LoadedInput = { transcript: string | null } | null;
 export interface ExtractTeacherInputDeps {
   /** 対象 teacher_input の transcript を現在セッションの RLS context で読む（未認証は throw）。 */
   loadTranscript: (inputId: string) => Promise<LoadedInput>;
+  /**
+   * 当該 school の職員氏名を Vertex 送信前マスキング用 `PiiEntry[]`（category=STAFF）として読む。
+   * RLS context で職員氏名 roster を引き、確定トークン化に渡す（ルール4 / #289）。未認証は throw。
+   */
+  loadStaffPiiEntries: () => Promise<PiiEntry[]>;
   /** #267 seam。成功/失敗いずれも ai_extractions に監査し、rate/PII leak は throw で伝播。 */
   runAndPersist: (
     params: RunAndPersistParams,
@@ -93,9 +104,19 @@ async function defaultLoadTranscript(inputId: string): Promise<LoadedInput> {
   });
 }
 
+async function defaultLoadStaffPiiEntries(): Promise<PiiEntry[]> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new UnauthenticatedError();
+  }
+  const names = await withUserSession(user, (tx) => listStaffDisplayNames(tx));
+  return names.map((value) => ({ value, category: "STAFF" as const }));
+}
+
 function defaultDeps(): ExtractTeacherInputDeps {
   return {
     loadTranscript: defaultLoadTranscript,
+    loadStaffPiiEntries: defaultLoadStaffPiiEntries,
     runAndPersist: runAndPersistExtraction,
     model: getExtractionModel(),
     rateLimiter: sharedRateLimiter,
@@ -122,13 +143,18 @@ export async function extractTeacherInput(
       return { ok: false, reason: "no_transcript" };
     }
 
+    // 職員氏名 roster をマスキング供給 (#289)。transcript 確定後に引く (no_transcript 時は無駄引きしない)。
+    const piiEntries = await deps.loadStaffPiiEntries();
+
     const result = await deps.runAndPersist({
       request: {
         kind,
         input: transcript,
         model: deps.model,
         rateLimiter: deps.rateLimiter,
-        // piiEntries は空（上記 docstring の限界）。書式 PII は structureContent が常時マスク。
+        // 職員氏名は確定トークン化。書式 PII (電話/メール) は structureContent が常時マスク。
+        // 生徒/保護者氏名は匿名設計で roster 不在 → 上記 docstring の残存リスク (後続項目)。
+        piiEntries,
         ...(deps.nowMs === undefined ? {} : { nowMs: deps.nowMs }),
       },
       contentId: null,

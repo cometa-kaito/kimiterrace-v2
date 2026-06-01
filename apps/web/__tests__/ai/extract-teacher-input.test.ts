@@ -52,6 +52,7 @@ function makeDeps(over: Partial<ExtractTeacherInputDeps> = {}): {
   const logger = { warn: vi.fn(), error: vi.fn() };
   const deps: ExtractTeacherInputDeps = {
     loadTranscript: vi.fn(async () => ({ transcript: "1限 数学、2限 英語" })),
+    loadStaffPiiEntries: vi.fn(async () => []),
     runAndPersist: vi.fn(async () => structureResult()),
     // biome-ignore lint/suspicious/noExplicitAny: model は runAndPersist 注入で未使用
     model: {} as any,
@@ -84,6 +85,37 @@ describe("extractTeacherInput", () => {
     expect(captured?.request.input).toBe("1限 数学、2限 英語");
     // schoolId は seam がセッションから強制するため request には載せない。
     expect("schoolId" in (captured?.request ?? {})).toBe(false);
+  });
+
+  it("職員氏名 roster を piiEntries(category=STAFF) として seam に渡す (#289 ルール4)", async () => {
+    let captured: RunAndPersistParams | undefined;
+    const runAndPersist: ExtractTeacherInputDeps["runAndPersist"] = vi.fn(async (p) => {
+      captured = p;
+      return structureResult();
+    });
+    const { deps } = makeDeps({
+      loadStaffPiiEntries: vi.fn(async () => [
+        { value: "田中先生", category: "STAFF" as const },
+        { value: "佐藤教頭", category: "STAFF" as const },
+      ]),
+      runAndPersist,
+    });
+    await extractTeacherInput("input-1", "schedule", deps);
+    expect(captured?.request.piiEntries).toEqual([
+      { value: "田中先生", category: "STAFF" },
+      { value: "佐藤教頭", category: "STAFF" },
+    ]);
+  });
+
+  it("transcript 不在なら roster を引かない (no_transcript で無駄引きしない)", async () => {
+    const loadStaffPiiEntries = vi.fn(async () => []);
+    const { deps } = makeDeps({
+      loadTranscript: vi.fn(async () => null),
+      loadStaffPiiEntries,
+    });
+    const res = await extractTeacherInput("input-1", "schedule", deps);
+    expect(res).toEqual({ ok: false, reason: "no_transcript" });
+    expect(loadStaffPiiEntries).not.toHaveBeenCalled();
   });
 
   it("失敗抽出 (status=failed) も ok:true で返す (監査は seam が実施済)", async () => {
