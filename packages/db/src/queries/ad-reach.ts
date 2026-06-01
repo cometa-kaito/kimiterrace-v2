@@ -114,9 +114,16 @@ export async function getMonthlyAdReach(
     throw new RangeError(`year must be an integer, got ${year}`);
   }
 
-  // JST 暦月の窓 [当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)。境界は DB 側で int から構築する。
+  // JST 暦月の窓 [当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)。**両境界**を make_timestamptz で Asia/Tokyo の
+  // 月初として直接組み、セッション TZ 非依存にする。`monthStart + interval '1 month'` は timestamptz を
+  // **セッション TimeZone** で月加算するため、セッション TZ が UTC のとき JST 月初 (= 前月末 15:00 UTC) に
+  // 対して月末側へずれ (例: 3 月窓が 3/29 00:00 JST で打ち止めになり月末数日を取りこぼす)、UTC 環境で
+  // 過少計上になる。翌月は JS 側で年跨ぎ (12 月→翌年 1 月) を解いて明示構築する (int 渡しは維持、Date は
+  // bind しない)。
+  const nextYear = month === MAX_MONTH ? year + 1 : year;
+  const nextMonth = month === MAX_MONTH ? 1 : month + 1;
   const monthStart = sql`make_timestamptz(${year}::int, ${month}::int, 1, 0, 0, 0, 'Asia/Tokyo')`;
-  const nextMonthStart = sql`${monthStart} + interval '1 month'`;
+  const nextMonthStart = sql`make_timestamptz(${nextYear}::int, ${nextMonth}::int, 1, 0, 0, 0, 'Asia/Tokyo')`;
   const inMonth = and(gte(events.occurredAt, monthStart), lt(events.occurredAt, nextMonthStart));
 
   const adId = sql<string>`${events.payload}->>'adId'`;
