@@ -143,7 +143,17 @@ CLAUDE_MODEL=$(read_cfg "claudeModel" "claude-opus-4-7")
 CLAUDE_EFFORT=$(read_cfg "claudeEffort" "medium")
 PERMISSION_MODE=$(read_cfg "claudePermissionMode" "acceptEdits")
 ALLOWED_TOOLS=$(read_cfg "claudeAllowedTools" "Bash Edit Write Read Glob Grep")
-DISALLOWED_TOOLS=$(read_cfg "claudeDisallowedTools" "")
+# Fail-closed: a missing/empty/unreadable config must NEVER silently drop the
+# destructive-command guard. The grep -oP incident (fixed in 5054cef) made every
+# host fall back to DEFAULTS; with the old "" default that meant workers ran with
+# NO --disallowedTools at all. Default to blocking the destructive set so a config
+# failure degrades safely (CLAUDE.md: when in doubt, fail safe). config.json, when
+# present, still overrides this. Keep the SAME comma-separated, colon-prefixed form
+# as config.json's claudeDisallowedTools — it is delivered as one quoted arg below
+# (`--disallowedTools "$DISALLOWED_TOOLS"`, fe4440d), so commas separate matchers and
+# inner spaces (npm install -g) survive. Do NOT switch this to space-separated.
+DEFAULT_DISALLOWED='Bash(rm:*),Bash(sudo:*),Bash(curl:*),Bash(wget:*),Bash(npm install -g:*)'
+DISALLOWED_TOOLS=$(read_cfg "claudeDisallowedTools" "$DEFAULT_DISALLOWED")
 UNSAFE_AUTO=$(read_cfg_bool "unsafeAutoApprove")
 
 if [[ "$ROLE" == "worker" ]]; then
