@@ -107,6 +107,14 @@ function Compute-Plan {
   Sync-WorkerStatuses
   $machines = Get-EnabledMachines
 
+  # Reconcile remote worker states too: mark crashed/SIGKILLed remote workers whose
+  # tmux window is gone as failed. Sync-WorkerStatuses above only checks local PIDs;
+  # without this a remote state stuck at "running" would make the in-flight dedup
+  # below permanently block re-dispatch of that issue (Reviewer Low-1 on PR #354).
+  foreach ($rm in @($machines | Where-Object { $_.kind -eq "ssh" })) {
+    Sync-RemoteWorkerStatuses -Machine $rm
+  }
+
   $perMachine = foreach ($m in $machines) {
     $p = Probe-Machine -M $m
     $active = Count-ActiveOnMachine -MachineName $m.name -RoleArg $RoleArg
@@ -136,7 +144,27 @@ function Compute-Plan {
   $remainingByMachine = @{}
   foreach ($mp in $ordered) { $remainingByMachine[$mp.Name] = $mp.Capacity.MaxConcurrent }
 
+  # Cross-session dispatch dedup: skip issues that already have a RUNNING worker on
+  # ANY machine. Get-AllStates aggregates remote worker-state JSONs, so a worker that
+  # a parallel orchestrator session dispatched to the Mac is visible here even though
+  # it has no PR and no local worktree yet (those are the only signals a GitHub/local
+  # check sees). Without this, the same issue is double-dispatched into one shared
+  # remote worktree (race observed 2026-06-01: issue #347 dispatched 3x by concurrent
+  # sessions, corrupting the worktree). This is not an atomic lock: two sessions that
+  # check simultaneously can still both dispatch, but it eliminates the common case of
+  # piling onto an already-running worker.
+  $inFlightIssues = @(
+    Get-AllStates |
+      Where-Object { $_.status -eq "running" -and $null -ne $_.issue } |
+      ForEach-Object { [int]$_.issue }
+  ) | Select-Object -Unique
+  $alreadyInFlight = New-Object System.Collections.Generic.List[object]
+
   foreach ($issue in $IssueList) {
+    if ($inFlightIssues -contains [int]$issue) {
+      $alreadyInFlight.Add($issue)
+      continue
+    }
     $target = $ordered | Where-Object { $remainingByMachine[$_.Name] -gt 0 } | Select-Object -First 1
     if ($target) {
       $assignments.Add([PSCustomObject]@{
@@ -148,17 +176,17 @@ function Compute-Plan {
     }
   }
 
-  $deferred = $IssueList | Where-Object { -not ($assignments | Where-Object { $_.Issue -eq $_ }) }
-  # Simpler: deferred = issues that didn't get assigned
   $assignedIssues = $assignments | ForEach-Object { $_.Issue }
-  $deferred = $IssueList | Where-Object { $_ -notin $assignedIssues }
+  # Deferred = requested but neither assigned nor already in-flight (i.e. out of capacity).
+  $deferred = $IssueList | Where-Object { $_ -notin $assignedIssues -and $_ -notin $inFlightIssues }
 
   [PSCustomObject]@{
-    PerMachine     = $perMachine
-    TotalAvailable = $totalAvailable
-    Assignments    = $assignments.ToArray()
-    Deferred       = @($deferred)
-    Notes          = if ($totalAvailable -eq 0) {
+    PerMachine      = $perMachine
+    TotalAvailable  = $totalAvailable
+    Assignments     = $assignments.ToArray()
+    Deferred        = @($deferred)
+    AlreadyInFlight = @($alreadyInFlight.ToArray())
+    Notes           = if ($totalAvailable -eq 0) {
       "No capacity on any enabled machine."
     } else {
       "Will spawn $($assignments.Count) of $($IssueList.Count) requested across $((($assignments | ForEach-Object { $_.Machine }) | Sort-Object -Unique).Count) machine(s)."
@@ -285,12 +313,19 @@ function Spawn-RemoteWorker {
 function Cmd-Spawn {
   $plan = Compute-Plan -RoleArg $Role -IssueList $Issues
   if ($plan.Assignments.Count -eq 0) {
-    Write-Host "No capacity. Reasoning:"
-    foreach ($pm in $plan.PerMachine) {
-      Write-Host "  [$($pm.Name)] $($pm.Capacity.Reasoning -join '; ')"
+    if (@($plan.AlreadyInFlight).Count -gt 0) {
+      Write-Host "Nothing to spawn: requested issue(s) already have a running worker: $(@($plan.AlreadyInFlight) -join ', ')"
+    } else {
+      Write-Host "No capacity. Reasoning:"
+      foreach ($pm in $plan.PerMachine) {
+        Write-Host "  [$($pm.Name)] $($pm.Capacity.Reasoning -join '; ')"
+      }
     }
     Write-JsonOut $plan
     return
+  }
+  if (@($plan.AlreadyInFlight).Count -gt 0) {
+    Write-Host "Skipping issue(s) already in flight (deduped across sessions): $(@($plan.AlreadyInFlight) -join ', ')"
   }
 
   $machinesByName = @{}
@@ -306,8 +341,9 @@ function Cmd-Spawn {
   }
 
   [PSCustomObject]@{
-    Spawned  = $results
-    Deferred = $plan.Deferred
+    Spawned         = $results
+    Deferred        = $plan.Deferred
+    AlreadyInFlight = $plan.AlreadyInFlight
   } | Write-JsonOut
 }
 
