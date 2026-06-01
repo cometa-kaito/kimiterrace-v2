@@ -1,7 +1,14 @@
 import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
+import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
 import { withSession } from "@/lib/db";
-import { type DailyEventCount, getDailyEventCounts, getEventStats } from "@kimiterrace/db";
+import {
+  type DailyEventCount,
+  getDailyEventCounts,
+  getEventStats,
+  getHourlyEventCounts,
+  type HourlyEventCount,
+} from "@kimiterrace/db";
 
 /**
  * F08 (#44): 効果ダッシュボード 第1スライス (`/admin/dashboard`)。**Server Component**。
@@ -24,10 +31,11 @@ import { type DailyEventCount, getDailyEventCounts, getEventStats } from "@kimit
  */
 export default async function DashboardPage() {
   await requireRole(PUBLISHER_ROLES);
-  // 同一 RLS context (1 tx) で両クエリを実行する。
-  const { stats, daily } = await withSession(async (tx) => ({
+  // 同一 RLS context (1 tx) で全クエリを実行する。
+  const { stats, daily, hourly } = await withSession(async (tx) => ({
     stats: await getEventStats(tx),
     daily: await getDailyEventCounts(tx),
+    hourly: await getHourlyEventCounts(tx),
   }));
 
   return (
@@ -89,6 +97,9 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>日次の推移</h2>
       <DailyTrend daily={daily} />
+
+      <h2 style={sectionTitleStyle}>時間帯別の傾向</h2>
+      <HourlyTrend hourly={hourly} />
     </section>
   );
 }
@@ -136,6 +147,37 @@ function DailyTrend({ daily }: { daily: DailyEventCount[] }) {
 function formatDay(day: string): string {
   const parts = day.split("-");
   return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : day;
+}
+
+/**
+ * 時間帯別 (JST hour-of-day) の反応を CSS バーで軽量描画する。0〜23 時を密に並べ (events のない
+ * 時間も 0 として 1 日全体を見せる)、バー長は最大時比で正規化。日次推移と同じく色のみに依存せず、
+ * 各行に「時」ラベルと view/tap の件数テキストを併記する (WCAG 2.2 AA、NFR05)。
+ */
+function HourlyTrend({ hourly }: { hourly: HourlyEventCount[] }) {
+  if (!hasHourlyData(hourly)) {
+    return <p style={emptyStyle}>対象期間の時間帯データはまだありません。</p>;
+  }
+  const dense = densifyHourly(hourly);
+  const max = Math.max(...dense.map((h) => h.views + h.taps), 1);
+  return (
+    <ul style={trendListStyle}>
+      {dense.map((h) => {
+        const total = h.views + h.taps;
+        return (
+          <li key={h.hour} style={trendRowStyle}>
+            <span style={trendDayStyle}>{formatHour(h.hour)}</span>
+            <span style={trendBarTrackStyle}>
+              <span style={{ ...trendBarFillStyle, width: `${(total / max) * 100}%` }} />
+            </span>
+            <span style={trendCountStyle}>
+              表示 {h.views} / タップ {h.taps}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 const headerStyle: React.CSSProperties = {

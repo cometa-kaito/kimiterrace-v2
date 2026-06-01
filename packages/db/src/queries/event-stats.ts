@@ -240,3 +240,48 @@ export async function getEventStatsBySchool(
     reactions: r.reactions,
   }));
 }
+
+/** 時間帯 (JST hour-of-day, 0-23) あたりの view/tap 件数。1 日のうちの反応傾向を見る。 */
+export type HourlyEventCount = {
+  /** JST の時 (0-23)。 */
+  hour: number;
+  views: number;
+  taps: number;
+};
+
+/**
+ * 自校の view/tap を **JST の時 (hour-of-day, 0-23)** ごとに集計する (RLS で school スコープ)。時昇順。
+ *
+ * 日次推移 (`getDailyEventCounts`) が「どの日に見られたか」を示すのに対し、これは「1 日のうち
+ * どの時間帯に見られるか」(朝の登校時・昼休み・放課後など) の傾向を示す。バケットは `occurred_at`
+ * を Asia/Tokyo に変換してから `extract(hour ...)` で時を取り出す。UTC のまま取ると JST との時差
+ * (9h) で時間帯がずれるため、`getDailyEventCounts` と同じく JST に寄せる。期間窓は DB の `now()`
+ * 基準。集計は件数のみで `payload` の匿名 clientId は読まない (ルール4)。
+ *
+ * 返す行は **events が存在する時のみ** (sparse)。0 件の時を含めた 0-23 の密化は表示層の責務とする。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。
+ */
+export async function getHourlyEventCounts(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<HourlyEventCount[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const recent = gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`);
+
+  // extract(...) は numeric を返すため ::int に落としてから Number 化する。
+  const hour =
+    sql<number>`extract(hour from ${events.occurredAt} at time zone 'Asia/Tokyo')::int`.mapWith(
+      Number,
+    );
+  const views = sql<number>`count(*) filter (where ${events.type} = 'view')`.mapWith(Number);
+  const taps = sql<number>`count(*) filter (where ${events.type} = 'tap')`.mapWith(Number);
+  const rows = await db
+    .select({ hour, views, taps })
+    .from(events)
+    .where(recent)
+    .groupBy(hour)
+    .orderBy(hour);
+
+  return rows.map((r) => ({ hour: r.hour, views: r.views, taps: r.taps }));
+}
