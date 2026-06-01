@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { type TenantRole, listAllStaff } from "@kimiterrace/db";
+import { StaffActiveToggle } from "./_components/StaffActiveToggle";
 
 /**
  * F11 (#47 / #324): システム管理者の **全校横断 教職員一覧** (`/admin/system/users`)。**Server Component**。
@@ -36,7 +37,8 @@ export default async function SystemUsersPage() {
         </span>
       </header>
       <p style={subtitleStyle}>
-        全校横断の教職員一覧です。ロール変更・アカウント無効化の操作機能は順次追加します。
+        全校横断の教職員一覧です。各行でアカウントの無効化 /
+        再有効化を行えます（無効化は認証を即時停止。学校で唯一の有効な学校管理者は無効化できません）。ロール変更は順次追加します。
       </p>
 
       {staff.length === 0 ? (
@@ -58,6 +60,9 @@ export default async function SystemUsersPage() {
               <th scope="col" style={thLeftStyle}>
                 状態
               </th>
+              <th scope="col" style={thLeftStyle}>
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -70,6 +75,14 @@ export default async function SystemUsersPage() {
                 <td style={tdStyle}>{roleLabel(s.role)}</td>
                 <td style={tdStyle}>
                   <StatusBadge isActive={s.isActive} />
+                </td>
+                <td style={tdStyle}>
+                  <StaffActiveToggle
+                    userId={s.id}
+                    isActive={s.isActive}
+                    displayName={s.displayName}
+                    schoolName={s.schoolName}
+                  />
                 </td>
               </tr>
             ))}
