@@ -4,6 +4,7 @@ import {
   getDailyEventCounts,
   getEventStats,
   getEventStatsBySchool,
+  getHourlyEventCounts,
 } from "../../src/queries/event-stats.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
@@ -52,6 +53,27 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
     await raw`
       INSERT INTO events (school_id, content_id, type, occurred_at)
       VALUES (${schoolId}, ${contentId}, ${type}, now() - make_interval(days => ${daysAgo}::int))
+    `;
+  }
+
+  // 特定の JST 時 (hour-of-day) に event を投入する。occurred_at は DB 側で「2 日前の JST 暦日の
+  // ${jstHour}:00 JST」を構築する (JS Date を bind すると enum 列を含む INSERT で落ちるため、
+  // [[pg-date-bind-enum-insert]] と同方針で全て SQL 側計算)。2 日前に寄せることで既定 30 日窓内かつ
+  // 過去になり、`extract(hour ...)` は jstHour と一致する。
+  async function seedEventAtHour(
+    schoolId: string,
+    contentId: string | null,
+    type: "view" | "tap" | "ask",
+    jstHour: number,
+  ): Promise<void> {
+    await raw`
+      INSERT INTO events (school_id, content_id, type, occurred_at)
+      VALUES (
+        ${schoolId}, ${contentId}, ${type},
+        (date_trunc('day', now() at time zone 'Asia/Tokyo')
+          - make_interval(days => 2)
+          + make_interval(hours => ${jstHour}::int)) at time zone 'Asia/Tokyo'
+      )
     `;
   }
 
@@ -273,5 +295,50 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
       APP,
     );
     expect(wide.map((r) => r.schoolId).sort()).toEqual([fx.schoolA, fx.schoolB].sort());
+  });
+
+  // --- getHourlyEventCounts (時間帯別 / JST hour-of-day) ---
+
+  it("getHourlyEventCounts: JST の時ごとに view/tap を時昇順で集計、ask は除外", async () => {
+    await seedEventAtHour(fx.schoolA, contentA1, "view", 8);
+    await seedEventAtHour(fx.schoolA, contentA1, "view", 8);
+    await seedEventAtHour(fx.schoolA, contentA1, "tap", 8);
+    await seedEventAtHour(fx.schoolA, contentA1, "ask", 8); // view/tap フィルタ外 → 寄与しない
+    await seedEventAtHour(fx.schoolA, contentA2, "view", 12);
+
+    const hourly = await withTenantContext(db, ctxA(), (tx) => getHourlyEventCounts(tx), APP);
+    expect(hourly).toEqual([
+      { hour: 8, views: 2, taps: 1 },
+      { hour: 12, views: 1, taps: 0 },
+    ]);
+  });
+
+  it("getHourlyEventCounts: テナント分離 — 別校の時間帯 event は漏れない (RLS)", async () => {
+    await seedEventAtHour(fx.schoolA, contentA1, "view", 9);
+    await seedEventAtHour(fx.schoolB, contentB1, "view", 9);
+    await seedEventAtHour(fx.schoolB, contentB1, "tap", 9);
+
+    const a = await withTenantContext(db, ctxA(), (tx) => getHourlyEventCounts(tx), APP);
+    expect(a).toEqual([{ hour: 9, views: 1, taps: 0 }]);
+
+    const b = await withTenantContext(db, ctxB(), (tx) => getHourlyEventCounts(tx), APP);
+    expect(b).toEqual([{ hour: 9, views: 1, taps: 1 }]);
+  });
+
+  it("getHourlyEventCounts: sinceDays 窓外の event は含めない (DB now() 基準)", async () => {
+    await seedEventAtHour(fx.schoolA, contentA1, "view", 10); // 2 日前 (既定 30 日窓内)
+    await seedEvent(fx.schoolA, contentA1, "view", 40); // 既定 30 日の範囲外
+
+    const hourly = await withTenantContext(db, ctxA(), (tx) => getHourlyEventCounts(tx), APP);
+    expect(hourly).toEqual([{ hour: 10, views: 1, taps: 0 }]);
+
+    // 窓を広げれば窓外の古い event も時間帯集計に現れる (合計 view が 1→2 に増える)。
+    const wide = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getHourlyEventCounts(tx, { sinceDays: 90 }),
+      APP,
+    );
+    expect(wide.reduce((s, h) => s + h.views, 0)).toBe(2);
   });
 });
