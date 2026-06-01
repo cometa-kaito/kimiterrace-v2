@@ -85,6 +85,13 @@
       "when": 1780285078248,
       "tag": "20260601033758_aromatic_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780286346406,
+      "tag": "20260601035906_ai_rate_limit_windows",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,8 @@ export * from "./events.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
+// F03 (#347, ADR-027): Cloud SQL カウンタ行で実装する分散レート制限のウィンドウテーブル
+export * from "./ai-rate-limit-windows.js";
 // F02: 教員音声 / チャット入力 + 添付メタ
 export * from "./teacher-inputs.js";
 export * from "./teacher-input-attachments.js";
