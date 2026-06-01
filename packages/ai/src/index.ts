@@ -63,6 +63,11 @@ export type { StructureRequest, StructureResult } from "./structure.js";
 export { classifyScope } from "./scope/classify.js";
 export type { ScopeClassification, ScopeVerdict, OutOfScopeReason } from "./scope/classify.js";
 
+// F06 out_of_scope 拒否ビルダー (ADR-028 §2/§4/§5): 学習・進路と判定された質問に、Gemini を
+// 呼ばず多言語・中立丁寧・誘導なしの拒否文言を返す（route が import）。
+export { buildScopeRefusal, normalizeLocale } from "./scope/refusal.js";
+export type { SupportedLocale } from "./scope/refusal.js";
+
 // 監査マッパー
 export { toAiExtractionInsert } from "./audit.js";
 export type { AiExtractionInsert, AuditMapParams } from "./audit.js";
