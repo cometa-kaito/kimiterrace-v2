@@ -1,4 +1,4 @@
-import { jstDateString } from "@/lib/signage/rotation";
+import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { SignageClient } from "./_components/SignageClient";
 import { SignageInvalid } from "./_components/SignageInvalid";
@@ -22,8 +22,6 @@ import { SignageInvalid } from "./_components/SignageInvalid";
  * `/login` には弾かれない。可否は token 解決が判定する (上記「認証なし・匿名公開」参照)。
  */
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 // token + RLS スコープのため静的化しない (毎リクエスト解決。失効を即時反映)。
 export const dynamic = "force-dynamic";
 
@@ -37,8 +35,8 @@ export default async function SignagePage({
   const { classToken } = await params;
   const { date: dateParam } = await searchParams;
 
-  // 既定は JST の今日。?date=YYYY-MM-DD で任意日を表示可 (形式不正は無視して今日)。
-  const date = dateParam && DATE_RE.test(dateParam) ? dateParam : jstDateString();
+  // 既定は JST の今日。?date=YYYY-MM-DD で任意日を表示可 (形式不正・無効暦日は今日へフォールバック)。
+  const date = parseSignageDate(dateParam);
 
   const payload = await getSignageDisplayData(classToken, date);
   if (!payload) {

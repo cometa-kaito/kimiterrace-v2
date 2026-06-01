@@ -1,4 +1,4 @@
-import { jstDateString } from "@/lib/signage/rotation";
+import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { NextResponse } from "next/server";
 
@@ -16,15 +16,13 @@ import { NextResponse } from "next/server";
  * `classToken` は credential なのでログ・レスポンスに反射しない (ルール5)。
  */
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 export async function GET(
   request: Request,
   context: { params: Promise<{ classToken: string }> },
 ): Promise<NextResponse> {
   const { classToken } = await context.params;
-  const dateParam = new URL(request.url).searchParams.get("date");
-  const date = dateParam && DATE_RE.test(dateParam) ? dateParam : jstDateString();
+  // 形式 + 実在暦日を検証し無効は今日へフォールバック (無効暦日が pg date 比較で 500 になるのを防ぐ)。
+  const date = parseSignageDate(new URL(request.url).searchParams.get("date"));
 
   const payload = await getSignageDisplayData(classToken, date);
   if (!payload) {
