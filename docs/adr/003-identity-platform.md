@@ -63,6 +63,7 @@ migration（Firebase Auth → Identity Platform）は、Identity Platform が Fi
 ### 悪い影響 / リスク
 - **custom claims のサイズ制限（約 1000 bytes）**: `role` + `school_id` 程度なら余裕だが、claims を肥大化させない設計規律が必要（権限の詳細は DB 側で解決）。
 - **claims 反映の遅延**: ロール変更後、ID トークンの再発行（再認証 or トークンリフレッシュ）まで旧 claims が残る → 失効が即時に効くべき操作（アカウント無効化）は DB 側 users 状態でも二重チェックする。
+  - 注（[ADR-026](026-account-deactivation-role-change-enforcement.md) で更新）: この「DB 側 users 状態での二重チェック」は revoke 配線が未確定だった時点の暫定多層防御。ADR-026 が無効化/ロール変更時の `revokeRefreshTokens` を必須化し（既定 `checkRevoked=true` が即時失効をエンフォース）、**エンフォースの主経路は claims/revoke に確定**した。DB 二重チェックは必須から任意の多層防御に格下げる（ADR-026 D4）。
 - **session cookie 検証のコスト**: 毎リクエストの Admin SDK 検証はキャッシュ可能だが、middleware の実装次第でレイテンシに影響 → 公開鍵キャッシュ + 短期 session 検証を [#48-B](https://github.com/cometa-kaito/kimiterrace-v2/issues/113) で設計。
 - **Identity Platform の設定複雑性**: Firebase Auth よりコンソール / Terraform 設定項目が多い → Terraform 化（[ADR-009](009-terraform.md)）で再現性を担保。
 
