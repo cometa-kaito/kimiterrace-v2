@@ -31,6 +31,12 @@ export const SIGNAGE_EVENT_LIMIT = 600;
 export const SIGNAGE_EVENT_WINDOW_MS = 60 * 1000;
 
 /**
+ * 429 応答の `Retry-After` ヘッダ秒数。窓幅から導出し、ハードコード literal が
+ * {@link SIGNAGE_EVENT_WINDOW_MS} とドリフトするのを防ぐ (#469 Reviewer Nit)。
+ */
+export const SIGNAGE_EVENT_RETRY_AFTER_SECONDS = Math.ceil(SIGNAGE_EVENT_WINDOW_MS / 1000);
+
+/**
  * signage events 用の module-level シングルトン。module スコープに置くことで Cloud Run の同一
  * インスタンス内の複数リクエストで状態を共有する (per-instance、上記の限界どおり)。
  */

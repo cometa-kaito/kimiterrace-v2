@@ -1,4 +1,5 @@
 import { type EventIngestInput, recordSignageEvent } from "@/lib/signage/event-ingest";
+import { SIGNAGE_EVENT_RETRY_AFTER_SECONDS } from "@/lib/signage/event-rate-limit";
 import { NextResponse } from "next/server";
 
 /**
@@ -78,10 +79,13 @@ export async function POST(
     return NextResponse.json({ error: "gone" }, { status: 410, headers: NO_STORE });
   }
   if (result.reason === "rate_limited") {
-    // M-2 (#464): 当該 token の固定ウィンドウ上限超過。Retry-After は窓幅 (秒) の目安を返す。
+    // M-2 (#464): 当該 token の固定ウィンドウ上限超過。Retry-After は窓幅 (秒) を導出して返す。
     return NextResponse.json(
       { error: "rate_limited" },
-      { status: 429, headers: { ...NO_STORE, "retry-after": "60" } },
+      {
+        status: 429,
+        headers: { ...NO_STORE, "retry-after": String(SIGNAGE_EVENT_RETRY_AFTER_SECONDS) },
+      },
     );
   }
   return NextResponse.json({ error: "invalid" }, { status: 400, headers: NO_STORE });
