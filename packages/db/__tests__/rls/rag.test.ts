@@ -192,7 +192,8 @@ describeOrSkip("F06 RAG getRelevantChunks (pgvector top-k / RLS / published)", (
 
   it("DEFAULT_TOP_K を超える公開版があっても既定では上位 DEFAULT_TOP_K 件に制限される", async () => {
     for (let i = 0; i < DEFAULT_TOP_K + 2; i++) {
-      // すべて NEAR 方向だが dim2 以降に微小差をつけ、決定的順序 (version_id 二次キー) を壊さない。
+      // 全件同一方向 (距離 0) でも上位 DEFAULT_TOP_K 件に制限されることを確認する
+      // (距離同値は version_id 二次キーで決定的に倒れる)。
       await seedPublishedChunk(fx.schoolA, fx.userA, `c${i}`, `body${i}`, vec({ 0: 1 }));
     }
     const rows = await withTenantContext(db, ctxA(), (tx) => getRelevantChunks(tx, Q), APP);
