@@ -53,7 +53,7 @@ export default async function DashboardPage() {
       <p style={subtitleStyle}>過去 {stats.sinceDays} 日間の反応</p>
 
       <div style={cardsStyle}>
-        <SummaryCard label="表示 (view)" value={stats.totals.view} />
+        <SummaryCard label="延べ表示数 (engagement)" value={stats.totals.view} />
         <SummaryCard label="タップ (tap)" value={stats.totals.tap} />
         <SummaryCard label="Q&A (ask)" value={stats.totals.ask} />
       </div>
@@ -100,6 +100,13 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>時間帯別の傾向</h2>
       <HourlyTrend hourly={hourly} />
+
+      {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
+      <p style={footnoteStyle}>
+        「延べ表示数
+        (engagement)」は表示の延べ回数で、同じ内容を複数回・複数端末で表示した分も数えます。
+        広告主向けの「到達数 (reach)」は別指標 (重複排除済) で、月次レポートで扱います。
+      </p>
     </section>
   );
 }
@@ -292,4 +299,9 @@ const trendCountStyle: React.CSSProperties = {
   color: "#374151",
   fontVariantNumeric: "tabular-nums",
   whiteSpace: "nowrap",
+};
+const footnoteStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontSize: "0.8rem",
+  marginTop: "1.5rem",
 };
