@@ -18,6 +18,7 @@ infrastructure/terraform/
 │   ├── cloud_run_job/             # F06 embedding バッチ Job + Scheduler (ADR-005/007, #416)
 │   ├── cloud_sql/                 # PostgreSQL 16 + pgvector (ADR-001, ADR-007)
 │   ├── identity_platform/         # IDP tenant (ADR-003)
+│   ├── logging/                   # F05 magic-link アクセスログ除外 (ルール5/NFR03, #439)
 │   ├── secret_manager/            # secret + IAM (CLAUDE.md ルール5)
 │   └── network/                   # VPC + private service connection
 └── envs/

@@ -103,6 +103,15 @@ module "cloud_run_job" {
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
 
+# F05 magic-link トークンのアクセスログ除外（#439 / ADR-016 補完 / ルール5・NFR03）。
+# /s/{token} の Cloud Run / LB request log を既定バケットへ取り込む前に除外する。
+module "logging" {
+  source     = "../../modules/logging"
+  project_id = var.project_id
+  env        = local.env
+  enabled    = false # TODO(Phase 開発): Cloud Run / LB 実体化と同時に true へ
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 

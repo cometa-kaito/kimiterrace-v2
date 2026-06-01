@@ -17,7 +17,11 @@ import { hashToken } from "../../../lib/magic-link/token";
  *    移して URL/履歴から外し、生徒ランディング `/student` へ redirect。以降の有効性は
  *    毎リクエスト再解決で判定する (即時失効、student-session.ts 参照)。
  *
- * token は credential なのでログに出さない (ルール5)。`getDb()` は非 BYPASSRLS 接続。
+ * token は credential なのでログに出さない (ルール5)。アプリ層だけでなく **infra のアクセスログ**
+ * (Cloud Run / LB の request log は `httpRequest.requestUrl` を既定で記録する) も対象で、`/s/{token}`
+ * パスは Terraform の `modules/logging` exclusion で既定バケットへ取り込む前に除外する (#439, ADR-016
+ * 補完)。生徒アクセスの利用監査は本ハンドラが events に DB 記録するため、HTTP access log の欠落は
+ * 監査要件 (ルール1) を損なわない。`getDb()` は非 BYPASSRLS 接続。
  */
 
 function gonePage(): NextResponse {

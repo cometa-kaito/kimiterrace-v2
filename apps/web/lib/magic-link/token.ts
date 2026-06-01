@@ -10,6 +10,9 @@ import { createHash, randomBytes } from "node:crypto";
  *   推測・総当たりが非現実的なエントロピー。`magic_links.token_hash` の lookup は indexed 等価
  *   検索なので、ハッシュ後の照合にタイミング攻撃の余地はない (高エントロピー値の存在判定)。
  * - ハッシュは hex 64 文字。`token_hash varchar(128)` に収まる。
+ * - **平文トークンをログに残さない**ルール5 の射程は app ログだけでなく **infra のアクセスログ**にも
+ *   及ぶ。`/s/{token}` は URL パスでトークンを受けるため Cloud Run / LB の request log に平文で滞留しうる。
+ *   これは Terraform `modules/logging` の Cloud Logging exclusion で除外する (#439, route.ts 参照)。
  *
  * 生成 (`generateToken`) は発行時のみ。検証 (生徒アクセス) 側は受領した平文を `hashToken` で
  * 同じ方式でハッシュ化し、`resolve_magic_link(token_hash)` (packages/db, SECURITY DEFINER) に渡す。
