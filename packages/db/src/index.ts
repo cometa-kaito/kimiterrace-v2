@@ -32,3 +32,5 @@ export * from "./queries/users.js";
 export * from "./queries/ad-reach.js";
 // F03 (#348, ADR-027): 分散レート制限の Cloud SQL store (DistributedRateLimiter 用)
 export * from "./queries/ai-rate-limit.js";
+// F06 (#364, ADR-028): 生徒 Q&A の RAG 検索 (公開中 content_versions を pgvector で top-k、RLS 委譲)
+export * from "./queries/rag-search.js";
