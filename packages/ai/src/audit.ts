@@ -27,6 +27,14 @@ export interface AiExtractionInsert {
   // を単一ソースにする。retry は本マッパー経路では発生しない (リトライ追跡は別経路の責務)。
   status: StructureResult["status"];
   errorMessage: string | null;
+  // F03 受け入れ条件「token 数が記録される」(#154): ModelUsage を ai_extractions の集計列に写像する。
+  // 生プロンプト/応答は保存しない (ルール4) が、トークン数は集計値なので PII を含まず、コスト追跡・
+  // モデル切替判断・確信度との相関分析の根拠として記録する。rate-limit / PII-leak はモデル未到達のため
+  // 本マッパー (および呼び出し側 persist) に到達しないが、structure が失敗 (status=failed) で usage が
+  // 取得できなかった場合は 0 を記録する (DB 側も DEFAULT 0、片側だけのフォールバックではない)。
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
   createdBy: string | null;
   updatedBy: string | null;
 }
@@ -54,6 +62,11 @@ export function toAiExtractionInsert(params: AuditMapParams): AiExtractionInsert
     modelVersion: result.modelVersion,
     status: result.status,
     errorMessage: result.errorMessage,
+    // ModelClient が返す usage をそのまま写像 (#154 F03 受け入れ条件)。structure が usage を取得できない
+    // 経路は initial EMPTY_USAGE (0/0/0) のため undefined 化しない。DB 側も NOT NULL DEFAULT 0。
+    promptTokens: result.usage.promptTokens,
+    completionTokens: result.usage.completionTokens,
+    totalTokens: result.usage.totalTokens,
     createdBy: actor,
     updatedBy: actor,
   };

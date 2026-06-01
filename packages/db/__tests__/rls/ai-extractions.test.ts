@@ -49,6 +49,10 @@ describeOrSkip("F03 ai_extractions 永続化 (#154 item 1, RLS)", () => {
       modelVersion: "gemini-1.5-pro-002",
       status: "success",
       errorMessage: null,
+      // #154 F03 受け入れ条件: token 使用量の記録。
+      promptTokens: 128,
+      completionTokens: 42,
+      totalTokens: 170,
       createdBy,
       updatedBy: createdBy,
     };
@@ -72,11 +76,14 @@ describeOrSkip("F03 ai_extractions 永続化 (#154 item 1, RLS)", () => {
         raw_input_hash: string;
         status: string;
         evidence: { page: number; text: string }[];
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
         created_by: string;
       }[]
     >`
       SELECT school_id, extraction_kind, confidence_score, model_version, raw_input_hash,
-             status, evidence, created_by
+             status, evidence, prompt_tokens, completion_tokens, total_tokens, created_by
       FROM ai_extractions WHERE id = ${id}
     `;
     expect(row.school_id).toBe(fx.schoolA);
@@ -86,6 +93,10 @@ describeOrSkip("F03 ai_extractions 永続化 (#154 item 1, RLS)", () => {
     expect(row.raw_input_hash).toBe("a".repeat(64));
     expect(row.status).toBe("success");
     expect(row.evidence).toEqual([{ page: 1, text: "1限 数学" }]);
+    // #154 F03 受け入れ条件: token 使用量が監査列に永続化される。
+    expect(Number(row.prompt_tokens)).toBe(128);
+    expect(Number(row.completion_tokens)).toBe(42);
+    expect(Number(row.total_tokens)).toBe(170);
     expect(row.created_by).toBe(fx.userA); // 監査カラムに実行者本人 (ルール1)
   });
 

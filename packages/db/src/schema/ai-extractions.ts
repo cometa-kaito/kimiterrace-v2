@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { check, index, jsonb, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { aiExtractionKind, aiExtractionStatus } from "../_shared/enums.js";
 import { contents } from "./contents.js";
@@ -33,6 +43,12 @@ export const aiExtractions = pgTable(
     rawInputHash: varchar("raw_input_hash", { length: 64 }),
     // 例: "gemini-1.5-pro-002"
     modelVersion: varchar("model_version", { length: 64 }).notNull(),
+    // F03 受け入れ条件: token 使用量を記録（コスト追跡・モデル切替判断・確信度との相関分析の根拠）。
+    // 生プロンプト/応答は保存しないが、トークン数は集計値で PII を含まない（ルール4 と整合）。
+    // 既存行・rate-limit/PII-leak など模型未到達のケース向けに DEFAULT 0、NOT NULL で欠落を機械排除。
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
     // 実行結果ステータス（enum: success / retry / failed）。値域は単一ソース enum で DB 強制。
     status: aiExtractionStatus("status").notNull().default("success"),
     errorMessage: text("error_message"),
