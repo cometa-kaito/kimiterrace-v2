@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getDailyEventCounts, getEventStats } from "../../src/queries/event-stats.js";
+import {
+  getDailyEventCounts,
+  getEventStats,
+  getEventStatsBySchool,
+} from "../../src/queries/event-stats.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -199,5 +203,75 @@ describeOrSkip("F08 getEventStats (効果集計 read、RLS + 集計正当性)", 
       APP,
     );
     expect(wide.length).toBe(2);
+  });
+
+  // --- getEventStatsBySchool (全校横断、system_admin 専用) ---
+
+  // system_admin コンテキスト: app.current_user_role='system_admin' で全校行に
+  // system_admin_full_access policy が発火する (schoolId は張らない = 横断)。
+  const ctxSys = () => ({ role: "system_admin" as const });
+
+  it("getEventStatsBySchool: system_admin は全校の学校別サマリーを反応数降順で返す", async () => {
+    // A: view×3 + tap×2 (反応 5) + ask×1、B: view×1 (反応 1)
+    for (let i = 0; i < 3; i++) await seedEvent(fx.schoolA, contentA1, "view", 1);
+    for (let i = 0; i < 2; i++) await seedEvent(fx.schoolA, contentA1, "tap", 1);
+    await seedEvent(fx.schoolA, null, "ask", 1);
+    await seedEvent(fx.schoolB, contentB1, "view", 1);
+
+    const rows = await withTenantContext(db, ctxSys(), (tx) => getEventStatsBySchool(tx), APP);
+    expect(rows).toEqual([
+      {
+        schoolId: fx.schoolA,
+        schoolName: "テスト高校 A",
+        prefecture: "岐阜県",
+        totals: { view: 3, tap: 2, ask: 1 },
+        reactions: 5,
+      },
+      {
+        schoolId: fx.schoolB,
+        schoolName: "テスト高校 B",
+        prefecture: "岐阜県",
+        totals: { view: 1, tap: 0, ask: 0 },
+        reactions: 1,
+      },
+    ]);
+  });
+
+  it("getEventStatsBySchool: テナントロール (school_admin) は自校 1 行だけ (RLS 多層防御)", async () => {
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
+    await seedEvent(fx.schoolB, contentB1, "view", 1);
+    await seedEvent(fx.schoolB, contentB1, "tap", 1);
+
+    // A コンテキストでは tenant_isolation により自校行のみ可視 = A 校 1 行。
+    const rows = await withTenantContext(db, ctxA(), (tx) => getEventStatsBySchool(tx), APP);
+    expect(rows.map((r) => r.schoolId)).toEqual([fx.schoolA]);
+    expect(rows[0].totals).toEqual({ view: 1, tap: 0, ask: 0 });
+  });
+
+  it("getEventStatsBySchool: 空コンテキストは deny-by-default で空配列", async () => {
+    await seedEvent(fx.schoolA, contentA1, "view", 1);
+    await seedEvent(fx.schoolB, contentB1, "view", 1);
+    const rows = await withTenantContext(db, {}, (tx) => getEventStatsBySchool(tx), APP);
+    expect(rows).toEqual([]);
+  });
+
+  it("getEventStatsBySchool: sinceDays 窓外の event を含めず、活動ゼロの校は行に出さない", async () => {
+    await seedEvent(fx.schoolA, contentA1, "view", 1); // 範囲内
+    await seedEvent(fx.schoolA, contentA1, "view", 40); // 既定 30 日の範囲外
+    // B 校は窓外 event のみ → 行として現れない
+    await seedEvent(fx.schoolB, contentB1, "view", 40);
+
+    const rows = await withTenantContext(db, ctxSys(), (tx) => getEventStatsBySchool(tx), APP);
+    expect(rows.map((r) => r.schoolId)).toEqual([fx.schoolA]);
+    expect(rows[0].totals.view).toBe(1);
+
+    // 窓を広げれば B 校も現れる (2 校)
+    const wide = await withTenantContext(
+      db,
+      ctxSys(),
+      (tx) => getEventStatsBySchool(tx, { sinceDays: 90 }),
+      APP,
+    );
+    expect(wide.map((r) => r.schoolId).sort()).toEqual([fx.schoolA, fx.schoolB].sort());
   });
 });
