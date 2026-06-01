@@ -161,7 +161,7 @@ V1 全機能を ≤500 行 / PR の粒度で分割した結果、**15 個の sub
 
 ## 切替プラン（cutover）
 
-`docs/runbooks/cutover.md` (未作成、本マッピング merge 後に起票予定) で別途定義する。本マッピング表は **「何を移植するか」** のスコープ定義であり、**「いつ・どう切り替えるか」** は cutover runbook が担う。
+[docs/runbooks/cutover.md](../runbooks/cutover.md) で別途定義する。本マッピング表は **「何を移植するか」** のスコープ定義であり、**「いつ・どう切り替えるか」** は cutover runbook が担う。
 
 並行運用期間（2 週間想定）中は V1 を本番として残し、V2 は staging で動作確認 → 切替日に DNS のみ V2 へ変更（[STATUS.md 既知リスク](../STATUS.md) 参照）。
 

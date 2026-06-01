@@ -154,7 +154,7 @@ NFR07 の受け入れ条件を **チェックリスト化**し、各項目を「
 | AUD-008 | NFR07 / NFR04 | 監査受入（school × user × 期間抽出） |
 | CMP-001〜015 | NFR07 | 10 年保管 / 越境回避 / 委託先 / PII 最小化 / 監査受入 / 開示訂正削除 / 規程契約 |
 
-- **cutover.md との関係**: 本トラックの合成 dry-run は、[docs/runbooks/cutover.md](../../runbooks/cutover.md)（未整備・本番切替手順）の**前段の機能・整合検証**。ROADMAP の「dry-run 3 回」は cutover 直前の本番リハーサル（人間）を指し、本トラックはそのリハーサルが回る前提（移行スクリプトが整合・冪等・テナント分離を満たす）を staging 合成で保証する。cutover.md 自体の整備状況は [§8](#8-未決事項) に未決として残す。
+- **cutover.md との関係**: 本トラックの合成 dry-run は、[docs/runbooks/cutover.md](../../runbooks/cutover.md)（本番切替手順）の**前段の機能・整合検証**。ROADMAP の「dry-run 3 回」は cutover 直前の本番リハーサル（人間）を指し、本トラックはそのリハーサルが回る前提（移行スクリプトが整合・冪等・テナント分離を満たす）を staging 合成で保証する。cutover.md 自体の整備状況は [§8](#8-未決事項) に未決として残す。
 - 抜け検出方針: NFR04 / NFR07 の各受け入れ条件チェックボックスに対し最低 1 つの MIG/AUD/CMP ケースが紐づくこと。紐づかない条件は matrix で「未カバー」として可視化する。
 
 ---
@@ -172,7 +172,7 @@ NFR07 の受け入れ条件を **チェックリスト化**し、各項目を「
 
 ## 8. 未決事項
 
-- **cutover.md 未整備**: [docs/runbooks/cutover.md](../../runbooks/cutover.md) が未作成（ROADMAP では「切替 runbook 完成」が開発フェーズ末タスク）。本トラックの dry-run 設計と cutover 手順の接続点（並行運用 / 旧 Firebase 停止判断 / ロールバック）を runbook 整備時に確定。
+- ~~**cutover.md 未整備**~~ **解消**: [docs/runbooks/cutover.md](../../runbooks/cutover.md) 整備済（ROADMAP「切替 runbook 完成」）。本トラックの dry-run 設計と cutover 手順の接続点（並行運用 / 旧 Firebase 停止判断 / ロールバック）は runbook §1/§3/§5 で確定。残る環境隔離方式は下記「dry-run 環境の隔離方式」に集約。
 - **AI mutation の audit_log 二重記録の切り分け**: AI 記録は `ai_*` テーブル（全件保管）と `audit_log`（mutation 記録）のどちらを真実源に網羅判定するか。AUD-001 の網羅表と AUD-007 の AI 全件突合の責務境界を実装到達度に合わせて確定。
 - **コールド移送の staging 検証可否**: CMP-002 の Cloud Storage Archive への日次移送を staging で dry-run できるか（バケット・IAM 整備状況）。未整備なら合成 + 設計レビューで代替し、実移送は本番運用へ。
 - **docs/compliance/ の現況**: CMP-007〜014 の draft 置き場（委託先管理表 / 文科省GL 対応表 / ISMAP 自社管理策 / GDPR 対象外方針）の整備状況を確認し、未着手項目を Issue 化。
