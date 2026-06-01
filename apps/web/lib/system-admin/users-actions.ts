@@ -14,6 +14,18 @@ const STAFF_ROLES = ["school_admin", "teacher"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
 
 /**
+ * mirror tx 内の FOR UPDATE 再カウントで last-admin レース (#355 Low-2) を検出したとき投げる番兵。
+ * これを投げると mirror tx (DB mirror + 監査) がロールバックされ、caller が IdP の revoke を補償して
+ * `conflict` を返す。`Error` サブクラスにして他の DB エラー (`update affected no row` 等) と区別する。
+ */
+class LastAdminRaceError extends Error {
+  constructor() {
+    super("last-admin guard race detected at mirror tx (#355)");
+    this.name = "LastAdminRaceError";
+  }
+}
+
+/**
  * F11 (#47 / #324, ADR-026): system_admin が **全校横断**で教職員のアカウントを無効化 / 再有効化する
  * Server Action。`/admin/system/users` (#343) の各行から呼ぶ。
  *
@@ -76,33 +88,55 @@ export async function setStaffActiveAction(raw: {
     await deactivateIdpUser(userId);
   }
 
+  // この無効化が「有効な school_admin を 1 人減らす」操作か。gate (lock 無し count) は通過済みだが、
+  // 同一校の最後の 2 名を 2 つの system_admin が同時に無効化する TOCTOU レース (#355 Low-2) は、
+  // mirror tx 内の FOR UPDATE 再カウントでしか直列検出できない。再有効化はロックアウトを起こさないため対象外。
+  const removesActiveAdmin = !nextActive && gate.role === "school_admin" && gate.wasActive;
+
   // 3) DB mirror + 監査を同一 tx で。テナント監査なので school_id は対象校、actor は system_admin ゆえ NULL。
-  await withSession(
-    async (tx) => {
-      const updated = await tx
-        .update(users)
-        // updated_at は auditColumns では INSERT 時のみ default のため UPDATE では明示更新する (ルール1)。
-        .set({ isActive: nextActive, updatedBy: null, updatedAt: new Date() })
-        .where(eq(users.id, userId))
-        .returning({ id: users.id });
-      if (updated.length === 0) {
-        // 多層防御: read が通って UPDATE 0 行 = RLS 越境 (本来到達しない)。IdP は既に更新済 (安全側)。
-        throw new Error("user is_active mirror update affected no row");
-      }
-      await tx.insert(auditLog).values({
-        actorUserId: null,
-        schoolId: gate.schoolId,
-        tableName: "users",
-        recordId: userId,
-        operation: "update",
-        diff: { before: { isActive: gate.before }, after: { isActive: nextActive } },
-        rowHash: "",
-        createdBy: null,
-        updatedBy: null,
-      });
-    },
-    { allowedRoles: SYSTEM_ADMIN_ROLES },
-  );
+  try {
+    await withSession(
+      async (tx) => {
+        // TOCTOU 根治 (#355 Low-2): 管理者を減らす無効化のみ、FOR UPDATE 再カウントで last-admin を
+        // 直列検出する。最後の 1 人なら番兵を投げて tx をロールバックする (UPDATE / 監査に到達しない)。
+        if (removesActiveAdmin && (await lockAndCountActiveSchoolAdmins(tx, gate.schoolId)) <= 1) {
+          throw new LastAdminRaceError();
+        }
+        const updated = await tx
+          .update(users)
+          // updated_at は auditColumns では INSERT 時のみ default のため UPDATE では明示更新する (ルール1)。
+          .set({ isActive: nextActive, updatedBy: null, updatedAt: new Date() })
+          .where(eq(users.id, userId))
+          .returning({ id: users.id });
+        if (updated.length === 0) {
+          // 多層防御: read が通って UPDATE 0 行 = RLS 越境 (本来到達しない)。IdP は既に更新済 (安全側)。
+          throw new Error("user is_active mirror update affected no row");
+        }
+        await tx.insert(auditLog).values({
+          actorUserId: null,
+          schoolId: gate.schoolId,
+          tableName: "users",
+          recordId: userId,
+          operation: "update",
+          diff: { before: { isActive: gate.wasActive }, after: { isActive: nextActive } },
+          rowHash: "",
+          createdBy: null,
+          updatedBy: null,
+        });
+      },
+      { allowedRoles: SYSTEM_ADMIN_ROLES },
+    );
+  } catch (e) {
+    if (e instanceof LastAdminRaceError) {
+      // 補償 (ADR-026 IdP-first ゆえ revoke は確定済): IdP を再有効化して巻き戻す。DB は未更新 = 元から
+      // active のまま。これで「学校が管理者ゼロ」を防ぐ。再有効化も失敗する二重障害は loud に投げて手動復旧へ。
+      await reactivateIdpUser(userId);
+      return conflict(
+        "この学校で唯一の有効な学校管理者のため無効化できません。先に別の学校管理者を有効化してください。",
+      );
+    }
+    throw e;
+  }
 
   revalidatePath("/admin/system/users");
   return { ok: true, data: { id: userId, isActive: nextActive } };
@@ -112,7 +146,8 @@ type GateResult =
   | { kind: "not_found" }
   | { kind: "not_staff" }
   | { kind: "last_admin" }
-  | { kind: "ok"; schoolId: string; before: boolean };
+  // role / wasActive は mirror tx の TOCTOU 再カウント要否 (有効な school_admin を減らす操作か) の判定に使う。
+  | { kind: "ok"; schoolId: string; role: StaffRole; wasActive: boolean };
 
 /**
  * 対象ユーザーの現状態を読み、教職員限定 + last-admin ガードを評価して判定を返す。read のみの短い tx。
@@ -138,7 +173,12 @@ async function withGate(userId: string, nextActive: boolean): Promise<GateResult
           return { kind: "last_admin" } as const;
         }
       }
-      return { kind: "ok", schoolId: row.schoolId, before: row.isActive } as const;
+      return {
+        kind: "ok",
+        schoolId: row.schoolId,
+        role: row.role,
+        wasActive: row.isActive,
+      } as const;
     },
     { allowedRoles: SYSTEM_ADMIN_ROLES },
   );
@@ -156,6 +196,32 @@ async function countActiveSchoolAdmins(tx: TenantTx, schoolId: string): Promise<
       and(eq(users.schoolId, schoolId), eq(users.role, "school_admin"), eq(users.isActive, true)),
     );
   return c?.n ?? 0;
+}
+
+/**
+ * 指定校の有効な school_admin を **行ロック (FOR UPDATE)** して数える。last-admin ガードの TOCTOU
+ * レース根治 (#355 Low-2)。
+ *
+ * gate (lock 無しの `countActiveSchoolAdmins`) と DB mirror UPDATE は **別トランザクション**で、間に IdP
+ * 往復を挟む (ADR-026 IdP-first ゆえ行ロックを跨げない)。そのため同一校の最後の 2 名の school_admin を
+ * 2 つの system_admin が同時に無効化/降格すると、両者とも gate で count=2 を見て通過し学校が管理者ゼロに
+ * なりうる。mirror tx 内でこの関数を呼ぶと、対象校の有効 school_admin 行を FOR UPDATE でロックする。
+ * 先行 tx が commit した後、後続 tx はロック解放時に行を再評価し (READ COMMITTED の EvalPlanQual)、既に
+ * 無効化/降格された管理者を `is_active = true` / `role = school_admin` 条件から除外して数えるため、最後の
+ * 1 人を確実に直列検出できる。
+ *
+ * 注: `count(*)` は集約のため `FOR UPDATE` と併用できない (PG エラー)。行 id を FOR UPDATE で取得して
+ * JS 側で数える。
+ */
+async function lockAndCountActiveSchoolAdmins(tx: TenantTx, schoolId: string): Promise<number> {
+  const rows = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(eq(users.schoolId, schoolId), eq(users.role, "school_admin"), eq(users.isActive, true)),
+    )
+    .for("update");
+  return rows.length;
 }
 
 /**
@@ -212,31 +278,51 @@ export async function changeStaffRoleAction(raw: {
   // 2) IdP 更新を先に (claims 再付与 + revoke で再ログイン強制)。
   await changeIdpUserRole(userId, nextRole, gate.schoolId);
 
+  // この降格が「有効な school_admin を 1 人減らす」操作か。降格も無効化と同じ last-admin レース
+  // (#355 Low-2) を起こす。昇格 (teacher→school_admin) は管理者を減らさないため対象外。
+  const removesActiveAdmin =
+    nextRole === "teacher" && gate.before === "school_admin" && gate.wasActive;
+
   // 3) DB mirror + 監査を同一 tx で。
-  await withSession(
-    async (tx) => {
-      const updated = await tx
-        .update(users)
-        .set({ role: nextRole, updatedBy: null, updatedAt: new Date() })
-        .where(eq(users.id, userId))
-        .returning({ id: users.id });
-      if (updated.length === 0) {
-        throw new Error("user role mirror update affected no row");
-      }
-      await tx.insert(auditLog).values({
-        actorUserId: null,
-        schoolId: gate.schoolId,
-        tableName: "users",
-        recordId: userId,
-        operation: "update",
-        diff: { before: { role: gate.before }, after: { role: nextRole } },
-        rowHash: "",
-        createdBy: null,
-        updatedBy: null,
-      });
-    },
-    { allowedRoles: SYSTEM_ADMIN_ROLES },
-  );
+  try {
+    await withSession(
+      async (tx) => {
+        // TOCTOU 根治 (#355 Low-2): 管理者を減らす降格のみ、FOR UPDATE 再カウントで last-admin を直列検出。
+        if (removesActiveAdmin && (await lockAndCountActiveSchoolAdmins(tx, gate.schoolId)) <= 1) {
+          throw new LastAdminRaceError();
+        }
+        const updated = await tx
+          .update(users)
+          .set({ role: nextRole, updatedBy: null, updatedAt: new Date() })
+          .where(eq(users.id, userId))
+          .returning({ id: users.id });
+        if (updated.length === 0) {
+          throw new Error("user role mirror update affected no row");
+        }
+        await tx.insert(auditLog).values({
+          actorUserId: null,
+          schoolId: gate.schoolId,
+          tableName: "users",
+          recordId: userId,
+          operation: "update",
+          diff: { before: { role: gate.before }, after: { role: nextRole } },
+          rowHash: "",
+          createdBy: null,
+          updatedBy: null,
+        });
+      },
+      { allowedRoles: SYSTEM_ADMIN_ROLES },
+    );
+  } catch (e) {
+    if (e instanceof LastAdminRaceError) {
+      // 補償: IdP のロールを school_admin に戻す (revoke 済のため再ログインは要るが claim は復元)。DB は未更新。
+      await changeIdpUserRole(userId, "school_admin", gate.schoolId);
+      return conflict(
+        "この学校で唯一の有効な学校管理者のため教員に変更できません。先に別の学校管理者を用意してください。",
+      );
+    }
+    throw e;
+  }
 
   revalidatePath("/admin/system/users");
   return { ok: true, data: { id: userId, role: nextRole } };
@@ -247,7 +333,8 @@ type RoleGateResult =
   | { kind: "not_staff" }
   | { kind: "no_change" }
   | { kind: "last_admin" }
-  | { kind: "ok"; schoolId: string; before: TenantRole };
+  // wasActive は mirror tx の TOCTOU 再カウント要否 (有効な school_admin を降格する操作か) の判定に使う。
+  | { kind: "ok"; schoolId: string; before: TenantRole; wasActive: boolean };
 
 /**
  * ロール変更の対象を読み、教職員限定 / no-op / 降格 last-admin ガードを評価して判定を返す。read のみの短い tx。
@@ -276,7 +363,12 @@ async function withRoleGate(userId: string, nextRole: StaffRole): Promise<RoleGa
           return { kind: "last_admin" } as const;
         }
       }
-      return { kind: "ok", schoolId: row.schoolId, before: row.role } as const;
+      return {
+        kind: "ok",
+        schoolId: row.schoolId,
+        before: row.role,
+        wasActive: row.isActive,
+      } as const;
     },
     { allowedRoles: SYSTEM_ADMIN_ROLES },
   );
