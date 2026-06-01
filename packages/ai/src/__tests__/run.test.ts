@@ -78,12 +78,16 @@ describe("runStructuredExtraction (#154 item 2a)", () => {
       modelVersion: "gemini-test-1",
       status: "success",
       errorMessage: null,
+      // #154 F03 受け入れ条件: token 使用量も監査に写る (ModelUsage → ai_extractions の集計列)。
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
       createdBy: "user-1",
       updatedBy: "user-1",
     });
   });
 
-  it("失敗した抽出も監査する (status=failed, confidence は 0 に正規化, evidence 空)", async () => {
+  it("失敗した抽出も監査する (status=failed, confidence は 0 に正規化, evidence 空, token は使った分を記録)", async () => {
     const persist = vi.fn().mockResolvedValue(undefined);
     const structure = vi.fn().mockResolvedValue(failedResult);
 
@@ -99,6 +103,10 @@ describe("runStructuredExtraction (#154 item 2a)", () => {
       confidenceScore: 0, // toAiExtractionInsert が null→0 に正規化 (NOT NULL 列)
       evidence: [],
       errorMessage: "Zod 検証に 3 回失敗",
+      // 失敗 (リトライ尽き) でもモデルには到達しているため token は実消費を記録する。
+      promptTokens: 10,
+      completionTokens: 5,
+      totalTokens: 15,
     });
   });
 
