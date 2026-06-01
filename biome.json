@@ -91,6 +91,7 @@
         "**/e2e/**",
         "**/scripts/**",
         "**/apps/jobs/src/migration/firestore-to-pg.ts",
+        "**/apps/jobs/src/embedding/embed-job.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",
