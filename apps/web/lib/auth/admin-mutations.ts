@@ -1,3 +1,4 @@
+import type { TenantRole } from "@kimiterrace/db";
 import { getAdminAuth } from "./adminApp";
 
 /**
@@ -12,8 +13,7 @@ import { getAdminAuth } from "./adminApp";
  * localId を渡す — provisioning 前提により localId == `users.id`(UUID) (ADR-003、session.ts の
  * normalizeClaims docstring 参照)。
  *
- * 本スライス (#324) は **無効化 / 再有効化 (ADR-026 D1)**。ロール変更 (D2、`setCustomUserClaims` +
- * `revokeRefreshTokens`) は後続スライスで本 seam に `changeIdpUserRole` を追加する。
+ * 無効化 / 再有効化 (ADR-026 D1) と **ロール変更 (D2、`changeIdpUserRole`)** を提供する。
  */
 
 /**
@@ -45,4 +45,29 @@ export async function deactivateIdpUser(uid: string): Promise<void> {
  */
 export async function reactivateIdpUser(uid: string): Promise<void> {
   await getAdminAuth().updateUser(uid, { disabled: false });
+}
+
+/**
+ * ADR-026 D2: ロール変更。**claims がロールの単一ソース**なので、claims を再付与し **必ず revoke する**。
+ *
+ * 1. **claims を再付与** (`setCustomUserClaims(uid, { role, school_id })`) — 新ロールを claims に反映。
+ *    custom claims は全置換なので、`normalizeClaims` が読む `role` / `school_id` を完全な形で渡す
+ *    (`uid` は localId であり custom claim ではない、session.ts 参照)。
+ * 2. **リフレッシュトークンを失効** (`revokeRefreshTokens(uid)`)。**降格 (school_admin→teacher) では
+ *    revoke しないと旧特権 claim が cookie 有効期間 (最大 14 日) 残存して危険**なため revoke は必須。
+ *    昇格も同様に一旦失効 → 利用者は再ログインで新ロールの claim を取得する (revoke 後の既存 session は
+ *    自動で新ロールに変わるのではなく、`checkRevoked` で deny に倒れ「再ログイン強制」になる)。
+ *
+ * `schoolId` はテナント claim (school_admin / teacher は所属校 UUID)。本 seam は教職員ロール間の変更
+ * (school_admin ↔ teacher) に使い、school 横断や system_admin 化はしない (呼出側 action が role を限定)。
+ */
+export async function changeIdpUserRole(
+  uid: string,
+  role: TenantRole,
+  schoolId: string,
+): Promise<void> {
+  const auth = getAdminAuth();
+  // claims を先に確定してから revoke する (新ロールを載せた上で既存 session を失効 = 再ログインで新権限)。
+  await auth.setCustomUserClaims(uid, { role, school_id: schoolId });
+  await auth.revokeRefreshTokens(uid);
 }
