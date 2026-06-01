@@ -67,8 +67,8 @@ resource "google_cloud_run_v2_job" "embedding" {
   location = var.region
   name     = var.job_name
 
-  # 雛形段階での誤 destroy ガードは enabled スイッチ側で担う。Phase 開発で要件に応じ true 化を検討。
-  deletion_protection = false
+  # 削除保護。prod は既定で保護（var 既定 true）、staging/dev は env 側で false に上書き可。
+  deletion_protection = var.deletion_protection
 
   template {
     template {
@@ -134,6 +134,19 @@ resource "google_cloud_run_v2_job" "embedding" {
           egress    = "PRIVATE_RANGES_ONLY"
         }
       }
+    }
+  }
+
+  # enabled = true なのに DB creds / egress が未設定だと、plan は通るが runtime で確実に失敗する。
+  # plan 時に fail-fast させて「DB に繋がらない Job」を本番に作らないようにする（ルール2・5 の防御）。
+  lifecycle {
+    precondition {
+      condition     = !var.enabled || var.database_url_secret_id != ""
+      error_message = "enabled = true のとき database_url_secret_id は必須です（DATABASE_URL を Secret Manager から注入、ルール5）。"
+    }
+    precondition {
+      condition     = !var.enabled || var.vpc_connector != ""
+      error_message = "enabled = true のとき vpc_connector は必須です（Cloud SQL private IP への egress、ルール2 のテナント分離 DB に接続）。"
     }
   }
 }

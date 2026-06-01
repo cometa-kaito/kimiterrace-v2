@@ -104,6 +104,12 @@ variable "task_timeout" {
   default     = "600s"
 }
 
+variable "deletion_protection" {
+  description = "Job の削除保護。prod は true 推奨、staging/dev は recreate 容易性のため false（Issue #70 と同方針）。"
+  type        = bool
+  default     = true
+}
+
 variable "schedule" {
   description = "Cloud Scheduler の cron（公開コンテンツ更新の反映頻度。即時性が要れば publish 時トリガは別途検討）"
   type        = string

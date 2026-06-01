@@ -95,11 +95,12 @@ module "cloud_run" {
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
 module "cloud_run_job" {
-  source     = "../../modules/cloud_run_job"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false
+  source              = "../../modules/cloud_run_job"
+  project_id          = var.project_id
+  region              = var.region
+  env                 = local.env
+  enabled             = false
+  deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
 
 module "workload_identity_federation" {
