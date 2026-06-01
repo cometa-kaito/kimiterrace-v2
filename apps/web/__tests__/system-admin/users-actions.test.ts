@@ -73,6 +73,8 @@ let lockedAdminCount: number | null; // mirror tx の FOR UPDATE 再カウント
 let updateRows: { id: string }[];
 let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
+// #395 L2: mirror UPDATE の `returning()` を reject させて DB トリガの KT001 を模す (null なら正常解決)。
+let updateError: unknown;
 
 function fakeTx() {
   return {
@@ -97,7 +99,12 @@ function fakeTx() {
     update: () => ({
       set: (v: Record<string, unknown>) => {
         updateValues = v;
-        return { where: () => ({ returning: () => Promise.resolve(updateRows) }) };
+        return {
+          where: () => ({
+            returning: () =>
+              updateError ? Promise.reject(updateError) : Promise.resolve(updateRows),
+          }),
+        };
       },
     }),
     insert: (table: unknown) => ({
@@ -123,6 +130,7 @@ beforeEach(() => {
   updateRows = [{ id: TEACHER_ID }];
   updateValues = null;
   auditValues = null;
+  updateError = undefined;
   // 各 withSession 呼び出しに新しい fakeTx を渡す (read tx と write tx で select カウンタを分ける)。
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
     Promise.resolve(fn(fakeTx(), sysAdmin))) as typeof withSession);
@@ -209,6 +217,38 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
       expect.objectContaining({
         event: "last_admin_race_detected",
         action: "deactivate",
+        detectedBy: "app_recount",
+        schoolId: SCHOOL_ID,
+        targetUserId: ADMIN_ID,
+        compensation: "reactivate_idp_user",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("DB トリガ (#395 L2): app 再カウント通過後に UPDATE が KT001 → seam バイパス検出として補償 + conflict (detectedBy=db_trigger_kt001)", async () => {
+    // gate も app 層 FOR UPDATE 再カウント (lockedAdminCount=2) も通過するが、UPDATE 自体を DB トリガが
+    // KT001 で弾く = seam をバイパスする経路 (直 SQL/バッチ) が DB の最終砦に捕まった状況。drizzle は pg
+    // エラーを DrizzleQueryError でラップし SQLSTATE を `.cause.code` に入れるため、その形で投げる。
+    targetRow = { role: "school_admin", isActive: true, schoolId: SCHOOL_ID };
+    activeAdminCount = 2;
+    lockedAdminCount = 2; // app 層の番兵は発火しない (= LastAdminRaceError 経路でない)
+    updateError = Object.assign(new Error("DrizzleQueryError"), { cause: { code: "KT001" } });
+    const res = await setStaffActiveAction({ userId: ADMIN_ID, isActive: false });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    // IdP-first revoke は確定済 → 補償で再有効化 (app_recount 経路と同じ補償に合流)。
+    expect(deactivateMock).toHaveBeenCalledWith(ADMIN_ID);
+    expect(reactivateMock).toHaveBeenCalledWith(ADMIN_ID);
+    // mirror tx は KT001 でロールバック: 監査未到達・revalidate しない。
+    expect(auditValues).toBeNull();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+    // L1 ログは app_recount でなく db_trigger_kt001 と記録する (seam バイパスの異常シグナル)。
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "last_admin_race_detected",
+        action: "deactivate",
+        detectedBy: "db_trigger_kt001",
         schoolId: SCHOOL_ID,
         targetUserId: ADMIN_ID,
         compensation: "reactivate_idp_user",
@@ -342,6 +382,33 @@ describe("changeStaffRoleAction (#324 ADR-026 D2 ロール変更)", () => {
       expect.objectContaining({
         event: "last_admin_race_detected",
         action: "change_role",
+        detectedBy: "app_recount",
+        schoolId: SCHOOL_ID,
+        targetUserId: ADMIN_ID,
+        compensation: "restore_school_admin_role",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("DB トリガ (#395 L2): 降格の app 再カウント通過後に UPDATE が KT001 → IdP ロール復元 + conflict (detectedBy=db_trigger_kt001)", async () => {
+    targetRow = { role: "school_admin", isActive: true, schoolId: SCHOOL_ID };
+    activeAdminCount = 2;
+    lockedAdminCount = 2; // app 層の番兵は発火しない
+    updateError = Object.assign(new Error("DrizzleQueryError"), { cause: { code: "KT001" } });
+    const res = await changeStaffRoleAction({ userId: ADMIN_ID, nextRole: "teacher" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    // 1 回目=降格 (IdP-first 確定済) → 2 回目=補償で school_admin へ復元。
+    expect(changeRoleMock).toHaveBeenNthCalledWith(1, ADMIN_ID, "teacher", SCHOOL_ID);
+    expect(changeRoleMock).toHaveBeenNthCalledWith(2, ADMIN_ID, "school_admin", SCHOOL_ID);
+    expect(auditValues).toBeNull();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "last_admin_race_detected",
+        action: "change_role",
+        detectedBy: "db_trigger_kt001",
         schoolId: SCHOOL_ID,
         targetUserId: ADMIN_ID,
         compensation: "restore_school_admin_role",
