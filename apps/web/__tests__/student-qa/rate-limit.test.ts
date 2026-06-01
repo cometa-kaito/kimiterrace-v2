@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  QA_MAX_KEYS,
   QA_QUESTION_LIMIT,
   QA_QUESTION_WINDOW_MS,
   StudentQaRateLimiter,
@@ -78,5 +79,45 @@ describe("StudentQaRateLimiter", () => {
       expect(rl.tryAcquire({ magicLinkId: ML, cookieId: CK, nowMs: i }).allowed).toBe(true);
     }
     expect(rl.tryAcquire({ magicLinkId: ML, cookieId: CK, nowMs: 10 }).allowed).toBe(false);
+  });
+});
+
+describe("StudentQaRateLimiter — メモリ境界 (#437 Low-4)", () => {
+  it("ユニークキーを maxKeys 超で流しても各 Map は maxKeys 以内（同一ウィンドウ flood）", () => {
+    const maxKeys = 5;
+    const rl = new StudentQaRateLimiter(1, 1000, maxKeys);
+    // 同一ウィンドウ（nowMs 固定）で 20 個のユニーク (ml, ck) ペアを投入。両ゲートとも fresh で許可。
+    for (let i = 0; i < 20; i++) {
+      expect(
+        rl.tryAcquire({ magicLinkId: `ml-${i}`, cookieId: `ck-${i}`, nowMs: 100 }).allowed,
+      ).toBe(true);
+    }
+    expect(rl.sizes().magicLink).toBeLessThanOrEqual(maxKeys);
+    expect(rl.sizes().cookie).toBeLessThanOrEqual(maxKeys);
+  });
+
+  it("新規キー追加時にまず期限切れ窓を一掃する（サイズが maxKeys を超えない）", () => {
+    const maxKeys = 3;
+    const rl = new StudentQaRateLimiter(1, 1000, maxKeys);
+    for (let i = 0; i < maxKeys; i++) {
+      rl.tryAcquire({ magicLinkId: `ml-${i}`, cookieId: `ck-${i}`, nowMs: 0 });
+    }
+    expect(rl.sizes().magicLink).toBe(maxKeys);
+    // windowMs(1000) 経過後に新規キー → 期限切れ maxKeys 件が一掃され、サイズは膨らまない。
+    rl.tryAcquire({ magicLinkId: "ml-new", cookieId: "ck-new", nowMs: 1000 });
+    expect(rl.sizes().magicLink).toBeLessThanOrEqual(maxKeys);
+    expect(rl.sizes().cookie).toBeLessThanOrEqual(maxKeys);
+  });
+
+  it("有効ウィンドウ内の同一キー連打は Map を増やさない（in-place 更新）", () => {
+    const rl = new StudentQaRateLimiter(10, 1000, 5);
+    for (let i = 0; i < 8; i++) {
+      rl.tryAcquire({ magicLinkId: "ml-1", cookieId: "ck-1", nowMs: i });
+    }
+    expect(rl.sizes()).toEqual({ magicLink: 1, cookie: 1 });
+  });
+
+  it("既定 maxKeys は 50000", () => {
+    expect(QA_MAX_KEYS).toBe(50_000);
   });
 });
