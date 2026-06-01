@@ -10,7 +10,8 @@ const describeOrSkip = url ? describe : describe.skip;
  * F03 / #289: 職員氏名 roster クエリ ({@link listStaffDisplayNames}) を実 PG (RLS 込み) で検証する。
  *
  * Vertex 送信前 PII マスキング (ルール4) の供給源なので、(a) 教員/学校管理者のみ返す、(b) 生徒/保護者は
- * 返さない、(c) is_active=false は除外、(d) 同名は重複排除、(e) **テナント越境しない (RLS)** を固定する。
+ * 返さない、(c) is_active=false の職員も**含める** (退職者素通り防止、#317 Reviewer M-1)、(d) 同名は
+ * 重複排除、(e) **テナント越境しない (RLS)** を固定する。
  */
 describeOrSkip("F03 listStaffDisplayNames (職員氏名 roster, RLS)", () => {
   // biome-ignore lint/style/noNonNullAssertion: describe.skip 時は実行されない
@@ -60,10 +61,12 @@ describeOrSkip("F03 listStaffDisplayNames (職員氏名 roster, RLS)", () => {
     expect(names).not.toContain("保護者Y");
   });
 
-  it("is_active=false の職員は除外する", async () => {
+  it("is_active=false の職員も含める (退職者素通り防止 #317 M-1)", async () => {
+    // マスキングは false-negative を避けるのが目的: 退職直後の職員氏名が transcript に紛れても
+    // roster で確定マスクできるよう、在職状態で絞らず全職員を供給する (ルール4 安全側)。
     await addUser(fx.schoolA, "uid-staff-ret", "teacher", "退職先生", false);
     const names = await withTenantContext(db, ctxA(), (tx) => listStaffDisplayNames(tx), APP);
-    expect(names).not.toContain("退職先生");
+    expect(names).toContain("退職先生");
   });
 
   it("同名の職員は 1 度だけ返す (重複排除)", async () => {
