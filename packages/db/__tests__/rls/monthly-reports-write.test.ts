@@ -118,9 +118,10 @@ describeOrSkip("F09 monthly_reports 生成履歴 upsert (#430, RLS)", () => {
         id: string;
         pdf_size_bytes: number;
         metrics_snapshot: { summary: { views: number } };
-        created_at: Date;
-        updated_at: Date;
-        generated_at: Date;
+        // postgres ドライバは timestamptz を文字列で返す（実 PG）。比較は new Date() でラップする。
+        created_at: string;
+        updated_at: string;
+        generated_at: string;
       }[]
     >`
       SELECT id, pdf_size_bytes, metrics_snapshot, created_at, updated_at, generated_at
@@ -130,7 +131,9 @@ describeOrSkip("F09 monthly_reports 生成履歴 upsert (#430, RLS)", () => {
     expect(Number(rows[0].pdf_size_bytes)).toBe(2048); // 上書き済み。
     expect(rows[0].metrics_snapshot.summary.views).toBe(250);
     // ルール1: 再生成で updated_at を明示更新（作成時刻のまま残さない）。created_at は初回値を保つ。
-    expect(rows[0].updated_at.getTime()).toBeGreaterThanOrEqual(rows[0].created_at.getTime());
+    expect(new Date(rows[0].updated_at).getTime()).toBeGreaterThanOrEqual(
+      new Date(rows[0].created_at).getTime(),
+    );
   });
 
   it("テナント分離 (write): B context で A の school_id を指定した upsert は WITH CHECK が弾く（ルール2）", async () => {
