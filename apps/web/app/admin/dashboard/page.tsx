@@ -5,7 +5,9 @@ import { densifyPresenceHourly, hasPresenceData } from "@/lib/dashboard/presence
 import { withSession } from "@/lib/db";
 import {
   type DailyEventCount,
+  type DailyPresenceCount,
   getDailyEventCounts,
+  getDailyPresenceCounts,
   getEventStats,
   getHourlyEventCounts,
   getHourlyPresenceCounts,
@@ -35,11 +37,12 @@ import {
 export default async function DashboardPage() {
   await requireRole(PUBLISHER_ROLES);
   // 同一 RLS context (1 tx) で全クエリを実行する。
-  const { stats, daily, hourly, presence } = await withSession(async (tx) => ({
+  const { stats, daily, hourly, presence, dailyPresence } = await withSession(async (tx) => ({
     stats: await getEventStats(tx),
     daily: await getDailyEventCounts(tx),
     hourly: await getHourlyEventCounts(tx),
     presence: await getHourlyPresenceCounts(tx),
+    dailyPresence: await getDailyPresenceCounts(tx),
   }));
 
   return (
@@ -107,6 +110,9 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>時間帯別の在室 (人感センサー)</h2>
       <PresenceTrend presence={presence} />
+
+      <h2 style={sectionTitleStyle}>日次の在室 (人感センサー)</h2>
+      <DailyPresenceTrend dailyPresence={dailyPresence} />
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>
@@ -190,6 +196,31 @@ function HourlyTrend({ hourly }: { hourly: HourlyEventCount[] }) {
           </li>
         );
       })}
+    </ul>
+  );
+}
+
+/**
+ * 日次 (JST 暦日) の **在室 (presence)** を CSS バーで軽量描画する。日次の view/tap 推移 (`DailyTrend`)
+ * の在室版で、来場の増減トレンドを示す。色のみに依存せず各行に日付ラベルと在室件数テキストを併記
+ * (WCAG 2.2 AA、NFR05)。バー色は在室なので緑 (`PresenceTrend` と統一、ADR-020 PIR・カメラ非使用)。
+ */
+function DailyPresenceTrend({ dailyPresence }: { dailyPresence: DailyPresenceCount[] }) {
+  if (dailyPresence.length === 0) {
+    return <p style={emptyStyle}>対象期間の在室推移データはまだありません。</p>;
+  }
+  const max = Math.max(...dailyPresence.map((d) => d.presence), 1);
+  return (
+    <ul style={trendListStyle}>
+      {dailyPresence.map((d) => (
+        <li key={d.day} style={trendRowStyle}>
+          <span style={trendDayStyle}>{formatDay(d.day)}</span>
+          <span style={trendBarTrackStyle}>
+            <span style={{ ...presenceBarFillStyle, width: `${(d.presence / max) * 100}%` }} />
+          </span>
+          <span style={trendCountStyle}>在室 {d.presence}</span>
+        </li>
+      ))}
     </ul>
   );
 }
