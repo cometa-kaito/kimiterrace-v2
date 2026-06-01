@@ -21,6 +21,15 @@ export {
   repairHint,
 } from "./prompt/build.js";
 
+// F06 (#368, ADR-028) 生徒対話 Q&A プロンプト builder + 補足ガードレール
+export {
+  buildChatPrompt,
+  buildChatSystemPrompt,
+  buildContextBlock,
+  buildQuestionBlock,
+} from "./prompt/chat.js";
+export type { ChatContext, ChatPrompt } from "./prompt/chat.js";
+
 // モデル境界 + Vertex アダプタ（ADR-005/006）
 export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./model/client.js";
 export { createVertexModelClient } from "./model/vertex.js";
