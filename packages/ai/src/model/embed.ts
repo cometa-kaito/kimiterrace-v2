@@ -1,5 +1,6 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { embedMany } from "ai";
+import { EMBEDDING_DIM } from "./embedding-dim.js";
 
 /**
  * Vertex AI テキスト embedding アダプタ（ADR-005 Vertex AI / ADR-006 Vercel AI SDK / ADR-007 pgvector）。
@@ -22,11 +23,9 @@ import { embedMany } from "ai";
  * - **データ越境ゼロ（NFR07）**: location は注入する（asia-northeast1 運用）。ハードコードしない。
  */
 
-/**
- * embedding 次元。`text-embedding-004` の出力次元であり、@kimiterrace/db の `VECTOR_DIM`
- * （packages/db の pgvector.ts）と一致させること。モデルを変えて次元が変わる場合は両方を同時に更新する。
- */
-export const EMBEDDING_DIM = 768;
+// embedding 次元の物理単一ソースは ./embedding-dim.js（#396 M-1）。@kimiterrace/db の VECTOR_DIM も
+// そこから派生する。barrel（@kimiterrace/ai）互換のため re-export する。
+export { EMBEDDING_DIM };
 
 /** バージョンピンした embedding モデル ID（既定）。 */
 const DEFAULT_EMBEDDING_MODEL_ID = "text-embedding-004";

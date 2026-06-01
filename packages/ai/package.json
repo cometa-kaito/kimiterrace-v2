@@ -11,6 +11,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./embedding-dim": {
+      "types": "./src/model/embedding-dim.ts",
+      "default": "./dist/model/embedding-dim.js"
     }
   },
   "scripts": {
