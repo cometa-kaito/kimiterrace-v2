@@ -10,6 +10,11 @@ import { createHash, randomBytes } from "node:crypto";
  *   推測・総当たりが非現実的なエントロピー。`magic_links.token_hash` の lookup は indexed 等価
  *   検索なので、ハッシュ後の照合にタイミング攻撃の余地はない (高エントロピー値の存在判定)。
  * - ハッシュは hex 64 文字。`token_hash varchar(128)` に収まる。
+ * - **インフラログの射程 (ルール5)**: 平文トークンは `/s/<token>` の URL パスに載るため、
+ *   アプリログに出さなくても **Cloud Run の自動リクエストログ** (`httpRequest.requestUrl`) に
+ *   残りうる。この露出は ADR-029 の補償統制 (Cloud Logging 閲覧の最小権限 IAM =
+ *   `infrastructure/terraform/modules/logging_iam` + 有効期限/失効/PII なし) 下の Low として受容。
+ *   詳細は `docs/compliance/infra-log-secret-exposure.md`。
  *
  * 生成 (`generateToken`) は発行時のみ。検証 (生徒アクセス) 側は受領した平文を `hashToken` で
  * 同じ方式でハッシュ化し、`resolve_magic_link(token_hash)` (packages/db, SECURITY DEFINER) に渡す。

@@ -14,6 +14,7 @@
 - `data-retention-policy.md` — データ保管期間ポリシー
 - `oss-licenses.md` — 同梱 OSS（フォント等のバイナリ資産）のライセンス台帳
 - `embedding-pii-masking.md` — F06 embedding 生成の PII マスキング統制・残存リスク・監視 runbook（ルール4）
+- `infra-log-secret-exposure.md` — 公開ルートの URL 内 token/secret が Cloud Run リクエストログに残る露出統制（ADR-029 / ルール5・#439）
 
 ## 重要なベース文書
 
