@@ -24,6 +24,24 @@ vi.mock("../../lib/auth/admin-mutations", () => ({
   changeIdpUserRole: vi.fn(),
 }));
 
+// #395 L1: race パスの構造化ログ (logger.warn) を spy する。createLogger はモジュール import 時に 1 回
+// 呼ばれるため warnMock を hoisted で先に確保し、その同一参照を返す。
+const { warnMock } = vi.hoisted(() => ({ warnMock: vi.fn() }));
+vi.mock("@kimiterrace/observability", () => ({
+  createLogger: () => ({
+    warn: warnMock,
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    trace: vi.fn(),
+    fatal: vi.fn(),
+  }),
+  redactPii: (p: unknown) => p,
+  initTracer: vi.fn(),
+  withSpan: (_n: unknown, fn: () => unknown) => fn(),
+  buildLoggerOptions: vi.fn(),
+}));
+
 import { auditLog } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import {
@@ -185,6 +203,18 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
     expect(updateValues).toBeNull();
     expect(auditValues).toBeNull();
     expect(revalidatePathMock).not.toHaveBeenCalled();
+    // #395 L1: race パスは audit に残らないため IdP 往復を構造化ログで 1 件記録する。
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "last_admin_race_detected",
+        action: "deactivate",
+        schoolId: SCHOOL_ID,
+        targetUserId: ADMIN_ID,
+        compensation: "reactivate_idp_user",
+      }),
+      expect.any(String),
+    );
   });
 
   it("school_admin の再有効化は last-admin ガード対象外 (count を見ずに通る)", async () => {
@@ -204,6 +234,8 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
     expect(updateValues).toMatchObject({ isActive: false, updatedBy: null });
     expect(updateValues?.updatedAt).toBeInstanceOf(Date);
     expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/users");
+    // #395 L1: 正常系では race ログを出さない (race パス専用)。
+    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it("監査: table=users / op=update / school_id=対象校 / actor NULL (system_admin) / diff before-after", async () => {
@@ -304,6 +336,18 @@ describe("changeStaffRoleAction (#324 ADR-026 D2 ロール変更)", () => {
     expect(updateValues).toBeNull();
     expect(auditValues).toBeNull();
     expect(revalidatePathMock).not.toHaveBeenCalled();
+    // #395 L1: race パスは audit に残らないため IdP 往復を構造化ログで 1 件記録する。
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "last_admin_race_detected",
+        action: "change_role",
+        schoolId: SCHOOL_ID,
+        targetUserId: ADMIN_ID,
+        compensation: "restore_school_admin_role",
+      }),
+      expect.any(String),
+    );
   });
 
   it("昇格 teacher→school_admin は last-admin ガード対象外 (count を見ずに通る)", async () => {
