@@ -404,7 +404,12 @@ for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | gre
   fi
 done
 "@
-    $r = Invoke-SshCommand -Machine $m -Command $cmd -TimeoutSec 30
+    # Base64-wrap (#342): $cmd is a multi-line script. Passed raw it reaches the
+    # remote as a single argv blob that the login shell (zsh on macOS) mis-tokenizes
+    # ("unmatched \""). _Wrap-AsBase64Bash collapses it to a one-line
+    # `echo <b64> | base64 -d | bash` so any newlines/quotes round-trip intact and
+    # the payload runs under bash (not the login zsh), matching Start-RemoteWorker.
+    $r = Invoke-SshCommand -Machine $m -Command (_Wrap-AsBase64Bash -Script $cmd) -TimeoutSec 30
     if ($r.Stdout) {
       $r.Stdout -split "`n" | Where-Object { $_ -match "remov" } | ForEach-Object {
         $removed.Add("$($m.name):$_")
