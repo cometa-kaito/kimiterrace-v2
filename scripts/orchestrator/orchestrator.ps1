@@ -395,6 +395,14 @@ DRY=$dryFlag
 for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | grep -v "$($m.remoteRepoPath)$"); do
   br=`$(git -C "`$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   if [ "`$br" = "HEAD" ] || { [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; }; then
+    # Safety parity with the local reaper (#353): never reap a locked agent worktree,
+    # and never force-remove a worktree with uncommitted changes (a concurrent session
+    # may still have unsaved work there). Both only ever SKIP candidates -> strictly safer.
+    case "`$wt" in */.claude/worktrees/*) echo "skip (agent worktree): `$wt"; continue;; esac
+    if [ -n "`$(git -C "`$wt" status --porcelain 2>/dev/null)" ]; then
+      echo "skip (dirty): `$wt"
+      continue
+    fi
     if [ "`$DRY" = "1" ]; then
       echo "would remove: `$wt"
     else
