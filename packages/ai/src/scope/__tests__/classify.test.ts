@@ -155,4 +155,37 @@ describe("F06 スコープ分類器 (ADR-028, #366)", () => {
       expect(classifyScope("hello").verdict).toBe("in_scope");
     });
   });
+
+  // #389 Reviewer M-1 / M-2: 掲示物質問が学習語の部分一致で誤って弾かれる偽陽性の回帰固定。
+  describe("偽陽性回避 — 掲示物起源の語を学習語で誤判定しない (#389 M-1/M-2)", () => {
+    it("勉強会（学習イベント名）の所在質問は in_scope — `勉強` 部分一致で弾かない", () => {
+      // `勉強会` は掲示物起源のイベント。その集合場所を尋ねるのは掲示物 Q&A。
+      expect(classifyScope("勉強会の集合場所は？").verdict).toBe("in_scope");
+    });
+
+    it("テスト勉強の予定（予定 Q&A）は in_scope — `勉強の予定` を学習依頼扱いしない", () => {
+      expect(classifyScope("テスト勉強の予定を教えて").verdict).toBe("in_scope");
+    });
+
+    it("学習以外の `solve my X` は in_scope — 目的語が学習語でなければ弾かない", () => {
+      expect(classifyScope("please solve my issue with the printer").verdict).toBe("in_scope");
+    });
+
+    // 上の絞り込みで学習行為そのものの依頼を取りこぼさないことを pin（false negative 防止）。
+    it("`勉強を教えて`（学習行為の依頼）は引き続き study", () => {
+      expect(classifyScope("勉強を教えて").reason).toBe("study");
+    });
+
+    it("`勉強法を教えて`（勉強法 = 学習方法）は study", () => {
+      expect(classifyScope("数学の勉強法を教えて").reason).toBe("study");
+    });
+
+    it("`solve for x`（変数解法）は study", () => {
+      expect(classifyScope("Can you solve for x?").reason).toBe("study");
+    });
+
+    it("`solve this exercise`（学習目的語付き）は study", () => {
+      expect(classifyScope("Please solve this exercise for me").reason).toBe("study");
+    });
+  });
 });

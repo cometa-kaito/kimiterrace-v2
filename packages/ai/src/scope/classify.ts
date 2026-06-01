@@ -39,7 +39,12 @@ export interface ScopeClassification {
 // 掲示物の周辺語（テスト/持ち物/予定/お知らせ）は意図的に除外する。
 const STUDY_PATTERNS: readonly RegExp[] = [
   // 日本語（漢字混じり）
-  /勉強/,
+  // `勉強` は「学習行為の依頼」に限定する。掲示物起源の `勉強会`（イベント名）や
+  // `テスト勉強の予定`（予定 Q&A）を誤って弾かないため、`法` / `の(仕方|方法|…)` /
+  // `を(教え|手伝|…)` のフレーズ境界を要求する（#389 Reviewer M-1）。`会` / `予定` / `場所`
+  // 等の続きは意図的に外す。ひらがな `べんきょう` は別パターンで bare のまま（やさしい日本語は
+  // 表記ゆれが大きく、既存の `べんきょうの しかた`（分かち書き）を取りこぼさないため）。
+  /勉強(?:法|の(?:仕方|方法|やり方|コツ|解説)|を(?:教え|手伝|みて|見て|解説))/,
   /宿題/,
   /自習/,
   /解き方/,
@@ -55,7 +60,11 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /\bstudy\b/i,
   /\bstudying\b/i,
   /\bhomework\b/i,
-  /\bsolve (?:this|the|my|for)\b/i,
+  // `solve` は学習目的語（equation/exercise/homework 等）に束縛する。`solve my issue with the
+  // printer` のような非学習の依頼を study 扱いしないため（#389 Reviewer M-2）。equation/homework は
+  // 下の単独パターンでも捕捉される。変数解法 `solve for x` のみ別途許容。
+  /\bsolve (?:this |that |these |the |my |your )?(?:equation|exercise|inequality|integral|worksheet|homework)\b/i,
+  /\bsolve for [a-z]\b/i,
   /\bteach me (?:how|the|math|english|science|to solve)/i,
   /\b(?:math|algebra|geometry|calculus|physics) (?:problem|question)/i,
   /\bequation\b/i,
