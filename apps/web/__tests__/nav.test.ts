@@ -97,14 +97,23 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 全校ダッシュボード + フィードバック（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + フィードバック（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
+      "/admin/system/users",
       "/admin/system/dashboard",
       "/admin/system/feedback",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
+  });
+
+  it("教職員管理 (/admin/system/users) は system_admin 専用 (F11 全校横断、自校 /admin/school/members とは別)", () => {
+    // /admin/system/users は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
+    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/school/members は別ルートで存続。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/system/users");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/system/users");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/users");
   });
 
   it("全校ダッシュボード (/admin/system/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /admin/dashboard とは別ルート)", () => {
