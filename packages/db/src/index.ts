@@ -28,3 +28,5 @@ export * from "./queries/event-stats.js";
 export * from "./queries/monthly-report.js";
 // F03 (#289): 職員氏名 roster (Vertex 送信前 PII マスキング供給用、ルール4)
 export * from "./queries/users.js";
+// F07/F09 (#322): 広告到達数 (advertiser reach) の minute-dedup 集計読み取り層 (ADR-025)
+export * from "./queries/ad-reach.js";
