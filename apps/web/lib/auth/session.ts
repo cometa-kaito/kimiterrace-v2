@@ -129,7 +129,10 @@ export async function createSessionCookie(idToken: string, expiresInMs: number):
  * 失敗・期限切れ・claims 不正はすべて **null** (deny-by-default、throw しない)。
  *
  * @param cookie session cookie の値
- * @param checkRevoked true で失効チェック (毎回の検証で失効済みトークンを拒否、ADR-003 の二重チェック思想)
+ * @param checkRevoked true で失効チェック (毎回の検証で失効済みトークンを拒否、ADR-003 の二重チェック思想)。
+ *   **既定の `true` を無効化しないこと (ADR-026 D1)**: アカウント無効化 / ロール変更は
+ *   `revokeRefreshTokens` で失効を確定させ、この既定がそれを拒否に変換してエンフォースする。`false` 既定に
+ *   倒すと無効化が効かなくなる (security theater)。既定値は session.test.ts (#139 L4) で pin 済。
  */
 export async function verifySessionCookie(
   cookie: string,
