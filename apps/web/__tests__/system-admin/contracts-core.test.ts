@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { type ContractStatus, validateContractCreate } from "../../lib/system-admin/contracts-core";
+import {
+  CONTRACT_STATUSES,
+  CONTRACT_STATUS_TRANSITIONS,
+  type ContractStatus,
+  isValidContractStatusTransition,
+  validateContractCreate,
+} from "../../lib/system-admin/contracts-core";
 
 /**
- * F10 (#46): validateContractCreate の純粋検証テスト。必須/任意/範囲/日付実在性/終了日順序/
- * targetSchools UUID/月額整数化を pin する。
+ * F10 (#46): validateContractCreate の純粋検証 + ステータス遷移ガードのテスト。必須/任意/範囲/
+ * 日付実在性/終了日順序/targetSchools UUID/月額整数化、および遷移表 (許可/不許可/同一/終端) を pin する。
  */
 
 const ADV = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -107,5 +113,41 @@ describe("validateContractCreate", () => {
 
   it("notes 超過 (2001 文字) は invalid", () => {
     expect(validateContractCreate(base({ notes: "あ".repeat(2001) })).ok).toBe(false);
+  });
+});
+
+describe("isValidContractStatusTransition", () => {
+  it.each([
+    ["draft", "active"],
+    ["draft", "terminated"],
+    ["active", "paused"],
+    ["active", "terminated"],
+    ["paused", "active"],
+    ["paused", "terminated"],
+  ] as const)("許可: %s → %s", (from, to) => {
+    expect(isValidContractStatusTransition(from, to)).toBe(true);
+  });
+
+  it.each([
+    ["draft", "paused"], // 起案中から一時停止は不可 (先に active)
+    ["active", "draft"], // 起案へ戻せない
+    ["paused", "draft"],
+    ["terminated", "active"], // 終端からの復帰不可
+    ["terminated", "paused"],
+    ["terminated", "draft"],
+  ] as const)("不許可: %s → %s", (from, to) => {
+    expect(isValidContractStatusTransition(from, to)).toBe(false);
+  });
+
+  it.each(CONTRACT_STATUSES)("同一ステータス %s → %s は no-op (不許可)", (s) => {
+    expect(isValidContractStatusTransition(s, s)).toBe(false);
+  });
+
+  it("terminated は終端 (遷移先が空)", () => {
+    expect(CONTRACT_STATUS_TRANSITIONS.terminated).toEqual([]);
+  });
+
+  it("遷移表のキーは contract_status enum を網羅する", () => {
+    expect(Object.keys(CONTRACT_STATUS_TRANSITIONS).sort()).toEqual([...CONTRACT_STATUSES].sort());
   });
 });

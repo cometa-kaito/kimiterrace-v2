@@ -1,12 +1,19 @@
 "use server";
 
 import { type TenantTx, auditLog, contracts } from "@kimiterrace/db";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { type ContractCreateInput, validateContractCreate } from "./contracts-core";
+import {
+  CONTRACT_STATUSES,
+  type ContractCreateInput,
+  type ContractStatus,
+  isValidContractStatusTransition,
+  validateContractCreate,
+} from "./contracts-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
-import { type ActionResult, invalid, notFound } from "./schools-core";
+import { type ActionResult, conflict, invalid, isUuid, notFound } from "./schools-core";
 
 /** PostgreSQL foreign_key_violation (advertiser_id → advertisers)。存在しない広告主を弾く。 */
 function isForeignKeyViolation(error: unknown): boolean {
@@ -14,6 +21,22 @@ function isForeignKeyViolation(error: unknown): boolean {
     typeof error === "object" && error !== null && (error as { code?: unknown }).code === "23503"
   );
 }
+
+/** 対象契約が見つからない (RLS 不可視 / 不存在) とき tx をロールバックさせる。 */
+class ContractNotFoundError extends Error {}
+
+/** 許可されないステータス遷移 (terminated からの遷移・同一・矛盾) を表す。 */
+class InvalidContractTransitionError extends Error {
+  constructor(
+    public readonly from: ContractStatus,
+    public readonly to: ContractStatus,
+  ) {
+    super(`現在のステータス (${from}) からは ${to} へ変更できません。`);
+  }
+}
+
+/** 読取〜書込の間に並行操作でステータスが変わった (楽観ロック競合)。 */
+class ContractStatusChangedError extends Error {}
 
 /**
  * F10 (#46): 広告主との契約 (CRM) を新規作成する Server Action (ADR-008 — 画面 mutation は Server Actions)。
@@ -114,6 +137,111 @@ async function writeContractAudit(
         notes: input.notes,
       },
     },
+    rowHash: "",
+    createdBy: isSystemAdmin ? null : user.uid,
+    updatedBy: isSystemAdmin ? null : user.uid,
+  });
+}
+
+/**
+ * F10 (#46): 契約のステータスをライフサイクルに沿って遷移させる Server Action
+ * (draft→active→paused→terminated、`contracts-core` の `CONTRACT_STATUS_TRANSITIONS`)。
+ *
+ * **認可 / RLS (ルール2)**: 作成と同様 `requireRole(SYSTEM_ADMIN_ROLES)` + contracts
+ * `system_admin_full_access` の UPDATE。手書き WHERE は対象特定であってテナント境界ではない。
+ *
+ * **遷移ガード**: 現在ステータスを同一 tx で SELECT し (兼 not_found 検出)、`isValidContractStatusTransition`
+ * で許可された遷移のみ通す。終端 (terminated) からの遷移・同一ステータスへの no-op・矛盾遷移は `conflict`。
+ *
+ * **TOCTOU 回避 (楽観ロック)**: UPDATE の WHERE に**読み取った時点の status を条件として含める**
+ * (`id = $id AND status = $before`)。これにより「検証 → 更新」が単一行の compare-and-swap になり、
+ * 読取〜書込の間に並行リクエストが先に遷移を commit した場合は UPDATE が 0 行に倒れ、`conflict` を返す
+ * (lost-update を防ぐ。SELECT は FOR UPDATE 不要)。
+ *
+ * **not_found**: 対象が RLS 不可視 / 不存在なら SELECT が 0 行で `not_found`。
+ *
+ * **監査 (ルール1)**: 変更前後のステータスを同一 tx で audit_log に記録 (op=update)。`updated_at` は
+ * auditColumns では INSERT 時のみ default のため UPDATE では明示更新する。契約は cross-tenant なので
+ * school_id / actor は NULL。
+ */
+export async function updateContractStatusAction(raw: {
+  id?: unknown;
+  status?: unknown;
+}): Promise<ActionResult<{ id: string; status: ContractStatus }>> {
+  if (!isUuid(raw.id)) {
+    return invalid("契約の指定が不正です。");
+  }
+  if (
+    typeof raw.status !== "string" ||
+    !(CONTRACT_STATUSES as readonly string[]).includes(raw.status)
+  ) {
+    return invalid("契約ステータスが不正です。");
+  }
+  const id = raw.id;
+  const next = raw.status as ContractStatus;
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  try {
+    const data = await withSession(async (tx: TenantTx, user) => {
+      const isSystemAdmin = user.role === "system_admin";
+      // 現在ステータス + 広告主 id を同一 tx で取得 (not_found 検出 + 遷移検証 + revalidate 先)。
+      const [before] = await tx
+        .select({ status: contracts.status, advertiserId: contracts.advertiserId })
+        .from(contracts)
+        .where(eq(contracts.id, id))
+        .limit(1);
+      if (!before) {
+        throw new ContractNotFoundError();
+      }
+      if (!isValidContractStatusTransition(before.status, next)) {
+        throw new InvalidContractTransitionError(before.status, next);
+      }
+      const updated = await tx
+        .update(contracts)
+        // 楽観ロック: 読み取った status を条件に含め、並行遷移が先に commit したら 0 行に倒す。
+        .set({ status: next, updatedBy: isSystemAdmin ? null : user.uid, updatedAt: new Date() })
+        .where(and(eq(contracts.id, id), eq(contracts.status, before.status)))
+        .returning({ id: contracts.id });
+      if (updated.length === 0) {
+        // SELECT は通ったが status 条件付き UPDATE が 0 行 = 読取〜書込の間に並行遷移が commit
+        // (RLS 越境は前段 SELECT で除外済みのため、status 変化と判断する)。
+        throw new ContractStatusChangedError();
+      }
+      await writeContractStatusAudit(tx, user, id, before.status, next);
+      return { id, status: next, advertiserId: before.advertiserId };
+    });
+    revalidatePath(`/admin/system/advertisers/${data.advertiserId}/edit`);
+    return { ok: true, data: { id: data.id, status: data.status } };
+  } catch (error) {
+    if (error instanceof ContractNotFoundError) {
+      return notFound("指定された契約が見つかりません。");
+    }
+    if (error instanceof InvalidContractTransitionError) {
+      return conflict(error.message);
+    }
+    if (error instanceof ContractStatusChangedError) {
+      return conflict("契約のステータスが他の操作で変更されました。再読み込みしてください。");
+    }
+    throw error;
+  }
+}
+
+/** ステータス遷移を audit_log に追記 (operation=update、diff は変更前後の status)。 */
+async function writeContractStatusAudit(
+  tx: TenantTx,
+  user: { uid: string; role: string },
+  contractId: string,
+  before: ContractStatus,
+  after: ContractStatus,
+): Promise<void> {
+  const isSystemAdmin = user.role === "system_admin";
+  await tx.insert(auditLog).values({
+    actorUserId: isSystemAdmin ? null : user.uid,
+    schoolId: null,
+    tableName: "contracts",
+    recordId: contractId,
+    operation: "update",
+    diff: { before: { status: before }, after: { status: after } },
     rowHash: "",
     createdBy: isSystemAdmin ? null : user.uid,
     updatedBy: isSystemAdmin ? null : user.uid,
