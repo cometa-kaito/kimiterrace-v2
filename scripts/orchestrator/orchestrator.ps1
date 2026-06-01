@@ -361,6 +361,9 @@ function Cmd-Cleanup {
 
     # Safety valve: never force-remove a worktree with uncommitted changes (could be a concurrent
     # session still working in it). Skip and warn instead of destroying unsaved work.
+    # Note: this fails "open" only when `git status` itself errors (corrupt/prunable worktree); by
+    # then the worktree already passed the MERGED gate (worker) or is a detached reviewer, so
+    # force-removing it is acceptable even if dirty-detection could not run.
     $dirty = git -C $s.worktree status --porcelain 2>$null
     if ($LASTEXITCODE -eq 0 -and $dirty) {
       Write-Host "[local] SKIP (uncommitted changes): $($s.worktree)"
