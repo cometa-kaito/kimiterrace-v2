@@ -9,6 +9,7 @@ import {
   selectPrefetchUrls,
 } from "@/lib/signage/media-cache";
 import {
+  VIEW_HEARTBEAT_MS,
   clampAdDurationMs,
   clampIndex,
   jitteredPollMs,
@@ -101,23 +102,39 @@ export function SignageClient({
     return () => clearTimeout(id);
   }, [safeIndex, adCount]);
 
-  // --- 広告 impression テレメトリ (#43 / F07)。表示中の広告が変わるたびに view を 1 件ベストエフォート
-  //     送信する (広告主の到達数集計 = F07 ユーザーストーリーの基礎データ)。依存は現在広告の adId と
-  //     slotIndex のみ — 内容不変なポーリング (8-12s ごとに新しい配列参照) では再送せず、ローテーション
-  //     前進・データ更新で「表示中の広告が実際に変わった」時だけ送る (rotation/prefetch effect と同じ
-  //     「内容が同じなら据え置き」規律)。送信失敗は表示をブロックしない (event-beacon が握りつぶす)。 ---
+  // --- 広告 impression テレメトリ (#43 / F07) + 分粒度ハートビート (#322 / ADR-025)。表示中の広告に
+  //     ついて view をベストエフォート送信する (広告主の到達数集計 = F07 ユーザーストーリーの基礎データ)。
+  //     (1) 表示中の広告が変わった瞬間に 1 件、(2) 同じ広告を表示し続ける間は `VIEW_HEARTBEAT_MS` ごとに
+  //     再送する。到達数 (reach) は集計時に (client_id, ad_id, JST 分) で重複排除される (getAdReach /
+  //     ADR-025) ため、分粒度ハートビートにより「ローテーションせずマウント中 1 回しか送らなかった単一
+  //     広告クラス」の到達過少計上が解消し、複数広告クラス (ローテーションで自然に再送) と枚数に依らず
+  //     公平になる。同一分内の重複は dedup で 1 に集約されるため水増しはしない (延べ表示数のみ増、許容)。
+  //     依存は現在広告の adId と slotIndex のみ — 内容不変なポーリング (8-12s ごとに新しい配列参照) では
+  //     再スケジュールせず、ローテーション前進・データ更新で「表示中の広告が実際に変わった」時だけ送信を
+  //     張り替える (rotation/prefetch effect と同じ「内容が同じなら据え置き」規律)。tab 非表示中は送らない
+  //     (実際に表示されていない時間を到達に数えない + テレメトリ節約、poll と同方針)。送信失敗は表示を
+  //     ブロックしない (event-beacon が握りつぶす)。 ---
   const currentAdId = adCount > 0 ? (ads[safeIndex]?.adId ?? null) : null;
   useEffect(() => {
     if (!currentAdId) {
       return;
     }
-    const clientId = getClientId();
-    sendSignageEvent(classToken, {
-      type: "view",
-      adId: currentAdId,
-      slotIndex: safeIndex,
-      ...(clientId ? { clientId } : {}),
-    });
+    const sendView = () => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return; // 非表示中は到達に数えない (次の周期で再開、最後の表示状態は維持)。
+      }
+      const clientId = getClientId();
+      sendSignageEvent(classToken, {
+        type: "view",
+        adId: currentAdId,
+        slotIndex: safeIndex,
+        ...(clientId ? { clientId } : {}),
+      });
+    };
+    sendView(); // (1) 表示開始時に即送信。
+    // (2) 表示継続中は分粒度で再送し、到達 minute を取りこぼさない (単一/複数広告の公平化)。
+    const id = setInterval(sendView, VIEW_HEARTBEAT_MS);
+    return () => clearInterval(id);
   }, [currentAdId, safeIndex, classToken]);
 
   // --- 広告タップ (click-through) テレメトリ (#43 / F07 第3スライス)。インタラクティブ端末で生徒が

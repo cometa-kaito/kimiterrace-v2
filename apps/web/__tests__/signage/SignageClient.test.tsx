@@ -1,11 +1,14 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * F07 (#43): SignageClient が広告 impression の view / click-through の tap を送る追加配線のテスト。
  * event-beacon と media-cache を mock し、tuned な rotation/polling を起動させずに「マウント時の現在広告で
  * view を 1 件送る / 広告ゼロでは送らない / clientId 空は載せない」+「linkUrl 付き広告はタップで tap を
  * 送る / linkUrl 無しや危険スキームはリンク化しない」を検証する。
+ *
+ * #322 (ADR-025): 分粒度ハートビート view の検証を追加 — fake timers で `VIEW_HEARTBEAT_MS` ごとの再送、
+ * 単一広告クラスでの取りこぼし解消、tab 非表示中のスキップと再表示での再開を確かめる。
  */
 
 const { sendSignageEvent, getClientId } = vi.hoisted(() => ({
@@ -22,6 +25,7 @@ vi.mock("@/lib/signage/media-cache", () => ({
 }));
 
 import { SignageClient } from "../../app/(signage)/signage/[classToken]/_components/SignageClient";
+import { VIEW_HEARTBEAT_MS } from "../../lib/signage/rotation";
 import type { SignagePayload } from "../../lib/signage/signage-display";
 
 const TOKEN = "TOK";
@@ -148,5 +152,66 @@ describe("SignageClient ad click-through tap (#43 / F07)", () => {
   it("相対 URL もリンク化しない (絶対 http(s) のみ許可)", () => {
     render(<SignageClient classToken={TOKEN} initial={payload([adWithLink(AD_A, "/relative")])} />);
     expect(screen.queryByRole("link")).toBeNull();
+  });
+});
+
+describe("SignageClient view 分粒度ハートビート (#322 / ADR-025)", () => {
+  // ハートビートの setInterval だけを観測するため、poll の fetch は未解決 promise にして再スケジュール
+  // 連鎖を止める (poll 自体の検証は対象外)。document.hidden はテストごとに切り替えられるよう getter 化する。
+  let hidden = false;
+  beforeEach(() => {
+    hidden = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("単一広告クラスでも VIEW_HEARTBEAT_MS ごとに view を再送する (到達 minute の取りこぼし防止)", async () => {
+    // 単一広告 (adCount=1) はローテーション early-return のため、ハートビートが無いとマウント中 1 回しか
+    // view を送らず到達数が過少になる (ADR-025)。ハートビートで各分に view が立つことを確かめる。
+    render(<SignageClient classToken={TOKEN} initial={payload([ad(AD_A)])} />);
+    expect(sendSignageEvent).toHaveBeenCalledTimes(1); // 表示開始時の即送信。
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIEW_HEARTBEAT_MS);
+    });
+    // 1 分後にハートビート再送 (同一 adId/slotIndex/clientId)。集計時 minute-dedup で水増しはしない。
+    expect(sendSignageEvent).toHaveBeenCalledTimes(2);
+    expect(sendSignageEvent).toHaveBeenLastCalledWith(TOKEN, {
+      type: "view",
+      adId: AD_A,
+      slotIndex: 0,
+      clientId: "cid-123",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIEW_HEARTBEAT_MS * 2);
+    });
+    // さらに 2 分で 2 回再送 (合計 4)。表示し続けた各分に最低 1 件立つ。
+    expect(sendSignageEvent).toHaveBeenCalledTimes(4);
+  });
+
+  it("tab 非表示中はハートビートを送らず、再表示で再開する (表示していない時間を到達に数えない)", async () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([ad(AD_A)])} />);
+    expect(sendSignageEvent).toHaveBeenCalledTimes(1); // 表示開始時の即送信。
+
+    hidden = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIEW_HEARTBEAT_MS * 3);
+    });
+    expect(sendSignageEvent).toHaveBeenCalledTimes(1); // 非表示中は再送しない。
+
+    hidden = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(VIEW_HEARTBEAT_MS);
+    });
+    expect(sendSignageEvent).toHaveBeenCalledTimes(2); // 再表示後の次周期で再開。
   });
 });
