@@ -3,6 +3,14 @@
 // PII マスキング（CLAUDE.md ルール4）
 export { maskPII, unmaskPII, unmaskDeep, findUnmaskedPii } from "./pii/mask.js";
 export type { MaskResult, MaskOptions, PiiCategory, PiiEntry } from "./pii/types.js";
+// 掲示物 authoring 時のロスター無し PII (生徒/保護者氏名) soft-gate 検出 (#426, ADR-030)
+export {
+  findSuspectedPersonalNames,
+  hasSuspectedPersonalName,
+  HONORIFICS,
+  EXCLUDED_BASE,
+} from "./pii/name-heuristic.js";
+export type { SuspectedName } from "./pii/name-heuristic.js";
 
 // 構造化出力スキーマ（ADR-017）
 export {
