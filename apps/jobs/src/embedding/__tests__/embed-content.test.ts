@@ -68,7 +68,7 @@ describe("embedPendingContent", () => {
 
     const res = await embedPendingContent(port, client);
 
-    expect(res).toEqual({ scanned: 2, embedded: 2, skippedEmptyText: 0 });
+    expect(res).toEqual({ scanned: 2, embedded: 2, skippedEmptyText: 0, blockedUnmaskedPii: 0 });
     expect(port.saved.map((s) => s.versionId)).toEqual(["v1", "v2"]);
     expect(port.saved.at(0)?.embedding).toHaveLength(DIM);
   });
@@ -114,10 +114,29 @@ describe("embedPendingContent", () => {
 
     const res = await embedPendingContent(port, client);
 
-    expect(res).toEqual({ scanned: 2, embedded: 1, skippedEmptyText: 1 });
+    expect(res).toEqual({ scanned: 2, embedded: 1, skippedEmptyText: 1, blockedUnmaskedPii: 0 });
     expect(port.saved.map((s) => s.versionId)).toEqual(["v1"]);
     // skip した version のテキストは client へ渡らない。
     expect(client.seen.flat()).toHaveLength(1);
+  });
+
+  it("ルール4 fail-closed: マスク後も PII 形跡が残る version は Vertex へ送らず skip し件数を記録", async () => {
+    // maskOptions で電話検出を無効化 → maskPII は電話を残すが、findUnmaskedPii は
+    // (detectPhones に関係なく) 電話形式を検出する。embedding は永続するため、ここで止める。
+    const port = fakePort([
+      { versionId: "leak", snapshot: { title: "連絡", body: "至急 090-1234-5678 へ" } },
+      { versionId: "ok", snapshot: { title: "お知らせ", body: "体育祭は 9/1" } },
+    ]);
+    const client = fakeClient();
+
+    const res = await embedPendingContent(port, client, {
+      maskOptions: { detectPhones: false },
+    });
+
+    expect(res).toEqual({ scanned: 2, embedded: 1, skippedEmptyText: 0, blockedUnmaskedPii: 1 });
+    // PII 残存 version は save も client 送信もされない（生 PII を Vertex へ出さない）。
+    expect(port.saved.map((s) => s.versionId)).toEqual(["ok"]);
+    expect(client.seen.flat().join("")).not.toContain("090-1234-5678");
   });
 
   it("batchSize ごとに embed を分割呼び出しする", async () => {
@@ -142,7 +161,7 @@ describe("embedPendingContent", () => {
 
     const res = await embedPendingContent(port, client);
 
-    expect(res).toEqual({ scanned: 0, embedded: 0, skippedEmptyText: 0 });
+    expect(res).toEqual({ scanned: 0, embedded: 0, skippedEmptyText: 0, blockedUnmaskedPii: 0 });
     expect(client.seen).toHaveLength(0);
     expect(port.saved).toHaveLength(0);
   });

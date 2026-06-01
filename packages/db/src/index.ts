@@ -36,3 +36,5 @@ export * from "./queries/ai-rate-limit.js";
 export * from "./queries/rag-search.js";
 // F13 (#408, ADR-020): SwitchBot Webhook の presence イベント書込み (cross-tenant 解決 + scoped insert)
 export * from "./queries/sensor-presence.js";
+// F06 (#398, ADR-007): embedding 生成バッチの DB クエリ層 (公開中・未生成抽出 / embedding 書戻し、RLS 委譲)
+export * from "./queries/embedding-batch.js";
