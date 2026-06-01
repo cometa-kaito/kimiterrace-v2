@@ -1,8 +1,8 @@
 # F03: AI 構造化
 
-- 状態: 実装中（抽出エンジン実装済 `packages/ai`、DB/Vertex 配線は follow-up）
-- 関連 ADR: [ADR-005 (Vertex AI)](../../adr/005-vertex-ai.md), [ADR-017 (confidence_score 必須化)](../../adr/017-gemini-ai-structuring-with-confidence.md), [ADR-006 (Vercel AI SDK)](../../adr/006-vercel-ai-sdk.md)
-- 関連 issue: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12)
+- 状態: 実装済（抽出エンジン `packages/ai` + DB 永続化 + Vertex 配線 + 抽出トリガ `POST /api/teacher-inputs/:id/extract` 完了。分散レート制限はストア実装済・本番ランタイム差し替えのみ未配線）
+- 関連 ADR: [ADR-005 (Vertex AI)](../../adr/005-vertex-ai.md), [ADR-017 (confidence_score 必須化)](../../adr/017-gemini-ai-structuring-with-confidence.md), [ADR-006 (Vercel AI SDK)](../../adr/006-vercel-ai-sdk.md), [ADR-027 (分散レート制限)](../../adr/027-distributed-f03-rate-limit.md)
+- 関連 issue: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [#154](https://github.com/cometa-kaito/kimiterrace-v2/issues/154)
 - 実装: `packages/ai/`（`maskPII` / `structureContent` / `createVertexModelClient` / `toAiExtractionInsert`）
 
 ## 概要
@@ -17,14 +17,14 @@
 ## 受け入れ条件
 
 - [x] Vertex AI Gemini (asia-northeast1) を使用 — `createVertexModelClient`（Gemini Pro 固定・ADC 認証）
-- [x] PII マスキング後にプロンプトを送信、応答後に逆変換（[CLAUDE.md ルール 4](../../../CLAUDE.md)）— `maskPII`/`unmaskPII`、`findUnmaskedPii` で fail-closed 検証
+- [x] PII マスキング後にプロンプトを送信、応答後に逆変換（[CLAUDE.md ルール 4](../../../CLAUDE.md)）— `maskPII`/`unmaskPII`、`findUnmaskedPii` で fail-closed 検証（全角 CJK 電話/メール・国際電話 E.164 対応：[#378](https://github.com/cometa-kaito/kimiterrace-v2/pull/378)/[#384](https://github.com/cometa-kaito/kimiterrace-v2/pull/384)）
 - [x] 出力スキーマは Zod で validate。失敗時はリトライ最大 2 回 — `structureContent`（修復ヒント付き）
 - [x] confidence_score (0.0〜1.0) を必ず返す — `extractionSchema` 必須フィールド
-- [x] プロンプト・応答・トークン数・確信度を `ai_extractions` テーブルに記録 — `toAiExtractionInsert` マッパー（実 INSERT は呼び出し側が `withTenantContext` 内で実行＝follow-up 配線）
-- [x] レート制限: school_id あたり 1 分 60 リクエスト — `createPerSchoolRateLimiter`（単一プロセス内、分散は follow-up）
+- [x] プロンプト・応答・トークン数・確信度を `ai_extractions` テーブルに記録 — `toAiExtractionInsert` マッパー + 実 INSERT 配線済（`insertAiExtraction` を RLS context 内で実行）。実装済（[#228](https://github.com/cometa-kaito/kimiterrace-v2/pull/228)、[#267](https://github.com/cometa-kaito/kimiterrace-v2/pull/267)、[#346](https://github.com/cometa-kaito/kimiterrace-v2/pull/346)、`packages/db/src/queries/ai-extractions.ts`、`apps/web/lib/ai/run-extraction.ts`）
+- [x] レート制限: school_id あたり 1 分 60 リクエスト — `createPerSchoolRateLimiter`（本番ランタイムで配線）。分散版 `CloudSqlRateLimiter`（共有ストア + 実 PG 並行テスト）も実装済だが本番ランタイム差し替えは未配線。実装済（[#144](https://github.com/cometa-kaito/kimiterrace-v2/pull/144)、[#345](https://github.com/cometa-kaito/kimiterrace-v2/pull/345)、[#351](https://github.com/cometa-kaito/kimiterrace-v2/pull/351)、[#360](https://github.com/cometa-kaito/kimiterrace-v2/pull/360)、`packages/ai/src/rate-limit.ts`、`packages/db/src/queries/ai-rate-limit.ts`）
 - [x] プロンプトインジェクション対策: ユーザー入力は system プロンプトを上書きできない構造（XML タグでセパレート）— `buildUserPrompt`/`neutralizeInput`
 
-> **follow-up（別 Issue/PR）**: ① apps/web Server Action / Cloud Run Job から `ai_extractions` への実 INSERT（RLS context 内）と Vertex 実呼び出しの結合テスト、② 複数インスタンス用の分散レート制限（共有ストア）。本 PR は GCP 資格情報なしでオフライン検証可能な抽出エンジン（PII / Zod / リトライ / インジェクション / マッパー）を実装。
+> **follow-up（解決済）**: ① 実 INSERT（RLS context 内）= [#228](https://github.com/cometa-kaito/kimiterrace-v2/pull/228)/[#267](https://github.com/cometa-kaito/kimiterrace-v2/pull/267)、抽出トリガ `POST /api/teacher-inputs/:id/extract` = [#287](https://github.com/cometa-kaito/kimiterrace-v2/pull/287)、職員氏名 roster マスキング供給 = [#317](https://github.com/cometa-kaito/kimiterrace-v2/pull/317)、Vertex 実呼び出し結合テスト（skip-gated）= [#334](https://github.com/cometa-kaito/kimiterrace-v2/pull/334)。② 分散レート制限（共有ストア）= [#345](https://github.com/cometa-kaito/kimiterrace-v2/pull/345)/[#351](https://github.com/cometa-kaito/kimiterrace-v2/pull/351)/[#360](https://github.com/cometa-kaito/kimiterrace-v2/pull/360)。**残課題**: 本番ランタイム（`apps/web/lib/ai/extract-teacher-input.ts`）を in-memory limiter から分散版へ切替、生徒/保護者氏名のマスキング方針確定と実 Vertex 呼び出し有効化ゲート。
 
 ## 関連
 

@@ -1,7 +1,7 @@
 # F01: 教員ファイル抽出入力
 
-- 状態: Draft（[v2-mvp.md](../v2-mvp.md) §4 から分割）
-- 関連 ADR: ADR-005 (Vertex AI), ADR-017 (Gemini 抽出, 起票予定)
+- 状態: 一部実装（抽出エンジン `packages/ai/src/extract/` は全形式対応済。アップロード経路・保存・編集 UI・CMEK は未実装）
+- 関連 ADR: ADR-005 (Vertex AI), ADR-017 (Gemini 抽出, 起票予定), [ADR-024 (文書抽出/OCR 委託境界)](../../adr/024-document-extraction-and-ocr-egress.md)
 - 関連 issue: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12)
 
 ## 概要
@@ -14,13 +14,15 @@
 
 ## 受け入れ条件
 
-- [ ] PDF / DOCX / XLSX / PNG / JPEG をアップロード可
-- [ ] アップロードファイルは Cloud Storage の `school-{school_id}-uploads/` バケットに保存
-- [ ] AI 抽出結果は構造化 JSON (title, body, suggested_publish_scope, suggested_period, confidence_score) として返る
-- [ ] 教員 UI で抽出結果を編集してから公開ボタン押下できる
-- [ ] アップロードと AI 抽出は全件 audit_log に記録
-- [ ] アップロード上限サイズ: 50 MB / ファイル
-- [ ] PII を含む可能性が高いため、Cloud Storage 側で CMEK 暗号化 + アクセスログ有効化
+- [~] PDF / DOCX / XLSX / PNG / JPEG をアップロード可 — 部分実装（[#180](https://github.com/cometa-kaito/kimiterrace-v2/pull/180)、[#187](https://github.com/cometa-kaito/kimiterrace-v2/pull/187)、[#189](https://github.com/cometa-kaito/kimiterrace-v2/pull/189)、`packages/ai/src/extract/`）残: 抽出レイヤ（形式推定 + 各形式の抽出器 + Cloud Vision OCR）は全形式対応済だが、ブラウザからの実アップロード経路（multipart 受信 API ルート）は未実装
+- [ ] アップロードファイルは Cloud Storage の `school-{school_id}-uploads/` バケットに保存 — 未実装（`teacher_input_attachments` はメタ行のみ、実アップロード経路なし）
+- [~] AI 抽出結果は構造化 JSON (title, body, suggested_publish_scope, suggested_period, confidence_score) として返る — 部分実装（[#144](https://github.com/cometa-kaito/kimiterrace-v2/pull/144)、`packages/ai/src/schema/extraction.ts`）残: 構造化スキーマは kind/data/confidenceScore/evidence 形（announcement は title/body/dueDate）で、`suggested_publish_scope` / `suggested_period` フィールドは未定義
+- [ ] 教員 UI で抽出結果を編集してから公開ボタン押下できる — 未実装（抽出結果を描画する編集 UI が無い。`TeacherInputComposer` は入力のみ）
+- [~] アップロードと AI 抽出は全件 audit_log に記録 — 部分実装（[#235](https://github.com/cometa-kaito/kimiterrace-v2/pull/235)、`packages/ai/src/audit.ts`、`apps/web/lib/ai/run-extraction.ts`）残: AI 抽出は `ai_extractions` 記録 + DB トリガ audit 済だが、ファイルアップロード自体が未実装のため「アップロードの監査」は不在
+- [ ] アップロード上限サイズ: 50 MB / ファイル — 未実装（アップロード endpoint が無く上限強制も無い）
+- [ ] PII を含む可能性が高いため、Cloud Storage 側で CMEK 暗号化 + アクセスログ有効化 — 未実装（アップロード用バケット未定義、CMEK は Terraform README で将来項目）
+
+> 補足: 抽出レイヤのレガシー Office (.doc/.xls) 検出 + 変換案内（[#184](https://github.com/cometa-kaito/kimiterrace-v2/pull/184)）、pdf/docx 実バイト smoke E2E（[#218](https://github.com/cometa-kaito/kimiterrace-v2/pull/218)）、pdfjs standard_fonts 同梱 + 起動 fail-fast（[#316](https://github.com/cometa-kaito/kimiterrace-v2/pull/316)）は実装済で、いずれも条件 1（形式対応）を裏付ける。
 
 ## 関連
 
