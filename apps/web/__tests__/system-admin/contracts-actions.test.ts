@@ -276,6 +276,9 @@ describe("updateContractAction", () => {
     });
     expect(updateValues?.updatedAt).toBeInstanceOf(Date);
     expect((updateValues?.startedAt as Date).toISOString()).toBe("2026-05-01T00:00:00.000Z");
+    // スコープ境界: 編集は advertiserId(不変) / status(遷移アクション管轄) を UPDATE しない。
+    expect(updateValues).not.toHaveProperty("advertiserId");
+    expect(updateValues).not.toHaveProperty("status");
     expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/advertisers/${ADV_ID}/edit`);
   });
 
