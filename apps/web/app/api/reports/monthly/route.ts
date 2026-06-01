@@ -2,7 +2,7 @@ import { ForbiddenError, UnauthenticatedError, withSession } from "@/lib/db";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { monthlyCsvFilename, monthlySummaryToCsv } from "@/lib/reports/csv";
 import { currentJstYearMonth, isAfterMonth, parseYearMonth } from "@/lib/reports/month";
-import { type TenantTx, getMonthlySchoolSummary } from "@kimiterrace/db";
+import { type TenantTx, getMonthlyAdReach, getMonthlySchoolSummary } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 
 /**
@@ -10,13 +10,15 @@ import { NextResponse } from "next/server";
  *
  * - GET /api/reports/monthly?ym=YYYY-MM … 対象月の学校別サマリーを CSV (text/csv) で返す
  *
- * 第1スライスの画面 (`/admin/reports`) と同じ `getMonthlySchoolSummary` を使い、教員が表計算へ
- * 取り込める形で持ち帰れるようにする。**認可は二層** (ルール2 多層防御): `allowedRoles`
- * (PUBLISHER_ROLES = school_admin / teacher) で非対象ロールを 403 早期 deny + DB の
- * `tenant_isolation` が school 越境を DB レベルで止める (集計は自校スコープ)。未認証は 401。
+ * 画面 (`/admin/reports`) と同じ `getMonthlySchoolSummary` (学校別サマリー) + `getMonthlyAdReach`
+ * (広告別 到達数 reach、minute-dedup) を使い、教員が表計算へ取り込める形で 1 ファイルに持ち帰れる
+ * ようにする。**認可は二層** (ルール2 多層防御): `allowedRoles` (PUBLISHER_ROLES = school_admin /
+ * teacher) で非対象ロールを 403 早期 deny + DB の `tenant_isolation` が school 越境を DB レベルで止める
+ * (集計は自校スコープ)。未認証は 401。
  *
  * 対象月は `?ym=YYYY-MM`。画面と同じく不正・未指定・未来月は現在の JST 暦月へ丸める (データ不在の
- * 未来月を要求されても安全な既定へ倒す)。集計は件数・タイトル・稼働日数のみで PII を含まない (ルール4)。
+ * 未来月を要求されても安全な既定へ倒す)。集計は件数・タイトル・稼働日数・広告 caption・到達数のみで
+ * PII を含まない (ルール4)。延べ表示数 (engagement) と到達数 (reach) は別指標 (ADR-025)。
  */
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -31,7 +33,12 @@ export async function GET(request: Request): Promise<NextResponse> {
       (tx: TenantTx) => getMonthlySchoolSummary(tx, { year: target.year, month: target.month }),
       { allowedRoles: PUBLISHER_ROLES },
     );
-    const csv = monthlySummaryToCsv(summary);
+    // 広告別 到達数 (reach、minute-dedup)。延べ表示数 (engagement) とは別指標 (#322 / ADR-025)。
+    const adReach = await withSession(
+      (tx: TenantTx) => getMonthlyAdReach(tx, { year: target.year, month: target.month }),
+      { allowedRoles: PUBLISHER_ROLES },
+    );
+    const csv = monthlySummaryToCsv(summary, adReach);
     return new NextResponse(csv, {
       status: 200,
       headers: {
