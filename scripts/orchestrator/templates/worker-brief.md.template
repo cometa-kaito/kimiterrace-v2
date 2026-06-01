@@ -39,6 +39,16 @@ GitHub Issue **#{{ISSUE_NUMBER}}** を実装し、PR を作成してください
 - [ ] PR 説明欄テンプレ全項目埋め
 - [ ] Conventional Commits でコミット
 - [ ] `gh pr create` で PR 作成（draft でも可）
+- [ ] **PR 本文に issue クローズ用キーワードを明記**（下記「Issue の自動 close」）
+
+## Issue の自動 close（必須）
+
+GitHub は **PR タイトルの `(#{{ISSUE_NUMBER}})` では Issue を close しない**。merge 時に自動 close させるには、**PR 本文（説明欄）に closing keyword を書く**:
+
+- **この PR で Issue #{{ISSUE_NUMBER}} を完了する**（受け入れ条件を全て満たす）なら本文に `Closes #{{ISSUE_NUMBER}}` を書く（squash merge でも default branch への merge で自動 close される）。
+- **複数スライスの一部**で Issue がまだ残作業を持つなら `Refs #{{ISSUE_NUMBER}}` にする（自動 close させない。umbrella Issue を最初のスライスで誤って閉じないため）。
+
+判断に迷ったら Issue 本文のチェックリスト/受け入れ条件を見て、**全項目をこの PR で満たすか**で `Closes` / `Refs` を選ぶ。
 
 ## 禁止事項
 
