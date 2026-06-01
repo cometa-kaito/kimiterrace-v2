@@ -25,6 +25,11 @@
 --   - 並行する 2 つの除去操作は同一の advisory key で必ず競合し、ロック獲得順に直列化される。
 --   - 後続 tx はロック解放後に新しいスナップショット (READ COMMITTED) で再カウントするため、
 --     先行 tx が commit した除去を反映し、最後の 1 人を確実に検出して RAISE する。
+--   - 前提: 1 文 = 単一校の除去。トリガは行単位 (FOR EACH ROW) で発火し、行ごとに OLD.school_id の
+--     advisory lock を取る。1 つの SQL 文が**複数校**の管理者を一括除去すると、2 文が逆順に複数 school
+--     key をロックし合う理論上の advisory deadlock 余地がある (PG が検出し片方を abort)。現状アプリには
+--     該当パターンは無く (除去は単一行 seam のみ)、将来バッチで多校一括除去するなら school_id 昇順で
+--     処理するか文を校ごとに分割すること。
 --
 -- RLS / 権限 (CLAUDE.md ルール2):
 --   関数は **SECURITY INVOKER** (既定)。RLS をバイパスしない。テナント分離は school_id 単位
