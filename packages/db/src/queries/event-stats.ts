@@ -335,3 +335,48 @@ export async function getHourlyPresenceCounts(
 
   return rows.map((r) => ({ hour: r.hour, presence: r.presence }));
 }
+
+/** JST 暦日ごとの presence (在室) 件数。F08 在室の日次推移用。 */
+export type DailyPresenceCount = {
+  /** JST 暦日 (YYYY-MM-DD)。 */
+  day: string;
+  /** その日の presence イベント数。 */
+  presence: number;
+};
+
+/**
+ * 自校の presence イベント (F13 人感センサー由来、`events.type='presence'`) を **JST 暦日**ごとに
+ * 集計する (RLS で school スコープ)。日付昇順。
+ *
+ * `getDailyEventCounts` (view/tap の日次推移) の presence 版。「日々どれだけ人が来ているか」(来場の
+ * 増減トレンド) を示し、時間帯別 (`getHourlyPresenceCounts`) と対で在室の推移と傾向を見せる。
+ *
+ * - JST 暦日への丸めは `getDailyEventCounts` と同じ (`date_trunc('day', ... at time zone 'Asia/Tokyo')`)。
+ *   UTC のまま丸めると深夜帯 (JST 8:00 = UTC 前日 23:00) が前日にずれる。期間窓は DB の `now()` 基準。
+ * - **テナント分離 (ルール2)**: `school_id` を書かず `events` の RLS (`tenant_isolation`) に委譲。
+ * - 件数のみ。`payload` (device 詳細) は読まない。presence/sensor_devices に PII は無い (ADR-020 §6) が
+ *   個人別粒度には落とさない (ルール4)。
+ * - 返す行は presence が存在する日のみ (sparse、`WHERE type='presence'`)。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。
+ */
+export async function getDailyPresenceCounts(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<DailyPresenceCount[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const where = and(
+    eq(events.type, "presence"),
+    gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`),
+  );
+  const day = sql<string>`to_char(date_trunc('day', ${events.occurredAt} at time zone 'Asia/Tokyo'), 'YYYY-MM-DD')`;
+  const presence = sql<number>`count(*)`.mapWith(Number);
+  const rows = await db
+    .select({ day, presence })
+    .from(events)
+    .where(where)
+    .groupBy(day)
+    .orderBy(day);
+
+  return rows.map((r) => ({ day: r.day, presence: r.presence }));
+}
