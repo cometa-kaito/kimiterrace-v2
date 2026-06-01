@@ -13,10 +13,13 @@
   "dependencies": {
     "@kimiterrace/ai": "workspace:*",
     "@kimiterrace/db": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "pdfkit": "^0.18.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@types/pdfkit": "^0.17.6",
+    "pdfjs-dist": "^6.0.227",
     "typescript": "^6.0.3",
     "vitest": "^3.2.4"
   }
