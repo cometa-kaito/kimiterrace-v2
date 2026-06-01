@@ -16,8 +16,20 @@ export type PublishScope = (typeof publishScope.enumValues)[number];
 // コンテンツ状態
 export const contentStatus = pgEnum("content_status", ["draft", "published", "archived"]);
 
-// 行動イベント種別（F07）
-export const eventType = pgEnum("event_type", ["view", "tap", "dwell", "ask"]);
+// 行動イベント種別（F07）。
+// `presence` は F13（来場検知 SwitchBot Webhook、ADR-020）で追加。PIR センサーの
+// 「動きの瞬間検知」を表す。`dwell`（滞在秒数。LiDAR/カメラ等の継続滞在計測用途）とは
+// 区別する — PIR は滞在時間を測れないため presence は別値にする（F13 §「presence と dwell の区別」）。
+// 既存 view/tap/dwell/ask は変更しない（末尾追加 = ALTER TYPE ADD VALUE、非破壊）。
+export const eventType = pgEnum("event_type", ["view", "tap", "dwell", "ask", "presence"]);
+
+// F13: 来場検知センサーのベンダー（ADR-020）。現状 SwitchBot のみ。将来ベンダー追加時は
+// 末尾に値を足す（ADD VALUE）。`sensor_devices.vendor` の値域を DB レベルで固定する（ルール3）。
+export const sensorVendor = pgEnum("sensor_vendor", ["switchbot"]);
+
+// F13: 来場検知センサーの方式（ADR-020）。`presence_pir` = PIR 方式の人感センサー
+// （カメラ非搭載・個人識別なし、ADR-020 透明性要件）。滞在秒数は計測しない。
+export const sensorKind = pgEnum("sensor_kind", ["presence_pir"]);
 
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [

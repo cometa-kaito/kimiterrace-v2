@@ -25,6 +25,7 @@ const AUDITED_TABLES = [
   "content_versions",
   "publishes",
   "events",
+  "sensor_devices",
   "ai_extractions",
   "ai_chat_sessions",
   "ai_chat_messages",
