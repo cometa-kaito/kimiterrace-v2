@@ -42,6 +42,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   school_admin: [
     { label: "学校管理", href: "/admin/school" },
     { label: "エディタ", href: "/admin/editor" },
+    { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
   ],
@@ -50,6 +51,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // PUBLISHER_ROLES=school_admin/teacher 専用 (#166 / F08 第1スライス)。
   teacher: [
     { label: "エディタ", href: "/admin/editor" },
+    { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
   ],
