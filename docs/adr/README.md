@@ -57,6 +57,7 @@
 | 024 | [文書テキスト抽出と画像 OCR の外部委託境界](024-document-extraction-and-ocr-egress.md)（文書パーサはローカル自プロセス内、画像 OCR は Cloud Vision + 送信ガード必須） | Proposed |
 | 025 | [広告 impression / 到達数の計上セマンティクス](025-impression-reach-counting-semantics.md)（延べ表示数=engagement と ソフト重複排除済 到達数=advertiser reach を分離、dedup は集計時 DISTINCT） | Accepted |
 | 026 | [アカウント無効化 / ロール変更のエンフォース経路](026-account-deactivation-role-change-enforcement.md)（IdP を単一ソース: disable + revokeRefreshTokens / claims 再付与、既定 checkRevoked で即時失効。DB is_active は mirror、DB-only mutation を無効化と称さない） | Accepted |
+| 028 | [F06 生徒対話チャットボットの回答ポリシー](028-f06-chatbot-answer-policy.md)（対象=生徒+教員 / 掲示物 Q&A のみ・学習進路は拒否 / 根拠なし時はラベル付き一般補足だが学校固有事実は推測禁止 / 多言語対応 / コスト天井なし+rate limit） | Accepted |
 
 ## ルール
 
