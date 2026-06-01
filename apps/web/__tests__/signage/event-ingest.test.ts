@@ -6,12 +6,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * RLS 文脈 (schoolId 強制) と PII allowlist・不正入力の倒し方を検証する。
  */
 
-const { resolveMagicLink, withTenantContext, getEffectiveAdsForClass, hashToken } = vi.hoisted(
+const { resolveMagicLink, withTenantContext, getEffectiveAdsForClass, hashToken, eq } = vi.hoisted(
   () => ({
     resolveMagicLink: vi.fn(),
     withTenantContext: vi.fn(),
     getEffectiveAdsForClass: vi.fn(),
     hashToken: vi.fn((t: string) => `HASH(${t})`),
+    eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
   }),
 );
 
@@ -20,7 +21,9 @@ vi.mock("@kimiterrace/db", () => ({
   withTenantContext,
   getEffectiveAdsForClass,
   events: { __table: "events" },
+  contents: { id: "contents.id" },
 }));
+vi.mock("drizzle-orm", () => ({ eq }));
 vi.mock("../../lib/db", () => ({ getDb: () => ({ __db: true }) }));
 vi.mock("@/lib/magic-link/token", () => ({ hashToken }));
 
@@ -34,15 +37,22 @@ const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const CONTENT_ID = "55555555-5555-4555-8555-555555555555";
 const CLIENT_ID = "66666666-6666-4666-8666-666666666666";
 const AD_ID = "77777777-7777-4777-8777-777777777777";
+// 校 B の content uuid を校 A の token holder が送る越境ケース用 (#464 L-1)。
+const FOREIGN_CONTENT_ID = "88888888-8888-4888-8888-888888888888";
 
 let captured: Record<string, unknown>[];
 let lastCtx: { schoolId?: string } | null;
+// L-1 (#464): tx.select(contents) が返す行。既定は「可視」(1 行) にし、既存の contentId 採用ケースを
+// 維持する。越境/不在を再現するテストでは空配列に差し替える (RLS が 0 行に落とす状況のスタブ)。
+let contentRows: { id: string }[];
 
 beforeEach(() => {
   vi.clearAllMocks();
   hashToken.mockImplementation((t: string) => `HASH(${t})`);
+  eq.mockImplementation((col: unknown, val: unknown) => ({ col, val }));
   captured = [];
   lastCtx = null;
+  contentRows = [{ id: CONTENT_ID }];
   withTenantContext.mockImplementation(
     async (_db: unknown, ctx: { schoolId?: string }, fn: (tx: unknown) => Promise<unknown>) => {
       lastCtx = ctx;
@@ -52,6 +62,14 @@ beforeEach(() => {
             captured.push(v);
             return Promise.resolve(undefined);
           },
+        }),
+        // L-1 可視性 SELECT のスタブ: where/limit は無視し contentRows をそのまま返す。
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve(contentRows),
+            }),
+          }),
         }),
       };
       return fn(tx);
@@ -188,5 +206,42 @@ describe("recordSignageEvent", () => {
     expect(res).toEqual({ ok: true });
     expect(getEffectiveAdsForClass).not.toHaveBeenCalled();
     expect(captured).toHaveLength(1);
+  });
+
+  // ---- L-1 (#464): contentId の自テナント可視性照合 (越境 content_id の解決不能化) ----
+  it("L-1: 自テナントに可視な contentId は採用して INSERT (contents.id を RLS 文脈で照合)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    contentRows = [{ id: CONTENT_ID }];
+    const res = await recordSignageEvent("THETOKEN", { type: "tap", contentId: CONTENT_ID });
+    expect(res).toEqual({ ok: true });
+    // 可視性 SELECT は contents.id = 入力 contentId で行う (school 述語は書かず RLS に委ねる)。
+    expect(eq).toHaveBeenCalledWith("contents.id", CONTENT_ID);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ contentId: CONTENT_ID });
+  });
+
+  it("L-1: 越境/不可視 contentId は null に落として INSERT (event 自体は記録)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    // RLS 文脈で他校 content は 0 行 (不可視) になる状況を再現。
+    contentRows = [];
+    const res = await recordSignageEvent("THETOKEN", {
+      type: "tap",
+      contentId: FOREIGN_CONTENT_ID,
+    });
+    expect(res).toEqual({ ok: true });
+    expect(eq).toHaveBeenCalledWith("contents.id", FOREIGN_CONTENT_ID);
+    expect(captured).toHaveLength(1);
+    // dangling/forged な越境参照を残さない (contentId は null 化)。
+    expect(captured[0]).toMatchObject({ contentId: null });
+  });
+
+  it("L-1: contentId 不在の一般 view は可視性 SELECT をスキップ", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    const res = await recordSignageEvent("THETOKEN", { type: "view", clientId: CLIENT_ID });
+    expect(res).toEqual({ ok: true });
+    // contentId が無ければ照合 SELECT (eq) は呼ばない。
+    expect(eq).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ contentId: null });
   });
 });

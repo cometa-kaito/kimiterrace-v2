@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F07 (#43): POST /signage/{classToken}/events ハンドラのテスト。recordSignageEvent を mock し、
- * 結果 → ステータス (204/410/400) の写像と、body parse (JSON/beacon・サイズ上限・非オブジェクト) を検証。
+ * F07 (#43, #464): POST /signage/{classToken}/events ハンドラのテスト。recordSignageEvent を mock し、
+ * 結果 → ステータス (204/410/400) の写像と、body parse (JSON/beacon・サイズ上限・非オブジェクト)、および
+ * per-token レート制限 (#464: 超過で 429・record 非到達) を検証する。レート制限の実体 (固定ウィンドウ) は
+ * lib/signage/rate-limit.ts (FixedWindowRateLimiter) 側でテスト済なので、ここは route の写像のみ縛る。
  */
 
 const { recordSignageEvent } = vi.hoisted(() => ({ recordSignageEvent: vi.fn() }));
 vi.mock("@/lib/signage/event-ingest", () => ({ recordSignageEvent }));
 
 import { POST } from "../../app/(signage)/signage/[classToken]/events/route";
+import { signageEventRateLimiter } from "../../lib/signage/rate-limit";
 
 const TOKEN = "THETOKEN";
 const ctx = (classToken: string) => ({ params: Promise.resolve({ classToken }) });
@@ -19,6 +22,9 @@ function post(body: string): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  // singleton limiter の窓状態をテスト間で持ち越さない (同一 token キーの累積を防ぐ)。
+  signageEventRateLimiter.reset();
 });
 
 describe("POST /signage/{classToken}/events", () => {
@@ -60,5 +66,23 @@ describe("POST /signage/{classToken}/events", () => {
     const res = await POST(post(big), ctx(TOKEN));
     expect(res.status).toBe(413);
     expect(recordSignageEvent).not.toHaveBeenCalled();
+  });
+
+  it("per-token レート上限超過は 429 + Retry-After、record/body parse に到達しない (#464)", async () => {
+    // limiter が枯渇した状況を spy で再現 (固定ウィンドウの実体は rate-limit.ts でテスト済)。
+    vi.spyOn(signageEventRateLimiter, "tryAcquire").mockReturnValueOnce(false);
+    const res = await POST(post(JSON.stringify({ type: "view" })), ctx(TOKEN));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    // 最先頭で弾くので記録層には到達しない。
+    expect(recordSignageEvent).not.toHaveBeenCalled();
+  });
+
+  it("レート上限内なら従来どおり record に委譲する (limiter が正常系を塞がない)", async () => {
+    recordSignageEvent.mockResolvedValue({ ok: true });
+    const res = await POST(post(JSON.stringify({ type: "view" })), ctx(TOKEN));
+    expect(res.status).toBe(204);
+    expect(recordSignageEvent).toHaveBeenCalledTimes(1);
   });
 });

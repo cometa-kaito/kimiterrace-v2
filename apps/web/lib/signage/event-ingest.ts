@@ -1,11 +1,13 @@
 import { hashToken } from "@/lib/magic-link/token";
 import {
+  contents,
   events,
   type TenantTx,
   getEffectiveAdsForClass,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
+import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 
 /**
@@ -75,9 +77,9 @@ export function validateEventInput(
   }
   const type = raw.type as AcceptedType;
 
-  // contentId は省略可。あれば uuid 形式のみ。値の実在/可視性 (テナント越境の content 参照) は
-  // events.content_id FK (ON DELETE set null) と、参照先 contents の RLS により読取時に解決不能化
-  // されるため、ここでは形式のみを検証する (書込時の存在 SELECT は別スライスで厳格化検討)。
+  // contentId は省略可。あれば uuid 形式のみ。**自テナント可視性**は純関数では判定できない (RLS 文脈が要る)
+  // ため、ここでは形式のみ検証し、実在/越境チェックは `recordSignageEvent` の `withTenantContext` 内で
+  // 行う (#464 L-1: 越境 content_id の解決不能化)。
   let contentId: string | null = null;
   if (raw.contentId != null) {
     if (typeof raw.contentId !== "string" || !UUID_RE.test(raw.contentId)) {
@@ -162,9 +164,28 @@ export async function recordSignageEvent(
         return { ok: false, reason: "invalid" } as const;
       }
     }
+
+    // L-1 (#464): contentId が**自テナントに可視**な content を指す場合のみ採用する。`events.content_id`
+    // FK は school 述語を持たず `contents` は FORCE RLS でないため、FK 整合だけだと校 A の token holder が
+    // 校 B の content uuid を載せられる (dangling/forged 参照 = 集計整合性スメル)。RLS 文脈 (withTenantContext)
+    // 内で SELECT すると越境 content は不可視で 0 行になるので、不可視なら contentId を null に落として
+    // 解決不能化する (越境参照を残さない)。一般 view/tap (contentId 不在) は照合をスキップ。読取は RLS が
+    // school スコープを強制するので手書き WHERE school_id は不要 (ルール2)。
+    let contentId = v.value.contentId;
+    if (contentId !== null) {
+      const found = await tx
+        .select({ id: contents.id })
+        .from(contents)
+        .where(eq(contents.id, contentId))
+        .limit(1);
+      if (found.length === 0) {
+        contentId = null;
+      }
+    }
+
     await tx.insert(events).values({
       schoolId: tenant.schoolId,
-      contentId: v.value.contentId,
+      contentId,
       type: v.value.type,
       // occurred_at は DB 既定 now() に委ねる (クライアント時刻を信用しない)。
       payload: v.value.payload,
