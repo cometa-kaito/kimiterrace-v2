@@ -1,7 +1,9 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { type RoleActor, canModifyTargetUser } from "@/lib/role-management/policy";
+import { MEMBER_ADMIN_ROLES } from "@/lib/role-management/roles";
 import { type TenantRole, listSchoolMembers } from "@kimiterrace/db";
+import { MemberActiveToggle } from "./_components/MemberActiveToggle";
 
 /**
  * F11 (#47) 第2スライス: 自校 **教職員一覧** (`/admin/school/members`)。**Server Component**。
@@ -17,14 +19,16 @@ import { type TenantRole, listSchoolMembers } from "@kimiterrace/db";
  * per-surface スコープ方針、[[rls-tenant-not-role-boundary]])。`withSession({allowedRoles})` で二段 gate、
  * 可視範囲は `users` の RLS (`tenant_isolation`) が DB レベルで自校に絞る (CLAUDE.md ルール2、多層防御)。
  *
- * **管理可否の表示**: 各行に `canModifyTargetUser` の判定を出す。school_admin は自校 teacher のみ管理可
- * で、school_admin (自分/同僚) 行は不可 — ポリシーの単一ソースを UI でもそのまま使う (ルール3)。
+ * **管理可否の表示 + 操作 (#324)**: 各行に `canModifyTargetUser` の判定を出す。school_admin は自校 teacher
+ * のみ管理可で、school_admin (自分/同僚) 行は不可 — ポリシーの単一ソースを UI でもそのまま使う (ルール3)。
+ * 管理可の行には **無効化 / 再有効化トグル** ({@link MemberActiveToggle}) を出す。エンフォースは IdP
+ * (claims 失効) が単一ソースで、DB の `is_active` は mirror (ADR-026)。`MEMBER_ADMIN_ROLES` は操作系
+ * Server Action と共有する単一ソース (`@/lib/role-management/roles`)。
  *
  * **PII (ルール4)**: 表示名・ロール・状態のみ。email 等は一覧では出さない (query 層で射影制限)。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: `<table>` + `<th scope>`、状態は文字ラベルで色非依存。
  */
-const MEMBER_ADMIN_ROLES = ["school_admin"] as const satisfies readonly TenantRole[];
 
 export default async function SchoolMembersPage() {
   const user = await requireRole(MEMBER_ADMIN_ROLES);
@@ -46,7 +50,8 @@ export default async function SchoolMembersPage() {
         </span>
       </header>
       <p style={subtitleStyle}>
-        自校の教職員のロール状況です。ロールの変更・無効化は対象が「管理可」の行で行えます（操作機能は順次追加）。
+        自校の教職員のロール状況です。「管理可」の行ではアカウントの無効化 /
+        再有効化を行えます（無効化は認証を即時停止します）。ロールの変更は順次追加します。
       </p>
 
       {members.length === 0 ? (
@@ -87,7 +92,11 @@ export default async function SchoolMembersPage() {
                   </td>
                   <td style={tdStyle}>
                     {decision.allowed ? (
-                      <span style={manageableStyle}>管理可</span>
+                      <MemberActiveToggle
+                        userId={m.id}
+                        isActive={m.isActive}
+                        displayName={m.displayName}
+                      />
                     ) : (
                       <span style={notManageableStyle}>管理対象外</span>
                     )}
@@ -179,10 +188,5 @@ const inactiveBadgeStyle: React.CSSProperties = {
   borderRadius: "999px",
   background: "#f3f4f6",
   color: "#6b7280",
-};
-const manageableStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  color: "#166534",
-  fontWeight: 600,
 };
 const notManageableStyle: React.CSSProperties = { fontSize: "0.8rem", color: "#9ca3af" };
