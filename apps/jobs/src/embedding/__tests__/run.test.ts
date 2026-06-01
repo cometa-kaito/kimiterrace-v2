@@ -48,9 +48,10 @@ describe("embedAllSchools", () => {
     expect(summary.scanned).toBe(3); // a1,a2,b1
     expect(summary.embedded).toBe(2); // a1,b1 (a2 は空テキストで skip)
     expect(summary.skippedEmptyText).toBe(1); // a2
+    expect(summary.blockedUnmaskedPii).toBe(0);
     expect(summary.perSchool).toEqual([
-      { schoolId: "school-A", scanned: 2, embedded: 1, skippedEmptyText: 1 },
-      { schoolId: "school-B", scanned: 1, embedded: 1, skippedEmptyText: 0 },
+      { schoolId: "school-A", scanned: 2, embedded: 1, skippedEmptyText: 1, blockedUnmaskedPii: 0 },
+      { schoolId: "school-B", scanned: 1, embedded: 1, skippedEmptyText: 0, blockedUnmaskedPii: 0 },
     ]);
     expect(saved).toEqual(["a1", "b1"]);
   });
@@ -67,7 +68,7 @@ describe("embedAllSchools", () => {
   });
 
   it("maskEntriesFor が校ごとに呼ばれ、その校の名簿で embed される", async () => {
-    const maskFor = vi.fn((schoolId: string) =>
+    const maskFor = vi.fn(async (schoolId: string) =>
       schoolId === "s1" ? [{ value: "田中太郎", category: "STUDENT" as const }] : [],
     );
     // embed に渡るテキストを捕捉する。
@@ -102,6 +103,7 @@ describe("embedAllSchools", () => {
       scanned: 0,
       embedded: 0,
       skippedEmptyText: 0,
+      blockedUnmaskedPii: 0,
       perSchool: [],
     });
   });

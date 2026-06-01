@@ -1,5 +1,10 @@
 import { type EmbeddingClient, type PiiEntry, createVertexEmbeddingClient } from "@kimiterrace/ai";
-import { createDbClient, listSchools, withTenantContext } from "@kimiterrace/db";
+import {
+  createDbClient,
+  listSchools,
+  listStaffDisplayNames,
+  withTenantContext,
+} from "@kimiterrace/db";
 import { type EmbeddingBatchPort, embedPendingContent } from "./embed-content.js";
 import { createPgEmbeddingPort } from "./pg-port.js";
 
@@ -23,6 +28,8 @@ export type SchoolEmbeddingResult = {
   scanned: number;
   embedded: number;
   skippedEmptyText: number;
+  /** マスク後も PII 形跡が残り Vertex へ送らず skip した件数（fail-closed、ルール4）。0 が正常。 */
+  blockedUnmaskedPii: number;
 };
 
 /** バッチ全体のサマリ。Cloud Logging に構造化ログとして残す（secret は含めない）。 */
@@ -31,6 +38,8 @@ export type EmbeddingBatchSummary = {
   scanned: number;
   embedded: number;
   skippedEmptyText: number;
+  /** 全校合算の fail-closed skip 件数。非 0 は roster 欠落 / 新 PII 書式の兆候で要調査（ルール4）。 */
+  blockedUnmaskedPii: number;
   perSchool: SchoolEmbeddingResult[];
 };
 
@@ -45,10 +54,11 @@ export interface EmbedAllSchoolsDeps {
   /** 1 回の embed 呼び出しに渡す最大件数。 */
   batchSize?: number;
   /**
-   * 校スコープの名簿（氏名マスク用、ルール4）。掲示物本文に生徒/保護者氏名が含まれる場合の確定マスクに
-   * 使う。未指定は空（`maskPII` の電話・メール正規表現検出のみ）。校ごとの roster 供給は follow-up。
+   * 校スコープの名簿（氏名マスク用、ルール4）を非同期に供給する。掲示物本文に生徒/保護者氏名が含まれる
+   * 場合の確定マスクに使う。実体は school_admin context での職員 roster 読取（`listStaffDisplayNames`、
+   * #417）。DB I/O を伴うため async。未指定は空（`maskPII` の電話・メール正規表現検出のみ）。
    */
-  maskEntriesFor?(schoolId: string): readonly PiiEntry[];
+  maskEntriesFor?(schoolId: string): Promise<readonly PiiEntry[]>;
 }
 
 /**
@@ -62,7 +72,7 @@ export async function embedAllSchools(deps: EmbedAllSchoolsDeps): Promise<Embedd
   const perSchool: SchoolEmbeddingResult[] = [];
   for (const schoolId of schoolIds) {
     const port = deps.makePort(schoolId);
-    const maskEntries = deps.maskEntriesFor?.(schoolId) ?? [];
+    const maskEntries = (await deps.maskEntriesFor?.(schoolId)) ?? [];
     const result = await embedPendingContent(port, deps.client, {
       batchSize: deps.batchSize,
       maskEntries,
@@ -74,6 +84,7 @@ export async function embedAllSchools(deps: EmbedAllSchoolsDeps): Promise<Embedd
     scanned: perSchool.reduce((s, r) => s + r.scanned, 0),
     embedded: perSchool.reduce((s, r) => s + r.embedded, 0),
     skippedEmptyText: perSchool.reduce((s, r) => s + r.skippedEmptyText, 0),
+    blockedUnmaskedPii: perSchool.reduce((s, r) => s + r.blockedUnmaskedPii, 0),
     perSchool,
   };
 }
@@ -120,6 +131,18 @@ export async function runEmbeddingBatch(
         return schools.map((s) => s.id);
       },
       makePort: (schoolId) => createPgEmbeddingPort({ db, schoolId, appRole: config.appRole }),
+      // 校スコープ roster（職員氏名）を school_admin 降格 context で読む（自校のみ、RLS が越境拒否、
+      // #417 / ルール4）。生徒・保護者は匿名設計で roster を持たない（#289）。確定マスクに渡し、
+      // 残存 PII は embedPendingContent の findUnmaskedPii ゲートが fail-closed で捕捉する。
+      maskEntriesFor: async (schoolId) => {
+        const names = await withTenantContext(
+          db,
+          { schoolId, role: "school_admin" },
+          (tx) => listStaffDisplayNames(tx),
+          appRoleOptions,
+        );
+        return names.map((value) => ({ value, category: "STAFF" }));
+      },
       client,
       batchSize: config.batchSize,
     });
