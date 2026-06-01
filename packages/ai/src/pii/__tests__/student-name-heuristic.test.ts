@@ -116,6 +116,57 @@ describe("findHonorificNames — 偽陽性ガード（検出しない）", () =>
   });
 });
 
+describe("findHonorificNames — #473 Reviewer 修正", () => {
+  it("High-1: 「〜生」学校語（新入生/卒業生/在校生/留学生/受験生/同級生）は末尾字 生 で除外", () => {
+    for (const text of [
+      "新入生さんへ",
+      "卒業生さんを送る",
+      "在校生さん代表",
+      "留学生さん歓迎",
+      "受験生さん応援",
+      "同級生さんと",
+    ]) {
+      expect(findHonorificNames(text)).toEqual([]);
+    }
+  });
+
+  it("High-1: 「〜生」混じりの掲示物 1 段落で氏名のみ検出（precision 回復）", () => {
+    const text = "新入生さん歓迎会で、卒業生さんと在校生さんが集合。司会は田中さんです。";
+    const d = findHonorificNames(text);
+    // 新入生/卒業生/在校生 は除外、人名 田中さん のみ残る。
+    expect(d.map((x) => x.name)).toEqual(["田中"]);
+  });
+
+  it("Low-1: 「々」踊り字の氏名（佐々木/野々村）を検出", () => {
+    expect(findHonorificNames("佐々木さんが優勝").map((x) => x.name)).toEqual(["佐々木"]);
+    expect(findHonorificNames("野々村くんと").map((x) => x.name)).toEqual(["野々村"]);
+  });
+
+  it("Low-1: 「々」畳語の一般語（我々/様々/時々）は誤検出しない", () => {
+    for (const text of ["我々さんは", "様々さんが", "時々さんと"]) {
+      expect(findHonorificNames(text)).toEqual([]);
+    }
+  });
+
+  it("Med-1: 5 文字超のカタカナ外国籍名を途中分割せず全体を捕捉（warn 座標が壊れない）", () => {
+    const d = findHonorificNames("アレクサンダーさんが来日");
+    expect(d).toHaveLength(1);
+    expect(d[0]?.surface).toBe("アレクサンダーさん");
+    expect(d[0]?.name).toBe("アレクサンダー");
+    expect(d[0]?.index).toBe(0);
+    // 長語のカタカナ役職は除外集合で弾く（過検出防止）。
+    expect(findHonorificNames("インストラクターさんへ")).toEqual([]);
+  });
+
+  it("Med-2: 呼称・敬称語（先輩さん/後輩君/女王様）が氏名トークン化しない", () => {
+    for (const text of ["先輩さんへ", "後輩君と", "女王様の", "王子様が"]) {
+      expect(findHonorificNames(text)).toEqual([]);
+    }
+    // ただし「氏名 + 先輩」（敬称としての先輩）は従来どおり検出する。
+    expect(findHonorificNames("渡辺先輩に相談").map((x) => x.name)).toEqual(["渡辺"]);
+  });
+});
+
 describe("findHonorificNames — 健全性", () => {
   it("呼び出し間で状態を持ち越さない（global regex の lastIndex 汚染が無い）", () => {
     const text = "佐藤さんと鈴木さん";

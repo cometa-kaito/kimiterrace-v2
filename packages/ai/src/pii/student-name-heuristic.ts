@@ -35,12 +35,15 @@
 const HONORIFICS = ["さん", "くん", "ちゃん", "君", "様", "氏", "先輩"] as const;
 
 /**
- * 氏名らしき連続トークン: 漢字（CJK 統合漢字）/ カタカナ（長音符含む）2〜4 文字。
- * - ひらがなを含めない: 「おばあさん」「おにいさん」等のひらがな親族語の偽陽性を構造的に避ける
+ * 氏名らしき連続トークン。**漢字系**と**カタカナ系**で上限を分ける:
+ * - 漢字系 `[一-鿿々]{2,4}`: CJK 統合漢字 + 々（踊り字）。佐々木・野々村等の `々` 姓を拾う（#473 Reviewer Low-1）。
+ *   2〜4 文字に bound（単漢字の一般語「神・皆・客・母…」+ 敬称の偽陽性を除外。単漢字姓は取りこぼすが Low）。
+ * - カタカナ系 `[゠-ヿ]{2,12}`: 長音符 `ー`・中点 `・` を含む。外国籍生徒名（アレクサンダー等 5 文字超）が
+ *   {2,4} で途中分割され warn ハイライト座標が壊れるのを防ぐ（#473 Reviewer Med-1。外国籍は #426 の主対象）。
+ * - **ひらがなを含めない**: 「おばあさん」「おにいさん」等のひらがな親族語の偽陽性を構造的に避ける
  *   （ひらがな単独の与え名は取りこぼすが warn 級では許容、ADR-030）。
- * - {2,4}: 単漢字の一般語（神・皆・客・母…）+ 敬称の偽陽性を除外（単漢字姓も取りこぼすが Low）。
  */
-const NAME_TOKEN = "[\\u4E00-\\u9FFF\\u30A0-\\u30FF\\u30FC]{2,4}";
+const NAME_TOKEN = "(?:[\\u4E00-\\u9FFF\\u3005]{2,4}|[\\u30A0-\\u30FF]{2,12})";
 
 /** `(氏名)(敬称)` を機械検出する線形時間パターン（上限付き量化子 + 素集合 = ReDoS 不能）。 */
 const HONORIFIC_NAME_RE = new RegExp(`(${NAME_TOKEN})(${HONORIFICS.join("|")})`, "g");
@@ -69,6 +72,12 @@ const COMMON_NON_NAME = new Set<string>([
   "隊長",
   "班長",
   "会長",
+  // 呼称・敬称語（氏名トークン化する FP、#473 Reviewer Med-2）
+  "先輩",
+  "後輩",
+  "女王",
+  "王女",
+  "王子",
   // 集団・関係語
   "皆様", // 念のため（皆 は 1 文字だが将来 {1,4} 化に備える）
   "生徒",
@@ -80,13 +89,25 @@ const COMMON_NON_NAME = new Set<string>([
   "本人",
   "各位",
   "全員",
-  // カタカナ一般語
+  // 「々」踊り字の畳語（一般語、`々` を文字クラスに足したことの偽陽性ガード、#473 Reviewer Low-1）
+  "我々",
+  "様々",
+  "色々",
+  "人々",
+  "日々",
+  "別々",
+  "時々",
+  // カタカナ一般語（長語の役職含む。{2,12} 化で拾いうるもの、#473 Reviewer Med-1）
   "コーチ",
   "ドクター",
   "スタッフ",
   "メンバー",
   "チーム",
   "リーダー",
+  "ボランティア",
+  "カウンセラー",
+  "インストラクター",
+  "コーディネーター",
 ]);
 
 /**
@@ -114,6 +135,10 @@ const ORG_TAIL = new Set<string>([
   "組合",
   // 「員」で終わる職業・所属語（会員・社員・職員・議員・部員…）。氏名で「員」終わりは実質皆無なので安全。
   "員",
+  // 「生」で終わる学校語（新入生・卒業生・在校生・留学生・受験生・同級生・転校生・小中高大学生…）。
+  // 掲示物に高頻度で出現し、無いと precision が崩れ override が形骸化する（#473 Reviewer High-1）。
+  // 麻生・羽生・桐生 等の「生」姓は取りこぼすが、precision 優先の ADR-030 方針と整合（recall を切る）。
+  "生",
 ]);
 
 /** 検出された 1 件。warn UI でのハイライトに使えるよう表層・氏名部・敬称・位置を返す。 */
@@ -141,15 +166,22 @@ export function findHonorificNames(input: string): HonorificNameDetection[] {
   // NFKC: 全角英数字・記号を正規化（漢字・かなは不変）。全角偽装での回避を塞ぎ mask.ts と挙動を揃える。
   const normalized = input.normalize("NFKC");
 
+  // matchAll は内部でマッチを巡回し共有 lastIndex を残さない（呼び出し間の状態汚染なし。型キャスト不要で
+  // capture group を分割代入できる）。group は常に揃うが strict（noUncheckedIndexedAccess）のためガードする。
   const detections: HonorificNameDetection[] = [];
-  HONORIFIC_NAME_RE.lastIndex = 0;
-  let m: RegExpExecArray | null = HONORIFIC_NAME_RE.exec(normalized);
-  while (m !== null) {
-    const [surface, name, honorific] = m as unknown as [string, string, string];
+  for (const m of normalized.matchAll(HONORIFIC_NAME_RE)) {
+    const [surface, name, honorific] = m;
+    if (
+      surface === undefined ||
+      name === undefined ||
+      honorific === undefined ||
+      m.index === undefined
+    ) {
+      continue;
+    }
     if (!isExcluded(name)) {
       detections.push({ surface, name, honorific, index: m.index });
     }
-    m = HONORIFIC_NAME_RE.exec(normalized);
   }
   return detections;
 }
