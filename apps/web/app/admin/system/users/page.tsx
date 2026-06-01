@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { type TenantRole, listAllStaff } from "@kimiterrace/db";
 import { StaffActiveToggle } from "./_components/StaffActiveToggle";
+import { StaffRoleToggle } from "./_components/StaffRoleToggle";
 
 /**
  * F11 (#47 / #324): システム管理者の **全校横断 教職員一覧** (`/admin/system/users`)。**Server Component**。
@@ -37,8 +38,9 @@ export default async function SystemUsersPage() {
         </span>
       </header>
       <p style={subtitleStyle}>
-        全校横断の教職員一覧です。各行でアカウントの無効化 /
-        再有効化を行えます（無効化は認証を即時停止。学校で唯一の有効な学校管理者は無効化できません）。ロール変更は順次追加します。
+        全校横断の教職員一覧です。各行でアカウントの無効化 / 再有効化とロール変更 (学校管理者 ⇄
+        教員)
+        を行えます。無効化・降格は認証を即時停止し再ログインを要求します。学校で唯一の有効な学校管理者は無効化・降格できません。
       </p>
 
       {staff.length === 0 ? (
@@ -77,12 +79,23 @@ export default async function SystemUsersPage() {
                   <StatusBadge isActive={s.isActive} />
                 </td>
                 <td style={tdStyle}>
-                  <StaffActiveToggle
-                    userId={s.id}
-                    isActive={s.isActive}
-                    displayName={s.displayName}
-                    schoolName={s.schoolName}
-                  />
+                  <span style={actionsCellStyle}>
+                    <StaffActiveToggle
+                      userId={s.id}
+                      isActive={s.isActive}
+                      displayName={s.displayName}
+                      schoolName={s.schoolName}
+                    />
+                    {/* 一覧は教職員のみ (listAllStaff の role 絞り) だが TS narrowing のため明示判定。 */}
+                    {(s.role === "school_admin" || s.role === "teacher") && (
+                      <StaffRoleToggle
+                        userId={s.id}
+                        currentRole={s.role}
+                        displayName={s.displayName}
+                        schoolName={s.schoolName}
+                      />
+                    )}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -120,6 +133,12 @@ function roleLabel(role: TenantRole): string {
   }
 }
 
+const actionsCellStyle: React.CSSProperties = {
+  display: "inline-flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: "0.3rem",
+};
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
