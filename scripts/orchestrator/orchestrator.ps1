@@ -417,20 +417,51 @@ function Cmd-Cleanup {
     $removed.Add("local:$($s.worktree)")
   }
 
-  # Remote cleanup via SSH (#335). Reap detached reviewer worktrees (br=HEAD, launcher-trap
-  # backstop) plus branch-merged worker worktrees. NOTE: squash-merged remote *worker* worktrees
-  # still rely on the branch-merged heuristic here; authoritative gh-state reaping over SSH is a
-  # follow-up. The detached reaping covers the common reviewer leak. Honors dry-run.
+  # Remote cleanup via SSH (#335). Reaps three classes of leaked remote worktree:
+  #   1. squash-merged *worker* worktrees (authoritative, NEW) - see below;
+  #   2. detached reviewer worktrees (br=HEAD, launcher-trap backstop);
+  #   3. branch-merged worktrees (fast-forward merges; kept as a harmless fallback).
+  #
+  # Squash-merged workers previously leaked: `git branch --merged main` never matches a
+  # squash-merged branch (its tip never becomes an ancestor of main), the exact root cause #339
+  # fixed for the LOCAL reaper. We close the same gap for remote workers by resolving the
+  # authoritative PR-merged state HERE on the trusted Windows orchestrator (gh is authenticated on
+  # Windows; the Mac's gh token frequently expires, so we deliberately do NOT shell `gh` over SSH).
+  # The confirmed-MERGED worktree paths are handed to the remote, which removes them under the same
+  # dirty-check / agent-exclusion safety valves as classes 2-3.
   $dryFlag = if ($dry) { "1" } else { "0" }
   Get-EnabledMachines | Where-Object { $_.kind -eq "ssh" } | ForEach-Object {
     $m = $_
+
+    # Refresh remote statuses first so crashed/SIGKILLed workers (tmux window gone) flip
+    # running -> failed and become eligible for the terminal-status gate below.
+    Sync-RemoteWorkerStatuses -Machine $m
+
+    # Authoritative reap set (class 1): worker worktrees whose PR is MERGED. gh runs locally.
+    $mergedWorktrees = New-Object System.Collections.Generic.List[string]
+    foreach ($st in (Get-RemoteWorkerStates -Machine $m)) {
+      if ($st.role -eq "worker" -and $st.prNumber -and $st.worktree -and
+          $st.status -in @("completed", "failed", "timeout")) {
+        $prState = (gh pr view $st.prNumber --json state --jq '.state' 2>$null)
+        if ($prState -eq "MERGED") { $mergedWorktrees.Add([string]$st.worktree) }
+      }
+    }
+    $mergedListText = (@($mergedWorktrees) | Sort-Object -Unique) -join "`n"
+
     $cmd = @"
 cd $($m.remoteRepoPath) && \
 git fetch origin && \
 DRY=$dryFlag
+# Confirmed-MERGED worker worktrees, resolved authoritatively on the Windows side (#335).
+# Quoted heredoc => bash does not interpolate the paths; empty list => MERGED_WT="" (no match).
+MERGED_WT=`$(cat <<'KT_MERGED_EOF'
+$mergedListText
+KT_MERGED_EOF
+)
+is_merged_wt() { printf '%s\n' "`$MERGED_WT" | grep -Fxq -- "`$1"; }
 for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | grep -v "$($m.remoteRepoPath)$"); do
   br=`$(git -C "`$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  if [ "`$br" = "HEAD" ] || { [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; }; then
+  if is_merged_wt "`$wt" || [ "`$br" = "HEAD" ] || { [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; }; then
     # Safety parity with the local reaper (#353): never reap a locked agent worktree,
     # and never force-remove a worktree with uncommitted changes (a concurrent session
     # may still have unsaved work there). Both only ever SKIP candidates -> strictly safer.
