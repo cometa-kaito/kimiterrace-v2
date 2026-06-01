@@ -88,7 +88,7 @@ export async function POST(
       { error: "rate_limited" },
       {
         status: 429,
-        headers: { ...NO_STORE, "retry-after": String(SIGNAGE_EVENT_WINDOW_MS / 1000) },
+        headers: { ...NO_STORE, "retry-after": String(Math.ceil(SIGNAGE_EVENT_WINDOW_MS / 1000)) },
       },
     );
   }
