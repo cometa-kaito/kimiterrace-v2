@@ -1,0 +1,172 @@
+import { isUuid } from "./schools-core";
+
+/**
+ * F10 (#46): 広告主との契約 (CRM) 作成の純粋検証・型・定数。
+ *
+ * `"use server"` の `contracts-actions.ts` は async 関数しか export できない Next の制約のため、
+ * 検証・型はここに分離する (advertisers-core / schools-core と同構成)。`ActionResult` 系の結果ヘルパは
+ * system-admin 共通の `schools-core` を再利用する (ドメイン非依存の汎用なので重複定義しない)。
+ *
+ * 値域・enum は contracts スキーマ (`packages/db/src/schema/contracts.ts`) に合わせる
+ * (ルール3: スキーマが単一ソース)。notes は text 列だが無制限入力を避けるため運用上の上限を設ける。
+ */
+
+const NOTES_MAX = 2000;
+/** 月額の運用上限 (税抜)。負値・非整数・桁あふれ入力を弾くためのサニティ上限 (1 億円/月)。 */
+const FEE_MAX = 100_000_000;
+/** 配信対象校配列の上限 (DoS 的な巨大配列を弾く。全国規模でも十分な余裕)。 */
+const TARGET_SCHOOLS_MAX = 1000;
+
+/** contract_status enum と同値 (packages/db `_shared/enums.ts`、ルール3)。 */
+export const CONTRACT_STATUSES = ["draft", "active", "paused", "terminated"] as const;
+export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
+
+/** 検証済みの契約作成入力。任意項目は未指定を null / 空配列に正規化する。 */
+export type ContractCreateInput = {
+  advertiserId: string;
+  status: ContractStatus;
+  /** 契約開始日 (日付のみ、UTC 0 時に正規化)。 */
+  startedAt: Date;
+  /** 契約終了日 (任意、未指定は null = 無期限)。指定時は開始日以降。 */
+  endedAt: Date | null;
+  monthlyFeeJpy: number;
+  /** 配信対象校 (schools.id の配列)。空配列は「未指定」を意味する (スキーマ doc 準拠)。 */
+  targetSchools: string[];
+  notes: string | null;
+};
+
+type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
+
+/** "YYYY-MM-DD" のみ受ける。実在日でない (例 2026-02-30) は round-trip 不一致で弾く。 */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function parseDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string" || !DATE_RE.test(value)) {
+    return null;
+  }
+  const d = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+  // new Date は 2026-02-30 を 3/2 に丸めるため、ISO 先頭 10 文字の一致で実在日を保証する。
+  return d.toISOString().slice(0, 10) === value ? d : null;
+}
+
+/** 月額を非負整数へ正規化する。number(整数) か数字のみ文字列を受け、範囲外/非整数は null。 */
+function parseFee(value: unknown): number | null {
+  let n: number;
+  if (typeof value === "number") {
+    n = value;
+  } else if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    n = Number(value.trim());
+  } else {
+    return null;
+  }
+  if (!Number.isInteger(n) || n < 0 || n > FEE_MAX) {
+    return null;
+  }
+  return n;
+}
+
+/** 任意 notes。未指定/空は null、超過/非文字列は undefined (呼出側が弾く)。 */
+function optionalNotes(value: unknown): string | null | undefined {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  return trimmed.length > NOTES_MAX ? undefined : trimmed;
+}
+
+/**
+ * targetSchools を検証する。未指定は空配列。配列であり各要素が UUID であること、上限内であることを
+ * 確認する (存在検証は行わない — jsonb で FK が無く、対象校の実在は UI の選択肢と follow-up の
+ * 整合チェックで担保する)。不正なら undefined を返す。
+ */
+function parseTargetSchools(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length > TARGET_SCHOOLS_MAX) {
+    return undefined;
+  }
+  const out: string[] = [];
+  for (const item of value) {
+    if (!isUuid(item)) {
+      return undefined;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * 契約新規作成の入力検証。advertiserId / status / startedAt / monthlyFeeJpy は必須、
+ * endedAt / targetSchools / notes は任意。終了日は開始日以降に限る。
+ * 不正項目ごとに日本語メッセージを返す。
+ */
+export function validateContractCreate(raw: {
+  advertiserId?: unknown;
+  status?: unknown;
+  startedAt?: unknown;
+  endedAt?: unknown;
+  monthlyFeeJpy?: unknown;
+  targetSchools?: unknown;
+  notes?: unknown;
+}): Validated<ContractCreateInput> {
+  if (!isUuid(raw.advertiserId)) {
+    return { ok: false, message: "広告主の指定が不正です。" };
+  }
+  const advertiserId = raw.advertiserId;
+
+  if (
+    typeof raw.status !== "string" ||
+    !(CONTRACT_STATUSES as readonly string[]).includes(raw.status)
+  ) {
+    return { ok: false, message: "契約ステータスが不正です。" };
+  }
+  const status = raw.status as ContractStatus;
+
+  const startedAt = parseDateOnly(raw.startedAt);
+  if (!startedAt) {
+    return { ok: false, message: "開始日は YYYY-MM-DD 形式で入力してください。" };
+  }
+
+  let endedAt: Date | null = null;
+  if (raw.endedAt !== undefined && raw.endedAt !== null && raw.endedAt !== "") {
+    endedAt = parseDateOnly(raw.endedAt);
+    if (!endedAt) {
+      return { ok: false, message: "終了日は YYYY-MM-DD 形式で入力してください。" };
+    }
+    if (endedAt.getTime() < startedAt.getTime()) {
+      return { ok: false, message: "終了日は開始日以降にしてください。" };
+    }
+  }
+
+  const monthlyFeeJpy = parseFee(raw.monthlyFeeJpy);
+  if (monthlyFeeJpy === null) {
+    return {
+      ok: false,
+      message: `月額は 0〜${FEE_MAX.toLocaleString("en-US")} の整数 (円) で入力してください。`,
+    };
+  }
+
+  const targetSchools = parseTargetSchools(raw.targetSchools);
+  if (targetSchools === undefined) {
+    return { ok: false, message: "配信対象校の指定が不正です。" };
+  }
+
+  const notes = optionalNotes(raw.notes);
+  if (notes === undefined) {
+    return { ok: false, message: `備考は ${NOTES_MAX} 文字以内で入力してください。` };
+  }
+
+  return {
+    ok: true,
+    value: { advertiserId, status, startedAt, endedAt, monthlyFeeJpy, targetSchools, notes },
+  };
+}
