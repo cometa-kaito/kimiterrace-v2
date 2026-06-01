@@ -44,6 +44,17 @@ export type {
   EffectTopContent,
 } from "./prompt/effect-comment.js";
 
+// F08 (#44, ADR-005/006) 効果コメントのモデル呼び出し層（builder → 実 Gemini, slice 2: 非 JSON テキスト）
+export {
+  EmptyEffectCommentError,
+  createVertexEffectCommentClient,
+  generateEffectComment,
+} from "./model/effect-comment-model.js";
+export type {
+  EffectCommentModelConfig,
+  EffectCommentResult,
+} from "./model/effect-comment-model.js";
+
 // モデル境界 + Vertex アダプタ（ADR-005/006）
 export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./model/client.js";
 export { createVertexModelClient } from "./model/vertex.js";
