@@ -15,6 +15,11 @@ overrides:
   "postcss@<8.5.10": "^8.5.10"
   "jsondiffpatch@<0.7.2": "^0.7.2"
   "tar@<7.5.1": "^7.5.1"
+  # vite / esbuild moderate (#177, GHSA-4w7w-66w2-5vf9 / GHSA-67mh-4wv8-2f99)。dev/test ツールチェーン
+  # (vitest 3) のみ、Cloud Run runtime には非搭載。vitest 3.x は vite 6/7 対応なので 6.4.2+ へ引き上げ可。
+  # esbuild は vite 6 が要求する 0.25+ に揃え、@esbuild-kit (drizzle-kit) 経由の 0.18.20 も同時に patched 化。
+  "vite@<6.4.2": "^6.4.2"
+  "esbuild@<0.25.0": "^0.25.0"
 
 allowBuilds:
   "@biomejs/biome": true
