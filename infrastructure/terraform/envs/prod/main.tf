@@ -101,6 +101,16 @@ module "cloud_run_job" {
   enabled    = false # TODO(Phase 開発)
 }
 
+# Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。
+# 公開ルート（magic-link / webhook）の秘匿値が載る request log の閲覧を運用者へ限定する。
+# enabled 化時に var.log_viewer_members（運用者グループ + breakglass）を設定すること。
+module "logging_iam" {
+  source     = "../../modules/logging_iam"
+  project_id = var.project_id
+  env        = local.env
+  enabled    = false # TODO(Phase 開発): true + log_viewer_members を設定
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 

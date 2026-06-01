@@ -17,7 +17,10 @@ import { hashToken } from "../../../lib/magic-link/token";
  *    移して URL/履歴から外し、生徒ランディング `/student` へ redirect。以降の有効性は
  *    毎リクエスト再解決で判定する (即時失効、student-session.ts 参照)。
  *
- * token は credential なのでログに出さない (ルール5)。`getDb()` は非 BYPASSRLS 接続。
+ * token は credential なのでアプリログに出さない (ルール5)。`getDb()` は非 BYPASSRLS 接続。
+ * ただし token は URL パスに載るため **Cloud Run 自動リクエストログ**には残りうる。この infra
+ * ログ露出は ADR-029 の補償統制 (Cloud Logging 閲覧の最小権限 IAM + 有効期限/失効/PII なし) 下の
+ * Low として受容 (#439、`docs/compliance/infra-log-secret-exposure.md`)。
  */
 
 function gonePage(): NextResponse {
