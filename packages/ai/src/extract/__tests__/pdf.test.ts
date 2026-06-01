@@ -24,11 +24,21 @@ function fakePage(items: Array<{ str: string } | Record<string, never>>) {
   };
 }
 
-/** numPages / getPage / destroy を持つ簡易 document proxy を作る。 */
+/** numPages / getPage を持つ簡易 document proxy を作る（v6: PDFDocumentProxy.destroy は削除済み）。 */
 function fakeDocument(pages: ReturnType<typeof fakePage>[]) {
   return {
     numPages: pages.length,
     getPage: vi.fn((n: number) => Promise.resolve(pages[n - 1])),
+  };
+}
+
+/**
+ * v6 の PDFDocumentLoadingTask を模した戻り値。`promise` で document に解決し、
+ * クリーンアップは `destroy()`（v5 の doc.destroy から移管）で行う。
+ */
+function fakeLoadingTask(doc: ReturnType<typeof fakeDocument>) {
+  return {
+    promise: Promise.resolve(doc),
     destroy: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -43,7 +53,7 @@ describe("PdfExtractor (pdfjs-dist モック)", () => {
       fakePage([{ str: "1ページ目" }, { str: "の本文" }]),
       fakePage([{ str: "2ページ目" }]),
     ]);
-    getDocument.mockReturnValue({ promise: Promise.resolve(doc) });
+    getDocument.mockReturnValue(fakeLoadingTask(doc));
 
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const res = await new PdfExtractor().extract({ bytes });
@@ -61,7 +71,7 @@ describe("PdfExtractor (pdfjs-dist モック)", () => {
 
   it("(b) TextMarkedContent（str を持たない item）は無視する", async () => {
     const doc = fakeDocument([fakePage([{ str: "本文" }, {}, { str: "続き" }])]);
-    getDocument.mockReturnValue({ promise: Promise.resolve(doc) });
+    getDocument.mockReturnValue(fakeLoadingTask(doc));
 
     const res = await new PdfExtractor().extract({ bytes: new Uint8Array([0]) });
     expect(res.text).toBe("本文続き");
@@ -70,10 +80,13 @@ describe("PdfExtractor (pdfjs-dist モック)", () => {
   it("(c) パーサ例外を ExtractFailedError にラップして再 throw する", async () => {
     // promise getter にして、抽出器が await した瞬間に初めて reject を生成する
     // （eager な Promise.reject は await 前に unhandled rejection 扱いされるため）。
+    // promise reject 後も finally で loadingTask.destroy() が呼ばれるため destroy を備える
+    // （destroy 不在だと finally の TypeError が元 cause を覆い隠す）。
     getDocument.mockReturnValue({
       get promise() {
         return Promise.reject(new Error("Invalid PDF structure"));
       },
+      destroy: vi.fn().mockResolvedValue(undefined),
     });
 
     const promise = new PdfExtractor().extract({ bytes: new Uint8Array([9]) });

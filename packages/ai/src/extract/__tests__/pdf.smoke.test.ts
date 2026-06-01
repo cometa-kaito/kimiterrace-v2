@@ -8,10 +8,12 @@ import { buildMinimalPdf } from "./fixtures/build-fixtures.js";
  * PDF バイトからテキストと pageCount を実抽出できることを一度 CI で通す (legacy build の worker 無効・
  * DOM 非依存配線がランタイムで成立するかの疎通確認)。
  *
- * 注: pdfjs が stderr に出す `standardFontDataUrl` 警告は**想定内・無害**。標準フォント(Helvetica)の
- * グリフ描画用データの所在で、`getTextContent()` のテキスト抽出には不要 (本テストは text を正しく取得する)。
- * standardFontDataUrl を設定するにはバンドル後 (Cloud Run / Turbopack) でも standard_fonts を解決できる
- * 配線が要り、誤設定はかえって本番を壊しうるため、本 test-only PR のスコープ外とする。
+ * 注: pdfjs-dist **v6 では `standardFontDataUrl` 未設定だと標準フォント(Helvetica)の最小 PDF で
+ * `getTextContent()` が `UnknownErrorException` で壊れる**（v5 は無害な警告のみだった）。そのため
+ * production の {@link PdfExtractor} は `pdfjs-dist/standard_fonts/` を `createRequire(...).resolve`
+ * で `file://` 解決して standardFontDataUrl に渡す配線を入れた（解決不能環境では undefined に倒す
+ * defensive 実装、extractors.ts の resolveStandardFontDataUrl 参照）。本 smoke はその配線が実バイトで
+ * 機能し text 抽出が成立することまで CI で一度通す。
  */
 describe("PdfExtractor 実バイト smoke (pdfjs-dist legacy, モックなし)", () => {
   it("最小の実 PDF からテキストと meta.pageCount=1 を抽出する", async () => {
