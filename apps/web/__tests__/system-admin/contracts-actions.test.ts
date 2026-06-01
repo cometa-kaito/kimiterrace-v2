@@ -214,4 +214,13 @@ describe("updateContractStatusAction", () => {
     const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
     expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
+
+  it("読取後に並行遷移 (条件付き UPDATE 0 行) は conflict、監査しない", async () => {
+    // SELECT は通る (行は存在) が、status 条件付き UPDATE が 0 行 = 楽観ロック競合。
+    beforeRow = { status: "active", advertiserId: ADV_ID };
+    updateReturning = [];
+    const res = await updateContractStatusAction({ id: CONTRACT_ID, status: "paused" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(auditValues).toBeNull();
+  });
 });

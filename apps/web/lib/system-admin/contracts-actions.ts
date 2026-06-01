@@ -1,7 +1,7 @@
 "use server";
 
 import { type TenantTx, auditLog, contracts } from "@kimiterrace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -34,6 +34,9 @@ class InvalidContractTransitionError extends Error {
     super(`現在のステータス (${from}) からは ${to} へ変更できません。`);
   }
 }
+
+/** 読取〜書込の間に並行操作でステータスが変わった (楽観ロック競合)。 */
+class ContractStatusChangedError extends Error {}
 
 /**
  * F10 (#46): 広告主との契約 (CRM) を新規作成する Server Action (ADR-008 — 画面 mutation は Server Actions)。
@@ -149,7 +152,11 @@ async function writeContractAudit(
  *
  * **遷移ガード**: 現在ステータスを同一 tx で SELECT し (兼 not_found 検出)、`isValidContractStatusTransition`
  * で許可された遷移のみ通す。終端 (terminated) からの遷移・同一ステータスへの no-op・矛盾遷移は `conflict`。
- * 検証→UPDATE を 1 tx に収め、間で状態が変わらないことを保証する (TOCTOU 回避)。
+ *
+ * **TOCTOU 回避 (楽観ロック)**: UPDATE の WHERE に**読み取った時点の status を条件として含める**
+ * (`id = $id AND status = $before`)。これにより「検証 → 更新」が単一行の compare-and-swap になり、
+ * 読取〜書込の間に並行リクエストが先に遷移を commit した場合は UPDATE が 0 行に倒れ、`conflict` を返す
+ * (lost-update を防ぐ。SELECT は FOR UPDATE 不要)。
  *
  * **not_found**: 対象が RLS 不可視 / 不存在なら SELECT が 0 行で `not_found`。
  *
@@ -191,12 +198,14 @@ export async function updateContractStatusAction(raw: {
       }
       const updated = await tx
         .update(contracts)
+        // 楽観ロック: 読み取った status を条件に含め、並行遷移が先に commit したら 0 行に倒す。
         .set({ status: next, updatedBy: isSystemAdmin ? null : user.uid, updatedAt: new Date() })
-        .where(eq(contracts.id, id))
+        .where(and(eq(contracts.id, id), eq(contracts.status, before.status)))
         .returning({ id: contracts.id });
       if (updated.length === 0) {
-        // 多層防御: SELECT が通って UPDATE が 0 行 = RLS 越境 (本来到達しない)。
-        throw new ContractNotFoundError();
+        // SELECT は通ったが status 条件付き UPDATE が 0 行 = 読取〜書込の間に並行遷移が commit
+        // (RLS 越境は前段 SELECT で除外済みのため、status 変化と判断する)。
+        throw new ContractStatusChangedError();
       }
       await writeContractStatusAudit(tx, user, id, before.status, next);
       return { id, status: next, advertiserId: before.advertiserId };
@@ -209,6 +218,9 @@ export async function updateContractStatusAction(raw: {
     }
     if (error instanceof InvalidContractTransitionError) {
       return conflict(error.message);
+    }
+    if (error instanceof ContractStatusChangedError) {
+      return conflict("契約のステータスが他の操作で変更されました。再読み込みしてください。");
     }
     throw error;
   }
