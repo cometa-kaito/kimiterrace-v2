@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { Workbook as ExceljsWorkbook } from "exceljs";
 import {
   type DocumentExtractor,
@@ -51,6 +53,32 @@ function toBuffer(bytes: Uint8Array): Buffer {
 }
 
 /**
+ * pdfjs-dist v6 の標準フォント (Helvetica 等の標準14フォント) データ所在を解決する。
+ *
+ * v5 では未設定でも警告のみで text 抽出は成功したが、**v6 では `standardFontDataUrl` 未設定だと
+ * 標準フォント PDF の `getTextContent()` が `UnknownErrorException` で壊れる**（実 smoke で確認）。
+ * 配布物に同梱される `pdfjs-dist/standard_fonts/` ディレクトリの `file://` URL（末尾スラッシュ必須）を
+ * `createRequire(import.meta.url).resolve` で解決して返す。
+ *
+ * **本番バンドル (Cloud Run / Turbopack) で `pdfjs-dist/package.json` が解決できない環境**では
+ * `undefined` を返し、呼び出し側は standardFontDataUrl 無しで抽出を試みる（v5 同等の defensive 動作。
+ * 標準フォント以外の埋め込みフォント PDF は引き続き抽出可能）。フォント解決不能を理由に抽出全体を
+ * 落とさない（フェイルクローズではなく best-effort 側に倒す。テキスト皆無なら下流が検知する）。
+ */
+function resolveStandardFontDataUrl(): string | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    // package.json は exports に依存せず常に解決できる（v6 は exports フィールド無し）。
+    const pkgJsonPath = require.resolve("pdfjs-dist/package.json");
+    const pkgRoot = pkgJsonPath.slice(0, pkgJsonPath.length - "package.json".length);
+    // pathToFileURL はディレクトリに末尾スラッシュを付与する。pdfjs は末尾スラッシュを要求。
+    return pathToFileURL(`${pkgRoot}standard_fonts/`).href;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * PDF 抽出器（`pdfjs-dist` Node legacy build）。
  *
  * 各ページの text layer を `getTextContent()` で取り出し、items を結合する。
@@ -66,8 +94,16 @@ export class PdfExtractor extends BaseExtractor {
     try {
       // pdfjs は渡した TypedArray を内部で transfer/detach するため、コピーを渡して呼び出し側の bytes を守る。
       const data = new Uint8Array(source.bytes);
-      const doc = await pdfjs.getDocument({ data }).promise;
+      // v6 では標準フォント PDF の getTextContent に standardFontDataUrl が必須（未設定だと抽出が壊れる）。
+      // 解決できない環境では undefined のまま渡し、v5 同等の best-effort 動作に倒す。
+      const standardFontDataUrl = resolveStandardFontDataUrl();
+      // v6: getDocument は PDFDocumentLoadingTask を返す。クリーンアップ (worker 破棄) は v5 の
+      // doc.destroy() ではなく loadingTask.destroy() に移った（PDFDocumentProxy.destroy は削除済み）。
+      const loadingTask = pdfjs.getDocument(
+        standardFontDataUrl ? { data, standardFontDataUrl } : { data },
+      );
       try {
+        const doc = await loadingTask.promise;
         const pageCount = doc.numPages;
         const pageTexts: string[] = [];
         for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
@@ -80,6 +116,7 @@ export class PdfExtractor extends BaseExtractor {
               .join("");
             pageTexts.push(line);
           } finally {
+            // PDFPageProxy.cleanup() は v6 でも有効（ループ毎にページのレンダ資源を解放）。
             page.cleanup();
           }
         }
@@ -89,7 +126,7 @@ export class PdfExtractor extends BaseExtractor {
           meta: { pageCount },
         };
       } finally {
-        await doc.destroy();
+        await loadingTask.destroy();
       }
     } catch (cause) {
       throw new ExtractFailedError("pdf", "pdfjs-dist", cause);
