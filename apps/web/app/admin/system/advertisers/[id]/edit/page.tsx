@@ -39,6 +39,9 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
       <Link href={`/admin/system/advertisers/${id}/contracts`} style={contractsLinkStyle}>
         契約管理 →
       </Link>
+      <Link href={`/admin/system/advertisers/${id}/communications`} style={contractsLinkStyle}>
+        コミュニケーション履歴 →
+      </Link>
     </section>
   );
 }

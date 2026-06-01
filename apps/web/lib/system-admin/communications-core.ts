@@ -28,6 +28,19 @@ const MAX_YEAR = 2100;
 export const COMMUNICATION_CHANNELS = ["email", "phone", "meeting", "other"] as const;
 export type CommunicationChannel = (typeof COMMUNICATION_CHANNELS)[number];
 
+/**
+ * チャネルの日本語表示ラベル。一覧・登録フォーム等の UI で共有する単一ソース
+ * (Server / Client 両方から import 可。本ファイルは server-only 値を引き込まない)。
+ * `Record<CommunicationChannel, string>` 型で COMMUNICATION_CHANNELS と取り違え・抜けを
+ * コンパイル時に検出する (ルール3: enum と整合)。
+ */
+export const COMMUNICATION_CHANNEL_LABEL: Record<CommunicationChannel, string> = {
+  email: "メール",
+  phone: "電話",
+  meeting: "商談",
+  other: "その他",
+};
+
 /** 検証済みのコミュニケーション作成入力。任意項目は未指定を null / 空へ正規化する。 */
 export type CommunicationCreateInput = {
   advertiserId: string;
