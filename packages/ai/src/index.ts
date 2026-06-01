@@ -33,6 +33,14 @@ export {
 } from "./rate-limit.js";
 export type { RateLimiter } from "./rate-limit.js";
 
+// 分散レート制限（ADR-027、#155）: 複数 Cloud Run インスタンスを跨ぐ共有ストア版。
+// 実ストア（PostgresRateLimitStore）は follow-up PR (#155-B) で packages/db に追加。
+export {
+  DistributedRateLimiter,
+  createPerSchoolDistributedRateLimiter,
+} from "./rate-limit-distributed.js";
+export type { RateLimitStore } from "./rate-limit-distributed.js";
+
 // オーケストレータ
 export { structureContent, RateLimitExceededError, PiiLeakError } from "./structure.js";
 export type { StructureRequest, StructureResult } from "./structure.js";

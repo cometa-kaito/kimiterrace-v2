@@ -6,14 +6,18 @@
  * リセットする。
  *
  * スコープ注意: このインメモリ実装は **単一プロセス内**でのみ正確。Cloud Run の複数インスタンス
- * 構成では school 単位の全体上限を保証できないため、本番でグローバル制限が要る場合は共有ストア
- * （Cloud SQL のカウンタ行 / Memorystore 等）に差し替える。インターフェイスを切ってあるのは
- * その差し替えを呼び出し側に波及させないため。
+ * 構成では school 単位の全体上限を保証できないため、本番では共有ストア版（ADR-027 採択 = Cloud SQL
+ * カウンタ行）を `DistributedRateLimiter` 経由で差し込む（[./rate-limit-distributed.ts]）。
+ * インターフェイスを切ってあるのはその差し替えを呼び出し側 (`structureContent`) に波及させないため。
+ *
+ * 戻り値は `Promise<boolean> | boolean` (Awaitable)。インメモリ版は同期で `boolean` を返し、
+ * 共有ストア版（SQL 発行）は `Promise<boolean>` を返す。呼び出し側は `await` するだけで両実装を
+ * そのまま扱える（依存逆転の維持、ADR-027 §決定）。
  */
 
 export interface RateLimiter {
   /** `key`（school_id 等）で 1 リクエスト試行。許可なら true を返し 1 消費する。 */
-  tryAcquire(key: string, nowMs: number): boolean;
+  tryAcquire(key: string, nowMs: number): Promise<boolean> | boolean;
 }
 
 interface WindowState {
