@@ -42,6 +42,14 @@ describe("POST /signage/{classToken}/events", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rate limit 超過 (reason=rate_limited) は 429 + Retry-After (M-2 #464)", async () => {
+    recordSignageEvent.mockResolvedValue({ ok: false, reason: "rate_limited" });
+    const res = await POST(post(JSON.stringify({ type: "view" })), ctx(TOKEN));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("retry-after")).toBe("60");
+  });
+
   it("非 JSON body は 400 (解決/記録に到達しない)", async () => {
     const res = await POST(post("not json"), ctx(TOKEN));
     expect(res.status).toBe(400);

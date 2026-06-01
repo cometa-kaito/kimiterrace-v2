@@ -21,6 +21,10 @@ import { NextResponse } from "next/server";
  *  2. **`Content-Length` を body 読込**前**に検査** + 読込後にバイト長を再検査し、上限超過は 413 で即時棄却
  *     (大 body をメモリに展開する前にコストを断つ。最終的な platform body 上限は Cloud Run が担保)。
  *  3. payload allowlist + 厳格検証で 1 リクエストあたりの処理コストを抑える。
+ *  4. **per-`classToken` 固定ウィンドウ rate limit** (M-2 #464): IP ではなく token hash をキーに、
+ *     正規トラフィックを十分上回る寛容な上限を超えたら 429。NAT 共有 IP を巻き込まず、有効 token 保持者
+ *     による素の view/tap flood が DB (解決 + INSERT) に到達する前に頭打ちにする (`recordSignageEvent`
+ *     内で gate、限界は `lib/signage/event-rate-limit` の docstring 参照)。
  * volumetric な保証は infra 層 WAF (Cloud Armor) が担う defense-in-depth。アプリ層での過剰な絞りは
  * F07 のデータ欠損を招くため避ける、という設計判断 (PR #258 Reviewer M-1 で明示化)。
  *
@@ -72,6 +76,13 @@ export async function POST(
   }
   if (result.reason === "gone") {
     return NextResponse.json({ error: "gone" }, { status: 410, headers: NO_STORE });
+  }
+  if (result.reason === "rate_limited") {
+    // M-2 (#464): 当該 token の固定ウィンドウ上限超過。Retry-After は窓幅 (秒) の目安を返す。
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { ...NO_STORE, "retry-after": "60" } },
+    );
   }
   return NextResponse.json({ error: "invalid" }, { status: 400, headers: NO_STORE });
 }

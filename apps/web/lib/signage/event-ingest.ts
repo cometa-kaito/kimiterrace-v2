@@ -7,6 +7,7 @@ import {
   withTenantContext,
 } from "@kimiterrace/db";
 import { getDb } from "../db";
+import { signageEventRateLimiter } from "./event-rate-limit";
 
 /**
  * F07 (#43): サイネージ端末からの行動イベント取り込み (view/tap)。**サーバー専用**。
@@ -61,7 +62,8 @@ export type ValidatedEvent = {
 export type EventIngestResult =
   | { ok: true }
   | { ok: false; reason: "invalid" }
-  | { ok: false; reason: "gone" };
+  | { ok: false; reason: "gone" }
+  | { ok: false; reason: "rate_limited" };
 
 /**
  * 入力検証 (純関数)。許可した形だけを通し、payload は PII を持たない最小集合に正規化する。
@@ -118,32 +120,46 @@ export function validateEventInput(
   return { ok: true, value: { type, contentId, payload } };
 }
 
-/** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
+/** hash 済みトークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
 async function resolveTenant(
-  classToken: string,
+  tokenHash: string,
 ): Promise<{ schoolId: string; classId: string } | null> {
-  if (!classToken) {
-    return null;
-  }
-  const resolved = await resolveMagicLink(getDb(), hashToken(classToken));
+  const resolved = await resolveMagicLink(getDb(), tokenHash);
   return resolved ? { schoolId: resolved.schoolId, classId: resolved.classId } : null;
 }
 
 /**
  * 行動イベントを 1 件記録する。匿名サイネージ端末からの呼び出しを想定。
  *
- * @returns `{ok:true}` 記録成功 / `{reason:"invalid"}` 入力不正 / `{reason:"gone"}` トークン無効。
+ * @param nowMs rate limit ウィンドウ判定の現在時刻 (テストで決定的に注入可能、既定 `Date.now()`)。
+ * @returns `{ok:true}` 記録成功 / `{reason:"invalid"}` 入力不正 / `{reason:"gone"}` トークン無効 /
+ *   `{reason:"rate_limited"}` 当該 token の固定ウィンドウ上限超過 (M-2 #464)。
  */
 export async function recordSignageEvent(
   classToken: string,
   raw: EventIngestInput,
+  nowMs: number = Date.now(),
 ): Promise<EventIngestResult> {
   const v = validateEventInput(raw);
   if (!v.ok) {
     return { ok: false, reason: "invalid" };
   }
 
-  const tenant = await resolveTenant(classToken);
+  // 空 token は hash / 解決を試みず gone (rate limit バケットも消費しない)。
+  if (!classToken) {
+    return { ok: false, reason: "gone" };
+  }
+
+  // M-2 (#464): DB を叩く前に **per-token** 固定ウィンドウ rate limit を掛ける。token hash をキーに
+  // することで、有効 token 保持者の素の view/tap flood が SECURITY DEFINER 解決 + RLS tx + INSERT に
+  // 到達する前に頭打ちになる (events 肥大 / 到達数歪曲の防止)。NAT 共有 IP を巻き込まない per-token
+  // 設計の根拠と限界は ./event-rate-limit の docstring を参照。
+  const tokenHash = hashToken(classToken);
+  if (!signageEventRateLimiter.tryAcquire(tokenHash, nowMs)) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const tenant = await resolveTenant(tokenHash);
   if (!tenant) {
     return { ok: false, reason: "gone" };
   }

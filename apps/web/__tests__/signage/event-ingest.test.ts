@@ -29,6 +29,11 @@ import {
   recordSignageEvent,
   validateEventInput,
 } from "../../lib/signage/event-ingest";
+import {
+  SIGNAGE_EVENT_LIMIT,
+  SIGNAGE_EVENT_WINDOW_MS,
+  signageEventRateLimiter,
+} from "../../lib/signage/event-rate-limit";
 
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const CONTENT_ID = "55555555-5555-4555-8555-555555555555";
@@ -40,6 +45,8 @@ let lastCtx: { schoolId?: string } | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // module-level シングルトンの窓状態をテスト間で隔離する (M-2 #464)。
+  signageEventRateLimiter.reset();
   hashToken.mockImplementation((t: string) => `HASH(${t})`);
   captured = [];
   lastCtx = null;
@@ -188,5 +195,60 @@ describe("recordSignageEvent", () => {
     expect(res).toEqual({ ok: true });
     expect(getEffectiveAdsForClass).not.toHaveBeenCalled();
     expect(captured).toHaveLength(1);
+  });
+
+  // ---- M-2 (#464): per-token 固定ウィンドウ rate limit ----
+  it("M-2: 同一 token が上限を超えると rate_limited で解決にも INSERT にも到達しない", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    const now = 1000;
+    // 同一窓・同一 token (= hash 済みキー) を上限まで埋める。
+    for (let i = 0; i < SIGNAGE_EVENT_LIMIT; i++) {
+      expect(signageEventRateLimiter.tryAcquire("HASH(THETOKEN)", now)).toBe(true);
+    }
+    const res = await recordSignageEvent("THETOKEN", { type: "view" }, now);
+    expect(res).toEqual({ ok: false, reason: "rate_limited" });
+    // DB コストを断つ: 上限超過は SECURITY DEFINER 解決にも tenant INSERT にも到達しない。
+    expect(resolveMagicLink).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it("M-2: 別 token は独立した窓を持ち巻き込まれない", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    const now = 1000;
+    for (let i = 0; i < SIGNAGE_EVENT_LIMIT; i++) {
+      signageEventRateLimiter.tryAcquire("HASH(TOKEN_A)", now);
+    }
+    // TOKEN_A は枯渇しているが、別 token は通常どおり記録される。
+    const res = await recordSignageEvent("THETOKEN", { type: "view" }, now);
+    expect(res).toEqual({ ok: true });
+    expect(captured).toHaveLength(1);
+  });
+
+  it("M-2: 窓を跨ぐと再び許可される (固定ウィンドウのリセット)", async () => {
+    resolveMagicLink.mockResolvedValue({ id: "x", schoolId: SCHOOL_ID, classId: "c1" });
+    const now = 1000;
+    for (let i = 0; i < SIGNAGE_EVENT_LIMIT; i++) {
+      signageEventRateLimiter.tryAcquire("HASH(THETOKEN)", now);
+    }
+    expect((await recordSignageEvent("THETOKEN", { type: "view" }, now)).ok).toBe(false);
+    const res = await recordSignageEvent(
+      "THETOKEN",
+      { type: "view" },
+      now + SIGNAGE_EVENT_WINDOW_MS,
+    );
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("M-2: 不正入力は validate が先に弾き rate limit バケットを消費しない", async () => {
+    const res = await recordSignageEvent("THETOKEN", { type: "dwell" }, 1000);
+    expect(res).toEqual({ ok: false, reason: "invalid" });
+    // validate が limiter/hash の前で倒すため、token の窓は作られない。
+    expect(signageEventRateLimiter.size()).toBe(0);
+  });
+
+  it("M-2: 空 token は hash/limiter を通らず gone (バケット非生成)", async () => {
+    const res = await recordSignageEvent("", { type: "view" }, 1000);
+    expect(res).toEqual({ ok: false, reason: "gone" });
+    expect(signageEventRateLimiter.size()).toBe(0);
   });
 });
