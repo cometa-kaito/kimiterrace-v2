@@ -32,21 +32,33 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + コンテンツ + ダッシュボード (#48-C 導線、F04 公開ハブ、F08 効果)", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果)", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
+      "/admin/teacher-input",
       "/admin/contents",
       "/admin/dashboard",
     ]);
   });
 
-  it("school_admin は学校管理 + エディタ + コンテンツ + ダッシュボード", () => {
+  it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/editor");
+    expect(hrefs).toContain("/admin/teacher-input");
     expect(hrefs).toContain("/admin/contents");
     expect(hrefs).toContain("/admin/dashboard");
+  });
+
+  it("音声/チャット入力 (/admin/teacher-input) は publisher (school_admin/teacher) のみ、system_admin には出さない (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)", () => {
+    // /admin/teacher-input は requireRole(TEACHER_INPUT_STAFF_ROLES=teacher/school_admin) で
+    // system_admin を 403 にするため、nav からも system_admin には出さない。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain(
+      "/admin/teacher-input",
+    );
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/teacher-input");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/teacher-input");
   });
 
   it("コンテンツ (/admin/contents) は publisher (school_admin/teacher) のみに出す (#166 と整合)", () => {
