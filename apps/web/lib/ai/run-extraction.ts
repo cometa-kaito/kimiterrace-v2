@@ -32,7 +32,27 @@ import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
  */
 
 /** F01/F02 入力を構造化できる role（教員入力の作者）。生徒・保護者は不可。 */
-const EXTRACTION_AUTHOR_ROLES = ["teacher", "school_admin"] as const;
+export const EXTRACTION_AUTHOR_ROLES = ["teacher", "school_admin"] as const;
+
+/**
+ * 教員入力 AI 抽出経路の **gate-first 認可ヘルパ**。未認証 → {@link UnauthenticatedError}、
+ * 抽出作者（teacher / school_admin）以外 → {@link ForbiddenError}。認可済み user を返す。
+ *
+ * transcript ロード・職員氏名 roster ロード・LLM 呼び出し**いずれより前**に呼ぶこと。RLS は
+ * テナント境界のみを強制し role 境界は強制しない（ルール2）。よって同一校の非作者 role（生徒 /
+ * 保護者の `__session` claim 等）が transcript（生徒文脈の自由記述を含みうる）や職員氏名 roster を
+ * 読む・Vertex quota を消費する前に、この role ゲートを app 層で先に通す必要がある。
+ */
+export async function getAuthorizedExtractionUser() {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new UnauthenticatedError();
+  }
+  if (!(EXTRACTION_AUTHOR_ROLES as readonly string[]).includes(user.role)) {
+    throw new ForbiddenError();
+  }
+  return user;
+}
 
 /** {@link runAndPersistExtraction} の引数。`schoolId` はセッションから強制するため受け取らない。 */
 export interface RunAndPersistParams {
@@ -54,13 +74,7 @@ export async function runAndPersistExtraction(
   params: RunAndPersistParams,
   deps?: RunExtractionDeps,
 ): Promise<StructureResult> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new UnauthenticatedError();
-  }
-  if (!(EXTRACTION_AUTHOR_ROLES as readonly string[]).includes(user.role)) {
-    throw new ForbiddenError();
-  }
+  const user = await getAuthorizedExtractionUser();
   const { schoolId } = user;
   if (schoolId === null) {
     // teacher / school_admin は必ず school 所属。null は壊れたセッション (claims 不整合) → deny。

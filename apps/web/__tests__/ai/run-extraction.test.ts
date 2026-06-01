@@ -40,7 +40,7 @@ vi.mock("@kimiterrace/db", () => ({
   insertAiExtraction: (tx: unknown, row: unknown) => mocks.insertAiExtraction(tx, row),
 }));
 
-import { runAndPersistExtraction } from "../../lib/ai/run-extraction";
+import { getAuthorizedExtractionUser, runAndPersistExtraction } from "../../lib/ai/run-extraction";
 
 const SCHOOL_ID = "22222222-2222-2222-2222-222222222222";
 const TEACHER: AuthUser = {
@@ -184,5 +184,29 @@ describe("runAndPersistExtraction", () => {
       PiiLeakError,
     );
     expect(mocks.insertAiExtraction).not.toHaveBeenCalled();
+  });
+});
+
+describe("getAuthorizedExtractionUser (gate-first 認可ヘルパ)", () => {
+  // transcript / 職員氏名 roster ロードの **前段**で role を弾く gate を、抽出経路の単一ソースとして突く。
+  // loaders (defaultLoadTranscript / defaultLoadStaffPiiEntries) はこのヘルパを読取より前に await する
+  // ため、ここで Forbidden/Unauthenticated を担保すれば「非作者は読取に到達しない」が機械的に保証される。
+  it("teacher / school_admin は認可ユーザを返す", async () => {
+    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    await expect(getAuthorizedExtractionUser()).resolves.toEqual(TEACHER);
+
+    const admin: AuthUser = { ...TEACHER, role: "school_admin" };
+    mocks.getCurrentUser.mockResolvedValue(admin);
+    await expect(getAuthorizedExtractionUser()).resolves.toEqual(admin);
+  });
+
+  it("抽出作者でない role (student) は ForbiddenError（transcript/職員roster 読取より前に弾く）", async () => {
+    mocks.getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    await expect(getAuthorizedExtractionUser()).rejects.toBeInstanceOf(mocks.ForbiddenError);
+  });
+
+  it("未認証は UnauthenticatedError", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null);
+    await expect(getAuthorizedExtractionUser()).rejects.toBeInstanceOf(mocks.UnauthenticatedError);
   });
 });
