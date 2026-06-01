@@ -111,17 +111,31 @@ fi
 
 # Read config
 CONFIG_PATH="$REPO_ROOT/scripts/orchestrator/config.json"
+# Portable config reader. grep -oP was unusable on BOTH hosts and silently fell
+# back to DEFAULTS everywhere (so config.json's budget/allowedTools/
+# disallowedTools were never honored): macOS BSD grep has no -P at all, and
+# Git-Bash GNU grep refuses -P unless the locale is UTF-8/unibyte (it isn't by
+# default → "grep: -P supports only unibyte and UTF-8 locales"). node is
+# guaranteed present (pnpm requires it) and parses JSON identically on both,
+# accepting the path Git emits (C:/… or POSIX).
+_cfg_raw() {
+  local key="$1"
+  node -e 'const fs=require("fs");try{const c=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const v=c[process.argv[2]];process.stdout.write(v==null?"":String(v));}catch(e){}' "$CONFIG_PATH" "$key" 2>/dev/null
+}
 read_cfg() {
-  local key="$1" default="$2"
-  grep -oP "\"$key\"\s*:\s*\"\K[^\"]+" "$CONFIG_PATH" 2>/dev/null || echo "$default"
+  local key="$1" default="$2" val
+  val="$(_cfg_raw "$key")"
+  [[ -n "$val" ]] && printf '%s' "$val" || printf '%s' "$default"
 }
 read_cfg_num() {
-  local key="$1" default="$2"
-  grep -oP "\"$key\"\s*:\s*\K[0-9.]+" "$CONFIG_PATH" 2>/dev/null || echo "$default"
+  local key="$1" default="$2" val
+  val="$(_cfg_raw "$key")"
+  [[ -n "$val" ]] && printf '%s' "$val" || printf '%s' "$default"
 }
 read_cfg_bool() {
-  local key="$1"
-  grep -oP "\"$key\"\s*:\s*\K(true|false)" "$CONFIG_PATH" 2>/dev/null || echo "false"
+  local key="$1" val
+  val="$(_cfg_raw "$key")"
+  [[ "$val" == "true" ]] && printf 'true' || printf 'false'
 }
 
 CLAUDE_BIN=$(read_cfg "claudeBin" "claude")
