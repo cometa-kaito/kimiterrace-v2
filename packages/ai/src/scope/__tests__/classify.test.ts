@@ -215,4 +215,74 @@ describe("F06 スコープ分類器 (ADR-028, #366)", () => {
       expect(classifyScope("勉強会はいつ？").verdict).toBe("in_scope");
     });
   });
+
+  // #401-2: ひらがな `べんきょう` を kanji `勉強` と対称化（掲示物文脈だけ negative lookahead で除外）。
+  describe("やさしい日本語の非対称解消 — べんきょう の掲示物文脈を弾かない (#401-2)", () => {
+    it("`べんきょうかい`（勉強会 = 学習イベント）の所在質問は in_scope", () => {
+      expect(classifyScope("べんきょうかいは どこですか？").verdict).toBe("in_scope");
+    });
+
+    it("`べんきょうの よてい`（勉強の予定、分かち書き）は in_scope", () => {
+      expect(classifyScope("べんきょうの よていを おしえて").verdict).toBe("in_scope");
+    });
+
+    it("`べんきょうの ばしょ`（勉強の場所）は in_scope", () => {
+      expect(classifyScope("べんきょうの ばしょは どこ？").verdict).toBe("in_scope");
+    });
+
+    // 対称化で学習依頼まで取りこぼさないこと（recall 維持）。
+    it("`べんきょうの しかた`（学習方法の依頼）は study のまま", () => {
+      expect(classifyScope("べんきょうの しかたを おしえて").reason).toBe("study");
+    });
+
+    it("`べんきょうしたい`（素朴な学習依頼）は study", () => {
+      expect(classifyScope("べんきょうしたいので おしえて").reason).toBe("study");
+    });
+  });
+
+  // #401-1: 英語 recall を新偽陽性なしで拡張（教科語束縛 + assignment の動詞束縛）。
+  describe("英語の recall 拡張 — 教科語/動詞で束縛し掲示物質問を弾かない (#401-1)", () => {
+    it("`chemistry problem`（教科 + 学習名詞）は study", () => {
+      expect(classifyScope("Please solve this chemistry problem").reason).toBe("study");
+    });
+
+    it("`science worksheet` は study", () => {
+      expect(classifyScope("I have a science worksheet to finish").reason).toBe("study");
+    });
+
+    it("`english exercise` は study", () => {
+      expect(classifyScope("Can you help me with this english exercise?").reason).toBe("study");
+    });
+
+    it("動詞 + `assignment`（do my assignment）は study", () => {
+      expect(classifyScope("Can you do my assignment?").reason).toBe("study");
+    });
+
+    it("動詞 + `assignment`（finish the assignment）は study", () => {
+      expect(classifyScope("Please finish the assignment for me").reason).toBe("study");
+    });
+
+    // 以下は precision（偽陽性回避）— 教科/動詞束縛により掲示物質問は in_scope のまま。
+    it("`social studies test`（社会科のテスト日程 = 掲示物）は in_scope", () => {
+      expect(classifyScope("What time is the social studies test?").verdict).toBe("in_scope");
+    });
+
+    it("`seating assignment`（席替え = 掲示物）は in_scope", () => {
+      expect(classifyScope("Where is my seating assignment?").verdict).toBe("in_scope");
+    });
+
+    it("`when is the assignment due`（締切質問 = 掲示物）は in_scope", () => {
+      expect(classifyScope("When is the assignment due?").verdict).toBe("in_scope");
+    });
+
+    it("`solve my question about the schedule`（予定の質問 = 掲示物）は in_scope", () => {
+      expect(classifyScope("Can you solve my question about the schedule?").verdict).toBe(
+        "in_scope",
+      );
+    });
+
+    it("`science fair`（掲示物イベント）は in_scope", () => {
+      expect(classifyScope("When is the science fair?").verdict).toBe("in_scope");
+    });
+  });
 });
