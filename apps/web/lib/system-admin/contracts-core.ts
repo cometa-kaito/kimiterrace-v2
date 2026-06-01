@@ -42,10 +42,11 @@ export function isValidContractStatusTransition(from: ContractStatus, to: Contra
   return CONTRACT_STATUS_TRANSITIONS[from].includes(to);
 }
 
-/** 検証済みの契約作成入力。任意項目は未指定を null / 空配列に正規化する。 */
-export type ContractCreateInput = {
-  advertiserId: string;
-  status: ContractStatus;
+/**
+ * 検証済みの契約条件 (期間・月額・対象校・備考)。作成・編集で共有する可変フィールド
+ * (advertiserId / status は対象外 — advertiserId は不変、status は遷移アクション管轄)。
+ */
+export type ContractTerms = {
   /** 契約開始日 (日付のみ、UTC 0 時に正規化)。 */
   startedAt: Date;
   /** 契約終了日 (任意、未指定は null = 無期限)。指定時は開始日以降。 */
@@ -55,6 +56,15 @@ export type ContractCreateInput = {
   targetSchools: string[];
   notes: string | null;
 };
+
+/** 検証済みの契約作成入力 (条件 + 作成時のみ指定する advertiserId / status)。 */
+export type ContractCreateInput = ContractTerms & {
+  advertiserId: string;
+  status: ContractStatus;
+};
+
+/** 検証済みの契約編集入力 (可変フィールドのみ)。 */
+export type ContractUpdateInput = ContractTerms;
 
 type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
 
@@ -126,32 +136,17 @@ function parseTargetSchools(value: unknown): string[] | undefined {
 }
 
 /**
- * 契約新規作成の入力検証。advertiserId / status / startedAt / monthlyFeeJpy は必須、
- * endedAt / targetSchools / notes は任意。終了日は開始日以降に限る。
- * 不正項目ごとに日本語メッセージを返す。
+ * 契約条件 (期間・月額・対象校・備考) の共通検証。作成・編集で共有する (advertiserId / status は
+ * 各呼出側が個別に検証)。startedAt / monthlyFeeJpy は必須、endedAt / targetSchools / notes は任意。
+ * 終了日は開始日以降に限る。不正項目ごとに日本語メッセージを返す。
  */
-export function validateContractCreate(raw: {
-  advertiserId?: unknown;
-  status?: unknown;
+function validateContractTerms(raw: {
   startedAt?: unknown;
   endedAt?: unknown;
   monthlyFeeJpy?: unknown;
   targetSchools?: unknown;
   notes?: unknown;
-}): Validated<ContractCreateInput> {
-  if (!isUuid(raw.advertiserId)) {
-    return { ok: false, message: "広告主の指定が不正です。" };
-  }
-  const advertiserId = raw.advertiserId;
-
-  if (
-    typeof raw.status !== "string" ||
-    !(CONTRACT_STATUSES as readonly string[]).includes(raw.status)
-  ) {
-    return { ok: false, message: "契約ステータスが不正です。" };
-  }
-  const status = raw.status as ContractStatus;
-
+}): Validated<ContractTerms> {
   const startedAt = parseDateOnly(raw.startedAt);
   if (!startedAt) {
     return { ok: false, message: "開始日は YYYY-MM-DD 形式で入力してください。" };
@@ -186,8 +181,52 @@ export function validateContractCreate(raw: {
     return { ok: false, message: `備考は ${NOTES_MAX} 文字以内で入力してください。` };
   }
 
-  return {
-    ok: true,
-    value: { advertiserId, status, startedAt, endedAt, monthlyFeeJpy, targetSchools, notes },
-  };
+  return { ok: true, value: { startedAt, endedAt, monthlyFeeJpy, targetSchools, notes } };
+}
+
+/**
+ * 契約新規作成の入力検証。advertiserId / status を検証してから契約条件を `validateContractTerms` で
+ * 検証し、合成して返す。
+ */
+export function validateContractCreate(raw: {
+  advertiserId?: unknown;
+  status?: unknown;
+  startedAt?: unknown;
+  endedAt?: unknown;
+  monthlyFeeJpy?: unknown;
+  targetSchools?: unknown;
+  notes?: unknown;
+}): Validated<ContractCreateInput> {
+  if (!isUuid(raw.advertiserId)) {
+    return { ok: false, message: "広告主の指定が不正です。" };
+  }
+  const advertiserId = raw.advertiserId;
+
+  if (
+    typeof raw.status !== "string" ||
+    !(CONTRACT_STATUSES as readonly string[]).includes(raw.status)
+  ) {
+    return { ok: false, message: "契約ステータスが不正です。" };
+  }
+  const status = raw.status as ContractStatus;
+
+  const terms = validateContractTerms(raw);
+  if (!terms.ok) {
+    return terms;
+  }
+  return { ok: true, value: { advertiserId, status, ...terms.value } };
+}
+
+/**
+ * 契約編集の入力検証。可変フィールド (契約条件) のみを検証する。advertiserId は不変、status は遷移
+ * アクション (`updateContractStatusAction`) の管轄なので本検証の対象外。
+ */
+export function validateContractUpdate(raw: {
+  startedAt?: unknown;
+  endedAt?: unknown;
+  monthlyFeeJpy?: unknown;
+  targetSchools?: unknown;
+  notes?: unknown;
+}): Validated<ContractUpdateInput> {
+  return validateContractTerms(raw);
 }

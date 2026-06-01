@@ -9,8 +9,10 @@ import {
   CONTRACT_STATUSES,
   type ContractCreateInput,
   type ContractStatus,
+  type ContractUpdateInput,
   isValidContractStatusTransition,
   validateContractCreate,
+  validateContractUpdate,
 } from "./contracts-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, conflict, invalid, isUuid, notFound } from "./schools-core";
@@ -242,6 +244,130 @@ async function writeContractStatusAudit(
     recordId: contractId,
     operation: "update",
     diff: { before: { status: before }, after: { status: after } },
+    rowHash: "",
+    createdBy: isSystemAdmin ? null : user.uid,
+    updatedBy: isSystemAdmin ? null : user.uid,
+  });
+}
+
+/** audit diff 用に契約条件を JSON 安全な形へ (日付は ISO 文字列、targetSchools/notes はそのまま)。 */
+type AuditableTerms = {
+  startedAt: Date;
+  endedAt: Date | null;
+  monthlyFeeJpy: number;
+  targetSchools: unknown;
+  notes: string | null;
+};
+function termsForAudit(t: AuditableTerms) {
+  return {
+    startedAt: t.startedAt.toISOString(),
+    endedAt: t.endedAt ? t.endedAt.toISOString() : null,
+    monthlyFeeJpy: t.monthlyFeeJpy,
+    targetSchools: t.targetSchools,
+    notes: t.notes,
+  };
+}
+
+/**
+ * F10 (#46): 契約の可変フィールド (開始/終了日・月額・配信対象校・備考) を編集する Server Action。
+ * advertiserId は不変 (別広告主への付替えは新規契約で表現)、status は遷移アクション
+ * (`updateContractStatusAction`) の管轄なのでここでは触らない。
+ *
+ * **認可 / RLS (ルール2)**: `requireRole(SYSTEM_ADMIN_ROLES)` + contracts `system_admin_full_access`
+ * の UPDATE。手書き WHERE は対象特定であってテナント境界ではない。`withSession` は非 BYPASSRLS。
+ *
+ * **not_found**: 対象が RLS 不可視 / 不存在なら SELECT が 0 行で `not_found` (多層防御で UPDATE 0 行も同様)。
+ *
+ * **監査 (ルール1)**: 変更前後の可変フィールドを同一 tx で audit_log に記録 (op=update、日付は ISO)。
+ * `updated_at` は auditColumns では INSERT 時のみ default のため UPDATE で明示更新する。契約は
+ * cross-tenant なので school_id / actor は NULL。
+ */
+export async function updateContractAction(
+  id: unknown,
+  raw: {
+    startedAt?: unknown;
+    endedAt?: unknown;
+    monthlyFeeJpy?: unknown;
+    targetSchools?: unknown;
+    notes?: unknown;
+  },
+): Promise<ActionResult<{ id: string }>> {
+  if (!isUuid(id)) {
+    return invalid("契約の指定が不正です。");
+  }
+  const contractId = id;
+  const v = validateContractUpdate(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  try {
+    const data = await withSession(async (tx: TenantTx, user) => {
+      const isSystemAdmin = user.role === "system_admin";
+      // 監査の before 用に更新前の可変フィールド + 広告主 id (revalidate 先) を同一 tx で取得
+      // (兼 not_found 検出)。
+      const [before] = await tx
+        .select({
+          startedAt: contracts.startedAt,
+          endedAt: contracts.endedAt,
+          monthlyFeeJpy: contracts.monthlyFeeJpy,
+          targetSchools: contracts.targetSchools,
+          notes: contracts.notes,
+          advertiserId: contracts.advertiserId,
+        })
+        .from(contracts)
+        .where(eq(contracts.id, contractId))
+        .limit(1);
+      if (!before) {
+        throw new ContractNotFoundError();
+      }
+      const updated = await tx
+        .update(contracts)
+        .set({
+          startedAt: v.value.startedAt,
+          endedAt: v.value.endedAt,
+          monthlyFeeJpy: v.value.monthlyFeeJpy,
+          targetSchools: v.value.targetSchools,
+          notes: v.value.notes,
+          updatedBy: isSystemAdmin ? null : user.uid,
+          updatedAt: new Date(),
+        })
+        .where(eq(contracts.id, contractId))
+        .returning({ id: contracts.id });
+      if (updated.length === 0) {
+        // 多層防御: SELECT が通って UPDATE が 0 行 = RLS 越境 (本来到達しない)。
+        throw new ContractNotFoundError();
+      }
+      await writeContractUpdateAudit(tx, user, contractId, before, v.value);
+      return { id: contractId, advertiserId: before.advertiserId };
+    });
+    revalidatePath(`/admin/system/advertisers/${data.advertiserId}/edit`);
+    return { ok: true, data: { id: data.id } };
+  } catch (error) {
+    if (error instanceof ContractNotFoundError) {
+      return notFound("指定された契約が見つかりません。");
+    }
+    throw error;
+  }
+}
+
+/** 可変フィールド編集を audit_log に追記 (operation=update、diff は変更前後の契約条件)。 */
+async function writeContractUpdateAudit(
+  tx: TenantTx,
+  user: { uid: string; role: string },
+  contractId: string,
+  before: AuditableTerms,
+  after: ContractUpdateInput,
+): Promise<void> {
+  const isSystemAdmin = user.role === "system_admin";
+  await tx.insert(auditLog).values({
+    actorUserId: isSystemAdmin ? null : user.uid,
+    schoolId: null,
+    tableName: "contracts",
+    recordId: contractId,
+    operation: "update",
+    diff: { before: termsForAudit(before), after: termsForAudit(after) },
     rowHash: "",
     createdBy: isSystemAdmin ? null : user.uid,
     updatedBy: isSystemAdmin ? null : user.uid,
