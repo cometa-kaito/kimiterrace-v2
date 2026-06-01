@@ -26,6 +26,8 @@ export * from "./queries/ai-extractions.js";
 export * from "./queries/event-stats.js";
 // F09 (#45): 月次レポートの学校別サマリー集計読み取り層 (JST 暦月の totals/ranking/稼働日数)
 export * from "./queries/monthly-report.js";
+// F09 (#45, #430): 月次レポート生成履歴 (monthly_reports) の書き込み層 (RLS context 内 upsert)
+export * from "./queries/monthly-reports-write.js";
 // F03 (#289): 職員氏名 roster (Vertex 送信前 PII マスキング供給用、ルール4)
 export * from "./queries/users.js";
 // F07/F09 (#322): 広告到達数 (advertiser reach) の minute-dedup 集計読み取り層 (ADR-025)

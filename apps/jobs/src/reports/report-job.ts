@@ -10,13 +10,16 @@ import { type RunMonthlyReportsConfig, runMonthlyReports } from "./run.js";
  * フェイクで単体検証可能）に置き、本ファイルは env 読取・構造化ログ・終了コードの I/O 結線のみに
  * 徹する（`embedding/embed-job.ts` と同じ分離）。
  *
- * **本スライスの範囲**: 全校の PDF を生成し、生成メトリクス（校ごとの PDF バイト数）を構造化ログに
- * 残すところまで。**生成済 PDF の Cloud Storage 保存（ADR-018）と `monthly_reports` への生成履歴
- * INSERT は後続スライス**（保存先 path が決まらないと履歴行を作れない: `pdf_storage_path` が NOT NULL）。
+ * **本スライスの範囲**: 全校の PDF を生成し（#429/#415）、**生成済 PDF を Cloud Storage へ保存（ADR-018）し
+ * `monthly_reports` に生成履歴を upsert する（#430）**まで。生成メトリクス（校ごとの PDF バイト数・保存 path・
+ * 履歴行 id）を構造化ログに残す。配布（メール/apps/web の DL 導線）と Terraform（バケット/Scheduler/
+ * lifecycle）は後続スライス。
  *
  * 必須 env:
  * - `DATABASE_URL`: **kimiterrace_app ロール**（非 BYPASSRLS）。Secret Manager 経由で注入し、
  *   コード/コミットされる env にハードコードしない（ルール2・5）。
+ * - `REPORT_BUCKET`: PDF 保存先 Cloud Storage バケット名。ハードコードせず env で注入（ルール5）。認証は
+ *   Cloud Run の Workload Identity（ADC、JSON キー不要・ルール5）。
  * - `REPORT_YEAR`: 対象年（西暦、例 2026）。整数のみ。
  * - `REPORT_MONTH`: 対象月（1-12）。範囲外は集計クエリが `RangeError`。
  */
@@ -54,23 +57,26 @@ function redactDsn(s: string): string {
 async function main(): Promise<void> {
   const config: RunMonthlyReportsConfig = {
     databaseUrl: requireEnv("DATABASE_URL"),
+    bucket: requireEnv("REPORT_BUCKET"),
     year: requireIntEnv("REPORT_YEAR"),
     month: requireIntEnv("REPORT_MONTH"),
   };
 
-  const result = await runMonthlyReports(config);
-  // **PDF バイト列はログに出さない**（巨大・不要）。生成メトリクス（校ごとの PDF サイズ）だけを
-  // 構造化ログに残す（Cloud Logging）。secret / PII は含めない（校名は機関識別であり個人情報でない）。
+  const { generated, persisted } = await runMonthlyReports(config);
+  // **PDF バイト列はログに出さない**（巨大・不要）。生成メトリクス（校ごとの PDF サイズ・GCS 保存 path・
+  // 履歴行 id）だけを構造化ログに残す（Cloud Logging）。secret / PII は含めない（校名は機関識別であり
+  // 個人情報でない。バケット名・object path は機密でなく、運用調査に必要）。
   console.info(
     JSON.stringify({
       event: "report.monthly.done",
-      year: result.year,
-      month: result.month,
-      schools: result.schools,
-      reports: result.reports.map((r) => ({
-        schoolId: r.schoolId,
-        schoolName: r.schoolName,
-        pdfSizeBytes: r.pdf.length,
+      year: generated.year,
+      month: generated.month,
+      schools: generated.schools,
+      reports: persisted.persisted.map((p) => ({
+        schoolId: p.schoolId,
+        pdfSizeBytes: p.pdfSizeBytes,
+        storagePath: p.storagePath,
+        reportId: p.reportId,
       })),
     }),
   );
