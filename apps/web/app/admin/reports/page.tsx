@@ -10,7 +10,7 @@ import {
   shiftMonth,
   toYmParam,
 } from "@/lib/reports/month";
-import { getMonthlySchoolSummary } from "@kimiterrace/db";
+import { getMonthlyAdReach, getMonthlySchoolSummary } from "@kimiterrace/db";
 
 /**
  * F09 (#45): 月次レポート 第1スライス — **学校別サマリー** (`/admin/reports`)。**Server Component**。
@@ -21,8 +21,13 @@ import { getMonthlySchoolSummary } from "@kimiterrace/db";
  *
  * **認可 (#166 / ダッシュボードと整合)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、
  * 本ページは `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。自校スコープの
- * ビューであり、system_admin 向けの cross-tenant レポート / 広告主別レポート / PDF ダウンロード・
- * `monthly_reports` 履歴・Cloud Storage 保存は後続スライスで用意する。
+ * ビューであり、system_admin 向けの cross-tenant レポート / PDF ダウンロード・`monthly_reports` 履歴・
+ * Cloud Storage 保存は後続スライスで用意する。
+ *
+ * **広告別 到達数 (#322 / ADR-025)**: 学校別サマリーの「延べ表示数 (engagement)」とは別に、広告ごとの
+ * **到達数 (reach)** を `getMonthlyAdReach` (`(client_id, ad_id, JST 分)` で集計時 minute-dedup) で当月分
+ * 表示する。延べ件数を到達数として出さない。広告ラベルは `ads.caption`、件数のみで匿名 clientId は出さない
+ * (ルール4)。広告は CRM の advertiser アカウントと未リンクのため現状は **広告 (caption) 単位**で集計する。
  *
  * `withSession` で RLS context を張り集計する (school 境界は RLS が DB レベルで強制、ルール2)。
  * 対象月は `?ym=YYYY-MM` で指定し、未指定なら現在の JST 暦月。前後月リンクで遷移でき、未来月へは
@@ -45,6 +50,11 @@ export default async function MonthlyReportPage({
 
   const summary = await withSession(
     (tx) => getMonthlySchoolSummary(tx, { year: target.year, month: target.month }),
+    { allowedRoles: PUBLISHER_ROLES },
+  );
+  // 広告別 到達数 (reach、minute-dedup)。延べ表示数 (engagement) とは別指標 (#322 / ADR-025)。
+  const adReach = await withSession(
+    (tx) => getMonthlyAdReach(tx, { year: target.year, month: target.month }),
     { allowedRoles: PUBLISHER_ROLES },
   );
 
@@ -136,11 +146,44 @@ export default async function MonthlyReportPage({
         </table>
       )}
 
+      <h2 style={sectionTitleStyle}>広告別 到達数 (reach)</h2>
+      {adReach.length === 0 ? (
+        <p style={emptyStyle}>この月の広告到達データはまだありません。</p>
+      ) : (
+        <table style={tableStyle}>
+          <caption style={captionStyle}>
+            広告ごとの到達数 (重複排除済)。同じ端末が同じ広告を同一分内に複数回見ても 1 と数えます。
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" style={thLeftStyle}>
+                広告
+              </th>
+              <th scope="col" style={thNumStyle}>
+                到達数 (reach)
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {adReach.map((a) => (
+              <tr key={a.adId}>
+                <th scope="row" style={tdLeftStyle}>
+                  {a.caption ?? "（無題の広告）"}
+                </th>
+                <td style={tdNumTotalStyle}>{a.reach.toLocaleString("ja-JP")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
       <p style={footnoteStyle}>
         集計は日本時間 (JST) の暦月基準です。「延べ表示数
-        (engagement)」は表示の延べ回数で、同じ内容を 複数回・複数端末で表示した分も数えます
-        (広告主向けの「到達数 (reach)」とは別指標です)。 上のリンクからこの表を CSV
-        でダウンロードできます。広告主別レポートと PDF ダウンロードは今後の スライスで追加します。
+        (engagement)」は表示の延べ回数で、同じ内容を複数回・複数端末で表示した分も数えます。「到達数
+        (reach)」は広告ごとに (端末, 分) 単位で重複排除した指標で、表示枚数やローテーション速度では
+        水増しされません (ADR-025)。学校別サマリーは上のリンクから CSV
+        でダウンロードできます。広告別 到達数の CSV / PDF
+        と広告主アカウント単位の集計は今後のスライスで追加します。
       </p>
     </section>
   );

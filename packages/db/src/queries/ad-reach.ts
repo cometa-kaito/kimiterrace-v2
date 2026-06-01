@@ -1,5 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { ads } from "../schema/ads.js";
 import { events } from "../schema/events.js";
 
 /**
@@ -42,6 +43,12 @@ export type AdReach = {
   adId: string;
   /** `(client_id, JST 分)` で重複排除した到達数。 */
   reach: number;
+};
+
+/** 広告 1 件あたりの到達数 + 表示ラベル (caption)。広告主向けレポート表示用。 */
+export type AdReachByAd = AdReach & {
+  /** 広告の caption (ads.caption)。広告が削除済 / caption 未設定なら null。 */
+  caption: string | null;
 };
 
 const DEFAULT_SINCE_DAYS = 30;
@@ -87,15 +94,19 @@ const MIN_MONTH = 1;
 const MAX_MONTH = 12;
 
 /**
- * 自校の広告到達数を **JST 暦月**で広告別に集計する (RLS で school スコープ)。到達数降順 → adId 昇順で
- * 決定的に並べる。
+ * 自校の広告到達数を **JST 暦月**で広告別に集計し、表示用に **caption ラベル**を付す (RLS で school
+ * スコープ)。到達数降順 → adId 昇順で決定的に並べる。F09 月次レポートの「広告別 到達数」列の供給源。
  *
- * `getAdReach` の直近 N 日窓に対し、本クエリは F09 月次レポート (広告主向け到達数列) のカデンスに合わせ
- * **対象 JST 暦月** `[当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)` の view を集計する。dedup キー
- * (`(client_id, ad_id, JST 分)`)・対象条件 (`type='view'` かつ `adId` 有り)・RLS 委譲・件数のみ返す
- * PII 非露出は `getAdReach` と同一 (ADR-025)。月境界は DB 側で `make_timestamptz` から int を組んで構築し、
- * JS の `Date` を timestamptz に bind しない (`getMonthlySchoolSummary` と同方針、postgres@3.4.9 の enum 列
- * INSERT で Date を直列化できない罠を回避)。
+ * `getAdReach` の直近 N 日窓に対し、本クエリは F09 月次レポートのカデンスに合わせ **対象 JST 暦月**
+ * `[当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)` の view を集計する。dedup キー (`(client_id, ad_id, JST 分)`)・
+ * 対象条件 (`type='view'` かつ `adId` 有り)・RLS 委譲は `getAdReach` と同一 (ADR-025)。表示ラベルとして
+ * `ads` を **LEFT JOIN** し caption を付す (件数 + caption のみで、`payload` の匿名 clientId 等は出さない /
+ * ルール4)。join は `ads.id::text = payload->>'adId'` とし、**未検証 payload を uuid へキャストしない**
+ * (不正値で SQL エラーにしない安全側)。`ads` も RLS で自校に絞られるため越境ラベルは出ない。広告が削除済 /
+ * caption 未設定なら caption は null。
+ *
+ * 月境界は DB 側で `make_timestamptz` から int を組んで構築し、JS の `Date` を timestamptz に bind しない
+ * (`getMonthlySchoolSummary` と同方針、postgres@3.4.9 の enum 列 INSERT で Date を直列化できない罠を回避)。
  *
  * @param opts.year 対象年 (西暦、例 2026)。整数以外は `RangeError`。
  * @param opts.month 対象月 (1-12)。範囲外は `RangeError`。
@@ -103,7 +114,7 @@ const MAX_MONTH = 12;
 export async function getMonthlyAdReach(
   db: Selectable,
   opts: { year: number; month: number },
-): Promise<AdReach[]> {
+): Promise<AdReachByAd[]> {
   const { year, month } = opts;
   // 月は 1-12 のみ受け付ける (make_timestamptz は 13 月等を翌年へ繰り上げ、呼び出し側の想定とずれるため
   // ここで明示的に弾く)。year/month は UI からの入力になりうるので範囲検証する。
@@ -132,15 +143,18 @@ export async function getMonthlyAdReach(
   );
 
   const rows = await db
-    .select({ adId, reach })
+    .select({ adId, caption: ads.caption, reach })
     .from(events)
+    // caption ラベル付与のみの LEFT JOIN。ads.id は一意のため event 1 行に最大 1 ads 行で fan-out しない
+    // (= reach の distinct 計数に影響しない)。payload を uuid へキャストせず ads.id を text 化して突合する。
+    .leftJoin(ads, sql`${ads.id}::text = ${events.payload}->>'adId'`)
     .where(and(eq(events.type, "view"), inMonth, sql`${events.payload}->>'adId' is not null`))
-    .groupBy(adId)
+    .groupBy(adId, ads.caption)
     // 到達数同数でも順序を決定的にするため adId を二次キーにする。
     .orderBy(
       sql`count(distinct ${reachKey(events.occurredAt, events.payload)}) desc`,
       sql`${events.payload}->>'adId'`,
     );
 
-  return rows.map((r) => ({ adId: r.adId, reach: r.reach }));
+  return rows.map((r) => ({ adId: r.adId, caption: r.caption, reach: r.reach }));
 }
