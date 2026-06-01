@@ -30,3 +30,5 @@ export * from "./queries/monthly-report.js";
 export * from "./queries/users.js";
 // F07/F09 (#322): 広告到達数 (advertiser reach) の minute-dedup 集計読み取り層 (ADR-025)
 export * from "./queries/ad-reach.js";
+// F03 (#348, ADR-027): 分散レート制限の Cloud SQL store (DistributedRateLimiter 用)
+export * from "./queries/ai-rate-limit.js";
