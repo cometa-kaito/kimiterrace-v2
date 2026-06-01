@@ -68,20 +68,32 @@ trap cleanup EXIT
 log "=== Worker $WORKER_ID starting ==="
 log "Role: $ROLE | Issue: #$ISSUE_NUMBER | Branch: $BRANCH_NAME"
 
-if [[ "$ROLE" == "worker" ]]; then
+# 両ロールとも専用 worktree で隔離して動かす (#67)。Reviewer も REPO_ROOT で直接動かすと、
+# 誤って `gh pr checkout` / `git checkout` した際に Desktop Orchestrator の current branch を
+# 奪ってしまう。Reviewer は read-only なので branch を作らず detached HEAD + pnpm install スキップ
+# とし、軽量性を保ちつつ物理的に隔離する（テンプレ指示だけに頼らない defense in depth）。
+if [[ -n "$WORKTREE_PATH" ]]; then
   if [[ -d "$WORKTREE_PATH" ]]; then
     log "Worktree already exists at $WORKTREE_PATH (reusing)"
-  else
-    log "Creating worktree: $WORKTREE_PATH on branch $BRANCH_NAME"
+  elif [[ "$ROLE" == "worker" ]]; then
+    log "Creating worker worktree: $WORKTREE_PATH on branch $BRANCH_NAME"
     git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" main
+  else
+    log "Creating reviewer worktree (detached, isolated, no branch): $WORKTREE_PATH"
+    git worktree add --detach "$WORKTREE_PATH" main
   fi
   cd "$WORKTREE_PATH"
 
-  log "Installing dependencies (pnpm install)…"
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm install --frozen-lockfile 2>&1 | tee -a "$LOG_PATH" || log "pnpm install warning"
+  if [[ "$ROLE" == "worker" ]]; then
+    log "Installing dependencies (pnpm install)…"
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm install --frozen-lockfile 2>&1 | tee -a "$LOG_PATH" || log "pnpm install warning"
+    fi
+  else
+    log "Reviewer: skipping pnpm install (read-only review via gh pr diff)"
   fi
 else
+  log "No worktree path provided; running in repo root ($REPO_ROOT)"
   cd "$REPO_ROOT"
 fi
 
