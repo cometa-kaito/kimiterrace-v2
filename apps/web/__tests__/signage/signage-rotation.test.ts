@@ -9,6 +9,7 @@ import {
   jitteredPollMs,
   jstDateString,
   nextIndex,
+  parseSignageDate,
 } from "@/lib/signage/rotation";
 import { describe, expect, it } from "vitest";
 
@@ -75,5 +76,40 @@ describe("jstDateString", () => {
   it("JST 日中は同日", () => {
     // 2026-05-31T03:00:00Z = 2026-05-31T12:00 JST
     expect(jstDateString(new Date("2026-05-31T03:00:00Z"))).toBe("2026-05-31");
+  });
+});
+
+describe("parseSignageDate", () => {
+  // フォールバック比較用の固定 now (= JST 2026-06-01)。
+  const NOW = new Date("2026-05-31T15:30:00Z");
+  const TODAY = jstDateString(NOW); // "2026-06-01"
+
+  it("実在する YYYY-MM-DD はそのまま返す", () => {
+    expect(parseSignageDate("2026-06-02", NOW)).toBe("2026-06-02");
+    expect(parseSignageDate("2024-02-29", NOW)).toBe("2024-02-29"); // 閏日
+    expect(parseSignageDate("2026-12-31", NOW)).toBe("2026-12-31");
+  });
+
+  it("形式は通るが無効な暦日は今日へフォールバック (pg date 比較の 500 を防ぐ)", () => {
+    expect(parseSignageDate("2026-13-45", NOW)).toBe(TODAY); // 13 月 45 日
+    expect(parseSignageDate("2026-02-31", NOW)).toBe(TODAY); // 2/31 は存在しない
+    expect(parseSignageDate("2026-00-10", NOW)).toBe(TODAY); // 0 月
+    expect(parseSignageDate("2026-06-00", NOW)).toBe(TODAY); // 0 日
+    expect(parseSignageDate("0000-00-00", NOW)).toBe(TODAY);
+    expect(parseSignageDate("2025-02-29", NOW)).toBe(TODAY); // 非閏年の閏日
+  });
+
+  it("フォーマット不正は今日へフォールバック", () => {
+    expect(parseSignageDate("2026/06/02", NOW)).toBe(TODAY);
+    expect(parseSignageDate("2026-6-2", NOW)).toBe(TODAY);
+    expect(parseSignageDate("20260602", NOW)).toBe(TODAY);
+    expect(parseSignageDate("2026-06-02T00:00", NOW)).toBe(TODAY);
+    expect(parseSignageDate("nope", NOW)).toBe(TODAY);
+  });
+
+  it("未指定 (null/undefined/空) は今日へフォールバック", () => {
+    expect(parseSignageDate(null, NOW)).toBe(TODAY);
+    expect(parseSignageDate(undefined, NOW)).toBe(TODAY);
+    expect(parseSignageDate("", NOW)).toBe(TODAY);
   });
 });

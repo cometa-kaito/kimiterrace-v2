@@ -92,3 +92,37 @@ export function jitteredPollMs(
 export function jstDateString(now: Date = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
+
+/** `YYYY-MM-DD` のフォーマット。実在暦日かは {@link parseSignageDate} が round-trip で別途検証する。 */
+const SIGNAGE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * サイネージの `?date=` クエリを安全な `YYYY-MM-DD` (JST) に解決する。
+ *
+ * フォーマット (`SIGNAGE_DATE_RE`) **だけでなく実在する暦日か**まで検証する。`2026-13-45` /
+ * `2026-02-31` / `0000-00-00` 等は regex を通過するが、`daily_data.date` は pg の `date` 型
+ * (`mode:"string"`) で素の文字列を bind するため、無効暦日は `WHERE date = '2026-13-45'` で
+ * pg が "date/time field value out of range" を投げ、ハンドラ側に try/catch が無いと 500 になる
+ * (CWE-20)。実在性は `Date.UTC` で組み立て直して各フィールドが一致するか (round-trip) で判定し、
+ * 形式不正・無効暦日・未指定はいずれも JST の今日 ({@link jstDateString}) にフォールバックする。
+ *
+ * @param dateParam URL クエリの生値 (null/undefined 可)。
+ * @param now       フォールバックの「今日」を決める基準時刻 (テスト注入用)。
+ */
+export function parseSignageDate(
+  dateParam: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (dateParam && SIGNAGE_DATE_RE.test(dateParam)) {
+    const parts = dateParam.split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    // round-trip: 桁溢れ (13 月 / 45 日 / 02-31) は Date.UTC が別の月日へ繰り上がり一致しない。
+    const dt = new Date(Date.UTC(year, month - 1, day));
+    if (dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day) {
+      return dateParam;
+    }
+  }
+  return jstDateString(now);
+}
