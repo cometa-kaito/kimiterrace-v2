@@ -35,6 +35,10 @@ export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./mod
 export { createVertexModelClient } from "./model/vertex.js";
 export type { VertexModelConfig } from "./model/vertex.js";
 
+// F06 (#365, ADR-007) Vertex テキスト embedding アダプタ（RAG: コンテンツ/質問の embedding 生成、768 次元）
+export { EMBEDDING_DIM, EmbeddingError, createVertexEmbeddingClient } from "./model/embed.js";
+export type { EmbeddingClient, VertexEmbeddingConfig } from "./model/embed.js";
+
 // レート制限（NFR06）
 export {
   FixedWindowRateLimiter,
