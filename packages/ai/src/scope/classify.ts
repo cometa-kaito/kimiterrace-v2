@@ -45,8 +45,9 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   // これにより `勉強会の集合場所` / `テスト勉強の予定` は in_scope に保ちつつ（#389 Reviewer M-1）、
   // `勉強したい` / `勉強について教えて` / `数学の勉強で困っている` のような素朴な学習依頼は
   // 取りこぼさない（#397 Reviewer Low-1: bare 限定だと recall が後退する）。`勉強の仕方` 等の
-  // 学習依頼は除外語に含めないので引き続き study。ひらがな `べんきょう` は別パターンで bare のまま
-  // （やさしい日本語は表記ゆれが大きく、既存の `べんきょうの しかた`（分かち書き）を取りこぼさないため）。
+  // 学習依頼は除外語に含めないので引き続き study。ひらがな `べんきょう` も `かい`（勉強会）だけ
+  // 除外して kanji と同様の対称性を持たせる（#401）。予定/場所等は分かち書き（`べんきょうの よてい`）で
+  // lookahead が脆く、既存の `べんきょうの しかた`（分かち書き）を取りこぼす危険があるため bare のまま。
   /勉強(?!会|の(?:予定|日程|スケジュール|場所|会場|集合|時間|範囲|持ち物))/,
   /宿題/,
   /自習/,
@@ -55,19 +56,26 @@ const STUDY_PATTERNS: readonly RegExp[] = [
   /答えを教え/,
   /問題を解/,
   /教科書/,
-  // やさしい日本語 / ひらがな
-  /べんきょう/,
+  // やさしい日本語 / ひらがな（`べんきょうかい`＝勉強会 は kanji と同じく除外、#401）
+  /べんきょう(?!かい)/,
   /しゅくだい/,
   /こたえをおしえ/,
   // 英語
   /\bstudy\b/i,
   /\bstudying\b/i,
   /\bhomework\b/i,
+  // `assignment` は **教科/学習語に共起する場合のみ** study とする（#401）。`seating assignment`
+  // （席替え）/ `room assignment`（部屋割り）など掲示物起源の割り当ては弾かない（false positive 回避）。
+  // 単独の `studies` は "social studies"（社会科の授業名）を巻き込むため**意図的に追加しない**。
+  /\b(?:homework|math|science|reading|english|class) assignment\b/i,
   // `solve` は学習目的語（equation/exercise/homework 等）に束縛する。`solve my issue with the
   // printer` のような非学習の依頼を study 扱いしないため（#389 Reviewer M-2）。equation/homework は
   // 下の単独パターンでも捕捉される。変数解法 `solve for x` のみ別途許容。
   /\bsolve (?:this |that |these |the |my |your )?(?:equation|exercise|inequality|integral|worksheet|homework)\b/i,
   /\bsolve for [a-z]\b/i,
+  // `solve this/the question`（学習設問）。`solve my question about lunch` 等を巻き込まないよう
+  // 指示代名詞 this/that/these/the に限定（my/your は除外、#401）。
+  /\bsolve (?:this|that|these|the) (?:\w+ )?question\b/i,
   /\bteach me (?:how|the|math|english|science|to solve)/i,
   /\b(?:math|algebra|geometry|calculus|physics) (?:problem|question)/i,
   /\bequation\b/i,

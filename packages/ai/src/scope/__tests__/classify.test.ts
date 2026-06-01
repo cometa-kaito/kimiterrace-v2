@@ -215,4 +215,39 @@ describe("F06 スコープ分類器 (ADR-028, #366)", () => {
       expect(classifyScope("勉強会はいつ？").verdict).toBe("in_scope");
     });
   });
+
+  // #401: precision/recall 追い込み。recall を上げつつ新たな false positive を出さないことを pin。
+  describe("precision/recall 追い込み (#401)", () => {
+    it("ひらがな `べんきょうかい`（勉強会）は in_scope — kanji と対称に除外", () => {
+      expect(classifyScope("べんきょうかいの しゅうごうばしょは？").verdict).toBe("in_scope");
+    });
+
+    it("ひらがな `べんきょうしたい`（学習依頼）は引き続き study", () => {
+      expect(classifyScope("べんきょうしたい").reason).toBe("study");
+    });
+
+    it("教科語付き assignment は study", () => {
+      expect(classifyScope("I haven't finished my math assignment").reason).toBe("study");
+      expect(classifyScope("Help me with the homework assignment").reason).toBe("study");
+    });
+
+    it("掲示物起源の assignment（席替え/部屋割り）は in_scope — false positive を出さない", () => {
+      expect(classifyScope("When is the seating assignment announced?").verdict).toBe("in_scope");
+      expect(classifyScope("What is my room assignment for the trip?").verdict).toBe("in_scope");
+    });
+
+    it("`solve this question`（学習設問）は study", () => {
+      expect(classifyScope("Please solve this question for me").reason).toBe("study");
+    });
+
+    it("`solve my question about X`（非学習）は in_scope — 指示代名詞限定で巻き込まない", () => {
+      expect(classifyScope("Can you solve my question about the lunch menu?").verdict).toBe(
+        "in_scope",
+      );
+    });
+
+    it("`social studies`（社会科の授業名）は in_scope — bare studies を追加しない設計判断", () => {
+      expect(classifyScope("What time is social studies tomorrow?").verdict).toBe("in_scope");
+    });
+  });
 });
