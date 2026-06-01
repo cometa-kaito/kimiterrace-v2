@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
+import { EffectCommentPanel } from "./_components/EffectCommentPanel";
 import { densifyPresenceHourly, hasPresenceData } from "@/lib/dashboard/presence";
 import { withSession } from "@/lib/db";
 import {
@@ -29,7 +30,9 @@ import {
  * `withSession` で RLS context を張り集計する (school 境界は RLS が DB レベルで強制、CLAUDE.md
  * ルール2)。サマリ + content 別ランキング + **日次の推移** (JST 暦日、第2スライス) を表示。
  * 重い描画ライブラリ (Recharts/Visx) は導入せず、時系列は **CSS バーの軽量 SSR** で描く (依存追加を
- * 避ける)。人感センサーヒートマップ・AI 効果コメントは後続スライスで追加する。
+ * 避ける)。**AI 効果コメント** (slice 3) は本ページが描画する Client island
+ * (`<EffectCommentPanel />`) で、生成は課金 + 監査記録のためボタン起動 (本 Server Component は
+ * action を load 時に呼ばない)。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きで提示し、色のみに依存しない。
  * ランキングは `<table>` + `<th scope>`、時系列バーも各行に件数テキストを併記して読み上げ可能にする。
@@ -113,6 +116,9 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>日次の在室 (人感センサー)</h2>
       <DailyPresenceTrend dailyPresence={dailyPresence} />
+
+      {/* F08 slice 3: AI 効果コメント (Client island)。生成は課金 + 監査のためボタン起動。 */}
+      <EffectCommentPanel />
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>
