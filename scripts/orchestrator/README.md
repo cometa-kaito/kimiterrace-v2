@@ -337,8 +337,9 @@ Mac の Terminal.app から `tmux kill-session -t workers; tmux new -s workers -
 ## 既知の制約
 
 1. **Windows + Git Bash 前提（Orchestrator 側）**
-   - `bash`、`timeout` (coreutils)、`grep -oP` (PCRE) が必要
-   - 通常 Git for Windows に含まれる
+   - `bash`、`timeout` (coreutils)、`node` が必要
+   - 通常 Git for Windows + pnpm 環境に含まれる
+   - 注: config / PR 番号のパースは PCRE (`grep -oP`) を**使わない** — BSD grep には `-P` が無く、Git-Bash GNU grep も非 UTF-8 locale で `-P` を拒否するため。クロスプラットフォームな解析は `node` に統一している（5054cef / #386）
 2. **`claude.ai` サブスクの並列制限は未測定**
    - 並列 5 以上で rate limit に当たる可能性
    - 必要時は API key 課金へ
