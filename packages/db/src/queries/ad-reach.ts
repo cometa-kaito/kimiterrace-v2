@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { events } from "../schema/events.js";
 
@@ -73,6 +73,61 @@ export async function getAdReach(
     .select({ adId, reach })
     .from(events)
     .where(and(eq(events.type, "view"), recent, sql`${events.payload}->>'adId' is not null`))
+    .groupBy(adId)
+    // 到達数同数でも順序を決定的にするため adId を二次キーにする。
+    .orderBy(
+      sql`count(distinct ${reachKey(events.occurredAt, events.payload)}) desc`,
+      sql`${events.payload}->>'adId'`,
+    );
+
+  return rows.map((r) => ({ adId: r.adId, reach: r.reach }));
+}
+
+const MIN_MONTH = 1;
+const MAX_MONTH = 12;
+
+/**
+ * 自校の広告到達数を **JST 暦月**で広告別に集計する (RLS で school スコープ)。到達数降順 → adId 昇順で
+ * 決定的に並べる。
+ *
+ * `getAdReach` の直近 N 日窓に対し、本クエリは F09 月次レポート (広告主向け到達数列) のカデンスに合わせ
+ * **対象 JST 暦月** `[当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)` の view を集計する。dedup キー
+ * (`(client_id, ad_id, JST 分)`)・対象条件 (`type='view'` かつ `adId` 有り)・RLS 委譲・件数のみ返す
+ * PII 非露出は `getAdReach` と同一 (ADR-025)。月境界は DB 側で `make_timestamptz` から int を組んで構築し、
+ * JS の `Date` を timestamptz に bind しない (`getMonthlySchoolSummary` と同方針、postgres@3.4.9 の enum 列
+ * INSERT で Date を直列化できない罠を回避)。
+ *
+ * @param opts.year 対象年 (西暦、例 2026)。整数以外は `RangeError`。
+ * @param opts.month 対象月 (1-12)。範囲外は `RangeError`。
+ */
+export async function getMonthlyAdReach(
+  db: Selectable,
+  opts: { year: number; month: number },
+): Promise<AdReach[]> {
+  const { year, month } = opts;
+  // 月は 1-12 のみ受け付ける (make_timestamptz は 13 月等を翌年へ繰り上げ、呼び出し側の想定とずれるため
+  // ここで明示的に弾く)。year/month は UI からの入力になりうるので範囲検証する。
+  if (!Number.isInteger(month) || month < MIN_MONTH || month > MAX_MONTH) {
+    throw new RangeError(`month must be an integer in [1, 12], got ${month}`);
+  }
+  if (!Number.isInteger(year)) {
+    throw new RangeError(`year must be an integer, got ${year}`);
+  }
+
+  // JST 暦月の窓 [当月 1 日 00:00 JST, 翌月 1 日 00:00 JST)。境界は DB 側で int から構築する。
+  const monthStart = sql`make_timestamptz(${year}::int, ${month}::int, 1, 0, 0, 0, 'Asia/Tokyo')`;
+  const nextMonthStart = sql`${monthStart} + interval '1 month'`;
+  const inMonth = and(gte(events.occurredAt, monthStart), lt(events.occurredAt, nextMonthStart));
+
+  const adId = sql<string>`${events.payload}->>'adId'`;
+  const reach = sql<number>`count(distinct ${reachKey(events.occurredAt, events.payload)})`.mapWith(
+    Number,
+  );
+
+  const rows = await db
+    .select({ adId, reach })
+    .from(events)
+    .where(and(eq(events.type, "view"), inMonth, sql`${events.payload}->>'adId' is not null`))
     .groupBy(adId)
     // 到達数同数でも順序を決定的にするため adId を二次キーにする。
     .orderBy(

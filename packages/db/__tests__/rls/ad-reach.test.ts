@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getAdReach } from "../../src/queries/ad-reach.js";
+import { getAdReach, getMonthlyAdReach } from "../../src/queries/ad-reach.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -50,6 +50,30 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
       VALUES (
         ${schoolId}, ${type},
         date_trunc('minute', now()) - make_interval(days => 1) - make_interval(mins => ${minuteOffset}::int),
+        ${JSON.stringify(payload)}::jsonb
+      )
+    `;
+  }
+
+  /**
+   * 広告 view を **特定 JST 暦時刻**に投入する (月次集計の月窓検証用)。occurred_at は
+   * `make_timestamptz(... 'Asia/Tokyo')` で DB 側に絶対時刻を組み now() に依存しないため、月境界の
+   * テストが決定的になる ([[pg-date-bind-enum-insert]] 同様に時刻は全て SQL 側計算で Date を bind しない)。
+   */
+  async function seedViewAt(
+    schoolId: string,
+    adId: string | null,
+    clientId: string | null,
+    ts: { y: number; mo: number; d: number; h: number; mi: number },
+  ): Promise<void> {
+    const payload: Record<string, string> = {};
+    if (adId !== null) payload.adId = adId;
+    if (clientId !== null) payload.clientId = clientId;
+    await raw`
+      INSERT INTO events (school_id, type, occurred_at, payload)
+      VALUES (
+        ${schoolId}, 'view',
+        make_timestamptz(${ts.y}::int, ${ts.mo}::int, ${ts.d}::int, ${ts.h}::int, ${ts.mi}::int, 0, 'Asia/Tokyo'),
         ${JSON.stringify(payload)}::jsonb
       )
     `;
@@ -158,5 +182,101 @@ describeOrSkip("F07/F09 getAdReach (広告到達数 minute-dedup、RLS)", () => 
     await seedView(fx.schoolA, AD1, CLIENT1, 0);
     const reach = await withTenantContext(db, {}, (tx) => getAdReach(tx), APP);
     expect(reach).toEqual([]);
+  });
+
+  // --- getMonthlyAdReach: JST 暦月窓 × minute-dedup (F09 広告主別レポートの月次到達数の基盤) ---
+  describe("getMonthlyAdReach (JST 暦月窓)", () => {
+    const Y = 2026;
+    const M = 3; // 対象月 = 2026 年 3 月 (JST)
+
+    it("対象月内で同一 (client, ad, 分) は 1、別分は別計上する", async () => {
+      // 同一 JST 分 (03/10 12:00) の重複 → 1、別分 (03/10 12:05) → +1
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 10, h: 12, mi: 0 });
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 10, h: 12, mi: 0 });
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 10, h: 12, mi: 5 });
+      const reach = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(reach).toEqual([{ adId: AD1, reach: 2 }]);
+    });
+
+    it("前月・翌月の view は対象月の到達数に含めない (月窓 [当月, 翌月) )", async () => {
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 15, h: 9, mi: 0 }); // 当月 → 計上
+      await seedViewAt(fx.schoolA, AD1, CLIENT2, { y: Y, mo: 2, d: 28, h: 9, mi: 0 }); // 前月 → 除外
+      await seedViewAt(fx.schoolA, AD1, CLIENT2, { y: Y, mo: 4, d: 1, h: 9, mi: 0 }); // 翌月 → 除外
+      const reach = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(reach).toEqual([{ adId: AD1, reach: 1 }]);
+    });
+
+    it("月境界は JST で判定する (UTC ではない)", async () => {
+      // JST 03/31 23:59 は 3 月 (= UTC 03/31 14:59)、JST 04/01 00:00 は 4 月 (= UTC 03/31 15:00)。
+      // UTC 月境界で誤判定すると両方 3 月に入ってしまうため、JST 境界を pin する。
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 31, h: 23, mi: 59 }); // 3 月末 JST → 計上
+      await seedViewAt(fx.schoolA, AD1, CLIENT2, { y: Y, mo: 4, d: 1, h: 0, mi: 0 }); // 4 月頭 JST → 除外
+      const reach = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(reach).toEqual([{ adId: AD1, reach: 1 }]);
+    });
+
+    it("ad 別に group し、到達数降順 → adId 昇順で返す", async () => {
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 5, h: 10, mi: 0 });
+      await seedViewAt(fx.schoolA, AD1, CLIENT2, { y: Y, mo: M, d: 5, h: 10, mi: 0 });
+      await seedViewAt(fx.schoolA, AD2, CLIENT1, { y: Y, mo: M, d: 5, h: 10, mi: 0 });
+      const reach = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(reach).toEqual([
+        { adId: AD1, reach: 2 },
+        { adId: AD2, reach: 1 },
+      ]);
+    });
+
+    it("テナント分離: A コンテキストからは B 校の月次 view が漏れない (RLS)", async () => {
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 8, h: 9, mi: 0 });
+      await seedViewAt(fx.schoolB, AD1, CLIENT1, { y: Y, mo: M, d: 8, h: 9, mi: 0 });
+      await seedViewAt(fx.schoolB, AD2, CLIENT2, { y: Y, mo: M, d: 8, h: 9, mi: 0 });
+      const a = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(a).toEqual([{ adId: AD1, reach: 1 }]);
+    });
+
+    it("空コンテキストは deny-by-default で空配列", async () => {
+      await seedViewAt(fx.schoolA, AD1, CLIENT1, { y: Y, mo: M, d: 8, h: 9, mi: 0 });
+      const reach = await withTenantContext(
+        db,
+        {},
+        (tx) => getMonthlyAdReach(tx, { year: Y, month: M }),
+        APP,
+      );
+      expect(reach).toEqual([]);
+    });
+
+    it("月が範囲外 (0 / 13) は RangeError で弾く (UI 入力検証)", async () => {
+      await expect(
+        withTenantContext(db, ctxA(), (tx) => getMonthlyAdReach(tx, { year: Y, month: 0 }), APP),
+      ).rejects.toThrow(RangeError);
+      await expect(
+        withTenantContext(db, ctxA(), (tx) => getMonthlyAdReach(tx, { year: Y, month: 13 }), APP),
+      ).rejects.toThrow(RangeError);
+    });
   });
 });
