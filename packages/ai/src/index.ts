@@ -45,6 +45,11 @@ export type { RateLimitStore } from "./rate-limit-distributed.js";
 export { structureContent, RateLimitExceededError, PiiLeakError } from "./structure.js";
 export type { StructureRequest, StructureResult } from "./structure.js";
 
+// F06 スコープ分類器 (ADR-028, #366): Gemini 呼出前に掲示物 Q&A か判定し、
+// 学習・進路は誘導なし拒否させるための決定論キーワード分類器。
+export { classifyScope } from "./scope/classify.js";
+export type { ScopeClassification, ScopeVerdict, OutOfScopeReason } from "./scope/classify.js";
+
 // 監査マッパー
 export { toAiExtractionInsert } from "./audit.js";
 export type { AiExtractionInsert, AuditMapParams } from "./audit.js";
