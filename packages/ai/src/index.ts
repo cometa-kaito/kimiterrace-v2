@@ -4,6 +4,10 @@
 export { maskPII, unmaskPII, unmaskDeep, findUnmaskedPii } from "./pii/mask.js";
 export type { MaskResult, MaskOptions, PiiCategory, PiiEntry } from "./pii/types.js";
 
+// F06 (#426, ADR-030) authoring 時のロスター無し PII（生徒/保護者氏名）検出ヒューリスティック（soft-gate slice 1）
+export { findHonorificNames } from "./pii/student-name-heuristic.js";
+export type { HonorificNameDetection } from "./pii/student-name-heuristic.js";
+
 // 構造化出力スキーマ（ADR-017）
 export {
   EXTRACTION_KINDS,
