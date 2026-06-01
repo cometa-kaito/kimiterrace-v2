@@ -418,7 +418,11 @@ function Cmd-Cleanup {
     # of the same issue fail at `git worktree add -b`. Only workers create a branch (reviewers run
     # detached), and we reach here only when that worker's PR is MERGED, so the delete is safe.
     if ($s.role -eq "worker" -and $s.branch) {
-      git -C $repoRoot branch -D $s.branch 2>&1 | Out-Null
+      # Swallow failures (most commonly: the branch is already gone). Under the script's
+      # $ErrorActionPreference="Stop", a native stderr write ("error: branch ... not found") is a
+      # terminating error that would otherwise abort the whole cleanup loop and leak the remaining
+      # worktrees. try/catch mirrors the remote path's `|| true`, keeping branch GC fail-open.
+      try { git -C $repoRoot branch -D $s.branch 2>&1 | Out-Null } catch {}
     }
     $removed.Add("local:$($s.worktree)")
   }
