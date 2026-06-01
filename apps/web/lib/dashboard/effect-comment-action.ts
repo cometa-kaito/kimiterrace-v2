@@ -105,7 +105,9 @@ export async function generateEffectComment(
         await tx.insert(auditLog).values({
           actorUserId: user.uid,
           schoolId: user.schoolId,
-          tableName: "ai_chat_messages",
+          // LLM 呼び出しの記録であり対応行は無い (recordId: null)。chat message と混同しないよう
+          // 専用ラベルにする (監査クエリの table_name バケットを正す, Reviewer Low / ルール1)。
+          tableName: "effect_comment",
           recordId: null,
           operation: "insert",
           diff: {
