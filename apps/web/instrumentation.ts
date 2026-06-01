@@ -1,5 +1,3 @@
-import { assertStandardFontsAvailable } from "@kimiterrace/ai";
-
 /**
  * Next.js 起動時フック（サーバ起動で一度だけ `register` が呼ばれる）。
  *
@@ -9,6 +7,8 @@ import { assertStandardFontsAvailable } from "@kimiterrace/ai";
  * デプロイ事故を早期検知する（サイレント劣化より loud failure を選ぶ）。
  *
  * - Edge runtime では Node の fs / pdfjs を扱えないため nodejs runtime のみで実行する。
+ * - `@kimiterrace/ai` は Node 専用依存（fs / pdfjs / vertex 等）を芋づるで引くため、**nodejs ガード内の
+ *   動的 import** で取り込み、edge バンドルに Node グラフを載せない（PR #316 Reviewer Med-1）。
  * - 開発/テストでは node_modules にフォント実体があるため通常 throw しない。本番固有の同梱漏れを狙う。
  */
 export async function register(): Promise<void> {
@@ -20,5 +20,6 @@ export async function register(): Promise<void> {
   if (process.env.NODE_ENV !== "production") {
     return;
   }
+  const { assertStandardFontsAvailable } = await import("@kimiterrace/ai");
   assertStandardFontsAvailable();
 }

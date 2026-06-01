@@ -53,8 +53,8 @@ function toBuffer(bytes: Uint8Array): Buffer {
   return Buffer.from(bytes);
 }
 
-/** pdfjs-dist が standard_fonts/ に同梱するフォント実体の拡張子（.pfb / .ttf / .otf / .bcmap）。 */
-const STANDARD_FONT_FILE_RE = /\.(pfb|ttf|otf|bcmap)$/i;
+/** pdfjs-dist が standard_fonts/ に同梱するフォント実体の拡張子（.pfb / .ttf / .otf。.bcmap は cmaps/ 配下）。 */
+const STANDARD_FONT_FILE_RE = /\.(pfb|ttf|otf)$/i;
 
 /**
  * `pdfjs-dist/standard_fonts/` ディレクトリの絶対パスを解決する（存在検査なしの純粋なパス計算）。
