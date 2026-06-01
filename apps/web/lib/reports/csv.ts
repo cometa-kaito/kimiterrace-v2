@@ -28,6 +28,18 @@ export function escapeCsvField(value: string | number): string {
   return s;
 }
 
+/**
+ * CSV formula injection (CWE-1236) の中和。`=` `+` `-` `@` や TAB/CR で始まるセルは、Excel 等が
+ * 数式として評価しうるため先頭に `'` を前置して文字列扱いへ落とす。
+ *
+ * content タイトルは教員が自由入力する untrusted 値 (同一 school の信頼ドメイン内ではあるが、
+ * 安全側に倒す。ルール: 便利さよりセキュリティ)。集計値 (件数・順位) は非負整数で先頭が危険文字に
+ * ならないため対象外で、数値が文字列化される副作用も避ける。
+ */
+export function neutralizeCsvFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
 /** 行 (セル配列) を CSV の 1 レコードへ (各セルをエスケープして `,` 連結)。 */
 function toRow(cells: Array<string | number>): string {
   return cells.map(escapeCsvField).join(",");
@@ -57,7 +69,10 @@ export function monthlySummaryToCsv(summary: MonthlySchoolSummary): string {
     toRow(["稼働日数", summary.activeDays]),
     "",
     toRow(["順位", "コンテンツ", "表示", "タップ", "合計"]),
-    ...summary.ranking.map((row, i) => toRow([i + 1, row.title, row.views, row.taps, row.total])),
+    ...summary.ranking.map((row, i) =>
+      // title は untrusted 自由入力なので formula injection を中和してから出す。
+      toRow([i + 1, neutralizeCsvFormula(row.title), row.views, row.taps, row.total]),
+    ),
   ];
   return BOM + rows.join(CRLF) + CRLF;
 }

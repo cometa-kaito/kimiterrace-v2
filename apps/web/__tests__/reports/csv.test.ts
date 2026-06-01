@@ -1,6 +1,11 @@
 import type { MonthlySchoolSummary } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
-import { escapeCsvField, monthlyCsvFilename, monthlySummaryToCsv } from "../../lib/reports/csv";
+import {
+  escapeCsvField,
+  monthlyCsvFilename,
+  monthlySummaryToCsv,
+  neutralizeCsvFormula,
+} from "../../lib/reports/csv";
 
 /**
  * F09 (#45) 第2スライス: 月次サマリー CSV シリアライズの単体テスト。純粋関数なので DB 不要。
@@ -38,6 +43,21 @@ describe("escapeCsvField", () => {
   });
 });
 
+describe("neutralizeCsvFormula (CWE-1236)", () => {
+  it("数式トリガ文字で始まる値は ' を前置する", () => {
+    expect(neutralizeCsvFormula("=1+1")).toBe("'=1+1");
+    expect(neutralizeCsvFormula("+SUM(A1)")).toBe("'+SUM(A1)");
+    expect(neutralizeCsvFormula("-2")).toBe("'-2");
+    expect(neutralizeCsvFormula("@cmd")).toBe("'@cmd");
+    expect(neutralizeCsvFormula("\tTAB")).toBe("'\tTAB");
+  });
+
+  it("通常のタイトルはそのまま", () => {
+    expect(neutralizeCsvFormula("体育祭のお知らせ")).toBe("体育祭のお知らせ");
+    expect(neutralizeCsvFormula("図書だより 6月号")).toBe("図書だより 6月号");
+  });
+});
+
 describe("monthlySummaryToCsv", () => {
   it("BOM で始まり CRLF 区切りで終わる", () => {
     const csv = monthlySummaryToCsv(baseSummary);
@@ -71,6 +91,15 @@ describe("monthlySummaryToCsv", () => {
     // ヘッダの次はデータ行が無く末尾の空文字 (trailing CRLF) のみ。
     const idx = lines.indexOf("順位,コンテンツ,表示,タップ,合計");
     expect(lines[idx + 1]).toBe("");
+  });
+
+  it("数式始まりのタイトルは中和されてから出る (formula injection 防止)", () => {
+    const csv = monthlySummaryToCsv({
+      ...baseSummary,
+      ranking: [{ contentId: "c1", title: '=HYPERLINK("evil")', views: 1, taps: 0, total: 1 }],
+    });
+    // 先頭 ' が前置され、さらに " を含むため RFC4180 で引用される。
+    expect(csv).toContain('1,"\'=HYPERLINK(""evil"")",1,0,1');
   });
 
   it("コンテンツ名にカンマがあってもエスケープされ列がずれない", () => {
