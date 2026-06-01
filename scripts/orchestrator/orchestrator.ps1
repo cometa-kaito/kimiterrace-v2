@@ -330,46 +330,92 @@ function Cmd-Sync {
 function Cmd-Cleanup {
   Sync-WorkerStatuses
   $removed = New-Object System.Collections.Generic.List[string]
+  $skipped = New-Object System.Collections.Generic.List[string]
+  $dry = [bool]$script:DryRun
 
-  # Local worktree cleanup: remove worktrees for merged branches
+  # Local worktree cleanup (#335).
+  #
+  # Reaping is gated on the AUTHORITATIVE PR-merged state (gh pr view), NOT on
+  # `git branch --merged main`. With --squash merges the feature branch tip never becomes an
+  # ancestor of main, so the old `branch --merged` gate never matched and worktrees leaked.
+  # Reviewer worktrees are detached (no branch) and are reaped by role as a backstop for the
+  # launcher self-delete (#332) when the launcher was SIGKILLed and its trap never ran.
   $repoRoot = (git rev-parse --show-toplevel).Trim()
   Get-WorkerStates | Where-Object {
-    $_.status -in @("completed", "failed") -and $_.worktree -and (Test-Path $_.worktree)
+    $_.status -in @("completed", "failed", "timeout") -and $_.worktree -and (Test-Path $_.worktree)
   } | ForEach-Object {
     $s = $_
-    $merged = git -C $repoRoot branch --merged main 2>$null | Out-String
-    if ($merged -match [regex]::Escape($s.branch)) {
-      Write-Host "[local] Removing merged worktree: $($s.worktree)"
-      git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
-      $removed.Add("local:$($s.worktree)")
+    # Never touch locked agent worktrees (.claude/worktrees/*) or anything outside our base.
+    if ($s.worktree -match '[\\/]\.claude[\\/]worktrees[\\/]') { return }
+
+    $reason = $null
+    if ($s.role -eq "reviewer") {
+      $reason = "reviewer backstop"
     }
+    elseif ($s.prNumber) {
+      # Worker: reap only when its PR is authoritatively MERGED (handles squash merges).
+      $prState = (gh pr view $s.prNumber --json state --jq '.state' 2>$null)
+      if ($prState -eq "MERGED") { $reason = "PR #$($s.prNumber) MERGED" }
+    }
+    if (-not $reason) { return }
+
+    # Safety valve: never force-remove a worktree with uncommitted changes (could be a concurrent
+    # session still working in it). Skip and warn instead of destroying unsaved work.
+    # Note: this fails "open" only when `git status` itself errors (corrupt/prunable worktree); by
+    # then the worktree already passed the MERGED gate (worker) or is a detached reviewer, so
+    # force-removing it is acceptable even if dirty-detection could not run.
+    $dirty = git -C $s.worktree status --porcelain 2>$null
+    if ($LASTEXITCODE -eq 0 -and $dirty) {
+      Write-Host "[local] SKIP (uncommitted changes): $($s.worktree)"
+      $skipped.Add("dirty:$($s.worktree)")
+      return
+    }
+
+    if ($dry) {
+      Write-Host "[dry-run] would remove ($reason): $($s.worktree)"
+      $removed.Add("dryrun:$($s.worktree)")
+      return
+    }
+    Write-Host "[local] Removing ($reason): $($s.worktree)"
+    git -C $repoRoot worktree remove $s.worktree --force 2>&1 | Out-Null
+    $removed.Add("local:$($s.worktree)")
   }
 
-  # Remote cleanup via SSH
+  # Remote cleanup via SSH (#335). Reap detached reviewer worktrees (br=HEAD, launcher-trap
+  # backstop) plus branch-merged worker worktrees. NOTE: squash-merged remote *worker* worktrees
+  # still rely on the branch-merged heuristic here; authoritative gh-state reaping over SSH is a
+  # follow-up. The detached reaping covers the common reviewer leak. Honors dry-run.
+  $dryFlag = if ($dry) { "1" } else { "0" }
   Get-EnabledMachines | Where-Object { $_.kind -eq "ssh" } | ForEach-Object {
     $m = $_
     $cmd = @"
 cd $($m.remoteRepoPath) && \
 git fetch origin && \
+DRY=$dryFlag
 for wt in `$(git worktree list --porcelain | awk '/^worktree/ {print `$2}' | grep -v "$($m.remoteRepoPath)$"); do
   br=`$(git -C "`$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  if [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; then
-    echo "removing: `$wt"
-    git worktree remove "`$wt" --force
+  if [ "`$br" = "HEAD" ] || { [ -n "`$br" ] && git branch --merged main | grep -q "`$br"; }; then
+    if [ "`$DRY" = "1" ]; then
+      echo "would remove: `$wt"
+    else
+      echo "removing: `$wt"
+      git worktree remove "`$wt" --force
+    fi
   fi
 done
 "@
     $r = Invoke-SshCommand -Machine $m -Command $cmd -TimeoutSec 30
     if ($r.Stdout) {
-      $r.Stdout -split "`n" | Where-Object { $_ -match "removing:" } | ForEach-Object {
+      $r.Stdout -split "`n" | Where-Object { $_ -match "remov" } | ForEach-Object {
         $removed.Add("$($m.name):$_")
       }
     }
   }
 
-  Remove-StaleStates -OlderThanDays $Config.logRetentionDays
+  # In dry-run, do not prune state files either (purely a preview).
+  if (-not $dry) { Remove-StaleStates -OlderThanDays $Config.logRetentionDays }
 
-  [PSCustomObject]@{ Removed = $removed.ToArray() } | Write-JsonOut
+  [PSCustomObject]@{ Removed = $removed.ToArray(); Skipped = $skipped.ToArray(); DryRun = $dry } | Write-JsonOut
 }
 
 function Cmd-Version {
