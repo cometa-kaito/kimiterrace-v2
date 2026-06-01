@@ -111,6 +111,16 @@ module "logging_iam" {
   enabled    = false # TODO(Phase 開発): true + log_viewer_members を設定
 }
 
+# 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。
+# enabled 化時に reports Job runtime SA を writer_service_account に設定し、Job の REPORT_BUCKET に
+# 出力 bucket_name を渡す（Scheduler/Job 配線・DL 導線は follow-up）。
+module "report_storage" {
+  source     = "../../modules/report_storage"
+  project_id = var.project_id
+  env        = local.env
+  enabled    = false # TODO(Phase 開発)
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 
