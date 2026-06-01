@@ -62,6 +62,18 @@ cleanup() {
     update_state "status" "failed"
   fi
   update_state "exitCode" "$exit_code"
+
+  # Reviewer worktrees are detached (#67) + read-only + ephemeral. Being detached they
+  # never match `git branch --merged main`, so orchestrator.ps1 Cmd-Cleanup cannot reclaim
+  # them and they accumulate (#330). Remove at the source — the creator owns cleanup.
+  # Worker worktrees are kept on purpose: the pushed PR branch and orchestrator inspection
+  # still need them. cd out of the worktree first (Windows locks the cwd dir on remove).
+  if [[ "$ROLE" == "reviewer" && -n "$WORKTREE_PATH" && -d "$WORKTREE_PATH" ]]; then
+    log "Removing ephemeral reviewer worktree: $WORKTREE_PATH"
+    cd "$REPO_ROOT" 2>/dev/null || true
+    git -C "$REPO_ROOT" worktree remove --force "$WORKTREE_PATH" 2>&1 | tee -a "$LOG_PATH" \
+      || log "reviewer worktree remove warning (left for Cmd-Cleanup backstop)"
+  fi
 }
 trap cleanup EXIT
 
