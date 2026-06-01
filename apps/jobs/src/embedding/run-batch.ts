@@ -28,14 +28,18 @@ const APP_ROLE = "kimiterrace_app";
 /** 1 校分の処理結果（{@link EmbedPendingResult} に schoolId を添える）。 */
 export interface SchoolBatchResult extends EmbedPendingResult {
   schoolId: string;
+  /** その校の処理が失敗した場合のエラー要約（成功時は undefined）。生 PII を含めない。 */
+  error?: string;
 }
 
 export interface RunEmbeddingBatchResult {
   /** 処理対象になった校数。 */
   schools: number;
+  /** 失敗した校数（>0 なら呼出側=entrypoint は非ゼロ終了/警告ログにすべき）。 */
+  failedSchools: number;
   /** 校ごとの内訳。 */
   perSchool: SchoolBatchResult[];
-  /** 全校合算。 */
+  /** 全校合算（成功校のみ。失敗校はゼロ寄与）。 */
   totals: EmbedPendingResult;
 }
 
@@ -71,21 +75,30 @@ export async function runEmbeddingBatch(
 
   const perSchool: SchoolBatchResult[] = [];
   for (const school of schools) {
-    // 校スコープ roster（職員氏名）を school_admin 降格 context で取得。
-    const staffNames = await withTenantContext(
-      db,
-      { schoolId: school.id, role: "school_admin" },
-      (tx) => listStaffDisplayNames(tx),
-      { appRole: APP_ROLE },
-    );
-    const maskEntries: PiiEntry[] = staffNames.map((value) => ({ value, category: "STAFF" }));
+    // 校ごとに独立して try/catch する（1 校の DB エラー/不正データが他校の embedding 生成を止めない、
+    // 順序非依存）。失敗校はエラー要約を添えて記録し継続。embedding 未生成は次回実行で再処理される
+    // （resume 安全、saveContentEmbedding は冪等）。
+    try {
+      // 校スコープ roster（職員氏名）を school_admin 降格 context で取得。
+      const staffNames = await withTenantContext(
+        db,
+        { schoolId: school.id, role: "school_admin" },
+        (tx) => listStaffDisplayNames(tx),
+        { appRole: APP_ROLE },
+      );
+      const maskEntries: PiiEntry[] = staffNames.map((value) => ({ value, category: "STAFF" }));
 
-    const port = createPgEmbeddingPort(db, school.id);
-    const res = await embedPendingContent(port, client, {
-      batchSize: options.batchSize,
-      maskEntries,
-    });
-    perSchool.push({ schoolId: school.id, ...res });
+      const port = createPgEmbeddingPort(db, school.id);
+      const res = await embedPendingContent(port, client, {
+        batchSize: options.batchSize,
+        maskEntries,
+      });
+      perSchool.push({ schoolId: school.id, ...res });
+    } catch (e) {
+      // 生 PII を含めないため message のみ（スタックや行データは載せない）。
+      const error = e instanceof Error ? e.message : String(e);
+      perSchool.push({ schoolId: school.id, ...ZERO_TOTALS, error });
+    }
   }
 
   const totals = perSchool.reduce<EmbedPendingResult>(
@@ -98,5 +111,6 @@ export async function runEmbeddingBatch(
     { ...ZERO_TOTALS },
   );
 
-  return { schools: schools.length, perSchool, totals };
+  const failedSchools = perSchool.reduce((n, r) => n + (r.error ? 1 : 0), 0);
+  return { schools: schools.length, failedSchools, perSchool, totals };
 }
