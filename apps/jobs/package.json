@@ -11,6 +11,7 @@
     "migrate:firestore": "node --experimental-strip-types src/migration/firestore-to-pg.ts"
   },
   "dependencies": {
+    "@kimiterrace/ai": "workspace:*",
     "@kimiterrace/db": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
