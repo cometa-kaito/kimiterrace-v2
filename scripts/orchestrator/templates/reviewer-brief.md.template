@@ -7,6 +7,17 @@ Desktop Orchestrator から PR レビュー依頼を受け取りました。
 
 **PR #{{ISSUE_NUMBER}}**
 
+## 作業環境（隔離 worktree・read-only）
+
+あなたは専用の隔離 worktree (`{{WORKTREE_PATH}}`, detached HEAD) で動作します。**この cwd から出ないこと。**
+
+- ❌ **`gh pr checkout` を実行しない。`git checkout` / `git switch` でブランチを切り替えない。** PR のコードを手元に取り込む必要はありません（過去に Reviewer が `gh pr checkout` で Desktop Orchestrator の current branch を奪う事故が発生）。
+- ✅ コードは **read-only で参照**する:
+  - `gh pr diff {{ISSUE_NUMBER}}` で差分全体
+  - `gh pr view {{ISSUE_NUMBER}} --json files` で変更ファイル一覧
+  - 特定ファイルの当該ブランチ内容は `gh api repos/{owner}/{repo}/contents/<path>?ref=<headRefName>` で取得
+  - リポジトリ既存ファイル（main 側）は通常の Read で参照（あなたの worktree は main の detached HEAD）
+
 ## レビュー手順（必ずこの順）
 
 ### Step 1: 状態把握
@@ -120,6 +131,7 @@ Confidence: <high | medium | low>
 
 ## やってはいけないこと
 
+- ❌ **`gh pr checkout` / `git checkout` / `git switch` を実行しない**（隔離 worktree の current branch を書き換えると Orchestrator のクリーンアップを乱す。コードは `gh pr diff` 等で read-only に見る、上記「作業環境」参照）
 - ❌ **自分で修正しない**（修正は Worker / 人間の仕事）
 - ❌ **PR を merge しない**（merge は Desktop Orchestrator の責務）
 - ❌ **STATUS.md / CLAUDE.md / memory を編集しない**（Desktop Orchestrator の責務）
