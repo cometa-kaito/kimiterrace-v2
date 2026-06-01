@@ -85,6 +85,13 @@ export default async function MonthlyReportPage({
         )}
       </nav>
 
+      {/* CSV ダウンロード (第2スライス): 画面と同じ集計を text/csv で持ち帰る。対象月を引き継ぐ。 */}
+      <p style={downloadRowStyle}>
+        <a style={downloadLinkStyle} href={`/api/reports/monthly?ym=${toYmParam(target)}`} download>
+          ⬇ {formatYearMonth(target)}のサマリーを CSV でダウンロード
+        </a>
+      </p>
+
       <div style={cardsStyle}>
         <SummaryCard label="表示 (view)" value={summary.totals.view} />
         <SummaryCard label="タップ (tap)" value={summary.totals.tap} />
@@ -130,8 +137,8 @@ export default async function MonthlyReportPage({
       )}
 
       <p style={footnoteStyle}>
-        集計は日本時間 (JST) の暦月基準です。広告主別レポートと PDF ダウンロードは今後のスライスで
-        追加します。
+        集計は日本時間 (JST) の暦月基準です。上のリンクからこの表を CSV でダウンロードできます。
+        広告主別レポートと PDF ダウンロードは今後のスライスで追加します。
       </p>
     </section>
   );
@@ -184,6 +191,17 @@ const monthLabelStyle: React.CSSProperties = {
   fontWeight: 700,
   minWidth: "8rem",
   textAlign: "center",
+};
+const downloadRowStyle: React.CSSProperties = { margin: "0 0 1.25rem" };
+const downloadLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  color: "#2563eb",
+  textDecoration: "none",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  border: "1px solid #bfdbfe",
+  borderRadius: "8px",
+  padding: "0.4rem 0.8rem",
 };
 const cardsStyle: React.CSSProperties = {
   display: "flex",
