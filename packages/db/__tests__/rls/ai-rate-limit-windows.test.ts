@@ -106,7 +106,8 @@ describeOrSkip("F03 ai_rate_limit_windows RLS (#347, ADR-027)", () => {
       ),
     ).rejects.toThrow();
 
-    const all = await raw`SELECT id FROM ai_rate_limit_windows WHERE school_id = ${fx.schoolA}`;
+    const all =
+      await raw`SELECT school_id FROM ai_rate_limit_windows WHERE school_id = ${fx.schoolA}`;
     expect(all.length).toBe(0);
   });
 
