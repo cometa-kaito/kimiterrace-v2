@@ -44,6 +44,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。
   school_admin: [
     { label: "学校管理", href: "/admin/school" },
+    // F11 第2スライス: 自校教職員のロール一覧 (school_admin 専用、自校運用)。teacher には出さない
+    // (requireRole(["school_admin"]) で 403 になるため死リンク防止)。
+    { label: "教職員", href: "/admin/school/members" },
     { label: "エディタ", href: "/admin/editor" },
     { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },

@@ -42,13 +42,24 @@ describe("navItemsForRole", () => {
     ]);
   });
 
-  it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード", () => {
+  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
+    expect(hrefs).toContain("/admin/school/members");
     expect(hrefs).toContain("/admin/editor");
     expect(hrefs).toContain("/admin/teacher-input");
     expect(hrefs).toContain("/admin/contents");
     expect(hrefs).toContain("/admin/dashboard");
+  });
+
+  it("教職員 (/admin/school/members) は school_admin 専用 (F11 第2スライス、自校運用)。teacher / system_admin には出さない (死リンク防止)", () => {
+    // /admin/school/members は requireRole(["school_admin"]) で teacher / system_admin を 403 にする
+    // ため、nav からも出さない (自校運用ビュー、system_admin の横断管理は別サーフェス)。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/school/members");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/school/members");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain(
+      "/admin/school/members",
+    );
   });
 
   it("音声/チャット入力 (/admin/teacher-input) は publisher (school_admin/teacher) のみ、system_admin には出さない (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)", () => {
