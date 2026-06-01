@@ -76,7 +76,8 @@ export async function getRelevantPublishedContent(
 ): Promise<RagMatch[]> {
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
   const literal = toVectorLiteral(queryEmbedding);
-  // cosine 距離。literal は 1 度だけバインドし、並びは出力エイリアス "distance" で行う。
+  // cosine 距離。select の sql フラグメントは AS 別名を発行しないため、ORDER BY では
+  // 出力エイリアスを参照できない (PG 42703)。getAdReach と同様、ORDER BY で式を再掲する。
   const distance = sql<number>`${contentVersions.embedding} <=> ${literal}::vector`;
 
   const rows = await db
@@ -95,8 +96,8 @@ export async function getRelevantPublishedContent(
     .innerJoin(contents, eq(contents.id, contentVersions.contentId))
     // embedding 未生成 (S2 バッチ未処理) の version は検索対象外。
     .where(sql`${contentVersions.embedding} is not null`)
-    // 近い順。距離同値でも決定的にするため version_id を二次キーにする。
-    .orderBy(sql`distance asc`, asc(contentVersions.id))
+    // 近い順 (距離昇順 = ASC が SQL 既定)。距離同値でも決定的にするため version_id を二次キーにする。
+    .orderBy(sql`${contentVersions.embedding} <=> ${literal}::vector`, asc(contentVersions.id))
     .limit(limit);
 
   return rows.map((r) => ({

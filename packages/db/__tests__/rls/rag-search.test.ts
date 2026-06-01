@@ -164,6 +164,10 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
     expect(res[0].similarity).toBeGreaterThan(0.9);
     expect(res[0].versionId).toBe(near.versionId);
     expect(res[0].title).toBe("near");
+    // 類似度の絶対値を pin (cosine: near≈0.958 / mid≈0.287 / far=0=query と直交)
+    expect(res[0].similarity).toBeCloseTo(0.9578, 3);
+    expect(res[1].similarity).toBeCloseTo(0.2873, 3);
+    expect(res[2].similarity).toBeCloseTo(0, 6);
   });
 
   it("limit で top-k にクランプ", async () => {
