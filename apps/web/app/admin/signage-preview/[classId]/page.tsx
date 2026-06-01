@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ADMIN_ROLES } from "@/lib/nav";
 import { getEffectiveDailyData } from "@/lib/signage/effective-daily-data";
+import { parseSignageDate } from "@/lib/signage/rotation";
 import { getEffectiveAdsForClass } from "@kimiterrace/db";
 import { notFound } from "next/navigation";
 import { SignageBoard } from "./_components/SignageBoard";
@@ -17,9 +18,6 @@ import { SignageBoard } from "./_components/SignageBoard";
  * RLS: `withSession` で自校コンテキストを張った 1 トランザクション内で日次・広告を取得する
  * (別テナントのクラス id を渡しても RLS で不可視 → `getEffectiveDailyData` が null → 404)。
  */
-const JST = "Asia/Tokyo";
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 export default async function SignagePreviewPage({
   params,
   searchParams,
@@ -31,11 +29,9 @@ export default async function SignagePreviewPage({
   const { classId } = await params;
   const { date: dateParam } = await searchParams;
 
-  // 既定は JST の今日。?date=YYYY-MM-DD で任意日をプレビュー可 (形式不正は無視して今日)。
-  const date =
-    dateParam && DATE_RE.test(dateParam)
-      ? dateParam
-      : new Date().toLocaleDateString("en-CA", { timeZone: JST });
+  // 既定は JST の今日。?date=YYYY-MM-DD で任意日をプレビュー可。形式不正・無効暦日 (2026-13-45 等)
+  // は parseSignageDate が実在暦日まで round-trip 検証し今日へフォールバック (公開 /s と同経路, #453)。
+  const date = parseSignageDate(dateParam);
 
   const result = await withSession(async (tx) => {
     const daily = await getEffectiveDailyData(tx, classId, date);
