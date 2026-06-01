@@ -14,7 +14,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 現在のフェーズ
 
-**Phase 調査 → Phase 設計 (移行中)**
+**Phase 開発 (Development)**
+
+（調査・設計は完了。F0 V1 移植が frontier 完了し、F07–F10 等の MVP 機能を実装・merge 中 → 実態は開発フェーズ。旧「調査 → 設計 (移行中)」表記は実績とズレていたため 2026-06-01 修正。）
 
 ロードマップは **5 Phase 構成（調査・設計・開発・検証・導入）** に再設計済 (2026-05-28 に 4 Phase、2026-05-31 に「検証」を新設)。
 **Claude は調査〜検証を全力で進める。導入は人間担当**。「検証」は開発と導入の間の受入ゲート → [docs/testing/test-strategy.md](testing/test-strategy.md)。
