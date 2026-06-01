@@ -1,6 +1,6 @@
 # ADR-023: TV 死活・起動監視は last_seen ギャップ + 定期チェッカ + 多段アラート（常時接続・外形監視 SaaS 不採用）
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [F16 (TV死活・起動監視)](../requirements/functional/F16-tv-uptime-monitoring.md), [F15 (TVリモート管理)](../requirements/functional/F15-tv-device-management.md), [ADR-022 (TVポーリング)](022-tv-remote-config-polling.md), [ADR-013 (Sentry)](013-sentry.md), [ADR-014 (観測)](014-observability.md), [NFR01](../requirements/non-functional/NFR01-performance.md)
 

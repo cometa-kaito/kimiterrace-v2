@@ -1,6 +1,6 @@
 # キミテラス v2 MVP 要件定義
 
-- 状態: **Draft（個別ファイル分割済、ユーザーレビュー継続中）**
+- 状態: **Baseline 確定（個別 F/NFR ファイルを正、本書は横断参照。2026-06-01 ユーザーレビュー完了）**
 - 最終更新: 2026-05-28
 - 起草者: Claude Code (orchestrator)
 - 関連: [docs/STATUS.md](../STATUS.md), [docs/ROADMAP.md](../ROADMAP.md), [CLAUDE.md](../../CLAUDE.md)

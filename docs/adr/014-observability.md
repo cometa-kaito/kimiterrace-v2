@@ -1,6 +1,6 @@
 # ADR-014: 観測は Cloud Logging + Cloud Trace + OpenTelemetry
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [ADR-013 (Sentry)](013-sentry.md), [NFR03 セキュリティ](../requirements/non-functional/NFR03-security.md), [NFR04 監査ログ](../requirements/non-functional/NFR04-audit-log.md), [CLAUDE.md ルール4 (PII マスキング)](../../CLAUDE.md)
 

@@ -1,6 +1,6 @@
 # ADR-017: AI 構造化への Gemini 採用（confidence_score 必須化）
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-28
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [F03](../requirements/functional/F03-ai-structuring.md), [F06](../requirements/functional/F06-student-qa.md), [ADR-005 (Vertex AI 採用)](005-vertex-ai.md), [ADR-006 (Vercel AI SDK)](006-vercel-ai-sdk.md)
 

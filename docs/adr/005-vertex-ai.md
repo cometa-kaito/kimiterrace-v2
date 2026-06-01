@@ -1,6 +1,6 @@
 # ADR-005: Vertex AI Gemini を採用、データ越境を回避する
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-006 (Vercel AI SDK)](006-vercel-ai-sdk.md), [ADR-007 (pgvector)](007-pgvector.md), [ADR-017 (Gemini 構造化 + confidence)](017-gemini-ai-structuring-with-confidence.md), [F01 教員ファイル抽出](../requirements/functional/F01-teacher-file-extraction.md), [F03 AI 構造化](../requirements/functional/F03-ai-structuring.md), [F06 生徒 Q&A](../requirements/functional/F06-student-qa.md), [NFR03 セキュリティ](../requirements/non-functional/NFR03-security.md), [CLAUDE.md ルール4 (PII マスキング)](../../CLAUDE.md)
 

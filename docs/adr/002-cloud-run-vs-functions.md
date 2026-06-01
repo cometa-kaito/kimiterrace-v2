@@ -1,6 +1,6 @@
 # ADR-002: Cloud Run を採用、Cloud Functions を捨てる
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-008 (Route Handlers)](008-nextjs-route-handlers.md), [ADR-009 (Terraform)](009-terraform.md), [ADR-014 (観測)](014-observability.md), [NFR01 パフォーマンス](../requirements/non-functional/NFR01-performance.md), [CLAUDE.md スタック表](../../CLAUDE.md)
 

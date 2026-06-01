@@ -1,6 +1,6 @@
 # ADR-009: Terraform を採用、Pulumi を却下
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-003 (Identity Platform)](003-identity-platform.md), [NFR07 コンプライアンス](../requirements/non-functional/NFR07-compliance.md), [CLAUDE.md ルール8 (Terraform 化)](../../CLAUDE.md)
 

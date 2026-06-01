@@ -1,6 +1,6 @@
 # ADR-007: pgvector を採用、外部ベクトル DB を不採用
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-004 (Drizzle)](004-drizzle-vs-prisma.md), [ADR-005 (Vertex AI)](005-vertex-ai.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [F06 生徒 Q&A](../requirements/functional/F06-student-qa.md), [CLAUDE.md ルール2 (RLS) / ルール4 (PII)](../../CLAUDE.md)
 

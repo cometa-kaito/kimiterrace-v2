@@ -1,6 +1,6 @@
 # ADR-020: 来場検知センサーは SwitchBot Webhook 方式・自前 DB 完結
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-29
 - 関連: [F13 (来場検知 Webhook)](../requirements/functional/F13-presence-sensor-webhook.md), [F07 (イベントログ)](../requirements/functional/F07-event-logging.md), [F12 (V1 機能移植)](../requirements/functional/F12-v1-port.md), [F08 (ダッシュボード)](../requirements/functional/F08-effect-dashboard.md), [NFR03](../requirements/non-functional/NFR03-security.md), [NFR04](../requirements/non-functional/NFR04-audit-log.md), [ADR-001 (PostgreSQL)](001-postgres-vs-firestore.md), [ADR-002 (Cloud Run)](002-cloud-run-vs-functions.md), [ADR-019 (RLS)](019-rls-two-layer-tenant-isolation.md), [CLAUDE.md ルール 5](../../CLAUDE.md)
 

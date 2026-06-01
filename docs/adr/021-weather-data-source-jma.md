@@ -1,6 +1,6 @@
 # ADR-021: サイネージ天気予報のデータソースは気象庁 (JMA) 無料 API + バックエンドキャッシュ
 
-- 状態: Proposed
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
 - 日付: 2026-05-30
 - 関連: [F14 (サイネージ天気予報)](../requirements/functional/F14-weather-forecast-signage.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [NFR03 (セキュリティ)](../requirements/non-functional/NFR03-security.md), [NFR06 (コスト)](../requirements/non-functional/NFR06-cost-policy.md), memory [[closed-system-security]]。ADR-002 (Cloud Run) / ADR-001 (PostgreSQL) / ADR-009 (Terraform) は未作成（[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)）
 
