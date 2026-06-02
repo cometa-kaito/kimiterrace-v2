@@ -40,6 +40,10 @@ export * from "./queries/rag-search.js";
 export * from "./queries/sensor-presence.js";
 // F15/F16 (ADR-022/ADR-023): TV デバイスのポーリング設定取得 + last_seen 心拍更新 / 管理一覧読み取り
 export * from "./queries/tv-devices.js";
+// F16 (ADR-023): TV 死活ギャップチェッカの純粋判定ロジック (last_seen ギャップ → down/recover 遷移)
+export * from "./queries/tv-liveness.js";
+// F16 (ADR-023): TV 死活チェックの DB 反映層 (alert_state 反転 + tv_device_downtime 記録、RLS 委譲)
+export * from "./queries/tv-liveness-checker.js";
 // F06 (#398, ADR-007): embedding 生成バッチの RLS クエリ層 (公開中・未生成抽出 + embedding 保存)
 export * from "./queries/embedding-batch.js";
 // F13 (#391, ADR-020): 来場検知センサーの管理/状態一覧 読み取り層 (登録センサー + 直近検知 + ヘルス、RLS 委譲)
