@@ -10,6 +10,7 @@ import {
   shortDeviceId,
 } from "@/lib/tv/status";
 import { type TvDeviceSummary, listTvDevices } from "@kimiterrace/db";
+import Link from "next/link";
 
 /**
  * F15 §4.1 / F16 §5 (ADR-022/ADR-023): TV デバイス一覧（`/admin/tv-devices`）。**Server Component**。
@@ -76,6 +77,10 @@ export default async function TvDevicesPage() {
               <th scope="col" style={thLeftStyle}>
                 稼働ステータス
               </th>
+              {/* 設定編集への導線（F15 §4.2）。実際の編集可否は編集ページの role gate + RLS が担保する。 */}
+              <th scope="col" style={thLeftStyle}>
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -110,6 +115,16 @@ function DeviceRow({ device, status }: { device: TvDeviceSummary; status: TvLive
           <span aria-hidden="true">{TV_STATUS_ICON[status]}</span>
           <span>{TV_STATUS_LABEL[status]}</span>
         </span>
+      </td>
+      <td style={tdLeftStyle}>
+        {/* 行 PK（device.id）でリンク。編集ページの requireRole(TV_CONFIG_EDIT_ROLES) で teacher は 403。 */}
+        <Link
+          href={`/admin/tv-devices/${device.id}/edit`}
+          style={editLinkStyle}
+          aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
+        >
+          編集
+        </Link>
       </td>
     </tr>
   );
@@ -196,4 +211,9 @@ const badgeStyle: React.CSSProperties = {
   border: "1px solid #fcd34d",
   borderRadius: "999px",
   padding: "0.1rem 0.45rem",
+};
+const editLinkStyle: React.CSSProperties = {
+  color: "#1d4ed8",
+  fontWeight: 600,
+  textDecoration: "none",
 };
