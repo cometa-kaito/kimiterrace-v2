@@ -44,12 +44,20 @@ export const ALLOWED_UPLOAD_TYPES: readonly AllowedUploadType[] = [
  * MIME から許可種別を解決する。許可外なら null（呼び出し側は 415 を返す）。
  * MIME は前後空白・大小・charset パラメータ（"; charset=..."）の揺れを正規化して照合する。
  */
-export function resolveUploadType(mimeType: string | null | undefined): AllowedUploadType | null {
+/** MIME 文字列を本体だけに正規化する（charset 等パラメータ除去・小文字化・trim）。空/未指定は ""。 */
+export function normalizeMimeType(mimeType: string | null | undefined): string {
   if (!mimeType) {
-    return null;
+    return "";
   }
   // "application/pdf; charset=binary" のようなパラメータ付き MIME を本体だけに正規化。
-  const normalized = mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+}
+
+export function resolveUploadType(mimeType: string | null | undefined): AllowedUploadType | null {
+  const normalized = normalizeMimeType(mimeType);
+  if (!normalized) {
+    return null;
+  }
   return ALLOWED_UPLOAD_TYPES.find((t) => t.mime === normalized) ?? null;
 }
 
@@ -60,6 +68,108 @@ export function exceedsContentLength(contentLength: string | null | undefined): 
   }
   const n = Number(contentLength);
   return Number.isFinite(n) && n > MAX_UPLOAD_BYTES;
+}
+
+/**
+ * multipart エンベロープ（boundary・各フィールドヘッダ）のオーバーヘッド余白（PR #522 M-1）。
+ * ストリーム読取のハード上限はファイル本体の 50MB にこの余白を足した値にし、実ファイルの厳密な
+ * 50MB 判定は呼び出し側が `file.size` / 実バイト長で別途行う（ここは粗いメモリ保護バックストップ）。
+ */
+export const MULTIPART_OVERHEAD_MARGIN = 1024 * 1024; // 1 MB
+
+/** body ストリーム読取のハード上限（バイト）。{@link MAX_UPLOAD_BYTES} + multipart 余白。 */
+export const MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_MARGIN;
+
+/**
+ * body ストリームがハード上限を超えた（PR #522 M-1）。`request.formData()` / `arrayBuffer()` は
+ * Content-Length 詐称・chunked 転送時に本体全体をメモリへバッファしてからサイズ判定に到達するため、
+ * 累積バイト数を数えて上限超過で打ち切る前段ガードで投げる。
+ */
+export class RequestTooLargeError extends Error {
+  constructor() {
+    super("request body exceeds byte cap");
+    this.name = "RequestTooLargeError";
+  }
+}
+
+/**
+ * ReadableStream をバイト上限付きで読み、上限内なら連結済み Uint8Array を返す（PR #522 M-1）。
+ * 累積バイト数が `maxBytes` を超えた時点でストリームを cancel し {@link RequestTooLargeError} を投げる
+ * ことで、メモリ使用量を上限に縛る（本体全体を無制限にバッファしない）。`body` が無ければ空配列。
+ */
+export async function readStreamCapped(
+  body: ReadableStream<Uint8Array> | null | undefined,
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  if (!body) {
+    return new Uint8Array(0);
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new RequestTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    // 超過打ち切り時も正常終了時も、未読分を捨ててロックを解放する。
+    try {
+      await reader.cancel();
+    } catch {
+      /* already closed/errored */
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* lock already released */
+    }
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+/**
+ * 画像 MIME の先頭マジックバイト署名（PR #522 L-2）。MIME 文字列は偽装可能なので、画像は宣言 MIME と
+ * 実バイト列の整合をここで検査する。PDF/DOCX/XLSX は抽出器パースが fail-close (422) で実質検証されるが、
+ * 画像は OCR 未配線（ADR-024 決定3）でパース検証が無いため、保存前にマジックバイトで弾く。
+ */
+const IMAGE_MAGIC_BYTES: Readonly<Record<string, readonly (readonly number[])[]>> = {
+  "image/png": [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  // JPEG は SOI(FFD8) + マーカ先頭(FF)。JFIF/EXIF/raw を問わず先頭 3 バイトは共通。
+  "image/jpeg": [[0xff, 0xd8, 0xff]],
+};
+
+/**
+ * 宣言 MIME が画像なら、`bytes` 先頭が対応するマジックバイト署名のいずれかに一致するか検査する。
+ * 非画像 MIME（PDF/Office 等）は検査対象外で常に true を返す（抽出器パースが内容を検証するため）。
+ */
+export function hasValidImageMagicBytes(
+  bytes: Uint8Array,
+  mimeType: string | null | undefined,
+): boolean {
+  const signatures = IMAGE_MAGIC_BYTES[normalizeMimeType(mimeType)];
+  if (!signatures) {
+    return true;
+  }
+  return signatures.some(
+    (sig) => bytes.length >= sig.length && sig.every((b, i) => bytes[i] === b),
+  );
 }
 
 /**

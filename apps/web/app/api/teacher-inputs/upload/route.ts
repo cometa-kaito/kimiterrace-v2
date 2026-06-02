@@ -12,8 +12,12 @@ import { ForbiddenError, UnauthenticatedError, withSession } from "../../../../l
 import { buildUploadObjectPath, getUploadStorage } from "../../../../lib/storage/upload-storage";
 import { TEACHER_INPUT_STAFF_ROLES, isTeacherInputRole } from "../../../../lib/teacher-input/roles";
 import {
+  MAX_REQUEST_BYTES,
   MAX_UPLOAD_BYTES,
+  RequestTooLargeError,
   exceedsContentLength,
+  hasValidImageMagicBytes,
+  readStreamCapped,
   resolveUploadType,
 } from "../../../../lib/teacher-input/upload-validation";
 
@@ -40,6 +44,23 @@ export const runtime = "nodejs";
 
 function err(status: number, error: string): NextResponse {
   return NextResponse.json({ error }, { status });
+}
+
+/**
+ * multipart body を解析する（PR #522 M-1）。`request.body`(ReadableStream) を {@link MAX_REQUEST_BYTES}
+ * 上限付きで読み（Content-Length 詐称・chunked によるメモリ膨張を、本体全部をバッファする前に遮断）、
+ * 上限内なら同内容を再構成して `formData()` で解析する。body ストリームが無い実行環境（合成 Request 等）
+ * では直接 `formData()` にフォールバックする — 実運用の undici Request は常に body を持ち、加えて Cloud Run
+ * 既定のリクエスト上限（HTTP/1 で ~32MB）が追加のプラットフォーム側バックストップになる。
+ */
+async function parseUploadForm(request: Request): Promise<FormData> {
+  const body = request.body;
+  if (!body) {
+    return await request.formData();
+  }
+  const buffered = await readStreamCapped(body, MAX_REQUEST_BYTES);
+  const contentType = request.headers.get("content-type") ?? "";
+  return await new Response(buffered, { headers: { "content-type": contentType } }).formData();
 }
 
 /** formData.get の戻り（File | string | null）から File 的オブジェクトだけ受ける duck-type ガード。 */
@@ -76,11 +97,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     return err(413, "file_too_large");
   }
 
-  // --- multipart 解析 ---
+  // --- multipart 解析（M-1: body ストリームをバイト上限付きで読みメモリ膨張を遮断） ---
   let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
+    form = await parseUploadForm(request);
+  } catch (e) {
+    if (e instanceof RequestTooLargeError) {
+      return err(413, "file_too_large");
+    }
     return err(400, "invalid_multipart");
   }
   const file = form.get("file");
@@ -101,6 +125,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (bytes.byteLength > MAX_UPLOAD_BYTES) {
     return err(413, "file_too_large");
+  }
+
+  // --- 画像は宣言 MIME と実バイト列の整合をマジックバイトで検証（L-2: 偽装画像を保存前に弾く） ---
+  // PDF/DOCX/XLSX は下の抽出器パースが fail-close(422) で実質検証するが、画像は OCR 未配線で
+  // パース検証が無いため、ここで弾かないと未検証バイトがそのまま GCS に保存される。
+  if (!hasValidImageMagicBytes(bytes, file.type)) {
+    return err(415, "unsupported_media_type");
   }
 
   // --- 本文テキスト化（@kimiterrace/ai 抽出器。Vertex 未経由） ---
