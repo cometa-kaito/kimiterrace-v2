@@ -42,6 +42,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。自校ビューの
     // /admin/dashboard とは別ルート (そちらは PUBLISHER_ROLES 専用)。
     { label: "全校ダッシュボード", href: "/admin/system/dashboard" },
+    // F13 (#391): 来場検知センサーの管理/状態一覧 (/admin/sensors) は PUBLISHER_ROLES (school_admin/
+    // teacher) 専用で、system_admin の全校横断ビューは後続スライスに残す (#485/#486 と整合)。よって
+    // system_admin の nav には出さない (requireRole(PUBLISHER_ROLES) で 403 → 死リンク防止)。
     { label: "フィードバック", href: "/admin/system/feedback" },
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。
@@ -55,6 +58,10 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
     { label: "月次レポート", href: "/admin/reports" },
+    // F13 (#391 / #486): 自校の来場検知センサーの管理/状態一覧 (school_admin スコープ、RLS tenant_isolation)。
+    // PUBLISHER_ROLES (school_admin/teacher) が見られる (/admin/sensors の requireRole(PUBLISHER_ROLES)
+    // と整合)。system_admin には出さない (全校横断ビューは後続スライス → 死リンク防止)。
+    { label: "センサー管理", href: "/admin/sensors" },
   ],
   // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 効果ダッシュボード (F08) + 月次レポート (F09)。
   // コンテンツ一覧 (/admin/contents) / ダッシュボード (/admin/dashboard) / 月次レポート (/admin/reports) は
@@ -65,6 +72,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "コンテンツ", href: "/admin/contents" },
     { label: "ダッシュボード", href: "/admin/dashboard" },
     { label: "月次レポート", href: "/admin/reports" },
+    // F13 (#391 / #486): 来場検知センサーの管理/状態一覧 (/admin/sensors)。PUBLISHER_ROLES に teacher を
+    // 含むため出す (requireRole(PUBLISHER_ROLES) で teacher は許可 → 死リンクにならない、#485 のアクセス境界を維持)。
+    { label: "センサー管理", href: "/admin/sensors" },
   ],
 };
 

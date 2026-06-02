@@ -1,31 +1,38 @@
 import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
-import { listSensorDevices, type SensorDeviceListItem } from "@kimiterrace/db";
+import { maskDeviceMac, presentSensorStatus } from "@/lib/sensors/status-presentation";
+import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/db";
 
 /**
- * F13 (#391 / #408, ADR-020): 来場検知センサー管理画面 `/admin/sensors` の **第1スライス（読み取り一覧）**。
- * **Server Component**。
+ * F13 (#391 / #408, ADR-020): 来場検知センサー管理画面 `/admin/sensors`。**Server Component**。
  *
- * 自校に登録済みの SwitchBot 人感（PIR）センサーを、設置場所・種別・設置/撤去状態・**最終検知時刻**つきで
- * 一覧表示する。F13 受け入れ条件「一覧（school_admin は school_id スコープ）」の読み取り部分に対応する。
- * 新規登録 / 編集 / 撤去（mutation）と system_admin の全校横断ビュー、healthy/quiet/dead の稼働ステータス
- * 分類は後続スライスで追加する（本スライスは閲覧のみ）。
+ * 自校に登録済みの SwitchBot 人感（PIR）センサーを、設置場所・クラス・**直近検知時刻**・直近 24h の
+ * 検知数・**稼働ヘルス状態**つきで一覧表示する。F13 受け入れ条件「一覧（school_admin は school_id
+ * スコープ）」の読み取りに対応する。
+ *
+ * **本スライス (#486)**: #485（読み取り一覧）が follow-up に切り出した「healthy/quiet/dead の稼働
+ * ステータス分類」を本ページに足し込む。状態判定は **サーバ側（DB の now() 基準）**で行い
+ * (`listSensorDeviceStatuses`)、UI は色 + テキスト両方で示す。新規登録 / 編集 / 撤去（mutation）と
+ * **system_admin の全校横断ビュー**は引き続き後続スライスに残す（#485 と同じ defer 方針）。
  *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え `requireRole(PUBLISHER_ROLES)`
- * （school_admin / teacher）。データの school 境界は `withSession` が張る RLS context が DB レベルで
- * 強制する（`sensor_devices` の `tenant_isolation`、CLAUDE.md ルール2）。クエリは `school_id` 条件を
- * 書かず RLS に委譲する。
+ * （school_admin / teacher）。#485 で merge 済みのアクセス境界を**変えない**（teacher を締め出さない）。
+ * データの school 境界は `withSession` が張る RLS context が DB レベルで強制する（`sensor_devices` の
+ * `tenant_isolation`、CLAUDE.md ルール2）。クエリは `school_id` 条件を書かず RLS に委譲する。
+ * system_admin 全校ビューは別ルート（後続スライス）に切り出すため、本ページの guard には含めない。
  *
  * **公開透明性（ADR-020）**: 来場検知は PIR センサーでカメラ非使用。ダッシュボードと同じく「カメラ不使用」
  * バッジを常時表示する。
  *
  * **アクセシビリティ（NFR05 / WCAG 2.2 AA）**: 一覧は `<table>` + `<th scope>`。稼働/撤去の状態は色だけに
- * 依存せず日本語ラベルで提示する。
+ * 依存せず日本語ラベルで提示する（`presentSensorStatus` の label を併記、色のみに依存しない）。
  */
 export default async function SensorsPage() {
   await requireRole(PUBLISHER_ROLES);
-  const sensors = await withSession((tx) => listSensorDevices(tx));
+  const sensors = await withSession((tx) => listSensorDeviceStatuses(tx));
+
+  const activeCount = sensors.filter((s) => s.decommissionedAt == null).length;
 
   return (
     <section>
@@ -39,103 +46,99 @@ export default async function SensorsPage() {
           カメラ不使用
         </span>
       </div>
-      <p style={subtitleStyle}>自校に登録された来場検知センサーの一覧です。</p>
+      <p style={subtitleStyle}>
+        登録センサー {sensors.length} 台（稼働中 {activeCount} 台）。稼働状態は直近の検知時刻から
+        サーバー側で判定しています。
+      </p>
 
       {sensors.length === 0 ? (
-        <p style={emptyStyle}>登録済みのセンサーはまだありません。</p>
+        <p style={emptyStyle}>
+          登録されているセンサーがありません。SwitchBot 人感センサーを登録すると一覧に表示されます。
+        </p>
       ) : (
         <table style={tableStyle}>
-          <caption style={captionStyle}>設置場所・種別・状態・最終検知</caption>
+          <caption style={captionStyle}>
+            設置場所・直近検知・稼働状態の一覧（稼働中を先頭に、直近検知が新しい順）
+          </caption>
           <thead>
             <tr>
               <th scope="col" style={thLeftStyle}>
                 設置場所
               </th>
               <th scope="col" style={thLeftStyle}>
+                クラス
+              </th>
+              <th scope="col" style={thLeftStyle}>
                 デバイス
               </th>
               <th scope="col" style={thLeftStyle}>
-                種別
+                直近の検知
+              </th>
+              <th scope="col" style={thNumStyle}>
+                24h 検知数
               </th>
               <th scope="col" style={thLeftStyle}>
-                状態
-              </th>
-              <th scope="col" style={thLeftStyle}>
-                最終検知
+                稼働状態
               </th>
             </tr>
           </thead>
           <tbody>
             {sensors.map((s) => (
-              <tr key={s.id}>
-                <th scope="row" style={tdLeftStyle}>
-                  {s.locationLabel ?? "（未設定）"}
-                </th>
-                <td style={tdMonoStyle}>{maskDeviceMac(s.deviceMac)}</td>
-                <td style={tdLeftStyle}>{kindLabel(s.kind)}</td>
-                <td style={tdLeftStyle}>
-                  <StatusBadge decommissionedAt={s.decommissionedAt} />
-                </td>
-                <td style={tdLeftStyle}>{formatLastSeen(s.lastSeenAt)}</td>
-              </tr>
+              <SensorRow key={s.id} sensor={s} />
             ))}
           </tbody>
         </table>
       )}
 
       <p style={footnoteStyle}>
-        稼働ステータス（正常/休止/停止）の自動分類・新規登録・編集・撤去操作は後続スライスで提供します。
+        稼働状態の判定: 直近 24 時間以内に検知があれば「稼働中」、24 時間〜7
+        日以内なら「静観」（休日・長期休暇等）、7
+        日以上検知が無ければ「応答なし」（電池切れ・通信断の
+        疑い）、一度も検知が無ければ「未検知」。検知回数は人感センサーの動き検知回数で、個人を識別する
+        情報は含みません。新規登録・編集・撤去操作と system_admin
+        の全校横断ビューは後続スライスで提供します。
       </p>
     </section>
   );
 }
 
-/** 稼働中（撤去日なし）か撤去済かを色のみに依存せず日本語ラベルで示す（NFR05）。 */
-function StatusBadge({
-  decommissionedAt,
-}: {
-  decommissionedAt: SensorDeviceListItem["decommissionedAt"];
-}) {
-  const active = decommissionedAt === null;
+/** 一覧の 1 行。撤去済みは状態欄に明示する。 */
+function SensorRow({ sensor }: { sensor: SensorDeviceStatus }) {
+  const presentation = presentSensorStatus(sensor.status);
+  const decommissioned = sensor.decommissionedAt != null;
   return (
-    <span style={active ? activeBadgeStyle : decommissionedBadgeStyle}>
-      {active ? "稼働中" : "撤去済"}
-    </span>
+    <tr style={decommissioned ? decommissionedRowStyle : undefined}>
+      <th scope="row" style={tdLeftStyle}>
+        {sensor.locationLabel ?? "（未設定）"}
+      </th>
+      <td style={tdMutedStyle}>{sensor.className ?? "—"}</td>
+      <td style={tdMonoStyle} title="末尾 4 桁のみ表示（擬似識別子）">
+        {maskDeviceMac(sensor.deviceMac)}
+      </td>
+      <td style={tdMutedStyle}>
+        {sensor.lastDetectedAt == null ? "検知なし" : formatJstDateTime(sensor.lastDetectedAt)}
+      </td>
+      <td style={tdNumStyle}>{sensor.detections24h.toLocaleString("ja-JP")}</td>
+      <td style={tdLeftStyle}>
+        <span
+          style={{
+            ...statusBadgeStyle,
+            color: presentation.color,
+            background: presentation.background,
+          }}
+        >
+          {/* aria-hidden の記号 + 必ずテキストラベルを併記 (NFR05: 色/記号のみに依存しない)。 */}
+          <span aria-hidden="true">{presentation.symbol}</span>
+          {presentation.label}
+        </span>
+        {decommissioned ? <span style={decommissionedTagStyle}>撤去済み</span> : null}
+      </td>
+    </tr>
   );
 }
 
-/**
- * device_mac を**マスク表示**する（F13 §一覧の列仕様）。末尾 2 オクテット（区別に十分）だけ残し、それ以外の
- * 桁を伏せる。MAC 全体の露出を避けつつ、管理者が機器を識別できる粒度は保つ。コロン区切り/区切り無しの
- * どちらの登録表記でも、桁（hex）を抽出して末尾 4 桁を `··:··:..:XX:YY` 形で見せる。
- */
-function maskDeviceMac(deviceMac: string): string {
-  const hex = deviceMac.replace(/[^0-9a-fA-F]/g, "");
-  if (hex.length <= 4) {
-    return deviceMac;
-  }
-  const tail = hex.slice(-4).toUpperCase();
-  return `··:··:··:··:${tail.slice(0, 2)}:${tail.slice(2)}`;
-}
-
-/** sensor_devices.kind を表示用ラベルにする。未知値はそのまま出す（将来種別の前方互換）。 */
-function kindLabel(kind: string): string {
-  if (kind === "presence_pir") {
-    return "人感 (PIR)";
-  }
-  return kind;
-}
-
-/** 最終検知の timestamptz 文字列を JST の読みやすい表記にする。未検知は明示する。 */
-function formatLastSeen(lastSeenAt: string | null): string {
-  if (lastSeenAt === null) {
-    return "未検知";
-  }
-  const d = new Date(lastSeenAt);
-  if (Number.isNaN(d.getTime())) {
-    return "未検知";
-  }
-  // JST（Asia/Tokyo）で YYYY/MM/DD HH:MM。SSR/CSR で一致させるため timeZone を固定する。
+/** timestamptz を JST の YYYY/MM/DD HH:mm で表示する (サーバー描画、ロケール固定)。 */
+function formatJstDateTime(value: Date): string {
   return new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
@@ -143,7 +146,7 @@ function formatLastSeen(lastSeenAt: string | null): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(d);
+  }).format(value);
 }
 
 const headerStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.75rem" };
@@ -176,38 +179,44 @@ const thLeftStyle: React.CSSProperties = {
   borderBottom: "2px solid #e5e7eb",
   fontWeight: 600,
 };
+const thNumStyle: React.CSSProperties = { ...thLeftStyle, textAlign: "right", width: "7rem" };
 const tdLeftStyle: React.CSSProperties = {
   textAlign: "left",
   padding: "0.5rem 0.6rem",
   borderBottom: "1px solid #f3f4f6",
   fontWeight: 500,
 };
+const tdMutedStyle: React.CSSProperties = { ...tdLeftStyle, fontWeight: 400, color: "#6b7280" };
 const tdMonoStyle: React.CSSProperties = {
   ...tdLeftStyle,
-  fontFamily: "ui-monospace, monospace",
   fontWeight: 400,
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   color: "#374151",
 };
-const activeBadgeStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  color: "#065f46",
-  background: "#d1fae5",
-  border: "1px solid #6ee7b7",
-  borderRadius: "6px",
-  padding: "0.1rem 0.45rem",
+const tdNumStyle: React.CSSProperties = {
+  textAlign: "right",
+  padding: "0.5rem 0.6rem",
+  borderBottom: "1px solid #f3f4f6",
+  fontVariantNumeric: "tabular-nums",
 };
-const decommissionedBadgeStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
+const statusBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  fontSize: "0.78rem",
   fontWeight: 600,
+  padding: "0.1rem 0.55rem",
+  borderRadius: "999px",
+};
+const decommissionedRowStyle: React.CSSProperties = { opacity: 0.6 };
+const decommissionedTagStyle: React.CSSProperties = {
+  marginLeft: "0.5rem",
+  fontSize: "0.72rem",
   color: "#6b7280",
-  background: "#f3f4f6",
-  border: "1px solid #e5e7eb",
-  borderRadius: "6px",
-  padding: "0.1rem 0.45rem",
 };
 const footnoteStyle: React.CSSProperties = {
   color: "#9ca3af",
   fontSize: "0.8rem",
   marginTop: "1.5rem",
+  lineHeight: 1.6,
 };
