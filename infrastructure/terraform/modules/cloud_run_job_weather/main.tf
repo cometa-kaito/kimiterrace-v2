@@ -18,6 +18,12 @@
 #
 # 雛形段階は `enabled = false`（count = 0）で実体を生成しない（embedding 用 cloud_run_job と同規律）。
 # image / vpc_connector / database_url_secret_id 等は Phase 開発で値を詰めて enabled = true に切替。
+#
+# 【前提（enable-time）】外部 egress(JMA) には network モジュールの **Cloud NAT が必須**。
+#   network モジュール（modules/network）の VPC connector + Cloud Router + Cloud NAT を先に enable し、
+#   その出力を vpc_connector ← network.vpc_connector_id / external_egress_ready ← network.egress_ready で渡す。
+#   ALL_TRAFFIC egress なのに NAT 不在だと runtime で外部 fetch がサイレント失敗するため、
+#   下の lifecycle.precondition で plan 時に fail-fast させる（ADR-021 単一 egress 経路 / ADR-009）。
 
 locals {
   scheduler_job_name = "${var.job_name}-trigger"
@@ -155,6 +161,14 @@ resource "google_cloud_run_v2_job" "weather" {
     precondition {
       condition     = !var.enabled || var.vpc_connector != ""
       error_message = "enabled = true のとき vpc_connector は必須です（Cloud SQL private IP への接続 + JMA への外部 egress を VPC 経由に集約、ルール2 / ADR-021 閉域原則）。"
+    }
+    # vpc_connector があっても Cloud NAT（外部 egress 出口）が無ければ JMA に到達できない。
+    # network モジュールの egress_ready（NAT 実在 signal）を external_egress_ready で受け取り、
+    # ALL_TRAFFIC egress のとき NAT 必須を plan 時に強制する。これにより「connector はあるが NAT 不在で
+    # 起動後サイレントに外部 fetch 失敗する Job」を本番に作らない（ADR-021 単一 egress 経路 / ADR-009）。
+    precondition {
+      condition     = !var.enabled || var.egress_setting != "ALL_TRAFFIC" || var.external_egress_ready
+      error_message = "enabled = true かつ egress_setting = ALL_TRAFFIC（外部 egress）のとき external_egress_ready = true が必須です。network モジュールの Cloud NAT を先に enable し、その egress_ready 出力を渡してください（NAT 無しでは JMA に到達不可、ADR-021 / ADR-009）。"
     }
   }
 }

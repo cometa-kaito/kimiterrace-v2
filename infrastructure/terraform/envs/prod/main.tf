@@ -103,14 +103,16 @@ module "cloud_run_job" {
 
 # F14 天気取得 Cloud Run Job + Scheduler + egress（#128, ADR-021）。
 # enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定。
-# 外部 egress(JMA) は本 Job 経路のみ（閉域原則、ADR-021）。Sentry を使うなら sentry_dsn_secret_id を設定（ADR-013）。
+# 外部 egress(JMA) は本 Job 経路のみ（閉域原則、ADR-021）。external_egress_ready で network の Cloud NAT 実在を強制
+# （NAT 無しで enabled=true にすると plan が fail-fast）。Sentry を使うなら sentry_dsn_secret_id を設定（ADR-013）。
 # prod は deletion_protection 既定 true（モジュール側既定）。
 module "cloud_run_job_weather" {
-  source     = "../../modules/cloud_run_job_weather"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  source                = "../../modules/cloud_run_job_weather"
+  project_id            = var.project_id
+  region                = var.region
+  env                   = local.env
+  enabled               = false                       # TODO(Phase 開発)
+  external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
 }
 
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。

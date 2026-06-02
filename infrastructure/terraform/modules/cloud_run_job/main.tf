@@ -127,6 +127,9 @@ resource "google_cloud_run_v2_job" "embedding" {
       }
 
       # Cloud SQL private IP への egress（network モジュールの VPC connector を渡す）。
+      # egress = PRIVATE_RANGES_ONLY = **内部のみ**。本 Job は外部 API へ出ないため、
+      # network モジュールの connector（network.vpc_connector_id）は要るが Cloud NAT は不要。
+      # 外部 egress(NAT) が要るのは weather Job だけ（cloud_run_job_weather, ADR-021 単一 egress 経路）。
       dynamic "vpc_access" {
         for_each = var.vpc_connector != "" ? [1] : []
         content {
