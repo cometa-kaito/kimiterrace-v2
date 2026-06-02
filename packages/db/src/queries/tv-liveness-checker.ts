@@ -63,12 +63,15 @@ export async function runTvLivenessCheck(
   const states = await loadDeviceStates(tx);
   const classification: TvLivenessClassification = classifyTvLiveness(states, now, thresholds);
 
-  await applyTransitions(tx, classification);
-
+  // サマリは「分類した件数（意図）」ではなく applyTransitions が**実際に書き込んだ件数**を返す。
+  // 分類は loadDeviceStates の事前読取に基づくため、別チェッカ実行と同時発火すると 2 本とも
+  // 同一 TV を newlyDown と分類しうる（双方が INSERT 前に hasOpenDowntime=false を見るタイミング）。
+  // 直列化点（親行 FOR UPDATE）で DB の未解決行は 1 行に保たれるが、サマリを classification 長で
+  // 数えると「スキップした 2 本目」も計上され newlyDown 合計が 2 になる非決定（#517）。実書込件数を
+  // 返せば、勝者が 1・敗者が 0 で timing 非依存に合計 1 となる。
   return {
     scanned: states.length,
-    newlyDown: classification.newlyDown.length,
-    recovered: classification.recovered.length,
+    ...(await applyTransitions(tx, classification)),
   };
 }
 
@@ -121,13 +124,19 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
 }
 
 /**
- * 純関数の遷移結果を DB に反映する。down は新規行 INSERT（再カウントで二重防止）+ alert_state='down'、
- * recover は未解決行クローズ + alert_state='ok'。
+ * 純関数の遷移結果を DB に反映し、**実際に書き込んだ件数**を返す。down は新規行 INSERT（再カウントで
+ * 二重防止）+ alert_state='down'、recover は未解決行クローズ + alert_state='ok'。
+ *
+ * 返す件数は classification の長さではなく実書込数: down は FOR UPDATE 再確認で既存未解決行を見て
+ * INSERT を見送った場合は計上しない（同時発火の敗者を二重計上しない、#517）。recover は `.returning()`
+ * で実際に締めた行があった場合のみ計上する（別チェッカが先に締めた行は 0 行更新 → 非計上、対称な堅牢化）。
  */
 async function applyTransitions(
   tx: TenantTx,
   classification: TvLivenessClassification,
-): Promise<void> {
+): Promise<{ newlyDown: number; recovered: number }> {
+  let newlyDown = 0;
+  let recovered = 0;
   for (const down of classification.newlyDown) {
     // 直列化点（device 単位）: 親 tv_devices 行を FOR UPDATE でロックする。FK で必ず 1 行存在するため、
     // 「初回 down（未解決行がまだ 0 件）」でも空集合にならず、同時実行の 2 本目はこのロック解放まで
@@ -165,6 +174,7 @@ async function applyTransitions(
       .update(tvDevices)
       .set({ alertState: "down", updatedAt: new Date() })
       .where(eq(tvDevices.deviceId, down.deviceId));
+    newlyDown += 1; // 実際に INSERT した時のみ計上（スキップ経路は continue 済みで非計上）。
   }
 
   for (const rec of classification.recovered) {
@@ -173,7 +183,7 @@ async function applyTransitions(
     // postgres@3.4.9 が直列化できず実 PG でクラッシュするため（[[pg-date-bind-enum-insert]]）、Date を
     // 一切 bind せず DB now() に倒す。recovered_at = 復帰観測時刻 = チェッカ実行時刻 ≈ now() で意味も一致。
     // duration_sec は (now() - went_down_at) の秒を四捨五入し非負に丸める。
-    await tx
+    const closed = await tx
       .update(tvDeviceDowntime)
       .set({
         recoveredAt: sql`now()`,
@@ -181,12 +191,16 @@ async function applyTransitions(
         causeHint: rec.causeHint,
         updatedAt: sql`now()`,
       })
-      .where(
-        and(eq(tvDeviceDowntime.deviceId, rec.deviceId), isNull(tvDeviceDowntime.recoveredAt)),
-      );
+      .where(and(eq(tvDeviceDowntime.deviceId, rec.deviceId), isNull(tvDeviceDowntime.recoveredAt)))
+      .returning({ id: tvDeviceDowntime.id });
     await tx
       .update(tvDevices)
       .set({ alertState: "ok", updatedAt: new Date() })
       .where(eq(tvDevices.deviceId, rec.deviceId));
+    if (closed.length > 0) {
+      recovered += 1; // 実際に未解決行を締めた時のみ計上（別チェッカが先に締めていれば 0 行更新で非計上）。
+    }
   }
+
+  return { newlyDown, recovered };
 }
