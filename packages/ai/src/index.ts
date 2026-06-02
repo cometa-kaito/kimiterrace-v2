@@ -68,6 +68,14 @@ export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./mod
 export { createVertexModelClient } from "./model/vertex.js";
 export type { VertexModelConfig } from "./model/vertex.js";
 
+// F06 (#373, ADR-005/006) 生徒対話 SSE の Vertex ストリーミングクライアント（streamText 逐次）
+export { createVertexChatStreamClient } from "./model/chat-stream.js";
+export type {
+  VertexChatStreamClient,
+  VertexChatStreamConfig,
+  ChatStreamResult,
+} from "./model/chat-stream.js";
+
 // F06 (#365, ADR-007) Vertex テキスト embedding アダプタ（RAG: コンテンツ/質問の embedding 生成、768 次元）
 export { EMBEDDING_DIM, EmbeddingError, createVertexEmbeddingClient } from "./model/embed.js";
 export type { EmbeddingClient, VertexEmbeddingConfig } from "./model/embed.js";
