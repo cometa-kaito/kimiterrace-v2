@@ -198,6 +198,36 @@ describe("createIdpUser (#508 発行 seam)", () => {
     });
     expect(order).toEqual(["create", "claims", "link"]);
   });
+
+  it("createUser 成功後に claims/link が失敗したら deleteUser で補償して throw (atomic、孤児を残さない)", async () => {
+    setCustomUserClaims.mockRejectedValue(new Error("claims failed"));
+    await expect(
+      createIdpUser({
+        uid: UID,
+        email: "t@example.com",
+        displayName: "山田",
+        role: "teacher",
+        schoolId: SCHOOL_ID,
+      }),
+    ).rejects.toThrow("claims failed");
+    // createUser 済の claimless 孤児を削除する。
+    expect(deleteUser).toHaveBeenCalledWith(UID);
+  });
+
+  it("createUser 自体が失敗したら補償削除しない (まだ自分が作っていない既存 user を消さない)", async () => {
+    createUser.mockRejectedValue({ code: "auth/email-already-exists" });
+    await expect(
+      createIdpUser({
+        uid: UID,
+        email: "t@example.com",
+        displayName: "山田",
+        role: "teacher",
+        schoolId: SCHOOL_ID,
+      }),
+    ).rejects.toMatchObject({ code: "auth/email-already-exists" });
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(setCustomUserClaims).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteIdpUser / isEmailAlreadyExistsError", () => {

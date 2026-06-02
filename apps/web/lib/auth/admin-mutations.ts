@@ -100,11 +100,19 @@ export async function createIdpUser(args: {
 }): Promise<{ setupLink: string }> {
   const auth = getAdminAuth();
   // localId を uid に固定 (== users.id)。password は設定せず、後段の reset link で利用者が設定する。
+  // createUser が email 重複等で throw した場合は、まだ自分が作っていないので補償不要 (呼出側が conflict 整形)。
   await auth.createUser({ uid: args.uid, email: args.email, displayName: args.displayName });
-  // claims は role / school_id のみ (uid は localId で claim ではない、ADR-003)。
-  await auth.setCustomUserClaims(args.uid, { role: args.role, school_id: args.schoolId });
-  const setupLink = await auth.generatePasswordResetLink(args.email);
-  return { setupLink };
+  try {
+    // claims は role / school_id のみ (uid は localId で claim ではない、ADR-003)。
+    await auth.setCustomUserClaims(args.uid, { role: args.role, school_id: args.schoolId });
+    const setupLink = await auth.generatePasswordResetLink(args.email);
+    return { setupLink };
+  } catch (error) {
+    // createUser 成功後の部分失敗は **claims 無しの孤児 IdP user** (認証は normalizeClaims が role 欠落で
+    // deny するが、email を占有して再発行を塞ぐ) を残すため、削除して seam を atomic 化してから throw する。
+    await auth.deleteUser(args.uid).catch(() => {});
+    throw error;
+  }
 }
 
 /**
