@@ -1,6 +1,7 @@
-import { requireRole } from "@/lib/auth/guard";
+import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { ADMIN_ROLES } from "@/lib/nav";
 import { withSession } from "@/lib/db";
+import { TV_CONFIG_EDIT_ROLES } from "@/lib/tv/config-edit-core";
 import {
   TV_STATUS_ICON,
   TV_STATUS_LABEL,
@@ -18,6 +19,10 @@ import Link from "next/link";
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` で 401/403 を弾く。可視範囲は
  * `tv_devices` の RLS が DB レベルで決める（school_admin=自校 / system_admin=全校、ルール2）。
  * `withSession` の RLS context 下で `listTvDevices` を呼ぶ — WHERE にテナント条件は書かない。
+ * 一覧は teacher も閲覧できるが、**設定編集（編集ページ）は `TV_CONFIG_EDIT_ROLES`（school_admin /
+ * system_admin）限定**。teacher には 403 に終わる「編集」リンクを出さない（死リンク防止、編集ページ側の
+ * `requireRole` + RLS が実体の認可。本ページの出し分けは UX 層の多層防御で、`editor` ページの広告 / 静粛
+ * 時間リンク出し分けと同じ規律）。
  *
  * **本スライス（基盤・第1弾）は一覧の閲覧のみ**。詳細・編集（signage_url 自動抽出 / version +1 /
  * audit_log）、新規登録（オンボーディング + トークン発行）、コマンド発行、監査ビュー、稼働率%・
@@ -29,7 +34,10 @@ import Link from "next/link";
  * のみ表示（F15 §5、フル値は将来の system_admin 詳細画面のみ）。device_id も先頭のみ短縮表示。
  */
 export default async function TvDevicesPage() {
-  await requireRole(ADMIN_ROLES);
+  const user = await requireRole(ADMIN_ROLES);
+  // 設定編集は school_admin / system_admin 限定。teacher には 403 に終わる「編集」リンクを出さない
+  // （死リンク防止、#494 Reviewer Low-2）。実体の認可は編集ページの requireRole + RLS が担保する。
+  const canEditConfig = isRoleAllowed(user.role, TV_CONFIG_EDIT_ROLES);
   const devices = await withSession((tx) => listTvDevices(tx));
   // 判定基準時刻はリクエスト時刻で固定し、全行を同一 now で判定する（行ごとの揺れを避ける）。
   const now = new Date();
@@ -77,15 +85,23 @@ export default async function TvDevicesPage() {
               <th scope="col" style={thLeftStyle}>
                 稼働ステータス
               </th>
-              {/* 設定編集への導線（F15 §4.2）。実際の編集可否は編集ページの role gate + RLS が担保する。 */}
-              <th scope="col" style={thLeftStyle}>
-                操作
-              </th>
+              {/* 設定編集への導線（F15 §4.2）。編集可ロールにだけ列ごと出す（teacher には死リンクも空列も
+                  見せない）。実体の編集可否は編集ページの role gate + RLS が担保する。 */}
+              {canEditConfig && (
+                <th scope="col" style={thLeftStyle}>
+                  操作
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {rows.map(({ device, status }) => (
-              <DeviceRow key={device.id} device={device} status={status} />
+              <DeviceRow
+                key={device.id}
+                device={device}
+                status={status}
+                canEditConfig={canEditConfig}
+              />
             ))}
           </tbody>
         </table>
@@ -94,7 +110,15 @@ export default async function TvDevicesPage() {
   );
 }
 
-function DeviceRow({ device, status }: { device: TvDeviceSummary; status: TvLivenessStatus }) {
+function DeviceRow({
+  device,
+  status,
+  canEditConfig,
+}: {
+  device: TvDeviceSummary;
+  status: TvLivenessStatus;
+  canEditConfig: boolean;
+}) {
   return (
     <tr>
       <th scope="row" style={tdLeftStyle}>
@@ -116,16 +140,19 @@ function DeviceRow({ device, status }: { device: TvDeviceSummary; status: TvLive
           <span>{TV_STATUS_LABEL[status]}</span>
         </span>
       </td>
-      <td style={tdLeftStyle}>
-        {/* 行 PK（device.id）でリンク。編集ページの requireRole(TV_CONFIG_EDIT_ROLES) で teacher は 403。 */}
-        <Link
-          href={`/admin/tv-devices/${device.id}/edit`}
-          style={editLinkStyle}
-          aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
-        >
-          編集
-        </Link>
-      </td>
+      {/* 編集可ロール（school_admin / system_admin）にだけリンクを出す。teacher は列ごと非表示で死リンク
+          を作らない。編集ページの requireRole(TV_CONFIG_EDIT_ROLES) + RLS が実体の認可。 */}
+      {canEditConfig && (
+        <td style={tdLeftStyle}>
+          <Link
+            href={`/admin/tv-devices/${device.id}/edit`}
+            style={editLinkStyle}
+            aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
+          >
+            編集
+          </Link>
+        </td>
+      )}
     </tr>
   );
 }
