@@ -135,6 +135,17 @@ module "report_storage" {
   enabled    = false # TODO(Phase 開発)
 }
 
+# 教員アップロード素材の Cloud Storage バケット（F01 / #509 / #37, ADR-024）。90 日後コールド移送。
+# enabled 化時に upload 受口 runtime SA を writer_service_account に設定し、Cloud Run の env に
+# 出力 bucket_name を渡す。生徒 PII 素材のため CMEK 推奨（kms_key_name に KMS key を設定、
+# 鍵 + IAM は KMS module follow-up）。取得監査が要れば log_bucket を設定（アップロード導線は follow-up）。
+module "upload_storage" {
+  source     = "../../modules/upload_storage"
+  project_id = var.project_id
+  env        = local.env
+  enabled    = false # TODO(Phase 開発)
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 

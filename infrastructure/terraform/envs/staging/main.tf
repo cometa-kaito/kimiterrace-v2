@@ -137,6 +137,18 @@ module "report_storage" {
   force_destroy = true
 }
 
+# 教員アップロード素材の Cloud Storage バケット（F01 / #509 / #37, ADR-024）。90 日後コールド移送。
+# staging は recreate 容易性優先で force_destroy=true（Issue #70 同規律）。
+# enabled 化時に upload 受口 runtime SA を writer_service_account に設定し、Cloud Run の env に
+# 出力 bucket_name を渡す。生徒 PII 素材のため CMEK 推奨（kms_key_name に KMS key を設定）。
+module "upload_storage" {
+  source        = "../../modules/upload_storage"
+  project_id    = var.project_id
+  env           = local.env
+  enabled       = false # TODO(Phase 開発)
+  force_destroy = true
+}
+
 module "workload_identity_federation" {
   source = "../../modules/workload_identity_federation"
 
