@@ -99,6 +99,13 @@
       "when": 1780296238272,
       "tag": "20260601064358_f13_sensor_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780368555935,
+      "tag": "20260602024915_f15_tv_devices",
+      "breakpoints": true
     }
   ]
 }

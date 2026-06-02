@@ -65,6 +65,18 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/api/guide/feedback")).toBe(false);
   });
 
+  it("F15/F16 TV ポーリング /api/tv/* はゲート対象外 (除外)", () => {
+    // 学校設置 TV は `__session` を持たない外部 origin。除外しないと /login に弾かれポーリング破綻。
+    // 認可は route handler の共有シークレット検証 (TV_POLL_SECRET) が担う (ADR-022)。
+    expect(gated.test("/api/tv/config")).toBe(false);
+    expect(gated.test("/api/tv/heartbeat")).toBe(false);
+  });
+
+  it("api/tv/ 除外は末尾 / で境界済、look-alike な /api/tvm 等は過剰除外しない (保護のまま)", () => {
+    expect(gated.test("/api/tvm")).toBe(true);
+    expect(gated.test("/api/tv-admin")).toBe(true);
+  });
+
   it("guide 除外は guide(?:/|$) で厳格、/guidelines 等は過剰除外しない (保護のまま)", () => {
     // `guide` 単体だと /guidelines も巻き込み静かな保護バイパスになる (PR #227 Reviewer Low-1)。
     expect(gated.test("/guidelines")).toBe(true);

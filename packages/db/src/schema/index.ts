@@ -13,6 +13,8 @@ export * from "./publishes.js";
 export * from "./events.js";
 // F13 (#391, ADR-020): 来場検知センサーのデバイス登録（presence events は events テーブルへ）
 export * from "./sensor-devices.js";
+// F15/F16 (ADR-022/ADR-023): TV デバイスのリモート設定レジストリ + ポーリング心拍（last_seen 死活）
+export * from "./tv-devices.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";

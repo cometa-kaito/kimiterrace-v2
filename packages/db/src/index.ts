@@ -38,5 +38,7 @@ export * from "./queries/ai-rate-limit.js";
 export * from "./queries/rag-search.js";
 // F13 (#408, ADR-020): SwitchBot Webhook の presence イベント書込み (cross-tenant 解決 + scoped insert)
 export * from "./queries/sensor-presence.js";
+// F15/F16 (ADR-022/ADR-023): TV デバイスのポーリング設定取得 + last_seen 心拍更新 / 管理一覧読み取り
+export * from "./queries/tv-devices.js";
 // F06 (#398, ADR-007): embedding 生成バッチの RLS クエリ層 (公開中・未生成抽出 + embedding 保存)
 export * from "./queries/embedding-batch.js";

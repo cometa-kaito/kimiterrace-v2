@@ -48,6 +48,12 @@ export function middleware(request: NextRequest): NextResponse {
  *   ログインせずに送れる匿名公開経路 (V1 feedback 受付の移植)。除外しないと未ログインで /login に
  *   弾かれ投稿不能。書き込みは SECURITY DEFINER `submit_feedback` 1 行 INSERT に限定、閲覧は
  *   system_admin のみ (system_admin_only RLS) なので、匿名公開でも閲覧面は漏れない。
+ * - /api/tv/*: F15/F16 (ADR-022/ADR-023) TV デバイスのポーリング設定取得 (`/api/tv/config`)。
+ *   学校設置の Google TV は `__session` を持たない外部 origin の GET。除外しないと TV が /login に
+ *   弾かれポーリング破綻する。認可は **共有シークレット** (`?key=` / TV_POLL_SECRET、ADR-022) を
+ *   route handler が検証し (未一致は 401)、device_id→school_id 解決は RLS (system_admin_full_access)
+ *   経由で BYPASSRLS 不使用 (ルール2)。将来の死活チェッカ (POST /api/tv/health-check) は **内部呼出
+ *   専用**で OIDC/内部シークレット検証 (F16 §6) のため、この匿名除外に同居しても route 側が弾く。
  * - _next/static, _next/image, favicon, public assets: 静的アセット
  *
  * negative lookahead で上記を除外し、残り全部を保護対象にする。匿名公開経路 (F05 の `/s`・
@@ -65,6 +71,6 @@ export function middleware(request: NextRequest): NextResponse {
  */
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
