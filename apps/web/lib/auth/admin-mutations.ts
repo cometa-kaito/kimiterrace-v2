@@ -71,3 +71,63 @@ export async function changeIdpUserRole(
   await auth.setCustomUserClaims(uid, { role, school_id: schoolId });
   await auth.revokeRefreshTokens(uid);
 }
+
+/**
+ * F11 (#508): 新規スタッフアカウントの **Identity Platform 作成 seam**。
+ *
+ * **uid 規約 (ADR-003 provisioning)**: Auth の **localId 自体を呼出側生成の `users.id`(UUID) に一致**
+ * させて作成する (`createUser({ uid })` で localId を明示指定)。これにより `verifySessionCookie().uid`
+ * (= token `sub` = localId) が `users.id` と一致し、session.ts normalizeClaims の「uid は UUID 必須」
+ * 規約・既存の無効化/ロール変更 seam (users.id を uid として渡す) と整合する。`uid` という名の custom
+ * claim は予約衝突で無視されるため、claim には `role` / `school_id` のみを載せる。
+ *
+ * **パスワード**: 初回は設定しない (createUser で password 省略)。`generatePasswordResetLink` で
+ * 「初回パスワード設定リンク」を生成して返し、呼出側 (action) が発行者へ提示する (email infra 非依存、
+ * 発行者が利用者へ共有)。email/password プロバイダはログイン (signInWithEmailAndPassword) 既設。
+ *
+ * **部分失敗**: いずれかのステップが throw した場合、呼出側は {@link deleteIdpUser} で孤児 IdP user を
+ * 補償削除すること (DB mirror 失敗時も同様、IdP=単一ソースだが DB 行の無い user は管理不能なため roll back)。
+ *
+ * @throws createUser が `auth/email-already-exists` 等で失敗する場合 (呼出側が conflict に整形)。
+ */
+export async function createIdpUser(args: {
+  /** 呼出側生成の UUID。localId == users.id に一致させる (ADR-003)。 */
+  uid: string;
+  email: string;
+  displayName: string;
+  role: TenantRole;
+  schoolId: string;
+}): Promise<{ setupLink: string }> {
+  const auth = getAdminAuth();
+  // localId を uid に固定 (== users.id)。password は設定せず、後段の reset link で利用者が設定する。
+  // createUser が email 重複等で throw した場合は、まだ自分が作っていないので補償不要 (呼出側が conflict 整形)。
+  await auth.createUser({ uid: args.uid, email: args.email, displayName: args.displayName });
+  try {
+    // claims は role / school_id のみ (uid は localId で claim ではない、ADR-003)。
+    await auth.setCustomUserClaims(args.uid, { role: args.role, school_id: args.schoolId });
+    const setupLink = await auth.generatePasswordResetLink(args.email);
+    return { setupLink };
+  } catch (error) {
+    // createUser 成功後の部分失敗は **claims 無しの孤児 IdP user** (認証は normalizeClaims が role 欠落で
+    // deny するが、email を占有して再発行を塞ぐ) を残すため、削除して seam を atomic 化してから throw する。
+    await auth.deleteUser(args.uid).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * F11 (#508): IdP user の補償削除。{@link createIdpUser} 成功後に DB mirror / 後続が失敗した場合に、
+ * 孤児 IdP user (DB 行が無く管理不能) を取り除くために呼ぶ。best-effort (補償自体の失敗は握る)。
+ */
+export async function deleteIdpUser(uid: string): Promise<void> {
+  await getAdminAuth().deleteUser(uid);
+}
+
+/** createUser が「メール重複」で失敗したか (conflict 整形用)。firebase-admin のエラーコードで判定。 */
+export function isEmailAlreadyExistsError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "auth/email-already-exists"
+  );
+}

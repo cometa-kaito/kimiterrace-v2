@@ -1,14 +1,22 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { type TenantTx, auditLog, users } from "@kimiterrace/db";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { deactivateIdpUser, reactivateIdpUser } from "../auth/admin-mutations";
+import {
+  createIdpUser,
+  deactivateIdpUser,
+  deleteIdpUser,
+  isEmailAlreadyExistsError,
+  reactivateIdpUser,
+} from "../auth/admin-mutations";
 import { requireRole } from "../auth/guard";
 import type { AuthUser } from "../auth/session";
 import { withSession } from "../db";
 import {
   type ActionResult,
+  conflict,
   forbidden,
   invalid,
   isUuid,
@@ -16,6 +24,11 @@ import {
 } from "../system-admin/schools-core";
 import { type RoleActor, canDisableAccount } from "./policy";
 import { MEMBER_ADMIN_ROLES } from "./roles";
+
+/** メールアドレスの最小検証 (形式 + 長さ)。`users.email` は varchar(320)。 */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL = 320;
+const MAX_DISPLAY_NAME = 100;
 
 /**
  * F11 (#47 / #324, ADR-026): 自校教職員のアカウント **無効化 / 再有効化** Server Action。
@@ -152,4 +165,110 @@ async function writeMemberActiveAudit(
     createdBy: user.uid,
     updatedBy: user.uid,
   });
+}
+
+/**
+ * F11 (#508): school_admin が **自校 teacher アカウントを新規発行**する Server Action (発行 MVP)。
+ *
+ * 認証は email+password (`app/login`)。本 action は IdP user を作成し、初回パスワード設定リンクを返す
+ * (発行者が利用者へ共有、email infra 非依存)。ADR-003 の provisioning 規約・ADR-026 の IdP 単一ソース
+ * に従う。
+ *
+ * ## 規律
+ * - **role 境界 (ルール2 多層防御)**: school_admin は **teacher のみ** 発行可。role は入力で受けず `teacher`
+ *   固定 (school_admin / system_admin の発行は system 管理面の別スライス)。RLS は school 境界しか守らない
+ *   ([[rls-tenant-not-role-boundary]]) ため app 層で role を固定する。`requireRole(MEMBER_ADMIN_ROLES)` で
+ *   teacher / system_admin の呼出は /forbidden。
+ * - **uid 規約 (ADR-003)**: `randomUUID()` を生成し **createUser の localId・`users.id`・`identity_uid`
+ *   の三者に共用**。これで localId == users.id となり、作成後のアカウントを既存の無効化/ロール変更 seam
+ *   (users.id を IdP uid として渡す) で操作できる。
+ * - **IdP を先に (ADR-026)**: IdP=エンフォース単一ソース。createUser→claims→reset link を先に確定し、
+ *   その後 DB mirror + 監査を同一 tx で書く (ルール1)。
+ * - **部分失敗の補償**: IdP 作成成功後に DB mirror が失敗したら、孤児 IdP user (DB 行が無く管理不能) を
+ *   `deleteIdpUser` で補償削除して roll back する ([[feedback_last_admin_toctou_for_update_idp_compensation]] と
+ *   同思想)。メール重複は createUser が `auth/email-already-exists` で弾くので conflict に整形する。
+ * - **RLS INSERT**: `tenant_isolation ON users FOR ALL WITH CHECK(school_id=current)` が自校 INSERT を許可。
+ *   school_id は actor の自校 (claims 由来) で WITH CHECK を満たす。0015 last-admin トリガは UPDATE/DELETE
+ *   のみで INSERT 非対象。
+ */
+export async function createStaffAction(raw: {
+  email?: unknown;
+  displayName?: unknown;
+}): Promise<ActionResult<{ id: string; setupLink: string }>> {
+  // 入力検証 (IdP / DB 到達前に弾く)。
+  const email = typeof raw.email === "string" ? raw.email.trim() : "";
+  const displayName = typeof raw.displayName === "string" ? raw.displayName.trim() : "";
+  if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
+    return invalid("メールアドレスの形式が不正です。");
+  }
+  if (displayName.length === 0 || displayName.length > MAX_DISPLAY_NAME) {
+    return invalid("表示名を入力してください (100 文字以内)。");
+  }
+
+  // 認可: school_admin のみ。未認証→/login, 権限不足→/forbidden の redirect 副作用はここで起きる。
+  const actor = await requireRole(MEMBER_ADMIN_ROLES);
+  if (!actor.schoolId) {
+    // MEMBER_ADMIN_ROLES = school_admin なので通常 schoolId は非 null。型安全 + 防御で弾く。
+    return forbidden("所属校が特定できないため発行できません。");
+  }
+  const schoolId = actor.schoolId;
+
+  // localId == users.id == identity_uid に共用する UUID (ADR-003)。
+  const newUid = randomUUID();
+
+  // 1) IdP を先に作成 (ADR-026)。teacher 固定 (role 境界)。メール重複は conflict、その他不明エラーは throw。
+  let setupLink: string;
+  try {
+    ({ setupLink } = await createIdpUser({
+      uid: newUid,
+      email,
+      displayName,
+      role: "teacher",
+      schoolId,
+    }));
+  } catch (error) {
+    if (isEmailAlreadyExistsError(error)) {
+      return conflict("このメールアドレスは既に登録されています。");
+    }
+    throw error;
+  }
+
+  // 2) DB mirror (users 行) + 監査を同一 tx で。失敗時は孤児 IdP user を補償削除して roll back。
+  try {
+    await withSession(
+      async (tx, user) => {
+        await tx.insert(users).values({
+          id: newUid,
+          identityUid: newUid,
+          // 外側でガード済の非 null schoolId (= actor 自校 = RLS context)。WITH CHECK(school_id=current) を満たす。
+          schoolId,
+          role: "teacher",
+          displayName,
+          email,
+          isActive: true,
+          createdBy: user.uid,
+          updatedBy: user.uid,
+        });
+        await tx.insert(auditLog).values({
+          actorUserId: user.uid,
+          schoolId: user.schoolId,
+          tableName: "users",
+          recordId: newUid,
+          operation: "insert",
+          diff: { after: { role: "teacher", displayName, email, isActive: true } },
+          rowHash: "",
+          createdBy: user.uid,
+          updatedBy: user.uid,
+        });
+      },
+      { allowedRoles: MEMBER_ADMIN_ROLES },
+    );
+  } catch (error) {
+    // DB mirror 失敗 → DB 行の無い孤児 IdP user は管理不能なので補償削除 (best-effort) して原因を投げる。
+    await deleteIdpUser(newUid).catch(() => {});
+    throw error;
+  }
+
+  revalidatePath("/admin/school/members");
+  return { ok: true, data: { id: newUid, setupLink } };
 }
