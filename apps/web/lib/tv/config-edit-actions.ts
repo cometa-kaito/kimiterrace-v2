@@ -112,6 +112,11 @@ export async function updateTvDeviceConfigAction(
   }
 
   try {
+    // ⚠️ SSRF: ここで保存する `patch.signageUrl` / `patch.webhookUrl` は将来も**サーバ側で fetch しない**
+    // こと（現状シンク無し＝ADR-022 で TV 端末がクライアント側で叩く）。死活確認・プレビュー・画面
+    // キャプチャ等でサーバ側 fetch を追加する場合は、保存時の `checkEditableUrl`（config-edit-core.ts）
+    // 検証に依存せず、**fetch 時に解決済み IP を `isBlockedInternalHost` で再検証**すること
+    // （DNS-rebinding 対策。公開ホスト名が解決時に 169.254.169.254 等の内部 IP へ化けうる）。
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
     // (ADR-019 §#95 / Issue #226)。本 Action は特定デバイス = 特定 school のテナントスコープ操作。
     const updated = await withSession(

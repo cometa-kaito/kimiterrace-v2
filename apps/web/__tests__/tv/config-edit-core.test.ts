@@ -106,3 +106,75 @@ describe("validateTvConfigEdit", () => {
     }
   });
 });
+
+/**
+ * F15 SSRF 入力境界ガード（PR #494 Reviewer Low-1 / ADR-022）。
+ * `signageUrl` / `webhookUrl` は内部・ループバック・リンクローカル・プライベート・既知内部ホスト名を
+ * 拒否する。現状サーバ側 fetch シンクは無いが、将来追加時の latent SSRF（GCP メタデータ SA トークン
+ * 窃取）を入力境界で先回り遮断する。`signageUrl` で代表検証し、両フィールド同経路を別途確認する。
+ */
+describe("validateTvConfigEdit: SSRF 内部ホストガード", () => {
+  // 内部判定で拒否されるべきホスト（カテゴリごと）。8/16/10 進・IPv6・末尾ドット迂回も含む。
+  const blocked: Array<[string, string]> = [
+    // ループバック 127.0.0.0/8 + ::1 + 0.0.0.0/8
+    ["loopback v4", "http://127.0.0.1/"],
+    ["loopback v4 末尾", "http://127.255.255.254/"],
+    ["loopback v6", "http://[::1]/"],
+    ["unspecified v4 0.0.0.0", "http://0.0.0.0/"],
+    // リンクローカル 169.254.0.0/16（GCP メタデータ 169.254.169.254 を含む）
+    ["メタデータ IP", "http://169.254.169.254/computeMetadata/v1/"],
+    ["メタデータ IP(10進)", "http://2852039166/"],
+    ["メタデータ IP(16進)", "http://0xA9FEA9FE/"],
+    ["メタデータ IP(8進)", "http://0251.0376.0251.0376/"],
+    ["link-local 一般", "http://169.254.1.1/"],
+    // プライベート RFC1918
+    ["private 10/8", "http://10.0.0.5/"],
+    ["private 172.16/12 下端", "http://172.16.0.1/"],
+    ["private 172.16/12 上端", "http://172.31.255.255/"],
+    ["private 192.168/16", "http://192.168.1.1/"],
+    // 既知内部ホスト名
+    ["localhost", "http://localhost:8080/"],
+    ["metadata.google.internal", "http://metadata.google.internal/computeMetadata/v1/"],
+    ["末尾ドット迂回", "http://metadata.google.internal./"],
+    [".internal サフィックス", "https://db.internal/x"],
+    [".local サフィックス", "http://printer.local/"],
+    [".localhost サフィックス", "http://api.localhost/"],
+    // IPv6 link-local / unique-local / IPv4-mapped / IPv4-compatible(deprecated)
+    ["v6 link-local fe80::/10", "http://[fe80::1]/"],
+    ["v6 unique-local fc00::/7", "http://[fc00::1]/"],
+    ["v6 unique-local fd00", "http://[fd12:3456::1]/"],
+    ["v6 IPv4-mapped メタデータ", "http://[::ffff:169.254.169.254]/"],
+    ["v6 IPv4-compatible メタデータ", "http://[::169.254.169.254]/"],
+    ["v6 IPv4-compatible loopback", "http://[::127.0.0.1]/"],
+  ];
+
+  it.each(blocked)("内部宛先を拒否: %s", (_name, url) => {
+    const r = validateTvConfigEdit({ signageUrl: url });
+    expect(r.ok).toBe(false);
+    // scheme ではなく内部ホスト判定で落ちていることを文言で固定（正しい経路の証明）。
+    if (!r.ok) expect(r.message).toContain("内部");
+  });
+
+  it("webhookUrl も同じ内部ホストガードを通る", () => {
+    const r = validateTvConfigEdit({ webhookUrl: "http://169.254.169.254/" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain("内部");
+  });
+
+  // 公開ホスト・公開 IP・プライベートレンジ境界外は通す（過剰ブロックの回帰防止）。
+  const allowed: Array<[string, string]> = [
+    ["公開 https ホスト名", "https://sig.example/?school=A"],
+    ["公開ドメイン", "https://example.com/path"],
+    ["公開 IP", "https://8.8.8.8/"],
+    ["172.16/12 直下の境界外(172.15)", "https://172.15.0.1/"],
+    ["172.16/12 直上の境界外(172.32)", "https://172.32.0.1/"],
+    ["internal を含むが別 TLD", "https://internal.example.com/"],
+    // IPv4-compatible でも埋め込み IPv4 が公開なら通す（内部のみ遮断・過剰ブロックしない）。
+    ["v6 IPv4-compatible 公開", "https://[::8.8.8.8]/"],
+  ];
+
+  it.each(allowed)("公開宛先は通す: %s", (_name, url) => {
+    expect(validateTvConfigEdit({ signageUrl: url }).ok).toBe(true);
+    expect(validateTvConfigEdit({ webhookUrl: url }).ok).toBe(true);
+  });
+});

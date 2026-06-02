@@ -86,15 +86,135 @@ export function isUuid(value: unknown): value is string {
 
 type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/** http(s) の絶対 URL か（相対 / javascript: 等のスキームを弾く）。空文字はクリア扱い（呼出側で判定）。 */
-function isHttpUrl(value: string): boolean {
+/**
+ * 編集可能 URL（`signageUrl` / `webhookUrl`）の検証結果。
+ * - `ok`: http(s) かつ外部の公開ホスト。
+ * - `invalid_scheme`: パース不能 / 相対 / `javascript:` 等の非 http(s)。
+ * - `internal_host`: 内部・ループバック・リンクローカル・プライベート・既知内部ホスト名（SSRF ガード）。
+ */
+type EditableUrlCheck = "ok" | "invalid_scheme" | "internal_host";
+
+/**
+ * **SSRF 入力境界ガード (PR #494 Reviewer Low-1 / ADR-022)**:
+ * `signageUrl` / `webhookUrl` はオペレーターの自由入力。現状はサーバ側 fetch シンクが存在せず
+ * （TV 端末自身がクライアント側で webhook_url を叩き signage_url を描画する＝ADR-022）、保存された
+ * `http://169.254.169.254/...` は今日は不活性。だが**将来スライスがサーバ側 fetch を追加した瞬間**
+ * （webhook 死活確認 / signage プレビュー検証 / F15「TV 画面キャプチャ」/ 保存 URL の任意のサーバ取得）、
+ * Cloud Run のメタデータサーバ（`169.254.169.254` / `metadata.google.internal`）から SA トークンを盗む
+ * HIGH severity SSRF に化ける。安価な入力境界ハードニングとして、保存時に内部宛先を弾いておく。
+ *
+ * ⚠️ **SSRF: これらの保存 URL を将来サーバ側で fetch する場合、保存時検証に依存してはならない。**
+ * DNS-rebinding（公開ホスト名が解決のたびに内部 IP へ切り替わる攻撃）は保存時検証を素通りするため、
+ * **fetch 時に解決済み IP を再検証**し（lookup を pin して接続先 IP を内部レンジと突合）、リダイレクトを
+ * 追わない / 追うなら各 hop を再検証すること。実装時は `isBlockedInternalHost` を fetch 時の IP 検証にも
+ * 再利用する。
+ *
+ * 戻り値が `true` のホストはブロック対象。`URL.hostname`（WHATWG パーサで 8/16/10 進・short-form の
+ * IPv4 は dotted-decimal へ正規化済み、IPv6 は角括弧つき）を受け取る。
+ */
+function isBlockedInternalHost(rawHostname: string): boolean {
+  // 小文字化 → IPv6 の角括弧除去 → FQDN 絶対表記の末尾ドット 1 個除去（`metadata.google.internal.`
+  // のようなサフィックス一致回避を塞ぐ）。
+  let host = rawHostname.toLowerCase();
+  if (host.startsWith("[") && host.endsWith("]")) {
+    host = host.slice(1, -1);
+  }
+  if (host.endsWith(".")) {
+    host = host.slice(0, -1);
+  }
+
+  // 既知内部ホスト名（完全一致・サフィックス一致）。`metadata.google.internal` は GCP メタデータ。
+  if (host === "localhost" || host === "metadata.google.internal") return true;
+  if (host.endsWith(".localhost") || host.endsWith(".internal") || host.endsWith(".local")) {
+    return true;
+  }
+
+  // IPv4 リテラル（正規化済み dotted-decimal）。
+  const v4 = parseIpv4(host);
+  if (v4) return isBlockedIpv4(v4);
+
+  // IPv6 リテラル。
+  if (host.includes(":")) return isBlockedIpv6(host);
+
+  return false;
+}
+
+/** dotted-decimal の IPv4 を `[a,b,c,d]` に。各オクテット 0-255 でなければ null。 */
+function parseIpv4(host: string): [number, number, number, number] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return null;
+  const octets = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] as const;
+  if (octets.some((o) => o > 255)) return null;
+  return [octets[0], octets[1], octets[2], octets[3]];
+}
+
+/** 内部・予約 IPv4 か（loopback / link-local(+メタデータ) / RFC1918 / 0.0.0.0/8）。 */
+function isBlockedIpv4([a, b]: [number, number, number, number]): boolean {
+  if (a === 0) return true; // 0.0.0.0/8 — "this network"、多くのスタックで localhost に解決する迂回路
+  if (a === 127) return true; // 127.0.0.0/8 loopback
+  if (a === 10) return true; // 10.0.0.0/8 private
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local（169.254.169.254 = GCP メタデータ）
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16 private
+  return false;
+}
+
+/** 内部・予約 IPv6 か（loopback / unspecified / link-local / unique-local / IPv4-mapped・compatible）。 */
+function isBlockedIpv6(addr: string): boolean {
+  // 埋め込み IPv4 を持つ形（IPv4-mapped `::ffff:` / 廃止 IPv4-compatible `::`）は IPv4 規則で判定。
+  const mapped = extractEmbeddedIpv4(addr);
+  if (mapped) return isBlockedIpv4(mapped);
+
+  if (addr === "::1") return true; // loopback
+  if (addr === "::") return true; // unspecified
+  if (/^fe[89ab]/.test(addr)) return true; // fe80::/10 link-local
+  if (/^f[cd]/.test(addr)) return true; // fc00::/7 unique-local
+  return false;
+}
+
+/**
+ * 埋め込み IPv4 を持つ IPv6 から IPv4 を取り出す。
+ * - IPv4-mapped `::ffff:a.b.c.d`（正規化後 `::ffff:HHHH:HHHH`）。
+ * - IPv4-compatible `::a.b.c.d`（RFC4291 で deprecated、正規化後 `::HHHH:HHHH`。例:
+ *   `http://[::169.254.169.254]/` → `[::a9fe:a9fe]` がメタデータ IP に化ける迂回路）。
+ * dotted / 16bit hex×2 の両形に対応。`::1` / `::`（単一グループ）は本関数では拾わず呼出側で判定する。
+ */
+function extractEmbeddedIpv4(addr: string): [number, number, number, number] | null {
+  // より具体的な `::ffff:` を先に剥がす（`::` でも startsWith するため順序重要）。
+  let rest: string | null = null;
+  if (addr.startsWith("::ffff:")) {
+    rest = addr.slice("::ffff:".length);
+  } else if (addr.startsWith("::")) {
+    rest = addr.slice("::".length);
+  }
+  if (rest === null) return null;
+  const dotted = parseIpv4(rest);
+  if (dotted) return dotted;
+  const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+  if (!hex || hex[1] === undefined || hex[2] === undefined) return null;
+  const g1 = Number.parseInt(hex[1], 16);
+  const g2 = Number.parseInt(hex[2], 16);
+  return [(g1 >> 8) & 0xff, g1 & 0xff, (g2 >> 8) & 0xff, g2 & 0xff];
+}
+
+/**
+ * 編集可能 URL を検証する。http(s) の絶対 URL かつ外部公開ホストのみ `ok`。
+ * 空文字はクリア扱いのため呼出側で `null` 判定済み（本関数には非空文字列だけ渡す）。
+ */
+function checkEditableUrl(value: string): EditableUrlCheck {
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
-    return false;
+    return "invalid_scheme";
   }
-  return parsed.protocol === "http:" || parsed.protocol === "https:";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "invalid_scheme";
+  }
+  if (isBlockedInternalHost(parsed.hostname)) {
+    return "internal_host";
+  }
+  return "ok";
 }
 
 /** weekday マスク（0=日..6=土）の配列か。重複・範囲外は拒否。 */
@@ -204,15 +324,33 @@ export function validateTvConfigEdit(raw: TvConfigEditInput): Validated<TvConfig
   if (signageUrl.tooLong) {
     return { ok: false, message: `サイネージ URL は ${URL_MAX} 文字までです。` };
   }
-  if (signageUrl.value !== null && !isHttpUrl(signageUrl.value)) {
-    return { ok: false, message: "サイネージ URL は http(s) の絶対 URL を指定してください。" };
+  if (signageUrl.value !== null) {
+    const check = checkEditableUrl(signageUrl.value);
+    if (check === "invalid_scheme") {
+      return { ok: false, message: "サイネージ URL は http(s) の絶対 URL を指定してください。" };
+    }
+    if (check === "internal_host") {
+      return {
+        ok: false,
+        message: "サイネージ URL に内部・ローカルアドレスは指定できません。",
+      };
+    }
   }
   const webhookUrl = normStr(raw.webhookUrl, URL_MAX);
   if (webhookUrl.tooLong) {
     return { ok: false, message: `Webhook URL は ${URL_MAX} 文字までです。` };
   }
-  if (webhookUrl.value !== null && !isHttpUrl(webhookUrl.value)) {
-    return { ok: false, message: "Webhook URL は http(s) の絶対 URL を指定してください。" };
+  if (webhookUrl.value !== null) {
+    const check = checkEditableUrl(webhookUrl.value);
+    if (check === "invalid_scheme") {
+      return { ok: false, message: "Webhook URL は http(s) の絶対 URL を指定してください。" };
+    }
+    if (check === "internal_host") {
+      return {
+        ok: false,
+        message: "Webhook URL に内部・ローカルアドレスは指定できません。",
+      };
+    }
   }
   const notes = normStr(raw.notes, NOTES_MAX);
   if (notes.tooLong) {
