@@ -17,11 +17,12 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  *
  *  1. 入力バリデーション (`validateQuestion`, scope.ts)
  *  2. 二重キーレート制限 (`StudentQaRateLimiter`, rate-limit.ts)
- *  3. クラス公開コンテンツの取得 (caller が注入する `ContextProvider`、RAG ベクトルは別 follow-up)
- *  4. **PII マスキング** (`packages/ai` maskPII、CLAUDE.md ルール4)
- *  5. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
- *  6. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
- *  7. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
+ *  3. **質問の PII マスキング** (`packages/ai` maskPII、ルール4) — RAG が embedding 化する前に必ずマスク
+ *  4. クラス公開コンテンツの取得 (caller 注入の `ContextProvider`。RAG はマスク済み質問でベクトル検索)
+ *  5. **コンテキストの PII マスキング + fail-closed** (ルール4)
+ *  6. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
+ *  7. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
+ *  8. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
  *
  * **abstraction の境界**:
  * - `ContextProvider` / `ChatStreamClient` は呼び出し側 (route.ts) で具体実装を注入する。本層は
@@ -30,10 +31,15 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  *   応答もマスク済のまま DB へ保存する (unmask は呼び出し側が表示直前に行う設計、本スライス対象外)。
  */
 
-/** caller が注入する「公開中コンテンツ」プロバイダ。RLS スコープ tx と classId で自校に閉じる。 */
+/**
+ * caller が注入する「公開中コンテンツ」プロバイダ。RLS スコープ tx と classId で自校に閉じる。
+ * `maskedQuestion` は **マスク済み**（PII 除去後）の質問文で、RAG provider がこれを embedding 化して
+ * ベクトル検索する（生 PII を Vertex embedding へ送らないため、chat-service が先にマスクして渡す契約）。
+ * MVP 直接取得 provider は `maskedQuestion` を無視し最近の公開掲示物を返す。
+ */
 export type ContextProvider = (
   tx: TenantTx,
-  params: { classId: string },
+  params: { classId: string; maskedQuestion: string },
 ) => Promise<readonly ChatContext[]>;
 
 /** Vertex SSE ストリームクライアントの抽象境界。Vercel AI SDK `streamText` を想定。 */
@@ -124,11 +130,18 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     };
   }
 
-  // 3) クラス公開コンテンツを取得 (RAG ベクトルは別 follow-up、直接取得で MVP grounding)。
-  const rawContexts = await contextProvider(tx, { classId });
-
-  // 4) PII マスキング (ルール4)。質問本文 + コンテキスト本体の双方を必ずマスク。
+  // 3) 質問の PII マスキング (ルール4)。RAG が embedding 化する前に必ずマスクし、生 PII を
+  //    Vertex embedding / grounding 検索へ持ち込まない。
   const maskedQuestion = maskPII(validated.question, piiEntries);
+
+  // 4) クラス公開コンテンツを取得。RAG provider は maskedQuestion をベクトル検索に使う
+  //    (MVP 直接取得 provider は無視)。RLS スコープ tx で自校に閉じる。
+  const rawContexts = await contextProvider(tx, {
+    classId,
+    maskedQuestion: maskedQuestion.masked,
+  });
+
+  // 5) コンテキスト本体も必ずマスク (ルール4)。
   const maskedContexts: ChatContext[] = rawContexts.map((c) => {
     const t = maskPII(c.title, piiEntries);
     const b = maskPII(c.body, piiEntries);
@@ -151,16 +164,16 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     };
   }
 
-  // 5) プロンプト構築 (system/user 役割分離 + XML セパレータ + 中身を data として扱う契約)。
+  // 6) プロンプト構築 (system/user 役割分離 + XML セパレータ + 中身を data として扱う契約)。
   const prompt = buildChatPrompt({
     question: maskedQuestion.masked,
     contexts: maskedContexts,
   });
 
-  // 6) Vertex SSE 開始。
+  // 7) Vertex SSE 開始。
   const stream = modelClient.stream({ system: prompt.system, user: prompt.user });
 
-  // 7) ストリームを caller (route.ts) に素通しつつ、終了後に永続化を行う:
+  // 8) ストリームを caller (route.ts) に素通しつつ、終了後に永続化を行う:
   //    - user メッセージ (マスク済) を 1 行追記
   //    - assistant メッセージ (マスク済) を 1 行追記、evidence/confidence/model_version 含む
   //    永続化失敗は SSE 受信側の表示には影響させない (応答は既に流れている) が、Promise として

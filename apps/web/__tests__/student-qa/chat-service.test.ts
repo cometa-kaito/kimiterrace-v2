@@ -203,6 +203,24 @@ describe("executeChat: PII マスキング (ルール4)", () => {
     const evidence = vi.mocked(appendAssistantMessage).mock.calls[0]?.[1].evidence ?? [];
     expect(JSON.stringify(evidence)).not.toContain("田中太郎");
   });
+
+  it("contextProvider にはマスク済み質問が渡る (RAG が生 PII を embedding しない)", async () => {
+    const ctx: ContextProvider = vi.fn(async () => []);
+    const { client } = makeModelClient({ chunks: ["はい"] });
+    await executeChat(
+      baseParams({
+        modelClient: client,
+        contextProvider: ctx,
+        rawQuestion: "連絡先 090-1234-5678 の件、体育祭の場所は？",
+      }),
+    );
+    expect(ctx).toHaveBeenCalledTimes(1);
+    const passed = vi.mocked(ctx).mock.calls[0]?.[1];
+    expect(passed?.classId).toBe(CLASS_ID);
+    // RAG が embedding 化する前提なので、provider へ渡る質問に生 PII (電話) は含まない。
+    expect(passed?.maskedQuestion).not.toContain("090-1234-5678");
+    expect(passed?.maskedQuestion).toContain("体育祭");
+  });
 });
 
 describe("executeChat: 拒否系", () => {

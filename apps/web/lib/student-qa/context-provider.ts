@@ -1,5 +1,5 @@
-import type { ChatContext } from "@kimiterrace/ai";
-import { getContentDetail, listContents } from "@kimiterrace/db";
+import type { ChatContext, EmbeddingClient } from "@kimiterrace/ai";
+import { getContentDetail, getRelevantPublishedContent, listContents } from "@kimiterrace/db";
 import type { TenantTx } from "@kimiterrace/db";
 import type { ContextProvider } from "./chat-service";
 
@@ -9,11 +9,14 @@ import type { ContextProvider } from "./chat-service";
  * {@link executeChat}（chat-service.ts）が注入する {@link ContextProvider} の MVP 実装。
  * 「当該生徒に見せてよい公開中コンテンツ」を取得して grounding 用の {@link ChatContext} を返す。
  *
- * **このスライスの境界（正直に明記）**:
- * - **直接取得 grounding**: 質問 embedding によるベクトル類似度 top-k（`getRelevantPublishedContent`,
- *   packages/db `rag-search.ts`）は **別 follow-up**（embedding 生成は packages/ai 依存・S2 バッチ前提）。
- *   本実装は更新の新しい順に bounded 件数を取得する MVP grounding。chat-service の docstring
- *   「RAG ベクトルは別 follow-up、直接取得で MVP grounding」と整合。
+ * **2 つの provider（#369 RAG 配線）**:
+ * - {@link createRagContentProvider}: マスク済み質問を embedding 化 → `getRelevantPublishedContent`
+ *   （cosine 近傍 top-k、RLS 自校 + 公開中 + 生徒可視 scope はクエリ層が強制 #481）で意味的 grounding。
+ *   route 層が注入する本番経路。**ベクトル検索が 0 件なら下記 MVP にフォールバック**する。
+ * - {@link createPublishedContentProvider}: 更新の新しい順に bounded 件数を取得する直接取得 MVP。
+ *   RAG のフォールバック先 + 単体でもテスト可能。embedding 投入バッチ（#365/#398）実行前は
+ *   `content_versions.embedding` が全 NULL でベクトル検索が 0 件になるため、フォールバックで
+ *   grounding を空にしない（バッチ実行後は自動で意味的 RAG に切り替わる、コード変更不要）。
  * - **テナント分離 (ルール2)**: `school_id` 条件を**書かない**。`listContents` / `getContentDetail` が
  *   呼び出し接続の RLS (`tenant_isolation`, ADR-019) で自校スコープを DB レベル強制する。本実装は
  *   `withTenantContext` を張った tx で呼ばれる前提（caller=route 層の責務）。
@@ -93,5 +96,72 @@ export function createPublishedContentProvider(
       }
     }
     return contexts;
+  };
+}
+
+/** {@link createRagContentProvider} の設定。 */
+export type RagContentProviderOptions = {
+  /** 注入する Vertex embedding クライアント（マスク済み質問 → ベクトル、ADR-005/007）。 */
+  embeddingClient: EmbeddingClient;
+  /** grounding 件数上限（既定 {@link DEFAULT_LIMIT}、ベクトル検索 / フォールバック双方に適用）。 */
+  limit?: number;
+};
+
+/**
+ * ベクトル類似検索（RAG）で grounding する {@link ContextProvider} を生成する。
+ *
+ * 手順:
+ *  1. **マスク済み質問**（chat-service が step で先にマスク、ルール4）を embedding 化（1 ベクトル）。
+ *     空質問はベクトル検索せず即フォールバック。
+ *  2. `getRelevantPublishedContent` で cosine 近傍 top-k を取得（`school_id` 非記述 → RLS で自校、
+ *     公開中 inner join、生徒可視 scope=`private` 除外はクエリ層が強制 #481）。
+ *  3. 各ヒットを `getContentDetail` で本文込み取得し `activePublish !== null` ゲート（権威的公開状態）。
+ *  4. 使える context が 1 件以上あればそれを返す。0 件なら **MVP 直接取得にフォールバック**。
+ *
+ * **フォールバックの意義**: embedding 投入バッチ（#365/#398）実行前は `content_versions.embedding` が
+ * 全 NULL でベクトル検索が 0 件になる。フォールバックで「最近の公開掲示物」を grounding し、空答弁への
+ * 退行を防ぐ。バッチ実行後は 0 件でなくなり自動で意味的 RAG に切り替わる（コード変更不要）。
+ *
+ * **PII（ルール4）**: embedding には **マスク済み質問のみ** を渡す（生 PII を Vertex embedding へ送らない）。
+ * title/body は本 provider ではマスクせず返し、chat-service の fail-closed マスキングに委ねる（MVP と同契約）。
+ * **エラー方針**: embedding 生成エラー（次元不一致 / Vertex 障害）は **握り潰さず伝播**（route が SSE error
+ * に整形する誠実な失敗）。「embedding 未投入」はエラーでなく 0 件ヒット＝正常系でフォールバックに乗る。
+ *
+ * @param opts.embeddingClient 質問 embedding クライアント（caller が env から生成して注入）
+ * @param opts.limit grounding 件数上限（既定 6）
+ */
+export function createRagContentProvider(opts: RagContentProviderOptions): ContextProvider {
+  const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
+  const fallback = createPublishedContentProvider({ limit });
+
+  return async (
+    tx: TenantTx,
+    params: { classId: string; maskedQuestion: string },
+  ): Promise<readonly ChatContext[]> => {
+    const question = params.maskedQuestion.trim();
+    if (question.length > 0) {
+      // embedding エラーは握り潰さず伝播（誠実な失敗）。次元検証は embed() / rag-search 双方が行う。
+      const [embedding] = await opts.embeddingClient.embed([question]);
+      if (embedding) {
+        const matches = await getRelevantPublishedContent(tx, embedding, { limit });
+        if (matches.length > 0) {
+          // 本文 + 権威的公開状態を取得（順序保持のため Promise.all、similarity 降順は matches のまま）。
+          const details = await Promise.all(matches.map((m) => getContentDetail(tx, m.contentId)));
+          const contexts: ChatContext[] = [];
+          for (const detail of details) {
+            if (detail && detail.activePublish !== null) {
+              contexts.push({
+                id: detail.content.id,
+                title: detail.content.title,
+                body: detail.content.body,
+              });
+            }
+          }
+          if (contexts.length > 0) return contexts;
+        }
+      }
+    }
+    // ベクトル検索が 0 件（embedding 未投入 / 該当なし / 空質問）→ 最近の公開掲示物にフォールバック。
+    return fallback(tx, params);
   };
 }
