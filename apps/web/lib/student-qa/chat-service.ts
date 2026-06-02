@@ -1,7 +1,12 @@
-import { type PiiEntry, findUnmaskedPii, maskPII } from "@kimiterrace/ai";
+import {
+  type ChatContext,
+  type PiiEntry,
+  buildChatPrompt,
+  findUnmaskedPii,
+  maskPII,
+} from "@kimiterrace/ai";
 import type { TenantTx } from "@kimiterrace/db";
 import { appendAssistantMessage, appendUserMessage, findOrCreateSession } from "./persistence";
-import { type ContentContext, buildChatPrompt } from "./prompt";
 import { type QaRateResult, studentQaRateLimiter } from "./rate-limit";
 import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
 
@@ -14,7 +19,7 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  *  2. 二重キーレート制限 (`StudentQaRateLimiter`, rate-limit.ts)
  *  3. クラス公開コンテンツの取得 (caller が注入する `ContextProvider`、RAG ベクトルは別 follow-up)
  *  4. **PII マスキング** (`packages/ai` maskPII、CLAUDE.md ルール4)
- *  5. プロンプト構築 (`buildChatPrompt`, prompt.ts、インジェクション対策込)
+ *  5. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
  *  6. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
  *  7. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
  *
@@ -29,7 +34,7 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
 export type ContextProvider = (
   tx: TenantTx,
   params: { classId: string },
-) => Promise<readonly ContentContext[]>;
+) => Promise<readonly ChatContext[]>;
 
 /** Vertex SSE ストリームクライアントの抽象境界。Vercel AI SDK `streamText` を想定。 */
 export interface ChatStreamClient {
@@ -124,7 +129,7 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
 
   // 4) PII マスキング (ルール4)。質問本文 + コンテキスト本体の双方を必ずマスク。
   const maskedQuestion = maskPII(validated.question, piiEntries);
-  const maskedContexts: ContentContext[] = rawContexts.map((c) => {
+  const maskedContexts: ChatContext[] = rawContexts.map((c) => {
     const t = maskPII(c.title, piiEntries);
     const b = maskPII(c.body, piiEntries);
     return { id: c.id, title: t.masked, body: b.masked };
