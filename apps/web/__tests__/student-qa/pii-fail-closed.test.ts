@@ -130,6 +130,8 @@ beforeEach(async () => {
     id: "sess-1",
     schoolId: SCHOOL_ID,
     magicLinkId: MAGIC_LINK_ID,
+    // 生徒経路のセッションなので user_id は null（#370 XOR）。
+    userId: null,
     classId: CLASS_ID,
   });
   vi.mocked(appendUserMessage).mockResolvedValue({ id: "umsg-1" });

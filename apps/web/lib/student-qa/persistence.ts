@@ -59,8 +59,12 @@ export type UserMessageParams = {
 export type ChatSession = {
   id: string;
   schoolId: string;
-  magicLinkId: string;
-  classId: string;
+  /** 生徒経路のみ非 null（教員経路は null、#370）。XOR で user_id と排他。 */
+  magicLinkId: string | null;
+  /** 教員経路のみ非 null（生徒経路は null、#370）。XOR で magic_link_id と排他。 */
+  userId: string | null;
+  /** 生徒経路のみ非 null（教員はクラス非バインド、#370）。 */
+  classId: string | null;
 };
 
 /**
@@ -78,6 +82,7 @@ export async function findOrCreateSession(
       id: aiChatSessions.id,
       schoolId: aiChatSessions.schoolId,
       magicLinkId: aiChatSessions.magicLinkId,
+      userId: aiChatSessions.userId,
       classId: aiChatSessions.classId,
     })
     .from(aiChatSessions)
@@ -99,6 +104,7 @@ export async function findOrCreateSession(
       id: aiChatSessions.id,
       schoolId: aiChatSessions.schoolId,
       magicLinkId: aiChatSessions.magicLinkId,
+      userId: aiChatSessions.userId,
       classId: aiChatSessions.classId,
     });
   if (!created) {
