@@ -215,6 +215,47 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
     expect(tv[0].alert_state).toBe("ok");
   });
 
+  it("runTvLivenessCheck: 未解決行を持つ TV が他にいても、自分に未解決行が無い鮮度OKの TV は recover しない（hasOpenDowntime 相関）", async () => {
+    // 回帰: hasOpenDowntime の EXISTS サブクエリが相関し損ねると、ある TV が未解決行を持つだけで
+    // 「未解決行が存在すれば true」になり、未解決行を持たない別の鮮度OK・ok の TV まで recover 計上
+    // されてしまう（loadDeviceStates の相関外れバグ）。device 単位で相関していることを実 PG で固定する。
+    //
+    // 構成: DEV_B のみ未解決ダウンタイム + alert_state='down'（=本物の復帰対象）。DEV_A は鮮度OK・ok・
+    // 未解決行なし（recover してはならない）。monitoring_enabled は beforeEach で DEV_A のみ true だが、
+    // recover は monitoring を無視するため DEV_B も復帰判定対象になる点に注意（ここは仕様どおり）。
+    await seedDowntime(fx.schoolB, DEV_B, 5);
+    await sql`UPDATE tv_devices SET alert_state = 'down', last_seen_at = now() WHERE device_id = ${DEV_B}`;
+    // DEV_A は明示的に「鮮度OK・ok・未解決行なし」を担保（beforeEach 後の状態を固定）。
+    await sql`UPDATE tv_devices SET alert_state = 'ok', last_seen_at = now() WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    // 復帰したのはちょうど 1 台（DEV_B）だけ。相関が外れると DEV_A も数えられ 2 になる。
+    expect(summary.recovered).toBe(1);
+    expect(summary.newlyDown).toBe(0);
+
+    // 締められた未解決行は DEV_B の 1 行のみ。DEV_A にはそもそもダウンタイム行が無い。
+    const recoveredDevices = await sql<{ device_id: string }[]>`
+      SELECT device_id FROM tv_device_downtime WHERE recovered_at IS NOT NULL ORDER BY device_id
+    `;
+    expect(recoveredDevices.map((r) => r.device_id)).toEqual([DEV_B]);
+    const devARows = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM tv_device_downtime WHERE device_id = ${DEV_A}
+    `;
+    expect(devARows[0].n).toBe("0");
+
+    // DEV_A は ok のまま（誤って遷移させられていない）、DEV_B は復帰で ok。
+    const states = await sql<{ device_id: string; alert_state: string }[]>`
+      SELECT device_id, alert_state FROM tv_devices WHERE device_id IN (${DEV_A}, ${DEV_B}) ORDER BY device_id
+    `;
+    expect(states.find((s) => s.device_id === DEV_A)?.alert_state).toBe("ok");
+    expect(states.find((s) => s.device_id === DEV_B)?.alert_state).toBe("ok");
+  });
+
   it("runTvLivenessCheck: monitoring_enabled=false の無応答 TV は down 計上しない", async () => {
     await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(mins => 10), monitoring_enabled = false WHERE device_id = ${DEV_A}`;
 

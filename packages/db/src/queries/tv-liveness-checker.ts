@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { tvDeviceDowntime } from "../schema/tv-device-downtime.js";
 import { tvDevices } from "../schema/tv-devices.js";
@@ -74,8 +74,8 @@ export async function runTvLivenessCheck(
 
 /**
  * 走査対象の TV 状態を読み取る。ソフトデリート済（`deleted_at IS NOT NULL`）は除外する（退役 TV は死活
- * 計上しない、tv-devices.ts の pollTvConfig と一貫）。各 TV の未解決ダウンタイム行有無を LEFT JOIN の
- * 存在判定で同時に取る。
+ * 計上しない、tv-devices.ts の pollTvConfig と一貫）。各 TV の未解決ダウンタイム行有無を相関 EXISTS
+ * サブクエリ（device 単位で相関）で同時に取る。
  */
 async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
   const rows = await tx
@@ -87,11 +87,23 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
       alertState: tvDevices.alertState,
       monitoringEnabled: tvDevices.monitoringEnabled,
       schedule: tvDevices.scheduleJson,
-      // 未解決（recovered_at IS NULL）ダウンタイム行が 1 件でもあれば true。
-      hasOpenDowntime: sql<boolean>`EXISTS (
-        SELECT 1 FROM ${tvDeviceDowntime} d
-        WHERE d.device_id = ${tvDevices.deviceId} AND d.recovered_at IS NULL
-      )`,
+      // この TV に未解決（recovered_at IS NULL）ダウンタイム行が 1 件でもあれば true。
+      // Drizzle の exists() を使い、相関サブクエリの両辺を **テーブル修飾付き**で描画させる
+      // （tv_device_downtime.device_id = tv_devices.device_id）。手書き sql`` で
+      // `${tvDevices.deviceId}` を埋めると、トップレベル SELECT の単一 FROM では列参照が
+      // 非修飾の "device_id" に描画され、サブクエリ内で自テーブル(tv_device_downtime)の device_id に
+      // 束縛されて相関が外れる（= 全デバイスで「未解決行が存在すれば true」になる）バグがあった。
+      hasOpenDowntime: sql<boolean>`${exists(
+        tx
+          .select({ one: sql`1` })
+          .from(tvDeviceDowntime)
+          .where(
+            and(
+              eq(tvDeviceDowntime.deviceId, tvDevices.deviceId),
+              isNull(tvDeviceDowntime.recoveredAt),
+            ),
+          ),
+      )}`,
     })
     .from(tvDevices)
     .where(isNull(tvDevices.deletedAt));
