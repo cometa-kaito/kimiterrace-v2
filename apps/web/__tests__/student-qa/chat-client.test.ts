@@ -8,8 +8,6 @@ import { type ChatEvent, streamChat } from "../../lib/student-qa/chat-client";
  * **名前付き SSE フレームの解析 / チャンク分割耐性 / 2 種の拒否経路 / リクエスト形** を固める。
  */
 
-const TOKEN = "tok-abc";
-
 /** 200 + text/event-stream の Response を、payload を chunkSize 単位に割って返す。 */
 function sseResponse(payload: string, opts: { chunkSize?: number } = {}): Response {
   const bytes = new TextEncoder().encode(payload);
@@ -54,7 +52,7 @@ describe("streamChat", () => {
       frame("delta", { text: "にちは" }) +
       frame("done", { sessionId: "s1", messageId: "m1" });
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "やあ", fetchImpl }));
+    const events = await collect(streamChat({ question: "やあ", fetchImpl }));
     expect(events).toEqual([
       { type: "delta", text: "こん" },
       { type: "delta", text: "にちは" },
@@ -66,7 +64,7 @@ describe("streamChat", () => {
     const payload =
       frame("delta", { text: "ABC" }) + frame("done", { sessionId: "s", messageId: "m" });
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload, { chunkSize: 1 }));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([
       { type: "delta", text: "ABC" },
       { type: "done", sessionId: "s", messageId: "m" },
@@ -79,7 +77,7 @@ describe("streamChat", () => {
     const payload =
       frame("delta", { text: "今日の予定は" }) + frame("done", { sessionId: "s", messageId: "m" });
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload, { chunkSize: 1 }));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([
       { type: "delta", text: "今日の予定は" },
       { type: "done", sessionId: "s", messageId: "m" },
@@ -93,7 +91,7 @@ describe("streamChat", () => {
       message: "リクエストが多すぎます。",
     });
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([
       {
         type: "error",
@@ -106,19 +104,19 @@ describe("streamChat", () => {
 
   it("410 gone (非 SSE JSON) を error イベントに正規化する", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(410, { error: "gone" }));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([{ type: "error", status: 410, reason: "gone" }]);
   });
 
   it("400 invalid_body (非 SSE JSON) を error イベントに正規化する", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(400, { error: "invalid_body" }));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "", fetchImpl }));
+    const events = await collect(streamChat({ question: "", fetchImpl }));
     expect(events).toEqual([{ type: "error", status: 400, reason: "invalid_body" }]);
   });
 
   it("非 200 でボディが非 JSON でも request_failed で 1 件 error を返す", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("Bad Gateway", { status: 502 }));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([{ type: "error", status: 502, reason: "request_failed" }]);
   });
 
@@ -129,7 +127,7 @@ describe("streamChat", () => {
       frame("delta", { text: "ok" }) +
       frame("done", { sessionId: "s", messageId: "m" });
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([
       { type: "delta", text: "ok" },
       { type: "done", sessionId: "s", messageId: "m" },
@@ -138,10 +136,9 @@ describe("streamChat", () => {
 
   it("末尾フレームが \\n\\n で終端しなくても flush して yield する", async () => {
     // 末尾 done に区切りの \n\n が無いケース。
-    const payload =
-      frame("delta", { text: "x" }) + 'event: done\ndata: {"sessionId":"s","messageId":"m"}';
+    const payload = `${frame("delta", { text: "x" })}event: done\ndata: {"sessionId":"s","messageId":"m"}`;
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([
       { type: "delta", text: "x" },
       { type: "done", sessionId: "s", messageId: "m" },
@@ -152,7 +149,7 @@ describe("streamChat", () => {
     // 手組みで `data: ` の後に空白を 1 つ (route の JSON.stringify 出力相当)。
     const payload = 'event: delta\ndata: {"text":"hi"}\n\n';
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload));
-    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    const events = await collect(streamChat({ question: "q", fetchImpl }));
     expect(events).toEqual([{ type: "delta", text: "hi" }]);
   });
 
@@ -162,12 +159,13 @@ describe("streamChat", () => {
       calls.push({ url: String(url), init: init ?? {} });
       return Promise.resolve(sseResponse(frame("done", { sessionId: "s", messageId: "m" })));
     });
-    await collect(streamChat({ classToken: "a/b 危", question: "質問", fetchImpl }));
+    await collect(streamChat({ question: "質問", fetchImpl }));
     expect(calls).toHaveLength(1);
     const { url, init } = calls[0] ?? { url: "", init: {} };
-    // classToken は URL エンコードされる。
-    expect(url).toBe(`/api/classes/${encodeURIComponent("a/b 危")}/chat`);
+    // トークンは URL に載せず cookie で認証する (#371, F05 秘匿維持)。固定エンドポイント。
+    expect(url).toBe("/api/student/chat");
     expect(init.method).toBe("POST");
+    // 認証 cookie (__student_session) + 端末 cookie (kt_qa_cid) の送受信に必須。
     expect(init.credentials).toBe("same-origin");
     expect(init.headers).toMatchObject({ "content-type": "application/json" });
     expect(JSON.parse(typeof init.body === "string" ? init.body : "{}")).toEqual({
@@ -182,7 +180,7 @@ describe("streamChat", () => {
       capturedSignal = init?.signal;
       return Promise.resolve(sseResponse(frame("done", { sessionId: "s", messageId: "m" })));
     });
-    await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl, signal: ctrl.signal }));
+    await collect(streamChat({ question: "q", fetchImpl, signal: ctrl.signal }));
     expect(capturedSignal).toBe(ctrl.signal);
   });
 });

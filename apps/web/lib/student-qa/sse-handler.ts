@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
-import { hashToken } from "@/lib/magic-link/token";
 import { executeChat } from "@/lib/student-qa/chat-service";
 import { createRagContentProvider } from "@/lib/student-qa/context-provider";
 import {
@@ -8,31 +7,30 @@ import {
   createVertexEmbeddingClient,
   normalizeLocale,
 } from "@kimiterrace/ai";
-import { resolveMagicLink, withTenantContext } from "@kimiterrace/db";
+import { type ResolvedMagicLink, withTenantContext } from "@kimiterrace/db";
 
 /**
- * F06 (#42 第2スライス, #373): 生徒対話 Q&A の **SSE route handler** `POST /api/classes/{classToken}/chat`。
+ * F06 (#42, #371): 生徒対話 Q&A の **SSE 配線コア** (route から認証経路を抜いた共通実装)。
  *
- * 生徒（匿名・クラス magic_link）の質問 1 件を受け、自校の公開掲示物を grounding に Vertex Gemini で
- * 回答を SSE (`text/event-stream`) で逐次返す。オーケストレーション本体は {@link executeChat}
- * (chat-service.ts)、grounding は {@link createRagContentProvider} (#369: マスク済み質問のベクトル類似
- * 検索、0 件時は最近の公開掲示物にフォールバック)、ストリーミングは {@link createVertexChatStreamClient}
- * (packages/ai, #478) に委譲し、本 route は **HTTP/SSE 配線**に徹する。
+ * 「**解決済みの magic link** ({@link ResolvedMagicLink}) を受け取り、質問 1 件を SSE で返す」までを
+ * 担う。**トークンの解決方法 (URL path か httpOnly cookie か) は route に委ねる**ことで、認証経路ごとに
+ * route を薄く保ち、SSE/HTTP 配線をここで単一ソース化する。現状の本番経路は cookie 経由
+ * (`/api/student/chat` → {@link resolveStudentSession})。
  *
- * ## 設計（#373 の設計論点に対する決定、CLAUDE.md ルール2/4/5）
- * - **トークン解決 → 410**: `resolveMagicLink` (SECURITY DEFINER, RLS 文脈不要) で {schoolId, classId,
- *   id} に解決。失効/期限切れ/不明は **410 Gone** (signage と整合・即時失効)。`classToken` は credential
- *   なのでログ/レスポンスに反射しない (ルール5)。
- * - **RLS tx 寿命 = ストリーム寿命**: 永続化 (user→assistant) は呼び出し側が張る RLS tx 内で行い、
- *   assistant 書き込みは `executeChat` 戻り後の `done` で走る。よって `withTenantContext` を
- *   **`ReadableStream` の `start()` 内**で回し、チャンク送出 + `await done` までを 1 つの tx で囲う
- *   (tx がストリーム途中で閉じない)。handler は即 `Response(stream)` を返す。
- * - **拒否の返し方**: 無効トークン (410) と不正ボディ (400) は **200 SSE を開く前**に実 HTTP で返す。
- *   一方 validate/rate-limit/PII 由来の拒否は `executeChat` が内部で 1 回だけ判定する (route で先行
- *   実行すると rate-limit を二重消費する) ため、200 開始後の **SSE `error` フレーム**で通知する。
- * - **PII (ルール4)**: 生徒は匿名で v2 に氏名ロスターが無いため `piiEntries` は空。質問内の電話/メールは
+ * ## 設計 (CLAUDE.md ルール2/4/5、元 route #373/#482 の設計を継承)
+ * - **credential を URL/ログに載せない (ルール5)**: magic link トークンは F05 で httpOnly cookie
+ *   (`__student_session`) に移し、URL path に出さない。本コアは **既に解決済みの id/schoolId/classId**
+ *   だけを受け取り、生トークンには一切触れない (Cloud Run のアクセスログにトークンが残らない)。
+ * - **RLS tx 寿命 = ストリーム寿命 (ルール2)**: 永続化 (user→assistant) を呼び出し側が張る RLS tx 内で
+ *   行うため、`withTenantContext` を `ReadableStream` の `start()` 内で回し、チャンク送出 + `await done`
+ *   までを 1 つの tx で囲う (tx がストリーム途中で閉じない、[[sse-over-rls-tx-pattern]])。handler は
+ *   即 `Response(stream)` を返す。
+ * - **拒否の返し方**: 不正ボディ (400) は **200 SSE を開く前**に実 HTTP で返す。validate/rate-limit/PII
+ *   由来の拒否は `executeChat` が内部で 1 回だけ判定する (route で先行実行すると rate-limit を二重消費する)
+ *   ため、200 開始後の **SSE `error` フレーム**で通知する。無効トークン (410) は route の責務。
+ * - **PII (ルール4)**: 生徒は匿名で氏名ロスターが無いため `piiEntries` は空。質問内の電話/メールは
  *   `maskPII` の検出 (既定 ON) が chat-service 内で除去する。grounding コンテンツも chat-service が
- *   マスクしてから Vertex/DB へ渡す。本 route は生 PII を組み立てない。
+ *   マスクしてから Vertex/DB へ渡す。本コアは生 PII を組み立てない。
  *
  * 関連: ADR-005/006 (Vertex/Vercel AI SDK), ADR-016 (magic link), ADR-019 (RLS), ADR-028 (回答ポリシー)。
  */
@@ -82,26 +80,25 @@ function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
-function jsonError(status: number, error: string): Response {
+/** request-level の拒否を返す共通ヘルパ (route が 410/400 等に使う)。 */
+export function jsonError(status: number, error: string): Response {
   return new Response(JSON.stringify({ error }), {
     status,
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
 
-export async function POST(
+/**
+ * 解決済み magic link 1 件分の質問を処理し、SSE (`text/event-stream`) Response を返す。
+ *
+ * @param resolved トークン解決済みの {@link ResolvedMagicLink} (route が URL/cookie から確立)
+ * @param request  元の `Request` (ボディ・cookie・Accept-Language を読む)
+ */
+export async function respondWithChatStream(
+  resolved: ResolvedMagicLink,
   request: Request,
-  context: { params: Promise<{ classToken: string }> },
 ): Promise<Response> {
-  const { classToken } = await context.params;
-
-  // 1) トークン解決 (RLS 文脈不要)。無効は 410 Gone (credential はレスポンスに反射しない)。
-  const resolved = await resolveMagicLink(getDb(), hashToken(classToken));
-  if (!resolved) {
-    return jsonError(410, "gone");
-  }
-
-  // 2) ボディ検証。JSON 不正・question 非文字列は 200 を開く前に 400 で弾く。
+  // 1) ボディ検証。JSON 不正・question 非文字列は 200 を開く前に 400 で弾く。
   let question: string;
   try {
     const body: unknown = await request.json();
@@ -114,7 +111,7 @@ export async function POST(
     return jsonError(400, "invalid_json");
   }
 
-  // 3) 端末識別子 cookie (レート制限の第二キー)。無ければ採番して Set-Cookie する。
+  // 2) 端末識別子 cookie (レート制限の第二キー)。無ければ採番して Set-Cookie する。
   let cookieId = readCookie(request.headers.get("cookie"), QA_COOKIE);
   let issueCookie = false;
   if (!cookieId) {
@@ -122,11 +119,11 @@ export async function POST(
     issueCookie = true;
   }
 
-  // 3.5) 拒否文言ロケール (ADR-028 §2)。匿名生徒は profile が無いので Accept-Language の第一言語を
+  // 2.5) 拒否文言ロケール (ADR-028 §2)。匿名生徒は profile が無いので Accept-Language の第一言語を
   //      best-effort で採用 (未対応は ja フォールバック)。in_scope 回答の言語は Gemini が質問に追従する。
   const locale = normalizeLocale(request.headers.get("accept-language")?.split(",")[0]);
 
-  // 4) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
+  // 3) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
   const contextProvider = createRagContentProvider({ embeddingClient: getEmbeddingClient() });
   const modelClient = getChatStreamClient();
   const encoder = new TextEncoder();
@@ -142,7 +139,7 @@ export async function POST(
             schoolId: resolved.schoolId,
             classId: resolved.classId,
             magicLinkId: resolved.id,
-            // cookieId は手順 3 で必ず確定済 (null 不可)。
+            // cookieId は手順 2 で必ず確定済 (null 不可)。
             cookieId: cookieId as string,
             rawQuestion: question,
             // 匿名生徒・氏名ロスター無し。質問の電話/メールは chat-service の maskPII が除去 (ルール4)。

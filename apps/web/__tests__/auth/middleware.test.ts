@@ -55,6 +55,18 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/student")).toBe(false);
   });
 
+  it("F06 生徒チャット /api/student/chat はゲート対象外 (除外)", () => {
+    // 生徒は `__session` を持たず httpOnly cookie `__student_session` で認証する匿名経路。
+    // 除外しないと /login に弾かれチャット破綻。可否は route の resolveStudentSession が判定 (#371)。
+    expect(gated.test("/api/student/chat")).toBe(false);
+  });
+
+  it("api/student/ 除外は末尾 / で境界済、look-alike な /api/students 等は過剰除外しない (保護のまま)", () => {
+    // 将来の保護対象 API (例: 生徒一覧 /api/students) を静かにゲート対象外にしない。
+    expect(gated.test("/api/students")).toBe(true);
+    expect(gated.test("/api/student-records")).toBe(true);
+  });
+
   it("F12/#48-E 公開サイネージ /signage/{classToken}(/data) はゲート対象外 (除外)", () => {
     expect(gated.test("/signage/abc123_token")).toBe(false);
     expect(gated.test("/signage/abc123_token/data")).toBe(false);

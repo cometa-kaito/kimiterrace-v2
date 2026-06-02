@@ -1,8 +1,10 @@
 /**
  * F06 (#42, #371): 生徒チャット UI 用の **SSE クライアント**。
  *
- * `POST /api/classes/{classToken}/chat` (route.ts, #482) を呼び、サーバが返す**名前付き SSE フレーム**
+ * `POST /api/student/chat` (route.ts, #371) を呼び、サーバが返す**名前付き SSE フレーム**
  * (`event: delta|error|done`) を解析して UI 向けの型付きイベント {@link ChatEvent} を逐次 yield する。
+ * 認証は **httpOnly cookie `__student_session`** をサーバ側で再解決する経路で、本クライアントは生 magic
+ * link トークンに一切触れない (F05 のトークン秘匿設計を維持、credential を URL/JS/ログに出さない)。
  *
  * - **POST + ストリーム読取**: 質問はリクエストボディなので `EventSource` (GET 専用) は使えない。
  *   `fetch` + `ReadableStream` リーダで自前にフレームを解析する。
@@ -14,7 +16,7 @@
  * - **純粋・DOM 非依存**: React/DOM に依存せず `fetch` だけを使うので決定的に単体テストできる
  *   (ADR-012)。`fetchImpl` 注入でテストはモック Response を返す。
  *
- * 関連: route.ts (#482) の SSE 契約 (delta `{text}` / error `{status,reason,message}` /
+ * 関連: route.ts (#371) の SSE 契約 (delta `{text}` / error `{status,reason,message}` /
  * done `{sessionId,messageId}`), ADR-006 (SSE)。
  */
 
@@ -24,10 +26,11 @@ export type ChatEvent =
   | { type: "error"; status: number; reason: string; message?: string }
   | { type: "done"; sessionId: string; messageId: string };
 
+/** 生徒チャット SSE エンドポイント。トークンは送らず httpOnly cookie `__student_session` で認証する。 */
+const STUDENT_CHAT_ENDPOINT = "/api/student/chat";
+
 /** {@link streamChat} の入力。 */
 export interface StreamChatParams {
-  /** クラス magic_link トークン (URL に入れる、credential)。 */
-  classToken: string;
   /** 生徒の質問文 (生 PII を含みうる。マスキングはサーバ側 chat-service の責務)。 */
   question: string;
   /** 中断用シグナル (ページ離脱・キャンセル時に fetch を abort)。 */
@@ -46,14 +49,15 @@ const FRAME_SEPARATOR = "\n\n";
  * フレーム途中で受信が分割されても (TCP/チャンク境界) バッファリングで正しく再構成する。
  */
 export async function* streamChat(params: StreamChatParams): AsyncGenerator<ChatEvent> {
-  const { classToken, question, signal } = params;
+  const { question, signal } = params;
   const doFetch = params.fetchImpl ?? fetch;
 
-  const res = await doFetch(`/api/classes/${encodeURIComponent(classToken)}/chat`, {
+  const res = await doFetch(STUDENT_CHAT_ENDPOINT, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ question }),
-    // 端末識別子 cookie (レート制限の第二キー) の送受信に必須。
+    // 認証 cookie (__student_session) + 端末識別子 cookie (kt_qa_cid、レート制限第二キー) の
+    // 送受信に必須。トークンは cookie 経由で送られ URL/JS には出さない (F05 秘匿維持)。
     credentials: "same-origin",
     signal,
   });

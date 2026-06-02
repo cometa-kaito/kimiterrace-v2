@@ -11,7 +11,6 @@ vi.mock("../../lib/student-qa/chat-client", () => ({
 import { streamChat } from "../../lib/student-qa/chat-client";
 import { StudentChat } from "../../app/student/_components/StudentChat";
 
-const TOKEN = "tok-1";
 const mockStreamChat = vi.mocked(streamChat);
 
 /** 与えたイベント列を yield する async generator を返す。 */
@@ -41,7 +40,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
   });
 
   it("見出し・入力欄・送信ボタンを描画し、空入力では送信不可", () => {
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     expect(screen.getByRole("heading", { name: "掲示物について質問する" })).toBeInTheDocument();
     expect(screen.getByLabelText("質問を入力")).toBeInTheDocument();
     expect(ui().send).toBeDisabled();
@@ -55,16 +54,13 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
         { type: "done", sessionId: "s", messageId: "m" },
       ]),
     );
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("体育祭の持ち物は？");
 
     expect(await screen.findByText("体育祭の持ち物は？")).toBeInTheDocument();
     expect(await screen.findByText("体育祭の持ち物は体操服です。")).toBeInTheDocument();
-    // streamChat が正しい引数で呼ばれる。
-    expect(mockStreamChat).toHaveBeenCalledWith({
-      classToken: TOKEN,
-      question: "体育祭の持ち物は？",
-    });
+    // streamChat が正しい引数で呼ばれる (トークンは渡さない、cookie 認証経路 #371)。
+    expect(mockStreamChat).toHaveBeenCalledWith({ question: "体育祭の持ち物は？" });
     // 送信後に入力欄はクリアされる。
     await waitFor(() => expect(ui().input.value).toBe(""));
   });
@@ -80,7 +76,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
         },
       ]),
     );
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("質問");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("リクエストが多すぎます。");
@@ -88,7 +84,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
 
   it("410 gone はサーバ message 無しでも UI 文言にマップする", async () => {
     mockStreamChat.mockReturnValue(gen([{ type: "error", status: 410, reason: "gone" }]));
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("質問");
     expect(await screen.findByRole("alert")).toHaveTextContent(/無効か期限切れ/);
   });
@@ -97,7 +93,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
     mockStreamChat.mockImplementation(() => {
       throw new Error("network down");
     });
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("質問");
     expect(await screen.findByRole("alert")).toHaveTextContent(/通信に失敗/);
   });
@@ -114,7 +110,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
         yield { type: "done", sessionId: "s", messageId: "m" } satisfies ChatEvent;
       })(),
     );
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("質問");
 
     // delta 受信 = ストリーミング中。送信ボタンは無効。
@@ -130,7 +126,7 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
 
   it("空ストリーム (delta 無し) では assistant メッセージを足さない", async () => {
     mockStreamChat.mockReturnValue(gen([{ type: "done", sessionId: "s", messageId: "m" }]));
-    render(<StudentChat classToken={TOKEN} />);
+    render(<StudentChat />);
     await ask("質問");
     expect(await screen.findByText("質問")).toBeInTheDocument();
     // assistant ラベルは出ない (本文が無いため)。

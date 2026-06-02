@@ -6,19 +6,23 @@ import { type FormEvent, useCallback, useId, useRef, useState } from "react";
 /**
  * F06 (#42, #371): 生徒チャット UI コンポーネント。**Client Component**。
  *
- * `streamChat` (chat-client.ts, #484) 経由で SSE route (#482) を呼び、掲示物 Q&A の応答を
- * **逐次表示**する。WCAG 2.2 AA / NFR05 を満たすアクセシブルなチャット UX を提供する。
+ * `streamChat` (chat-client.ts, #371) 経由で SSE route (`/api/student/chat`, #371) を呼び、掲示物 Q&A の
+ * 応答を **逐次表示**する。WCAG 2.2 AA / NFR05 を満たすアクセシブルなチャット UX を提供する。
+ *
+ * **認証 (#371)**:
+ * - **トークンは prop で受け取らない**。生徒の magic link は F05 で httpOnly cookie `__student_session`
+ *   に格納済みで、`streamChat` → `/api/student/chat` がサーバ側で cookie を再解決する。本コンポーネントは
+ *   生トークンに一切触れず (URL/JS にトークンを出さない、F05 秘匿維持)、`/student` ページにそのまま
+ *   マウントできる。質問送信に必要な cookie は `credentials:"same-origin"` で自動送信される。
  *
  * **このスライスの境界 (正直に明記)**:
- * - **`classToken` は prop で受け取る**。raw token の取得 (URL/cookie/セッション) と本コンポーネントの
- *   ページ実装は F05 生徒セッション設計に結合するため別 follow-up。本コンポーネントは「token を与えれば
- *   アクセシブルにチャットできる」という自己完結の単位。
  * - **多言語 (#371, ADR-028)**: 文言は {@link STR} に集約し i18n-ready にしてあるが、本スライスは
  *   日本語のみ出荷 (リポジトリに i18n フレームワーク未導入)。辞書差し替えは follow-up。サーバ提供の
  *   `error.message` (refusal/rate-limit 等、refusal.ts で多言語化済) はそのまま表示する。
  * - PII マスキングはサーバ (chat-service) の責務。本コンポーネントは質問を送り応答を表示するのみ。
  *
- * 関連: chat-client.ts (#484), route.ts (#482), ADR-006 (SSE), ADR-028 (回答ポリシー), NFR05 (a11y)。
+ * 関連: chat-client.ts (#371), route.ts (`/api/student/chat`, #371), ADR-006 (SSE), ADR-028 (回答ポリシー),
+ * ADR-016 (magic link), NFR05 (a11y)。
  */
 
 /** UI 文言 (i18n-ready: 多言語スライスで辞書に差し替える)。 */
@@ -60,12 +64,7 @@ function errorMessage(ev: Extract<ChatEvent, { type: "error" }>): string {
   }
 }
 
-export interface StudentChatProps {
-  /** クラス magic_link トークン (SSE route の path に載せる credential)。 */
-  classToken: string;
-}
-
-export function StudentChat({ classToken }: StudentChatProps) {
+export function StudentChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -93,7 +92,7 @@ export function StudentChat({ classToken }: StudentChatProps) {
 
       let accumulated = "";
       try {
-        for await (const ev of streamChat({ classToken, question })) {
+        for await (const ev of streamChat({ question })) {
           if (ev.type === "delta") {
             accumulated += ev.text;
             setStreamingText(accumulated);
@@ -112,7 +111,7 @@ export function StudentChat({ classToken }: StudentChatProps) {
         setIsStreaming(false);
       }
     },
-    [classToken, input, isStreaming, nextId],
+    [input, isStreaming, nextId],
   );
 
   const sendDisabled = isStreaming || input.trim() === "";

@@ -40,6 +40,10 @@ export function middleware(request: NextRequest): NextResponse {
  *   判定し、失効/期限切れは 410 に倒す (app/s/[token]/route.ts)。
  * - /student: F05 生徒ランディング。`__student_session` で再解決し自己ゲートするため、
  *   教員系 `__session` ゲートからは除外 (app/student/page.tsx)。
+ * - /api/student/*: F06 生徒 Q&A チャット SSE (`/api/student/chat`)。生徒は `__session` を持たず
+ *   **httpOnly cookie `__student_session`** で認証する匿名経路。除外しないと /login に弾かれチャットが
+ *   破綻する。可否は route handler の `resolveStudentSession` (magic link 再解決) が判定し、失効/未設定は
+ *   410 Gone (app/api/student/chat/route.ts)。書込は RLS 自校スコープ tx 内のみ (ルール2)。
  * - /signage/*: F12/#48-E 公開サイネージ表示 (`/signage/{classToken}` + `/signage/{classToken}/data`)。
  *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
@@ -71,6 +75,6 @@ export function middleware(request: NextRequest): NextResponse {
  */
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
