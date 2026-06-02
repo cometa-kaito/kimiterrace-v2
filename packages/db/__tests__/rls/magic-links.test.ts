@@ -187,6 +187,66 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
     }
   });
 
+  // --- 教員アカウント無効化との独立性 (F11 #47 受け入れ条件 / #324) ---
+  //
+  // 「アカウント無効化時に既存 magic_link は失効しない（クラス単位の link は教員紐付けではないため）」
+  // を回帰テストで pin する。クラス magic link は生徒の class-level token であり、発行した教職員の
+  // アカウント状態には依存しない。教員との関連付けは `user_id` ではなく **監査列 `created_by`**
+  // (createClassMagicLink が発行 actor を載せる、`magic-links.ts`) で、`user_id` は F05 の class link
+  // では常に NULL (個人特定情報を持たない、schema 注記)。`deactivateIdpUser`
+  // (apps/web/lib/auth/admin-mutations.ts) は IdP の disable + revokeRefreshTokens だけを行い
+  // `magic_links` を一切 touch しない (DB 側 mirror は `users.is_active`)。解決ロジック
+  // `resolve_magic_link` も `revoked_at IS NULL` かつ未期限のみで判定し発行教員を参照しない。この
+  // 独立性が将来 (a) resolve への user 状態 JOIN、(b) 無効化トリガによる magic_links 失効、などで
+  // 壊れないよう固定する。
+
+  it("無効化との独立: 発行教員 (created_by) を is_active=false にしても class link は失効せず解決できる", async () => {
+    // 発行教員 (teacher) を seed し、その教員が created_by の有効な class link を投入 (owner = RLS バイパス)。
+    // created_by/updated_by = 発行教員 (createClassMagicLink と同じ監査関連付け)。user_id は class link
+    // では NULL のまま (F05 設計)。
+    const teacher = (
+      await sql<{ id: string }[]>`
+        INSERT INTO users (school_id, identity_uid, role, display_name)
+        VALUES (${fx.schoolA}, 'uid-mldeact-1', 'teacher', '発行教員 MLD1') RETURNING id
+      `
+    )[0].id;
+    await sql`
+      INSERT INTO magic_links (school_id, class_id, token_hash, expires_at, created_by, updated_by)
+      VALUES (${fx.schoolA}, ${classA}, 'hash-mldeact-1', now() + interval '30 days', ${teacher}, ${teacher})
+    `;
+
+    const db = drizzle(sql);
+    // 無効化前: 解決できる。
+    await sql.unsafe("SET ROLE kimiterrace_app");
+    try {
+      const before = await resolveMagicLink(db, "hash-mldeact-1");
+      expect(before).not.toBeNull();
+      expect(before?.classId).toBe(classA);
+    } finally {
+      await sql.unsafe("RESET ROLE");
+    }
+
+    // IdP 無効化の DB mirror = users.is_active=false (deactivateIdpUser 相当の DB 観測可能効果)。teacher
+    // ロールなので「各校 有効 admin ≥1」不変条件トリガ (0015) は発火しない。
+    await sql`UPDATE users SET is_active = false WHERE id = ${teacher}`;
+
+    // 無効化後も class link は失効しない (resolve は revoked_at/期限のみ判定、発行教員の状態に非依存)。
+    await sql.unsafe("SET ROLE kimiterrace_app");
+    try {
+      const after = await resolveMagicLink(db, "hash-mldeact-1");
+      expect(after).not.toBeNull();
+      expect(after?.classId).toBe(classA);
+    } finally {
+      await sql.unsafe("RESET ROLE");
+    }
+
+    // 無効化が誤って失効 (revoked_at セット) させていないことを直接確認する。
+    const [row] = await sql<
+      { revoked_at: string | null }[]
+    >`SELECT revoked_at FROM magic_links WHERE token_hash = 'hash-mldeact-1'`;
+    expect(row.revoked_at).toBeNull();
+  });
+
   // --- 教員管理側 (RLS context 下) ---
 
   it("createClassMagicLink: 自校 context で発行でき、デフォルト期限は約 90 日", async () => {
