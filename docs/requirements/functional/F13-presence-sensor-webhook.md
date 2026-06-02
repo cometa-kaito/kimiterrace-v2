@@ -50,7 +50,7 @@
 
 #### 3.1 センサー管理画面 `/admin/sensors`
 
-- [ ] 一覧（school_admin は school_id スコープ、system_admin は全件 + school フィルタ）— 未実装（`apps/web/app/admin/sensors/` 不在）
+- [~] 一覧（school_admin は school_id スコープ、system_admin は全件 + school フィルタ）— 部分実装（`apps/web/app/admin/sensors/page.tsx` + `packages/db` `listSensorDevices`：school_admin/teacher の**自校スコープ読み取り一覧**を実装。RLS（`tenant_isolation`）委譲でテナント分離、device_mac はマスク表示、設置場所/種別/稼働・撤去状態/最終検知時刻を表示。実 PG RLS テスト `packages/db/__tests__/rls/sensor-list.test.ts`）残: system_admin の全校横断ビュー + school フィルタ、紐づくクラス名・24h 検知数列、稼働ステータス自動分類（後述）は未実装
   - 列: 設置場所ラベル / 紐づくクラス / device_mac（マスク表示） / 直近検知時刻 / 24h 検知数 / 稼働ステータス（後述）
 - [ ] 詳細 / 編集: location_label, class_id, 設置/撤去日 — 未実装（`/admin/sensors` ルート不在）
 - [ ] 新規登録フォーム: device_mac は SwitchBot 開発者画面の表記（コロン区切り）を許容しつつ、内部では正規化（小文字 + コロンなし）して保存 — 未実装（登録 UI/Server Action 不在。受信側の MAC 正規化は `sensor-presence.ts` に存在するが大文字正規形で照合用）

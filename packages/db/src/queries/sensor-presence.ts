@@ -1,9 +1,13 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { KimiterraceDb } from "../client.js";
 import { withTenantContext } from "../client.js";
 import { auditLog } from "../schema/audit-log.js";
 import { events } from "../schema/events.js";
 import { sensorDevices } from "../schema/sensor-devices.js";
+
+/** SELECT だけできれば良い (Drizzle db / トランザクションの両方を受ける、event-stats と同方針)。 */
+type Selectable = Pick<PostgresJsDatabase, "select">;
 
 /**
  * F13 (#408, ADR-020): SwitchBot Webhook の presence イベント書込みドメインサービス。
@@ -132,4 +136,76 @@ export async function recordPresenceEvent(
     },
     options,
   );
+}
+
+/** 管理画面の sensor 一覧 1 行（登録済み在室検知デバイス + 最終検知時刻）。 */
+export type SensorDeviceListItem = {
+  id: string;
+  /** デバイス MAC（登録時の表記そのまま。schema 注記の通り PII ではない）。 */
+  deviceMac: string;
+  /** 設置場所ラベル（自由文字列、PII 非格納）。未設定は null。 */
+  locationLabel: string | null;
+  vendor: string;
+  kind: string;
+  /** 紐付けクラス（任意）。未紐付けは null。 */
+  classId: string | null;
+  /** 設置日時（drizzle mode:"date" で Date）。 */
+  installedAt: Date | null;
+  /** 撤去日時。null = 稼働中（active）、値あり = 撤去済（decommissioned）。 */
+  decommissionedAt: Date | null;
+  /**
+   * このデバイス由来の presence イベントの最新 occurred_at（ISO 文字列）。一度も検知が無ければ null。
+   * timestamptz を `::text` で文字列化して返す（postgres ドライバの timestamptz 文字列返却差を避け、
+   * 表示層が `new Date(...)` で扱う前提）。
+   */
+  lastSeenAt: string | null;
+};
+
+/**
+ * 自校の登録センサー（`sensor_devices`）を最終検知時刻つきで一覧する（RLS で school スコープ）。F13
+ * `/admin/sensors` 管理画面の読み取り slice。撤去済みも含めて返し、稼働中（decommissioned_at IS NULL）→
+ * 撤去済の順、同区分内は device_mac 昇順で決定的に並べる。
+ *
+ * - **テナント分離（ルール2）**: `school_id` を書かず `sensor_devices` の RLS（`tenant_isolation`）に委譲。
+ *   school_admin / teacher context では自校のみ可視。空コンテキストは deny-by-default で 0 件。
+ * - **最終検知**: presence イベント（`events.type='presence'`）の `payload->>'device_mac'` が webhook で
+ *   正規化された MAC（大文字・区切り無し）であるため、`sensor_devices.device_mac` を同じ正規形に潰して
+ *   相関サブクエリで突き合わせ、最新 `occurred_at` を取る。`events` も同 RLS context で自校スコープ。
+ * - **PII（ルール4）**: 件数・時刻・デバイスメタのみ。`events.payload` の他フィールドや個人識別情報は読まない。
+ */
+export async function listSensorDevices(db: Selectable): Promise<SensorDeviceListItem[]> {
+  // sensor_devices.device_mac を webhook 正規形（大文字・コロン/ハイフン除去）に潰す式。presence イベントの
+  // payload->>'device_mac' は同正規形で書かれる（recordPresenceEvent / sensor-devices.ts 注記）。
+  const normalizedMac = sql`upper(replace(replace(${sensorDevices.deviceMac}, ':', ''), '-', ''))`;
+  const lastSeenAt = sql<
+    string | null
+  >`(select max(occurred_at)::text from ${events} where type = 'presence' and payload->>'device_mac' = ${normalizedMac})`;
+
+  const rows = await db
+    .select({
+      id: sensorDevices.id,
+      deviceMac: sensorDevices.deviceMac,
+      locationLabel: sensorDevices.locationLabel,
+      vendor: sensorDevices.vendor,
+      kind: sensorDevices.kind,
+      classId: sensorDevices.classId,
+      installedAt: sensorDevices.installedAt,
+      decommissionedAt: sensorDevices.decommissionedAt,
+      lastSeenAt,
+    })
+    .from(sensorDevices)
+    // 稼働中（decommissioned_at IS NULL）を先頭、その後撤去済。区分内は device_mac 昇順で決定的に。
+    .orderBy(sql`${sensorDevices.decommissionedAt} nulls first`, sensorDevices.deviceMac);
+
+  return rows.map((r) => ({
+    id: r.id,
+    deviceMac: r.deviceMac,
+    locationLabel: r.locationLabel,
+    vendor: r.vendor,
+    kind: r.kind,
+    classId: r.classId,
+    installedAt: r.installedAt,
+    decommissionedAt: r.decommissionedAt,
+    lastSeenAt: r.lastSeenAt,
+  }));
 }
