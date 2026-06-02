@@ -1,0 +1,225 @@
+import {
+  type TenantTx,
+  createDbClient,
+  listSchools,
+  resolveJmaAreaCode,
+  upsertWeatherForecast,
+  withTenantContext,
+} from "@kimiterrace/db";
+import { type ParsedForecast, parseJmaForecast } from "./jma.js";
+
+/**
+ * F14 (#128, ADR-021): 天気取得バッチの **オーケストレーション + I/O 結線**。
+ *
+ * - 地域 dedup → JMA 取得 → パース → `weather_forecasts` upsert を 1 サイクルで回す。
+ * - 純粋ロジック（パース = `jma.ts`、府県→地域コード = `prefecture-area-map.ts`、地域 dedup =
+ *   `collectAreaCodes`）と I/O（fetch / DB）を分け、`fetchArea` と upsert を依存注入することで
+ *   ネットワーク・DB なしに `runWeatherFetch` を単体検証できる（`embedding/run.ts` と同じ方針）。
+ * - **閉域 / PII 非送信（ADR-021）**: JMA へ送るのは地域コードのみ。端末は外部に出ない（本 Job だけが egress）。
+ * - **テナント分離（ルール2）**: 校列挙・天気 upsert はいずれも system_admin context（weather_write_system
+ *   policy / system_admin_full_access）。BYPASSRLS は使わない。weather_forecasts は school_id 非保持の
+ *   cross-tenant 共有キャッシュ。
+ */
+
+/** JMA forecast エンドポイント URL を組む（純関数、テスト容易）。 */
+export function jmaForecastUrl(areaCode: string): string {
+  return `https://www.jma.go.jp/bosai/forecast/data/forecast/${encodeURIComponent(areaCode)}.json`;
+}
+
+/** 学校行（地域コード導出に必要な最小形）。 */
+export interface SchoolAreaRow {
+  prefecture: string | null;
+}
+
+/**
+ * 学校群の prefecture から、取得すべき JMA 地域コードを **重複排除**して返す（純関数）。
+ * 同一府県の複数校は 1 コードに畳む（地域 dedup）。未知の府県は除外する（呼び出し側で件数を監視ログに）。
+ */
+export function collectAreaCodes(schools: readonly SchoolAreaRow[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of schools) {
+    const code = resolveJmaAreaCode(s.prefecture);
+    if (code && !seen.has(code)) {
+      seen.add(code);
+      out.push(code);
+    }
+  }
+  return out;
+}
+
+/** 1 地域ぶんの取得結果（パース済み + 原文。原文は raw 保全に使う）。 */
+export interface FetchedArea {
+  parsed: ParsedForecast;
+  raw: unknown;
+}
+
+/** `runWeatherFetch` の依存（fetch / DB を注入してネットワーク・DB なしで検証可能にする）。 */
+export interface WeatherFetchDeps {
+  /** 取得対象の地域コードを列挙する（実体は system_admin context の `listSchools` → `collectAreaCodes`）。 */
+  listAreaCodes(): Promise<string[]>;
+  /** 1 地域を取得・パースする（実体は HTTP fetch + `parseJmaForecast`）。失敗は throw（呼び出し側が捕捉）。 */
+  fetchArea(areaCode: string): Promise<FetchedArea>;
+  /** パース済み 1 地域ぶんを weather_forecasts に upsert する（実体は system_admin context の upsert）。 */
+  saveArea(area: FetchedArea): Promise<number>;
+}
+
+/** バッチ全体のサマリ（Cloud Logging に構造化ログとして残す。secret / PII は含めない）。 */
+export interface WeatherFetchSummary {
+  /** dedup 後の取得対象地域数。 */
+  areas: number;
+  /** 取得・保存に成功した地域数。 */
+  fetched: number;
+  /** upsert した行数（地域 × 日数の合算）。 */
+  rowsUpserted: number;
+  /** 取得失敗した地域数（既存キャッシュは消さない = last-known-good 維持）。0 が正常。 */
+  failed: number;
+  /** 取得失敗した地域コード（監視・Sentry 用。生 PII は含まない公開コード）。 */
+  failedAreaCodes: string[];
+}
+
+/**
+ * 天気取得バッチ本体（純粋オーケストレーション、fetch/DB は注入）。
+ *
+ * 1 地域の取得失敗は **その地域だけ skip** し、他地域は続行する（fail-soft）。失敗地域の既存キャッシュは
+ * 触らないので last-known-good を維持する（ADR-021 §結果 / NFR02）。全失敗でも例外は投げず summary を返し、
+ * 呼び出し側（entrypoint）が failed > 0 を WARN ログ + 非ゼロ終了に使う。
+ */
+export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFetchSummary> {
+  const areaCodes = await deps.listAreaCodes();
+  let fetched = 0;
+  let rowsUpserted = 0;
+  const failedAreaCodes: string[] = [];
+
+  for (const areaCode of areaCodes) {
+    try {
+      const area = await deps.fetchArea(areaCode);
+      const rows = await deps.saveArea(area);
+      fetched += 1;
+      rowsUpserted += rows;
+    } catch {
+      // 取得/保存失敗はその地域のみ skip（既存キャッシュは last-known-good として残す）。
+      failedAreaCodes.push(areaCode);
+    }
+  }
+
+  return {
+    areas: areaCodes.length,
+    fetched,
+    rowsUpserted,
+    failed: failedAreaCodes.length,
+    failedAreaCodes,
+  };
+}
+
+/** HTTP 取得の設定（HTTP マナー: User-Agent / timeout）。 */
+export interface HttpFetchConfig {
+  /** 明示 User-Agent（ADR-021 §HTTP マナー。連絡先を含めて JMA に対し礼儀正しく）。 */
+  userAgent: string;
+  /** タイムアウト（ms）。既定 10s。 */
+  timeoutMs?: number;
+  /** テスト差し替え用の fetch 実装（既定は global fetch）。 */
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * 1 地域を JMA から HTTP 取得しパースする（実 I/O）。timeout / 明示 User-Agent を付ける。
+ * 非 2xx・タイムアウト・JSON パース不能は throw（`runWeatherFetch` が地域単位で捕捉して skip）。
+ */
+export async function fetchAreaFromJma(
+  areaCode: string,
+  config: HttpFetchConfig,
+): Promise<FetchedArea> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const timeoutMs = config.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(jmaForecastUrl(areaCode), {
+      method: "GET",
+      headers: { "User-Agent": config.userAgent, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`JMA forecast 取得失敗: areaCode=${areaCode} status=${res.status}`);
+    }
+    const raw: unknown = await res.json();
+    return { parsed: parseJmaForecast(areaCode, raw), raw };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 実行時の設定（DB 接続 / User-Agent。DATABASE_URL は Secret Manager 経由、ルール5）。 */
+export interface RunWeatherFetchConfig {
+  /** DB 接続文字列（kimiterrace_app ロール）。Secret Manager 経由で注入（ルール5）。 */
+  databaseUrl: string;
+  /** JMA への明示 User-Agent（連絡先を含める。ADR-021 §HTTP マナー）。 */
+  userAgent: string;
+  /** HTTP タイムアウト（ms）。 */
+  timeoutMs?: number;
+  /** テスト用: BYPASSRLS 接続をアプリロールへ降格する SET LOCAL ROLE 先。本番は未指定。 */
+  appRole?: string;
+}
+
+/**
+ * 実 PG + JMA で天気取得バッチを実行する。接続は本関数が開き、終了時に必ず閉じる。
+ * env 読取・プロセス終了コードは entrypoint（`weather-job.ts`）が担う（`embedding/run.ts` と同じ分離）。
+ */
+export async function runWeatherFetchBatch(
+  config: RunWeatherFetchConfig,
+): Promise<WeatherFetchSummary> {
+  const { sql, db } = createDbClient(config.databaseUrl);
+  const appRoleOptions = config.appRole !== undefined ? { appRole: config.appRole } : {};
+  const httpConfig: HttpFetchConfig = {
+    userAgent: config.userAgent,
+    timeoutMs: config.timeoutMs,
+  };
+  try {
+    return await runWeatherFetch({
+      // 校列挙は system_admin context（全校 SELECT、ルール2）。BYPASSRLS 不使用。
+      listAreaCodes: async () => {
+        const schools = await withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx) => listSchools(tx),
+          appRoleOptions,
+        );
+        return collectAreaCodes(schools);
+      },
+      fetchArea: (areaCode) => fetchAreaFromJma(areaCode, httpConfig),
+      // 天気 upsert は system_admin context（weather_write_system policy が書込みを system に限定）。
+      saveArea: (area) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => saveForecastDays(tx, area),
+          appRoleOptions,
+        ),
+    });
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/** パース済み 1 地域の日次予報を weather_forecasts に upsert し、保存行数を返す。 */
+async function saveForecastDays(tx: TenantTx, area: FetchedArea): Promise<number> {
+  let rows = 0;
+  for (const day of area.parsed.days) {
+    await upsertWeatherForecast(tx, {
+      areaCode: area.parsed.areaCode,
+      areaName: area.parsed.areaName,
+      source: "jma",
+      forecastDate: day.forecastDate,
+      weatherCode: day.weatherCode,
+      weatherText: day.weatherText,
+      tempMin: day.tempMin,
+      tempMax: day.tempMax,
+      pop: day.pop,
+      // 原文 JSON を全日共通で保全（JMA bosai は非公式・無保証、後追い解析用、ADR-021 §悪い影響）。
+      raw: area.raw,
+    });
+    rows += 1;
+  }
+  return rows;
+}

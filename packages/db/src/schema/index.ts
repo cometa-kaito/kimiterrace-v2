@@ -15,6 +15,8 @@ export * from "./events.js";
 export * from "./sensor-devices.js";
 // F15/F16 (ADR-022/ADR-023): TV デバイスのリモート設定レジストリ + ポーリング心拍（last_seen 死活）
 export * from "./tv-devices.js";
+// F14 (#128, ADR-021): サイネージ天気予報の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
+export * from "./weather-forecasts.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
