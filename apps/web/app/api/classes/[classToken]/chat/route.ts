@@ -3,7 +3,11 @@ import { getDb } from "@/lib/db";
 import { hashToken } from "@/lib/magic-link/token";
 import { executeChat } from "@/lib/student-qa/chat-service";
 import { createRagContentProvider } from "@/lib/student-qa/context-provider";
-import { createVertexChatStreamClient, createVertexEmbeddingClient } from "@kimiterrace/ai";
+import {
+  createVertexChatStreamClient,
+  createVertexEmbeddingClient,
+  normalizeLocale,
+} from "@kimiterrace/ai";
 import { resolveMagicLink, withTenantContext } from "@kimiterrace/db";
 
 /**
@@ -118,6 +122,10 @@ export async function POST(
     issueCookie = true;
   }
 
+  // 3.5) 拒否文言ロケール (ADR-028 §2)。匿名生徒は profile が無いので Accept-Language の第一言語を
+  //      best-effort で採用 (未対応は ja フォールバック)。in_scope 回答の言語は Gemini が質問に追従する。
+  const locale = normalizeLocale(request.headers.get("accept-language")?.split(",")[0]);
+
   // 4) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
   const contextProvider = createRagContentProvider({ embeddingClient: getEmbeddingClient() });
   const modelClient = getChatStreamClient();
@@ -141,6 +149,7 @@ export async function POST(
             piiEntries: [],
             contextProvider,
             modelClient,
+            locale,
           });
 
           if (result.kind === "rejected") {

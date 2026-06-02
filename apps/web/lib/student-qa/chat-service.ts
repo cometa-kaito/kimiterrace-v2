@@ -1,7 +1,10 @@
 import {
   type ChatContext,
   type PiiEntry,
+  type SupportedLocale,
   buildChatPrompt,
+  buildScopeRefusal,
+  classifyScope,
   findUnmaskedPii,
   maskPII,
 } from "@kimiterrace/ai";
@@ -18,11 +21,13 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  *  1. 入力バリデーション (`validateQuestion`, scope.ts)
  *  2. 二重キーレート制限 (`StudentQaRateLimiter`, rate-limit.ts)
  *  3. **質問の PII マスキング** (`packages/ai` maskPII、ルール4) — RAG が embedding 化する前に必ずマスク
- *  4. クラス公開コンテンツの取得 (caller 注入の `ContextProvider`。RAG はマスク済み質問でベクトル検索)
- *  5. **コンテキストの PII マスキング + fail-closed** (ルール4)
- *  6. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
- *  7. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
- *  8. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
+ *  4. **スコープ分類** (`classifyScope`, ADR-028 §2) — 学習・進路など掲示物外は **embedding/RAG/Gemini を
+ *     一切呼ばず** 決定論の多言語拒否文を即返す (コスト 0 / 誘導なし拒否)
+ *  5. クラス公開コンテンツの取得 (caller 注入の `ContextProvider`。RAG はマスク済み質問でベクトル検索)
+ *  6. **コンテキストの PII マスキング + fail-closed** (ルール4)
+ *  7. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
+ *  8. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
+ *  9. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
  *
  * **abstraction の境界**:
  * - `ContextProvider` / `ChatStreamClient` は呼び出し側 (route.ts) で具体実装を注入する。本層は
@@ -68,6 +73,11 @@ export type ExecuteChatParams = {
   piiEntries: readonly PiiEntry[];
   contextProvider: ContextProvider;
   modelClient: ChatStreamClient;
+  /**
+   * 拒否文言のロケール (ADR-028 §2、既定 `ja`)。route が Accept-Language 等から `normalizeLocale` で
+   * 解決して渡す。out_of_scope 拒否を質問者の言語で返すため (in_scope の回答言語は Gemini が担う)。
+   */
+  locale?: SupportedLocale;
   /** テスト決定性のための注入。本番は `Date.now()`。 */
   nowMs?: number;
 };
@@ -82,6 +92,57 @@ export type ExecuteChatResult =
       done: Promise<{ assistantMessageId: string; sessionId: string }>;
     }
   | { kind: "rejected"; status: number; reason: string; message: string };
+
+/**
+ * Gemini を経由しない **決定論応答** (スコープ外拒否など) を `stream` 結果として返し、
+ * user / assistant を通常経路と同じ形で永続化する (会話履歴の連続性 + 監査追跡性、ルール1/4)。
+ *
+ * Gemini 経路との違いは: 本文が固定文字列 (単一チャンクで stream)、evidence 空、confidence 0、
+ * model_version はセンチネル (`scope-refusal:*` 等)。answerText は **既にマスク不要な定型文** で、
+ * 生 PII を含まない (拒否文・OUT_OF_SCOPE 等)。
+ */
+async function streamFixedAnswer(
+  tx: TenantTx,
+  args: {
+    schoolId: string;
+    magicLinkId: string;
+    classId: string;
+    /** 永続化する user メッセージ (マスク済)。 */
+    maskedUserText: string;
+    /** 固定のアシスタント応答 (拒否文等、生 PII なし)。 */
+    answerText: string;
+    /** model_version 相当のセンチネル (例 `scope-refusal:study`)。 */
+    modelVersion: string;
+  },
+): Promise<ExecuteChatResult> {
+  const session = await findOrCreateSession(tx, {
+    schoolId: args.schoolId,
+    magicLinkId: args.magicLinkId,
+    classId: args.classId,
+  });
+  await appendUserMessage(tx, {
+    schoolId: args.schoolId,
+    sessionId: session.id,
+    maskedText: args.maskedUserText,
+    tokenCount: 0,
+  });
+  const textStream = (async function* () {
+    yield args.answerText;
+  })();
+  const done: Promise<{ assistantMessageId: string; sessionId: string }> = (async () => {
+    const row = await appendAssistantMessage(tx, {
+      schoolId: args.schoolId,
+      sessionId: session.id,
+      maskedText: args.answerText,
+      modelVersion: args.modelVersion,
+      evidence: [],
+      confidenceScore: 0,
+      tokenCount: 0,
+    });
+    return { assistantMessageId: row.id, sessionId: session.id };
+  })();
+  return { kind: "stream", textStream, done };
+}
 
 /**
  * 生徒の質問 1 件を処理する SSE ハンドラの中核。
@@ -100,6 +161,7 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     piiEntries,
     contextProvider,
     modelClient,
+    locale = "ja",
     nowMs = Date.now(),
   } = params;
 
@@ -134,14 +196,31 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   //    Vertex embedding / grounding 検索へ持ち込まない。
   const maskedQuestion = maskPII(validated.question, piiEntries);
 
-  // 4) クラス公開コンテンツを取得。RAG provider は maskedQuestion をベクトル検索に使う
+  // 4) スコープ分類 (ADR-028 §2: Gemini 呼出前に判定)。学習・進路など掲示物外の質問は
+  //    **embedding / RAG / Gemini を一切呼ばず**、決定論の多言語拒否文を即返す
+  //    (コスト 0 / レイテンシ 0 / 誘導なし拒否、インジェクション非経由で安全)。
+  //    分類はマスク済み質問で行う (PII を再露出しない。キーワード判定はマスクの影響を受けない)。
+  const scope = classifyScope(maskedQuestion.masked);
+  if (scope.verdict === "out_of_scope") {
+    return streamFixedAnswer(tx, {
+      schoolId,
+      magicLinkId,
+      classId,
+      maskedUserText: maskedQuestion.masked,
+      answerText: buildScopeRefusal(scope, locale),
+      // 監査用に拒否理由 (study / career) を model_version 相当のセンチネルへ残す。
+      modelVersion: `scope-refusal:${scope.reason}`,
+    });
+  }
+
+  // 5) クラス公開コンテンツを取得。RAG provider は maskedQuestion をベクトル検索に使う
   //    (MVP 直接取得 provider は無視)。RLS スコープ tx で自校に閉じる。
   const rawContexts = await contextProvider(tx, {
     classId,
     maskedQuestion: maskedQuestion.masked,
   });
 
-  // 5) コンテキスト本体も必ずマスク (ルール4)。
+  // 6) コンテキスト本体も必ずマスク (ルール4)。
   const maskedContexts: ChatContext[] = rawContexts.map((c) => {
     const t = maskPII(c.title, piiEntries);
     const b = maskPII(c.body, piiEntries);
@@ -164,16 +243,16 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     };
   }
 
-  // 6) プロンプト構築 (system/user 役割分離 + XML セパレータ + 中身を data として扱う契約)。
+  // 7) プロンプト構築 (system/user 役割分離 + XML セパレータ + 中身を data として扱う契約)。
   const prompt = buildChatPrompt({
     question: maskedQuestion.masked,
     contexts: maskedContexts,
   });
 
-  // 7) Vertex SSE 開始。
+  // 8) Vertex SSE 開始。
   const stream = modelClient.stream({ system: prompt.system, user: prompt.user });
 
-  // 8) ストリームを caller (route.ts) に素通しつつ、終了後に永続化を行う:
+  // 9) ストリームを caller (route.ts) に素通しつつ、終了後に永続化を行う:
   //    - user メッセージ (マスク済) を 1 行追記
   //    - assistant メッセージ (マスク済) を 1 行追記、evidence/confidence/model_version 含む
   //    永続化失敗は SSE 受信側の表示には影響させない (応答は既に流れている) が、Promise として
