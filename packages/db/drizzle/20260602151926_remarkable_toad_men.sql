@@ -1,0 +1,1 @@
+ALTER TYPE "public"."teacher_input_type" ADD VALUE 'file';
