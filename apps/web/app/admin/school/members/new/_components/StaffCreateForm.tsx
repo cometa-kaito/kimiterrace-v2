@@ -56,12 +56,8 @@ export function StaffCreateForm() {
         </output>
         <label style={labelStyle}>
           初回パスワード設定リンク
-          <input
-            readOnly
-            value={created.setupLink}
-            aria-label="初回パスワード設定リンク"
-            style={inputStyle}
-          />
+          {/* 包む label がラベル付けするため aria-label は冗長 (SR 二重読み防止、#515 Low-1)。 */}
+          <input readOnly value={created.setupLink} style={inputStyle} />
         </label>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <button type="button" onClick={copyLink} style={btnStyle}>
