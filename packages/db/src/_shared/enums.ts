@@ -101,8 +101,12 @@ export const aiExtractionKind = pgEnum("ai_extraction_kind", [
 //   failed  … 恒久失敗
 export const aiExtractionStatus = pgEnum("ai_extraction_status", ["success", "retry", "failed"]);
 
-// F02: 教員入力の種別（音声 / チャット）
-export const teacherInputType = pgEnum("teacher_input_type", ["voice", "chat"]);
+// F01/F02: 教員入力の種別（音声 / チャット / ファイル）
+//   voice … 音声入力（端末ローカル Web Speech でテキスト化、F02）
+//   chat  … チャットテキスト入力（F02）
+//   file  … ファイルアップロード入力（PDF/DOCX/XLSX/PNG/JPEG を抽出器でテキスト化して transcript に格納、F01 #509）。
+//           末尾追加 = ALTER TYPE ADD VALUE（非破壊。既存 voice/chat は不変で、generate が DROP TYPE を吐かないこと）。
+export const teacherInputType = pgEnum("teacher_input_type", ["voice", "chat", "file"]);
 
 // F02: 教員入力のライフサイクル状態
 //   draft        … 下書き保存（FR-06）
