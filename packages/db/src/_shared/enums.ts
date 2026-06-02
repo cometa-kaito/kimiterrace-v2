@@ -31,6 +31,12 @@ export const sensorVendor = pgEnum("sensor_vendor", ["switchbot"]);
 // （カメラ非搭載・個人識別なし、ADR-020 透明性要件）。滞在秒数は計測しない。
 export const sensorKind = pgEnum("sensor_kind", ["presence_pir"]);
 
+// F16 (ADR-023): TV デバイスの死活アラート状態。`tv_devices.alert_state` の値域を DB で固定する
+// （ルール3）。`ok` = 正常 / `down` = ポーリング途絶でダウン判定中。重複通知抑止のため定期チェッカ
+// （F16 §2、別スライス）が遷移時のみ通知し、`down`→`down` の連投を避ける状態フラグ。既定 `ok`。
+// 将来 `degraded` 等を足すなら末尾追加（ADD VALUE、非破壊）。
+export const tvAlertState = pgEnum("tv_alert_state", ["ok", "down"]);
+
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "schedule",
