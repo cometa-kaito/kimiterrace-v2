@@ -75,6 +75,21 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
     await sql.end({ timeout: 5 });
   });
 
+  /**
+   * drizzle (`withTenantContext` の `db.transaction`) は pg エラーを DrizzleQueryError
+   * ("Failed query: ...") でラップし、原メッセージ/SQLSTATE は `.cause` 側に移る。message + cause.message
+   * + cause.code を連結し、RLS 拒否 / 制約違反を文字列で判定する (schools-create.test.ts と同 idiom)。
+   * 解決した (= 拒否されなかった) 場合は失敗させる。
+   */
+  async function errText(p: Promise<unknown>): Promise<string> {
+    const err = (await p.then(
+      () => null,
+      (e) => e,
+    )) as { message?: string; cause?: { message?: string; code?: string } } | null;
+    expect(err, "mutation は拒否されるべき").not.toBeNull();
+    return `${err?.message ?? ""} ${err?.cause?.message ?? ""} ${err?.cause?.code ?? ""}`;
+  }
+
   it("register: school A context で自校に INSERT 成功 (自校行に着地)", async () => {
     const { id } = await withTenantContext(
       db,
@@ -104,7 +119,10 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
   });
 
   it("register: 他校 school_id を直書きすると WITH CHECK で拒否 (越境登録不可)", async () => {
-    await expect(
+    // drizzle は pg エラーを DrizzleQueryError ("Failed query: ...") でラップし、原メッセージ/コードは
+    // `.cause` に入る (raw SQL 経由の sensor-devices.test.ts と異なる)。message + cause を合わせて判定する
+    // (schools-create.test.ts と同じ idiom)。
+    const text = await errText(
       withTenantContext(
         db,
         { schoolId: fx.schoolA, role: "school_admin", userId: fx.userA },
@@ -119,7 +137,8 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
           }),
         APP,
       ),
-    ).rejects.toThrow(/row-level security|new row violates/i);
+    );
+    expect(text).toMatch(/row-level security|new row violates/i);
   });
 
   it("device_mac グローバル一意衝突: 他校で登録済みの MAC は register 拒否 (23505) + 他校行は無傷", async () => {
@@ -128,9 +147,9 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
     `;
     expect(before[0].school_id).toBe(fx.schoolB);
 
-    let code: string | undefined;
-    try {
-      await withTenantContext(
+    // drizzle ラップのため code は `.cause.code` に入る。message + cause.code を合わせて 23505 を判定する。
+    const text = await errText(
+      withTenantContext(
         db,
         { schoolId: fx.schoolA, role: "school_admin", userId: fx.userA },
         (tx) =>
@@ -142,11 +161,10 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
             actorUserId: fx.userA,
           }),
         APP,
-      );
-    } catch (e) {
-      code = (e as { code?: string }).code;
-    }
-    expect(code).toBe("23505"); // unique_violation (ux_sensor_devices_device_mac)
+      ),
+    );
+    // unique_violation (23505) / ux_sensor_devices_device_mac。
+    expect(text).toMatch(/23505|duplicate key|unique constraint|ux_sensor_devices_device_mac/i);
 
     // 他校行は school_id も location_label も変わっていない (越境情報を奪っていない)。
     const after = await sql<{ school_id: string; location_label: string }[]>`
