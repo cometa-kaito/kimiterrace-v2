@@ -297,9 +297,10 @@ describe("executeChat: スコープ分類ゲート (ADR-028 §2 pre-Gemini)", ()
   });
 
   it("locale=en のスコープ外質問は英語の拒否文を返す (多言語、Gemini 非経由)", async () => {
-    const { state } = makeModelClient({ chunks: ["x"] });
+    const { client, state } = makeModelClient({ chunks: ["x"] });
     const result = await executeChat(
       baseParams({
+        modelClient: client,
         // study (homework) → out_of_scope。
         rawQuestion: "please help me with my homework",
         locale: "en",
@@ -309,6 +310,7 @@ describe("executeChat: スコープ分類ゲート (ADR-028 §2 pre-Gemini)", ()
     if (result.kind !== "stream") return;
     expect(await collect(result.textStream)).toContain("school notices");
     await result.done;
+    // 注入した client が **呼ばれない** ことで Gemini 非経由を非空虚に証明 (#506 Low-1)。
     expect(state.req).toBeNull();
   });
 
