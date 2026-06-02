@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import type { PublishScope } from "../_shared/enums.js";
 import type { TenantTx } from "../client.js";
 import { auditLog } from "../schema/audit-log.js";
 import { contentVersions } from "../schema/content-versions.js";
@@ -236,6 +237,68 @@ export class VersionNotFoundError extends Error {
     super(`バージョンが見つかりません: content=${contentId} version=${version}`);
     this.name = "VersionNotFoundError";
   }
+}
+
+/** 新規 content 作成の入力 (Action 層で検証済みを前提)。publishScope は enum 値。 */
+export type CreateContentInput = {
+  title: string;
+  body: string;
+  publishScope: PublishScope;
+  /** 配信対象 (class_id 配列等)。未指定は空配列。 */
+  targets?: unknown;
+};
+
+/**
+ * F01/F04: 新しい content を draft で作成し、初版バージョンを追記する (#509 S3a)。
+ *
+ * 教員入力 (F01 ファイル / F02 音声・チャット) の抽出結果を「編集してから公開」できる **下書き**の
+ * 受け皿。作成後は既存エディタ (`/admin/contents/[id]`) で編集 → `publishContent` で公開する。
+ *
+ * - contents に status=draft で INSERT (created_by/updated_by = actor)。
+ * - 初版を content_versions に保管 (F04.2 履歴、version=1)。
+ * - audit_log に operation=insert / table=contents / diff={after} を追記 (F04.1 / ルール1)。
+ *
+ * RLS WITH CHECK (tenant_isolation, migration 0002) が school 越境 INSERT を DB レベルで拒否する
+ * (ルール2)。本関数は `WHERE/INSERT school_id` を actor.schoolId で固定し、手書き越境ガードを置かない。
+ * publishScope は呼出側 (Action) で enum 値に検証済み (既定の安全側 scope 選択も Action の責務)。
+ */
+export async function createContent(
+  tx: TenantTx,
+  actor: PublishActor,
+  input: CreateContentInput,
+): Promise<{ id: string; version: number }> {
+  const [row] = await tx
+    .insert(contents)
+    .values({
+      schoolId: actor.schoolId,
+      title: input.title,
+      body: input.body,
+      publishScope: input.publishScope,
+      status: "draft",
+      targets: input.targets ?? [],
+      createdBy: actor.userId,
+      updatedBy: actor.userId,
+    })
+    .returning({
+      id: contents.id,
+      title: contents.title,
+      body: contents.body,
+      publishScope: contents.publishScope,
+      status: contents.status,
+      targets: contents.targets,
+    });
+  if (!row) {
+    throw new Error("createContent: INSERT が行を返しませんでした (RLS 拒否の可能性)");
+  }
+  const snapshot = toSnapshot(row);
+  const version = await insertVersion(tx, actor, row.id, snapshot, "initial draft");
+  await writeAudit(tx, actor, {
+    tableName: "contents",
+    recordId: row.id,
+    operation: "insert",
+    diff: { after: snapshot },
+  });
+  return { id: row.id, version: version.version };
 }
 
 /** content 本文の更新 patch。未指定フィールドは現状維持。 */

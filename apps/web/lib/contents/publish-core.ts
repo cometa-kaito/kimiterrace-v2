@@ -120,6 +120,37 @@ export function validateUpdateInput(input: UpdateContentInput): ActionError | nu
   return null;
 }
 
+/** content 新規作成の生入力 (フォーム / 抽出橋渡しから来る、未検証)。 */
+export type CreateContentInput = {
+  title: string;
+  body?: string;
+  publishScope: string;
+  targets?: unknown;
+};
+
+/**
+ * `createContent` の生入力を検証する純粋関数 (#509 S3a)。問題があれば `invalid_input`、無ければ null。
+ * title / publishScope は **必須**、body は任意 (既定空文字)、targets は任意 (配列)。
+ */
+export function validateCreateInput(input: CreateContentInput): ActionError | null {
+  if (typeof input.title !== "string" || input.title.length === 0) {
+    return invalid("title が不正です。");
+  }
+  if (input.title.length > TITLE_MAX_LENGTH) {
+    return invalid(`title は ${TITLE_MAX_LENGTH} 文字以内にしてください。`);
+  }
+  if (input.body !== undefined && typeof input.body !== "string") {
+    return invalid("body が不正です。");
+  }
+  if (!isPublishScope(input.publishScope)) {
+    return invalid("publishScope が不正です。");
+  }
+  if (input.targets !== undefined && !isValidTargets(input.targets)) {
+    return invalid("targets が不正です (配列で指定してください)。");
+  }
+  return null;
+}
+
 /** invalid_input エラーを作る。 */
 export function invalid(message: string): ActionError {
   return { ok: false, code: "invalid_input", message };

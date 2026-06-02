@@ -7,6 +7,7 @@ import {
   isPublishScope,
   isUuid,
   isValidTargets,
+  validateCreateInput,
   validateUpdateInput,
 } from "../../lib/contents/publish-core";
 
@@ -135,6 +136,43 @@ describe("validateUpdateInput", () => {
   it("非配列 targets は invalid_input (#150 L-1: 従来未検証だった)", () => {
     expect(validateUpdateInput({ targets: { classId: "x" } })).toMatchObject({
       ok: false,
+      code: "invalid_input",
+    });
+  });
+});
+
+describe("validateCreateInput (#509 S3a)", () => {
+  const ok = { title: "進路だより", body: "本文", publishScope: "class" as const };
+
+  it("正常な入力は null (検証通過)", () => {
+    expect(validateCreateInput(ok)).toBeNull();
+  });
+
+  it("body 省略は許容 (既定空文字)", () => {
+    expect(validateCreateInput({ title: "t", publishScope: "private" })).toBeNull();
+  });
+
+  it("title 空 / 非文字列は invalid_input", () => {
+    expect(validateCreateInput({ ...ok, title: "" })).toMatchObject({ code: "invalid_input" });
+    expect(validateCreateInput({ ...ok, title: undefined as unknown as string })).toMatchObject({
+      code: "invalid_input",
+    });
+  });
+
+  it("title 上限超過は invalid_input", () => {
+    expect(validateCreateInput({ ...ok, title: "あ".repeat(TITLE_MAX_LENGTH + 1) })).toMatchObject({
+      code: "invalid_input",
+    });
+  });
+
+  it("publishScope は必須 (未知値は invalid_input)", () => {
+    expect(validateCreateInput({ ...ok, publishScope: "everyone" })).toMatchObject({
+      code: "invalid_input",
+    });
+  });
+
+  it("非配列 targets は invalid_input", () => {
+    expect(validateCreateInput({ ...ok, targets: { classId: "x" } })).toMatchObject({
       code: "invalid_input",
     });
   });
