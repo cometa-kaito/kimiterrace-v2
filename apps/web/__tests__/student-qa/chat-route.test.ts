@@ -18,6 +18,7 @@ vi.mock("@/lib/student-qa/context-provider", () => ({
 vi.mock("@kimiterrace/ai", () => ({
   createVertexChatStreamClient: vi.fn(() => ({ stream: vi.fn() })),
   createVertexEmbeddingClient: vi.fn(() => ({ embed: vi.fn(async () => []) })),
+  normalizeLocale: vi.fn(() => "ja"),
 }));
 
 import { resolveMagicLink } from "@kimiterrace/db";

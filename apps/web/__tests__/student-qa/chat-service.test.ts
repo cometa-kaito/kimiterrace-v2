@@ -263,3 +263,73 @@ describe("executeChat: スコープ外フォールバック", () => {
     );
   });
 });
+
+describe("executeChat: スコープ分類ゲート (ADR-028 §2 pre-Gemini)", () => {
+  it("学習・進路の質問は RAG/Gemini を呼ばず決定論拒否文を stream + 永続化する", async () => {
+    const { client, state } = makeModelClient({ chunks: ["これは呼ばれない"] });
+    const ctx: ContextProvider = vi.fn(async () => []);
+    const result = await executeChat(
+      baseParams({
+        modelClient: client,
+        contextProvider: ctx,
+        // career → out_of_scope (志望校 / 受験勉強)。
+        rawQuestion: "志望校の受験勉強について相談したいです",
+      }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    const text = await collect(result.textStream);
+    await result.done;
+
+    // 決定論の ja 拒否文。
+    expect(text).toContain("掲示物の話題から外れます");
+    // **RAG (contextProvider) も Gemini (modelClient.stream) も呼ばれない** = embedding/生成コスト 0。
+    expect(ctx).not.toHaveBeenCalled();
+    expect(state.req).toBeNull();
+    // 履歴・監査のため user/assistant は永続化される。assistant=拒否文 / evidence 空 / confidence 0 /
+    // model_version は拒否センチネル。
+    expect(appendUserMessage).toHaveBeenCalled();
+    const asst = vi.mocked(appendAssistantMessage).mock.calls[0]?.[1];
+    expect(asst?.maskedText).toContain("掲示物の話題から外れます");
+    expect(asst?.evidence).toEqual([]);
+    expect(asst?.confidenceScore).toBe(0);
+    expect(asst?.modelVersion).toContain("scope-refusal");
+  });
+
+  it("locale=en のスコープ外質問は英語の拒否文を返す (多言語、Gemini 非経由)", async () => {
+    const { state } = makeModelClient({ chunks: ["x"] });
+    const result = await executeChat(
+      baseParams({
+        // study (homework) → out_of_scope。
+        rawQuestion: "please help me with my homework",
+        locale: "en",
+      }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    expect(await collect(result.textStream)).toContain("school notices");
+    await result.done;
+    expect(state.req).toBeNull();
+  });
+
+  it("掲示物の質問 (in_scope) は通常の RAG + Gemini 経路に進む", async () => {
+    const { client, state } = makeModelClient({ chunks: ["体育祭は6/10です"] });
+    const ctx: ContextProvider = vi.fn(async () => [
+      { id: "c1", title: "体育祭", body: "6/10 開催" },
+    ]);
+    const result = await executeChat(
+      baseParams({
+        modelClient: client,
+        contextProvider: ctx,
+        rawQuestion: "体育祭はいつですか？",
+      }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    await collect(result.textStream);
+    await result.done;
+    // in_scope は RAG + Gemini が呼ばれる (ゲートを素通り)。
+    expect(ctx).toHaveBeenCalled();
+    expect(state.req).not.toBeNull();
+  });
+});
