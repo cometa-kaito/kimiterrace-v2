@@ -93,6 +93,7 @@
         "**/apps/jobs/src/migration/firestore-to-pg.ts",
         "**/apps/jobs/src/embedding/embed-job.ts",
         "**/apps/jobs/src/reports/report-job.ts",
+        "**/apps/jobs/src/weather/weather-job.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",

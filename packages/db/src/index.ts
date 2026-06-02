@@ -44,3 +44,7 @@ export * from "./queries/tv-devices.js";
 export * from "./queries/embedding-batch.js";
 // F13 (#391, ADR-020): 来場検知センサーの管理/状態一覧 読み取り層 (登録センサー + 直近検知 + ヘルス、RLS 委譲)
 export * from "./queries/sensor-devices-status.js";
+// F14 (#128, ADR-021): サイネージ天気予報キャッシュの upsert (取得 Job) / 読み取り (匿名サイネージ) 層
+export * from "./queries/weather-forecasts.js";
+// F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
+export * from "./_shared/jma-area-map.js";

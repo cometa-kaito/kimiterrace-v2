@@ -37,6 +37,11 @@ export const sensorKind = pgEnum("sensor_kind", ["presence_pir"]);
 // 将来 `degraded` 等を足すなら末尾追加（ADD VALUE、非破壊）。
 export const tvAlertState = pgEnum("tv_alert_state", ["ok", "down"]);
 
+// F14 (ADR-021): サイネージ天気予報のデータソース。現状 気象庁 (JMA) 無料 API のみ。
+// `weather_forecasts.source` の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。
+// 将来 JMA 障害時の商用 API フォールバックを採る場合は末尾に値を足す（ADD VALUE、非破壊）。
+export const weatherSource = pgEnum("weather_source", ["jma"]);
+
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "schedule",
