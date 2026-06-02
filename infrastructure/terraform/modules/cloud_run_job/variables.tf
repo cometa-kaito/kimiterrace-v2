@@ -57,7 +57,11 @@ variable "database_url_secret_id" {
 }
 
 variable "vpc_connector" {
-  description = "Cloud SQL private IP 接続用の VPC connector（network モジュール出力）。空文字なら VPC egress を付けない（雛形）。"
+  description = <<-EOT
+    Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。
+    本 Job は内部 egress（PRIVATE_RANGES_ONLY）のみで Cloud NAT は不要（外部 API へ出ない）。
+    空文字なら VPC egress を付けない（雛形）。
+  EOT
   type        = string
   default     = ""
 }

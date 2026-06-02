@@ -97,6 +97,18 @@ variable "egress_setting" {
   }
 }
 
+variable "external_egress_ready" {
+  description = <<-EOT
+    外部 egress（Cloud NAT）が provision 済みかを示す signal。**network モジュールの egress_ready 出力を渡す**。
+    ALL_TRAFFIC egress（= JMA 等の外部 API へ出る）には Cloud NAT が必須で、NAT 無しでは Job は runtime で
+    外部に到達できない（vpc_connector があっても NAT が無ければ出口が無い）。
+    enable-time precondition で fail-fast させ「外部に出られない天気 Job」を本番に作らない（ADR-021 / ADR-009）。
+    vpc_connector の有無だけでは NAT の存在を保証できないため、本 signal を別途受け取る。
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "weather_fetch_user_agent" {
   description = "JMA への明示 User-Agent（連絡先を含める、ADR-021 §HTTP マナー）。weather-job.ts の WEATHER_FETCH_USER_AGENT。"
   type        = string
