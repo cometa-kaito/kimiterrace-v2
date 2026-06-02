@@ -85,6 +85,7 @@ vi.mock("../../lib/storage/upload-storage", async (importActual) => {
 const { POST } = await import("../../app/api/teacher-inputs/upload/route");
 
 const SCHOOL_ID = "22222222-2222-2222-2222-222222222222";
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /** route が使う最小 Request fake（headers.get + formData のみ）。 */
 function uploadReq(opts: {
@@ -238,7 +239,7 @@ describe("画像（OCR 未配線）", () => {
       status: "transcribing",
       transcript: null,
     });
-    const res = await POST(uploadReq({ type: "image/png", name: "poster.png" }));
+    const res = await POST(uploadReq({ type: "image/png", name: "poster.png", bytes: PNG_MAGIC }));
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.extraction.status).toBe("pending_ocr");
@@ -270,5 +271,64 @@ describe("抽出失敗・保存失敗", () => {
     const res = await POST(uploadReq({ type: "application/pdf" }));
     expect(res.status).toBe(502);
     expect(db.createTeacherInput).not.toHaveBeenCalled();
+  });
+});
+
+describe("画像マジックバイト検証 (#522 L-2)", () => {
+  it("MIME が image/png だがバイト列が PNG 署名でない（偽装）は 415・保存も DB も触らない", async () => {
+    const res = await POST(uploadReq({ type: "image/png", name: "fake.png", bytes: [1, 2, 3, 4] }));
+    expect(res.status).toBe(415);
+    expect(saved).toHaveLength(0);
+    expect(db.createTeacherInput).not.toHaveBeenCalled();
+  });
+
+  it("正しい PNG 署名なら受理される（201・保存する）", async () => {
+    extractImpl = async () => {
+      throw new ExtractorNotConfiguredError("image OCR not wired");
+    };
+    db.createTeacherInput.mockResolvedValue({
+      id: "44444444-4444-4444-4444-444444444444",
+      inputType: "file",
+      status: "transcribing",
+      transcript: null,
+    });
+    const res = await POST(uploadReq({ type: "image/png", name: "poster.png", bytes: PNG_MAGIC }));
+    expect(res.status).toBe(201);
+    expect(saved).toHaveLength(1);
+  });
+});
+
+describe("ストリーム上限付き解析 (#522 M-1)", () => {
+  it("body ストリーム経路でも実 multipart を解析して 201（capped parse の配線）", async () => {
+    // 実 multipart バイト列を生成（PDF マジック %PDF は非画像なのでマジックバイト検査を通過）。
+    const fd = new FormData();
+    fd.append(
+      "file",
+      new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], "x.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    const real = new Request("http://localhost/api/teacher-inputs/upload", {
+      method: "POST",
+      body: fd,
+    });
+    const buf = new Uint8Array(await real.arrayBuffer());
+    const contentType = real.headers.get("content-type") ?? "";
+    const req = {
+      headers: {
+        get: (h: string) =>
+          h === "content-type" ? contentType : h === "content-length" ? String(buf.length) : null,
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(buf);
+          controller.close();
+        },
+      }),
+    } as unknown as Request;
+
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    expect(saved).toHaveLength(1);
   });
 });
