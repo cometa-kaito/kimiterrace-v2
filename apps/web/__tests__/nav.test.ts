@@ -32,7 +32,7 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート)", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理 (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート、F13 センサー)", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
@@ -40,10 +40,11 @@ describe("navItemsForRole", () => {
       "/admin/contents",
       "/admin/dashboard",
       "/admin/reports",
+      "/admin/sensors",
     ]);
   });
 
-  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート", () => {
+  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/school/members");
@@ -52,6 +53,7 @@ describe("navItemsForRole", () => {
     expect(hrefs).toContain("/admin/contents");
     expect(hrefs).toContain("/admin/dashboard");
     expect(hrefs).toContain("/admin/reports");
+    expect(hrefs).toContain("/admin/sensors");
   });
 
   it("教職員 (/admin/school/members) は school_admin 専用 (F11 第2スライス、自校運用)。teacher / system_admin には出さない (死リンク防止)", () => {
@@ -106,6 +108,14 @@ describe("navItemsForRole", () => {
       "/admin/system/feedback",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
+  });
+
+  it("センサー管理 (/admin/sensors) は publisher (school_admin/teacher) のみに出す (F13 #391 / #486、system_admin は PUBLISHER_ROLES で 403 のため死リンク防止)", () => {
+    // /admin/sensors は requireRole(PUBLISHER_ROLES=school_admin/teacher) で system_admin を 403 に
+    // するため、nav からも system_admin には出さない (死リンク防止)。全校横断ビューは後続スライス。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/sensors");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/sensors");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/sensors");
   });
 
   it("教職員管理 (/admin/system/users) は system_admin 専用 (F11 全校横断、自校 /admin/school/members とは別)", () => {

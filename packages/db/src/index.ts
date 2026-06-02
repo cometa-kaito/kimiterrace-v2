@@ -42,3 +42,5 @@ export * from "./queries/sensor-presence.js";
 export * from "./queries/tv-devices.js";
 // F06 (#398, ADR-007): embedding 生成バッチの RLS クエリ層 (公開中・未生成抽出 + embedding 保存)
 export * from "./queries/embedding-batch.js";
+// F13 (#391, ADR-020): 来場検知センサーの管理/状態一覧 読み取り層 (登録センサー + 直近検知 + ヘルス、RLS 委譲)
+export * from "./queries/sensor-devices-status.js";
