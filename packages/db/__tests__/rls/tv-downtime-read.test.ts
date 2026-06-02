@@ -170,8 +170,15 @@ describeOrSkip("RLS: F16 tv_device_downtime 読み取り層（履歴 / 稼働サ
   it("listTvDeviceDowntime: 新しい順（desc went_down_at）+ 同時刻 tie は id で決定化", async () => {
     // 3 件: 5 分前 / 10 分前 / 10 分前（同時刻 tie 2 件）。新しい順 + id desc tiebreak で安定。
     await seedResolved(fx.schoolA, DEV_A, 5, 30);
-    await seedOngoing(fx.schoolA, DEV_A, 10);
-    await seedOngoing(fx.schoolA, DEV_A, 10);
+    // 同時刻 tie の 2 件は単一 INSERT で投入し went_down_at を厳密に等値化する。seedOngoing を 2 回
+    // 呼ぶと now() が文ごとに別評価され、ms 境界跨ぎで 1ms ずれて tie が壊れ非決定になるため
+    // （単一文内の now()=transaction_timestamp は両行で同値）。id 降順タイブレークの検証が目的。
+    await sql`
+      INSERT INTO tv_device_downtime (school_id, device_id, went_down_at)
+      VALUES
+        (${fx.schoolA}, ${DEV_A}, now() - make_interval(mins => 10)),
+        (${fx.schoolA}, ${DEV_A}, now() - make_interval(mins => 10))
+    `;
 
     await withTenantContext(
       db,
