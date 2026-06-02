@@ -46,6 +46,8 @@ export * from "./queries/tv-device-commands.js";
 export * from "./queries/tv-liveness.js";
 // F16 (ADR-023): TV 死活チェックの DB 反映層 (alert_state 反転 + tv_device_downtime 記録、RLS 委譲)
 export * from "./queries/tv-liveness-checker.js";
+// F16 (ADR-023): TV ダウンタイム履歴 / 稼働サマリの読み取り層 (管理 UI §5、決定的順序 + DB 側 now() 集計、RLS 委譲)
+export * from "./queries/tv-downtime.js";
 // F06 (#398, ADR-007): embedding 生成バッチの RLS クエリ層 (公開中・未生成抽出 + embedding 保存)
 export * from "./queries/embedding-batch.js";
 // F13 (#391, ADR-020): 来場検知センサーの管理/状態一覧 読み取り層 (登録センサー + 直近検知 + ヘルス、RLS 委譲)

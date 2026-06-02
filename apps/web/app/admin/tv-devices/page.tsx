@@ -85,13 +85,12 @@ export default async function TvDevicesPage() {
               <th scope="col" style={thLeftStyle}>
                 稼働ステータス
               </th>
-              {/* 設定編集への導線（F15 §4.2）。編集可ロールにだけ列ごと出す（teacher には死リンクも空列も
-                  見せない）。実体の編集可否は編集ページの role gate + RLS が担保する。 */}
-              {canEditConfig && (
-                <th scope="col" style={thLeftStyle}>
-                  操作
-                </th>
-              )}
+              {/* 操作列: 稼働履歴（F16 §5、閲覧専用なので ADMIN_ROLES 全員）+ 設定編集（F15 §4.2、編集可
+                  ロールのみ）。履歴ページは全 ADMIN_ROLES 閲覧可のため列は常に出す。実体の認可は各ページの
+                  role gate + RLS が担保する。 */}
+              <th scope="col" style={thLeftStyle}>
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -140,19 +139,29 @@ function DeviceRow({
           <span>{TV_STATUS_LABEL[status]}</span>
         </span>
       </td>
-      {/* 編集可ロール（school_admin / system_admin）にだけリンクを出す。teacher は列ごと非表示で死リンク
-          を作らない。編集ページの requireRole(TV_CONFIG_EDIT_ROLES) + RLS が実体の認可。 */}
-      {canEditConfig && (
-        <td style={tdLeftStyle}>
+      {/* 稼働履歴は閲覧専用（F16 §5）で ADMIN_ROLES 全員に出す。設定編集（F15 §4.2）は編集可ロール
+          （school_admin / system_admin）にだけ追加で出す（teacher に死リンクを作らない）。実体の認可は
+          各ページの requireRole + RLS が担保する。 */}
+      <td style={tdLeftStyle}>
+        <span style={actionsCellStyle}>
           <Link
-            href={`/admin/tv-devices/${device.id}/edit`}
+            href={`/admin/tv-devices/${device.id}/history`}
             style={editLinkStyle}
-            aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
+            aria-label={`${device.label ?? "ラベル未設定の TV"} の稼働履歴を表示`}
           >
-            編集
+            履歴
           </Link>
-        </td>
-      )}
+          {canEditConfig && (
+            <Link
+              href={`/admin/tv-devices/${device.id}/edit`}
+              style={editLinkStyle}
+              aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
+            >
+              編集
+            </Link>
+          )}
+        </span>
+      </td>
     </tr>
   );
 }
@@ -228,6 +237,11 @@ const statusCellStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.4rem",
+};
+const actionsCellStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.75rem",
 };
 const badgeStyle: React.CSSProperties = {
   marginLeft: "0.5rem",

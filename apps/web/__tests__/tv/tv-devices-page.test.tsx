@@ -2,13 +2,14 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F15 §4.2 (ADR-022, #494 Reviewer Low-2): TV デバイス一覧の「編集」リンク出し分けを pin する。
+ * F15 §4.2 / F16 §5 (ADR-022/ADR-023, #494 Reviewer Low-2): TV デバイス一覧の「操作」列リンク出し分けを pin する。
  *
- * 一覧 (`/admin/tv-devices`) は `ADMIN_ROLES`（teacher 含む）が閲覧できるが、設定編集ページは
- * `TV_CONFIG_EDIT_ROLES`（school_admin / system_admin）限定。teacher に「編集」リンクを出すと 403 に
- * 終わる死リンクになるため、**編集可ロールのときだけ列ごと出す**（死リンク防止、`editor` ページの広告 /
- * 静粛時間リンク出し分けと同じ規律）。実体の認可は編集ページの `requireRole` + RLS が担保するので、本テストは
- * UX 層の出し分け（描画）だけを検証する。
+ * 一覧 (`/admin/tv-devices`) は `ADMIN_ROLES`（teacher 含む）が閲覧できる。操作列には:
+ *  - **稼働履歴**（F16 §5、`/[id]/history`）: 閲覧専用ページで ADMIN_ROLES 全員に出す（teacher も到達可）。
+ *  - **設定編集**（F15 §4.2、`/[id]/edit`）: `TV_CONFIG_EDIT_ROLES`（school_admin / system_admin）限定。
+ *    teacher に出すと 403 に終わる死リンクになるため、**編集可ロールのときだけ**出す（死リンク防止）。
+ * 操作列ヘッダ自体は履歴リンクが全員に出るため常に表示する。実体の認可は各ページの `requireRole` + RLS が
+ * 担保するので、本テストは UX 層の出し分け（描画）だけを検証する。
  *
  * guard / db / `@kimiterrace/db` を mock し、`requireRole(ADMIN_ROLES)` で teacher も到達することを保ったまま
  * role を差し替えてリンクの有無を確認する。`isRoleAllowed` は純粋述語なので忠実な実装を差し込む
@@ -46,6 +47,7 @@ const DEVICE = {
   monitoringEnabled: true,
 };
 const EDIT_LINK_NAME = "1年A組 の設定を編集";
+const HISTORY_LINK_NAME = "1年A組 の稼働履歴を表示";
 
 function arrangeRole(role: string) {
   requireRoleMock.mockResolvedValue({ uid: "u1", role, schoolId: "s1" } as never);
@@ -58,7 +60,7 @@ beforeEach(() => {
   listMock.mockResolvedValue([DEVICE] as never);
 });
 
-describe("TvDevicesPage 編集リンクの role 出し分け", () => {
+describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
   it("一覧自体は ADMIN_ROLES（teacher 含む）で要求する", async () => {
     arrangeRole("teacher");
     await TvDevicesPage();
@@ -67,21 +69,28 @@ describe("TvDevicesPage 編集リンクの role 出し分け", () => {
     expect(TV_CONFIG_EDIT_ROLES).not.toContain("teacher");
   });
 
-  it("teacher には「編集」リンクも「操作」列も出さない（死リンク防止）", async () => {
+  it("teacher には「履歴」リンクは出すが「編集」リンクは出さない（履歴は閲覧専用、編集は死リンク防止）", async () => {
     arrangeRole("teacher");
     render(await TvDevicesPage());
     // 行自体は見える（一覧は閲覧可）。
     expect(screen.getByText("1年A組")).toBeInTheDocument();
-    // 編集リンク・操作列ヘッダは無い。
+    // 稼働履歴は ADMIN_ROLES 全員に出る（行 PK の履歴ページ、F16 §5）。
+    const history = screen.getByRole("link", { name: HISTORY_LINK_NAME });
+    expect(history).toHaveAttribute("href", `/admin/tv-devices/${DEVICE.id}/history`);
+    // 操作列ヘッダは履歴リンクのため常に出る。編集リンクだけが teacher には無い（死リンク防止）。
+    expect(screen.getByText("操作")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: EDIT_LINK_NAME })).toBeNull();
-    expect(screen.queryByText("操作")).toBeNull();
   });
 
-  it("school_admin には「編集」リンク（行 PK の編集ページ）を出す", async () => {
+  it("school_admin には「編集」リンク（行 PK の編集ページ）と「履歴」リンクを出す", async () => {
     arrangeRole("school_admin");
     render(await TvDevicesPage());
     const link = screen.getByRole("link", { name: EDIT_LINK_NAME });
     expect(link).toHaveAttribute("href", `/admin/tv-devices/${DEVICE.id}/edit`);
+    expect(screen.getByRole("link", { name: HISTORY_LINK_NAME })).toHaveAttribute(
+      "href",
+      `/admin/tv-devices/${DEVICE.id}/history`,
+    );
     expect(screen.getByText("操作")).toBeInTheDocument();
   });
 
@@ -89,5 +98,6 @@ describe("TvDevicesPage 編集リンクの role 出し分け", () => {
     arrangeRole("system_admin");
     render(await TvDevicesPage());
     expect(screen.getByRole("link", { name: EDIT_LINK_NAME })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: HISTORY_LINK_NAME })).toBeInTheDocument();
   });
 });
