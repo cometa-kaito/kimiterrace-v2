@@ -37,6 +37,13 @@ export const sensorKind = pgEnum("sensor_kind", ["presence_pir"]);
 // 将来 `degraded` 等を足すなら末尾追加（ADD VALUE、非破壊）。
 export const tvAlertState = pgEnum("tv_alert_state", ["ok", "down"]);
 
+// F16 (ADR-023): TV ダウンタイムの原因の機械推定。`tv_device_downtime.cause_hint` の値域を DB で
+// 固定する（ルール3）。`unknown` = 区別不能（電源OFF/ネット断/アプリ停止はすべてポーリング途絶に
+// 見える、ADR-023 §悪い影響）/ `reboot` = 復帰時に last_boot_at の進行を検出（再起動と推定）/
+// `network` = 将来の通信断シグナルで区別する余地（現状は未使用、末尾追加で予約）。NULL = 未判定。
+// 将来値を足すなら末尾追加（ADD VALUE、非破壊）。
+export const tvDowntimeCause = pgEnum("tv_downtime_cause", ["unknown", "reboot", "network"]);
+
 // F14 (ADR-021): サイネージ天気予報のデータソース。現状 気象庁 (JMA) 無料 API のみ。
 // `weather_forecasts.source` の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。
 // 将来 JMA 障害時の商用 API フォールバックを採る場合は末尾に値を足す（ADD VALUE、非破壊）。
