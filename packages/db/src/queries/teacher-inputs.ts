@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import type { teacherInputStatus, teacherInputType } from "../_shared/enums.js";
 import type { TenantTx } from "../client.js";
 import { auditLog } from "../schema/audit-log.js";
 import { teacherInputAttachments } from "../schema/teacher-input-attachments.js";
@@ -20,8 +21,10 @@ import { teacherInputs } from "../schema/teacher-inputs.js";
  * 関連: F02 (docs/requirements/functional/F02-teacher-voice-chat-input.md), ADR-005/006/019
  */
 
-export type InputType = "voice" | "chat";
-export type InputStatus = "draft" | "transcribing" | "ready" | "submitted";
+// 値域は enum を単一ソースに派生する (ルール3)。enum に "file" 等を足せば自動追従し、
+// 手書き narrow が DB とズレる事故 (PR #520 の TYPE_LABEL 同種) を構造的に防ぐ。
+export type InputType = (typeof teacherInputType.enumValues)[number];
+export type InputStatus = (typeof teacherInputStatus.enumValues)[number];
 
 type AuditParams = {
   schoolId: string;
