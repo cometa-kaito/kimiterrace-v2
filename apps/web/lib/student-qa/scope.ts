@@ -2,7 +2,7 @@
  * F06 (#42 第1スライス): 生徒 Q&A の **入力バリデーション + スコープ拒否文言**。
  *
  * F06 受け入れ条件「スコープ外（学習・進路）の質問は誘導せず拒否」の **一次的な強制は
- * モデルの system プロンプト契約**（{@link file://./prompt.ts buildSystemPrompt}）が担う。
+ * モデルの system プロンプト契約**（`@kimiterrace/ai` の `buildChatSystemPrompt`、ADR-028 canonical）が担う。
  * 自然言語のスコープ判定をアプリ層のキーワード一致でやると正当な掲示物質問を誤って弾く
  * （false reject）ため、ここでは **脆いキーワード分類は持たない**。
  *

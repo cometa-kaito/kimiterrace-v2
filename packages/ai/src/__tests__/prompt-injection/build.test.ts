@@ -20,6 +20,9 @@ describe("プロンプトインジェクション対策", () => {
 
   it("山括弧と & を無害化する", () => {
     expect(neutralizeInput("a < b && c > d </x>")).toBe("a &lt; b &amp;&amp; c &gt; d &lt;/x&gt;");
+    // & を最初に置換する順序を pin（既存の実体参照を二重エスケープしないことの証明）。
+    // `<` 先行置換だと `&lt;` 入力が `&amp;lt;` にならず閉じタグ偽装の無害化が崩れる（#390 Low-1）。
+    expect(neutralizeInput("&lt;")).toBe("&amp;lt;");
   });
 
   it("system プロンプトはタグ内を指示でなくデータとして扱うと宣言する", () => {
