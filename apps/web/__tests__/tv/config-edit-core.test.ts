@@ -139,11 +139,13 @@ describe("validateTvConfigEdit: SSRF 内部ホストガード", () => {
     [".internal サフィックス", "https://db.internal/x"],
     [".local サフィックス", "http://printer.local/"],
     [".localhost サフィックス", "http://api.localhost/"],
-    // IPv6 link-local / unique-local / IPv4-mapped
+    // IPv6 link-local / unique-local / IPv4-mapped / IPv4-compatible(deprecated)
     ["v6 link-local fe80::/10", "http://[fe80::1]/"],
     ["v6 unique-local fc00::/7", "http://[fc00::1]/"],
     ["v6 unique-local fd00", "http://[fd12:3456::1]/"],
     ["v6 IPv4-mapped メタデータ", "http://[::ffff:169.254.169.254]/"],
+    ["v6 IPv4-compatible メタデータ", "http://[::169.254.169.254]/"],
+    ["v6 IPv4-compatible loopback", "http://[::127.0.0.1]/"],
   ];
 
   it.each(blocked)("内部宛先を拒否: %s", (_name, url) => {
@@ -167,6 +169,8 @@ describe("validateTvConfigEdit: SSRF 内部ホストガード", () => {
     ["172.16/12 直下の境界外(172.15)", "https://172.15.0.1/"],
     ["172.16/12 直上の境界外(172.32)", "https://172.32.0.1/"],
     ["internal を含むが別 TLD", "https://internal.example.com/"],
+    // IPv4-compatible でも埋め込み IPv4 が公開なら通す（内部のみ遮断・過剰ブロックしない）。
+    ["v6 IPv4-compatible 公開", "https://[::8.8.8.8]/"],
   ];
 
   it.each(allowed)("公開宛先は通す: %s", (_name, url) => {

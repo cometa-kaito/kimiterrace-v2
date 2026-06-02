@@ -159,10 +159,10 @@ function isBlockedIpv4([a, b]: [number, number, number, number]): boolean {
   return false;
 }
 
-/** 内部・予約 IPv6 か（loopback / unspecified / link-local / unique-local / IPv4-mapped）。 */
+/** 内部・予約 IPv6 か（loopback / unspecified / link-local / unique-local / IPv4-mapped・compatible）。 */
 function isBlockedIpv6(addr: string): boolean {
-  // IPv4-mapped（`::ffff:a.b.c.d` / 正規化後 `::ffff:HHHH:HHHH`）は埋め込み IPv4 を IPv4 規則で判定。
-  const mapped = extractMappedIpv4(addr);
+  // 埋め込み IPv4 を持つ形（IPv4-mapped `::ffff:` / 廃止 IPv4-compatible `::`）は IPv4 規則で判定。
+  const mapped = extractEmbeddedIpv4(addr);
   if (mapped) return isBlockedIpv4(mapped);
 
   if (addr === "::1") return true; // loopback
@@ -172,11 +172,22 @@ function isBlockedIpv6(addr: string): boolean {
   return false;
 }
 
-/** `::ffff:` 接頭の IPv4-mapped IPv6 から埋め込み IPv4 を取り出す（dotted / 16bit hex×2 の両形）。 */
-function extractMappedIpv4(addr: string): [number, number, number, number] | null {
-  const prefix = "::ffff:";
-  if (!addr.startsWith(prefix)) return null;
-  const rest = addr.slice(prefix.length);
+/**
+ * 埋め込み IPv4 を持つ IPv6 から IPv4 を取り出す。
+ * - IPv4-mapped `::ffff:a.b.c.d`（正規化後 `::ffff:HHHH:HHHH`）。
+ * - IPv4-compatible `::a.b.c.d`（RFC4291 で deprecated、正規化後 `::HHHH:HHHH`。例:
+ *   `http://[::169.254.169.254]/` → `[::a9fe:a9fe]` がメタデータ IP に化ける迂回路）。
+ * dotted / 16bit hex×2 の両形に対応。`::1` / `::`（単一グループ）は本関数では拾わず呼出側で判定する。
+ */
+function extractEmbeddedIpv4(addr: string): [number, number, number, number] | null {
+  // より具体的な `::ffff:` を先に剥がす（`::` でも startsWith するため順序重要）。
+  let rest: string | null = null;
+  if (addr.startsWith("::ffff:")) {
+    rest = addr.slice("::ffff:".length);
+  } else if (addr.startsWith("::")) {
+    rest = addr.slice("::".length);
+  }
+  if (rest === null) return null;
   const dotted = parseIpv4(rest);
   if (dotted) return dotted;
   const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
