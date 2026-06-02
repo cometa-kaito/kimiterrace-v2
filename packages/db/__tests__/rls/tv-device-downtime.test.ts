@@ -48,8 +48,11 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
   beforeEach(async () => {
     await sql`RESET ROLE`;
     // 各テストを独立させる: downtime 行を全消去し、TV を ok / 鮮度 OK に戻す。
+    // 死活チェッカは cross-tenant (system_admin) で全デバイスを走査するため、**監視対象を DEV_A のみに
+    // 限定**する (他は monitoring_enabled=false)。これで他校 (DEV_B) や共有 DB 上の他テスト由来デバイスが
+    // チェッカの新規 down 計上に混入せず、newlyDown / downtime 行数のアサートが device セットに依存しない。
     await sql`DELETE FROM tv_device_downtime`;
-    await sql`UPDATE tv_devices SET alert_state = 'ok', monitoring_enabled = true, last_seen_at = now(), last_boot_at = NULL`;
+    await sql`UPDATE tv_devices SET alert_state = 'ok', monitoring_enabled = (device_id = ${DEV_A}), last_seen_at = now(), last_boot_at = NULL`;
   });
 
   afterAll(async () => {
