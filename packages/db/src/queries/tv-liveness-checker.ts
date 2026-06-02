@@ -22,8 +22,11 @@ import {
  *    取り残された行も締められるように）。各 TV の `hasOpenDowntime` は同一トランザクションで `recovered_at
  *    IS NULL` の行数から導く。
  *  - down 遷移の INSERT は `hasOpenDowntime===false` の TV にのみ起きる（純関数側で保証）。さらに DB 側でも
- *    挿入前に未解決行を `FOR UPDATE` で再カウントし、別チェッカ実行と競合しても二重 INSERT しない
- *    （直列化点。READ COMMITTED で先行 tx の挿入を確定後に見る）。
+ *    挿入前に **親 `tv_devices` 行を `FOR UPDATE` でロック**して device 単位の直列化点を作り、別チェッカ
+ *    実行と競合しても二重 INSERT しない。初回 down（未解決行がまだ 0 件）でも親行は FK で常に存在するため
+ *    ロック対象が空にならず、2 本目は 1 本目の commit 後に未解決行を再走査して INSERT を見送る
+ *    （READ COMMITTED で先行 tx の挿入を確定後に見る）。未解決行側だけを `FOR UPDATE` しても空集合は
+ *    ロックできず phantom INSERT を止められないため、常に存在する親行に直列化点を置く。
  *  - recover の UPDATE は未解決行のみを対象にするため、再走査で既に締めた行を二度 UPDATE しない。
  *
  * ## なぜ純関数 + 反映層に分けるか
@@ -114,19 +117,29 @@ async function applyTransitions(
   classification: TvLivenessClassification,
 ): Promise<void> {
   for (const down of classification.newlyDown) {
-    // 直列化 + 二重 INSERT 防止: 未解決行を FOR UPDATE で再確認し、無い場合のみ INSERT。
+    // 直列化点（device 単位）: 親 tv_devices 行を FOR UPDATE でロックする。FK で必ず 1 行存在するため、
+    // 「初回 down（未解決行がまだ 0 件）」でも空集合にならず、同時実行の 2 本目はこのロック解放まで
+    // ブロックされる。FOR UPDATE は既存行しかロックできないので、未解決行が 0 件の段階で downtime 側を
+    // ロックしても phantom INSERT を止められない（[[realpg_concurrency_test_deterministic]]）。常に存在する
+    // 親行に直列化点を置くことで、2 本目は 1 本目の commit 後に再走査し未解決行を見て二重 INSERT しない。
+    await tx
+      .select({ deviceId: tvDevices.deviceId })
+      .from(tvDevices)
+      .where(eq(tvDevices.deviceId, down.deviceId))
+      .for("update");
+
+    // 親ロック獲得後に未解決行を再確認する（先行 tx が INSERT 済みなら READ COMMITTED でここで見える）。
     const open = await tx
       .select({ id: tvDeviceDowntime.id })
       .from(tvDeviceDowntime)
       .where(
         and(eq(tvDeviceDowntime.deviceId, down.deviceId), isNull(tvDeviceDowntime.recoveredAt)),
-      )
-      .for("update");
+      );
     if (open.length > 0) {
       // 別チェッカ実行が先に INSERT 済み → 状態フラグだけ揃えて二重計上しない。
       await tx
         .update(tvDevices)
-        .set({ alertState: "down" })
+        .set({ alertState: "down", updatedAt: new Date() })
         .where(eq(tvDevices.deviceId, down.deviceId));
       continue;
     }
@@ -138,27 +151,30 @@ async function applyTransitions(
     });
     await tx
       .update(tvDevices)
-      .set({ alertState: "down" })
+      .set({ alertState: "down", updatedAt: new Date() })
       .where(eq(tvDevices.deviceId, down.deviceId));
   }
 
   for (const rec of classification.recovered) {
-    // 未解決行のみ締める（再走査で締め済み行を二度触らない）。duration_sec は DB 側で算出して格納
-    // （recovered_at - went_down_at の秒。EXTRACT(EPOCH ...) を四捨五入し非負に丸める）。
+    // 未解決行のみ締める（再走査で締め済み行を二度触らない）。recovered_at / duration_sec は **DB 側で
+    // now() から算出**して格納する。JS Date を raw sql`` フラグメントに `::timestamptz` で bind すると
+    // postgres@3.4.9 が直列化できず実 PG でクラッシュするため（[[pg-date-bind-enum-insert]]）、Date を
+    // 一切 bind せず DB now() に倒す。recovered_at = 復帰観測時刻 = チェッカ実行時刻 ≈ now() で意味も一致。
+    // duration_sec は (now() - went_down_at) の秒を四捨五入し非負に丸める。
     await tx
       .update(tvDeviceDowntime)
       .set({
-        recoveredAt: rec.recoveredAt,
-        durationSec: sql`GREATEST(0, ROUND(EXTRACT(EPOCH FROM (${rec.recoveredAt}::timestamptz - ${tvDeviceDowntime.wentDownAt})))::int)`,
+        recoveredAt: sql`now()`,
+        durationSec: sql`GREATEST(0, ROUND(EXTRACT(EPOCH FROM (now() - ${tvDeviceDowntime.wentDownAt})))::int)`,
         causeHint: rec.causeHint,
-        updatedAt: rec.recoveredAt,
+        updatedAt: sql`now()`,
       })
       .where(
         and(eq(tvDeviceDowntime.deviceId, rec.deviceId), isNull(tvDeviceDowntime.recoveredAt)),
       );
     await tx
       .update(tvDevices)
-      .set({ alertState: "ok" })
+      .set({ alertState: "ok", updatedAt: new Date() })
       .where(eq(tvDevices.deviceId, rec.deviceId));
   }
 }

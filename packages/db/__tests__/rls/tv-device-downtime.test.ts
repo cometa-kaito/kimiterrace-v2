@@ -124,8 +124,11 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
   // ---- 死活チェッカ（runTvLivenessCheck）: down/recover/冪等 ----
 
   it("runTvLivenessCheck: 閾値超で down 行作成 + alert_state='down'（appRole 降格で RLS 実効）", async () => {
-    // A の TV を 10 分前から無応答にする（通常閾値 3 分超）。
-    await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
+    // A の TV を 10 分前から無応答にする（通常閾値 3 分超）。updated_at の前進を検証するため十分過去に置く。
+    await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(mins => 10), updated_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
+    const before = await sql<{ updated_at: string }[]>`
+      SELECT updated_at FROM tv_devices WHERE device_id = ${DEV_A}
+    `;
 
     const summary = await withTenantContext(
       db,
@@ -145,10 +148,14 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
     expect(rows[0].recovered_at).toBeNull();
     expect(rows[0].school_id).toBe(fx.schoolA);
 
-    const tv = await sql<{ alert_state: string }[]>`
-      SELECT alert_state FROM tv_devices WHERE device_id = ${DEV_A}
+    const tv = await sql<{ alert_state: string; updated_at: string }[]>`
+      SELECT alert_state, updated_at FROM tv_devices WHERE device_id = ${DEV_A}
     `;
     expect(tv[0].alert_state).toBe("down");
+    // ルール1 / Medium-1: alert_state 反転時に updated_at が前進していること（監査整合性、[[updatedat-explicit-on-update]]）。
+    expect(new Date(tv[0].updated_at).getTime()).toBeGreaterThan(
+      new Date(before[0].updated_at).getTime(),
+    );
   });
 
   it("runTvLivenessCheck: 再走査で二重計上しない（idempotent / send-once）", async () => {
@@ -217,6 +224,48 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
     expect(summary.newlyDown).toBe(0);
     const count = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM tv_device_downtime`;
     expect(count[0].n).toBe("0");
+  });
+
+  it("runTvLivenessCheck: 初回 down を 2 接続で同時実行しても未解決行はちょうど 1 行（phantom INSERT 根治、Medium-2）", async () => {
+    // 初回 down（未解決行がまだ 0 件）を作る: A の TV を 10 分前から無応答（通常閾値 3 分超）、alert_state='ok'。
+    // この段階では tv_device_downtime に行が無いため、down INSERT 前の「未解決行 FOR UPDATE 再確認」は
+    // 空集合になり、未解決行側だけのロックでは 2 本目の phantom INSERT を止められない。根治は親 tv_devices
+    // 行を FOR UPDATE でロックして device 単位の直列化点を作ること（[[realpg_concurrency_test_deterministic]]）。
+    await sql`UPDATE tv_devices SET alert_state = 'ok', last_seen_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
+
+    // postgres-js の pool（max:10）から 2 接続を引き、Promise.all で真に同時発火する。両 tx は同じ親行
+    // (DEV_A) を FOR UPDATE しにいくため必ず競合し、ロック獲得順に直列化される。2 本目は 1 本目の commit 後に
+    // 未解決行を再走査して INSERT を見送るため、どちらが勝っても「未解決行 = 1」は不変（timing 非依存）。
+    const run = () =>
+      withTenantContext(
+        db,
+        { role: "system_admin" },
+        (tx) => runTvLivenessCheck(tx, new Date()),
+        APP,
+      );
+    const [r1, r2] = await Promise.all([run(), run()]);
+
+    // 不変条件: 合計でちょうど 1 件だけ新規 down 計上された（二重 INSERT していない）。
+    expect(r1.newlyDown + r2.newlyDown).toBe(1);
+
+    // 核心の不変条件（BYPASSRLS 接続で実体を数える）: DEV_A の未解決ダウンタイム行はちょうど 1 行。
+    const open = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM tv_device_downtime
+      WHERE device_id = ${DEV_A} AND recovered_at IS NULL
+    `;
+    expect(open[0].n).toBe("1");
+
+    // 同一アウテージで余計な行（締め済み phantom 含む）が増えていないことも確認: DEV_A は合計 1 行のみ。
+    const total = await sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM tv_device_downtime WHERE device_id = ${DEV_A}
+    `;
+    expect(total[0].n).toBe("1");
+
+    // alert_state も down に揃う。
+    const tv = await sql<{ alert_state: string }[]>`
+      SELECT alert_state FROM tv_devices WHERE device_id = ${DEV_A}
+    `;
+    expect(tv[0].alert_state).toBe("down");
   });
 
   it("runTvLivenessCheck: 復帰時 last_boot_at がダウン後に進んでいれば cause_hint='reboot'", async () => {
