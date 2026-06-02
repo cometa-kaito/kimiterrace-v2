@@ -1,12 +1,17 @@
 import { resolveStudentSession } from "../../lib/magic-link/student-session";
+import { StudentChat } from "./_components/StudentChat";
 
 /**
- * F05: 生徒ランディング (匿名セッション確立後の着地点)。**Server Component**。
+ * F05/F06: 生徒ランディング (匿名セッション確立後の着地点)。**Server Component**。
  *
  * `/s/{token}` が cookie を張って redirect してくる。本ページは毎回 cookie を再解決し、
  * 失効/期限切れなら無効メッセージを出す (即時失効。F05「失効後は 410」をページ側でも担保)。
- * 実際のクラスコンテンツ表示 (schedule/notice/assignment + 広告) は #48-E / F06 で実装する。
- * 本ページは「匿名セッションが確立し、再解決が機能する」ことを示す最小着地点。
+ * セッションが有効なら **F06 掲示物 Q&A チャット ({@link StudentChat}) をマウント**する。
+ *
+ * **トークン秘匿 (F05/F06, ルール5)**: 本 Server Component は `StudentChat` に **トークンを渡さない**。
+ * チャットは `/api/student/chat` が httpOnly cookie `__student_session` をサーバ側で再解決する経路で、
+ * 生 magic link は URL/JS/ログに一切出ない。ページ側の `resolveStudentSession` 判定はクライアントへ
+ * UI を出すか否かの最適化で、認可の最終防衛線は route の再解決 (即時失効) + RLS (自校スコープ)。
  *
  * 個人特定情報は一切表示しない (F05)。クラス名等の表示も後続で RLS 下クエリにより追加する。
  *
@@ -42,14 +47,17 @@ export default async function StudentLandingPage() {
     <main
       style={{
         fontFamily: "system-ui, sans-serif",
-        maxWidth: "32rem",
-        margin: "4rem auto",
+        maxWidth: "40rem",
+        margin: "2rem auto",
         padding: "0 1rem",
-        textAlign: "center",
       }}
     >
-      <h1>アクセスできました</h1>
-      <p>クラスの掲示はまもなくここに表示されます（準備中）。</p>
+      <h1>クラスの掲示について質問できます</h1>
+      <p>
+        掲示物に関する質問を入力すると、AI が答えます。学習や進路の相談には対応していません。
+        日時・持ち物など掲示に無い詳細は先生に確認してください。
+      </p>
+      <StudentChat />
     </main>
   );
 }
