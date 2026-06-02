@@ -8,18 +8,38 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * 残存しエンフォースが効かない = #324)。再有効化は revoke しないこと。
  */
 
-const { updateUser, revokeRefreshTokens, setCustomUserClaims } = vi.hoisted(() => ({
+const {
+  updateUser,
+  revokeRefreshTokens,
+  setCustomUserClaims,
+  createUser,
+  generatePasswordResetLink,
+  deleteUser,
+} = vi.hoisted(() => ({
   updateUser: vi.fn(),
   revokeRefreshTokens: vi.fn(),
   setCustomUserClaims: vi.fn(),
+  createUser: vi.fn(),
+  generatePasswordResetLink: vi.fn(),
+  deleteUser: vi.fn(),
 }));
 vi.mock("../../lib/auth/adminApp", () => ({
-  getAdminAuth: () => ({ updateUser, revokeRefreshTokens, setCustomUserClaims }),
+  getAdminAuth: () => ({
+    updateUser,
+    revokeRefreshTokens,
+    setCustomUserClaims,
+    createUser,
+    generatePasswordResetLink,
+    deleteUser,
+  }),
 }));
 
 import {
   changeIdpUserRole,
+  createIdpUser,
   deactivateIdpUser,
+  deleteIdpUser,
+  isEmailAlreadyExistsError,
   reactivateIdpUser,
 } from "../../lib/auth/admin-mutations";
 
@@ -31,6 +51,9 @@ beforeEach(() => {
   updateUser.mockResolvedValue(undefined);
   revokeRefreshTokens.mockResolvedValue(undefined);
   setCustomUserClaims.mockResolvedValue(undefined);
+  createUser.mockResolvedValue(undefined);
+  generatePasswordResetLink.mockResolvedValue("https://idp/reset-link");
+  deleteUser.mockResolvedValue(undefined);
 });
 
 describe("deactivateIdpUser (ADR-026 D1)", () => {
@@ -107,5 +130,87 @@ describe("changeIdpUserRole (ADR-026 D2)", () => {
     setCustomUserClaims.mockRejectedValue(new Error("idp down"));
     await expect(changeIdpUserRole(UID, "teacher", SCHOOL_ID)).rejects.toThrow("idp down");
     expect(revokeRefreshTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("createIdpUser (#508 発行 seam)", () => {
+  it("localId を uid に固定して createUser (== users.id 規約 ADR-003)、password は設定しない", async () => {
+    await createIdpUser({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    expect(createUser).toHaveBeenCalledWith({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+    });
+    // password は渡さない (reset link で利用者が設定)。
+    expect(createUser.mock.calls[0]?.[0]).not.toHaveProperty("password");
+  });
+
+  it("claims は role / school_id のみ (uid は localId で claim ではない)", async () => {
+    await createIdpUser({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    expect(setCustomUserClaims).toHaveBeenCalledWith(UID, {
+      role: "teacher",
+      school_id: SCHOOL_ID,
+    });
+  });
+
+  it("初回パスワード設定リンクを生成して返す", async () => {
+    const out = await createIdpUser({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    expect(generatePasswordResetLink).toHaveBeenCalledWith("t@example.com");
+    expect(out).toEqual({ setupLink: "https://idp/reset-link" });
+  });
+
+  it("createUser → claims → link の順 (createUser 失敗で claims/link に到達しない)", async () => {
+    const order: string[] = [];
+    createUser.mockImplementation(async () => {
+      order.push("create");
+    });
+    setCustomUserClaims.mockImplementation(async () => {
+      order.push("claims");
+    });
+    generatePasswordResetLink.mockImplementation(async () => {
+      order.push("link");
+      return "https://idp/reset-link";
+    });
+    await createIdpUser({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    expect(order).toEqual(["create", "claims", "link"]);
+  });
+});
+
+describe("deleteIdpUser / isEmailAlreadyExistsError", () => {
+  it("deleteIdpUser は Admin SDK deleteUser を呼ぶ (補償削除)", async () => {
+    await deleteIdpUser(UID);
+    expect(deleteUser).toHaveBeenCalledWith(UID);
+  });
+
+  it("isEmailAlreadyExistsError は auth/email-already-exists のみ true", () => {
+    expect(isEmailAlreadyExistsError({ code: "auth/email-already-exists" })).toBe(true);
+    expect(isEmailAlreadyExistsError({ code: "auth/other" })).toBe(false);
+    expect(isEmailAlreadyExistsError(new Error("plain"))).toBe(false);
+    expect(isEmailAlreadyExistsError(null)).toBe(false);
+    expect(isEmailAlreadyExistsError("string")).toBe(false);
   });
 });

@@ -17,20 +17,34 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("../../lib/auth/admin-mutations", () => ({
   deactivateIdpUser: vi.fn(),
   reactivateIdpUser: vi.fn(),
+  createIdpUser: vi.fn(),
+  deleteIdpUser: vi.fn(),
+  // 純関数は実装相当を提供 (conflict 経路を決定的にする)。
+  isEmailAlreadyExistsError: (e: unknown) =>
+    typeof e === "object" &&
+    e !== null &&
+    (e as { code?: unknown }).code === "auth/email-already-exists",
 }));
 
-import { auditLog } from "@kimiterrace/db";
+import { auditLog, users } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
-import { deactivateIdpUser, reactivateIdpUser } from "../../lib/auth/admin-mutations";
+import {
+  createIdpUser,
+  deactivateIdpUser,
+  deleteIdpUser,
+  reactivateIdpUser,
+} from "../../lib/auth/admin-mutations";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
-import { setMemberActiveAction } from "../../lib/role-management/member-actions";
+import { createStaffAction, setMemberActiveAction } from "../../lib/role-management/member-actions";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
 const revalidatePathMock = vi.mocked(revalidatePath);
 const deactivateMock = vi.mocked(deactivateIdpUser);
 const reactivateMock = vi.mocked(reactivateIdpUser);
+const createIdpUserMock = vi.mocked(createIdpUser);
+const deleteIdpUserMock = vi.mocked(deleteIdpUser);
 
 const SCHOOL_ID = "55555555-5555-4555-8555-555555555555";
 const ADMIN_UID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -42,6 +56,7 @@ let selectRows: { role: string; isActive: boolean }[];
 let updateRows: { id: string }[];
 let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
+let usersInsertValues: Record<string, unknown> | null;
 
 function fakeTx() {
   return {
@@ -58,11 +73,13 @@ function fakeTx() {
         return { where: () => ({ returning: () => Promise.resolve(updateRows) }) };
       },
     }),
-    // audit: insert(auditLog).values(v)
+    // write/audit: insert(users|auditLog).values(v)
     insert: (table: unknown) => ({
       values: (v: Record<string, unknown>) => {
         if (table === auditLog) {
           auditValues = v;
+        } else if (table === users) {
+          usersInsertValues = v;
         }
         return Promise.resolve(undefined);
       },
@@ -75,10 +92,13 @@ beforeEach(() => {
   requireRoleMock.mockResolvedValue(schoolAdmin);
   deactivateMock.mockResolvedValue(undefined);
   reactivateMock.mockResolvedValue(undefined);
+  createIdpUserMock.mockResolvedValue({ setupLink: "https://idp/reset-link" });
+  deleteIdpUserMock.mockResolvedValue(undefined);
   selectRows = [{ role: "teacher", isActive: true }];
   updateRows = [{ id: TEACHER_ID }];
   updateValues = null;
   auditValues = null;
+  usersInsertValues = null;
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
     Promise.resolve(fn(fakeTx(), schoolAdmin))) as typeof withSession);
 });
@@ -179,6 +199,107 @@ describe("setMemberActiveAction (#324 無効化/再有効化)", () => {
     expect(withSessionMock).toHaveBeenCalledTimes(1);
     expect(updateValues).toBeNull();
     expect(auditValues).toBeNull();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createStaffAction (#508 新規 teacher 発行)", () => {
+  const VALID = { email: "teacher@example.com", displayName: "山田先生" };
+
+  it("メール形式が不正なら invalid、IdP/DB に到達しない", async () => {
+    const res = await createStaffAction({ email: "not-an-email", displayName: "先生" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(createIdpUserMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("表示名が空なら invalid", async () => {
+    const res = await createStaffAction({ email: VALID.email, displayName: "   " });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(createIdpUserMock).not.toHaveBeenCalled();
+  });
+
+  it("requireRole を school_admin のみで呼ぶ", async () => {
+    await createStaffAction(VALID);
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin"]);
+  });
+
+  it("非 school_admin は requireRole が redirect (throw) し IdP/DB に到達しない", async () => {
+    requireRoleMock.mockRejectedValue(new Error("NEXT_REDIRECT:/forbidden"));
+    await expect(createStaffAction(VALID)).rejects.toThrow("NEXT_REDIRECT");
+    expect(createIdpUserMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("正常系: IdP 作成 (teacher 固定) → DB mirror + 監査 → setupLink 返却 + revalidate", async () => {
+    const res = await createStaffAction(VALID);
+    expect(res).toEqual({
+      ok: true,
+      data: { id: expect.any(String), setupLink: "https://idp/reset-link" },
+    });
+    // IdP は teacher 固定・自校で作成。
+    const idpArgs = createIdpUserMock.mock.calls[0]?.[0];
+    expect(idpArgs).toMatchObject({
+      email: VALID.email,
+      displayName: VALID.displayName,
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    // DB mirror: role=teacher / email / displayName / isActive=true / 自校。
+    expect(usersInsertValues).toMatchObject({
+      role: "teacher",
+      email: VALID.email,
+      displayName: VALID.displayName,
+      isActive: true,
+      schoolId: SCHOOL_ID,
+      createdBy: ADMIN_UID,
+    });
+    // 監査: table=users / op=insert / 自校 / actor=自分 / diff.after。
+    expect(auditValues).toMatchObject({
+      actorUserId: ADMIN_UID,
+      schoolId: SCHOOL_ID,
+      tableName: "users",
+      operation: "insert",
+    });
+    expect((auditValues?.diff as { after?: unknown })?.after).toMatchObject({ role: "teacher" });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/school/members");
+    // 補償削除は呼ばれない (成功)。
+    expect(deleteIdpUserMock).not.toHaveBeenCalled();
+  });
+
+  it("uid 規約 (ADR-003): createUser の uid == users.id == identity_uid に揃える", async () => {
+    const res = await createStaffAction(VALID);
+    expect(res.ok).toBe(true);
+    const idpUid = createIdpUserMock.mock.calls[0]?.[0]?.uid;
+    expect(idpUid).toMatch(/^[0-9a-f-]{36}$/i);
+    // localId == users.id == identity_uid (作成アカウントを既存 seam で操作可能にする規約)。
+    expect(usersInsertValues?.id).toBe(idpUid);
+    expect(usersInsertValues?.identityUid).toBe(idpUid);
+    if (res.ok) expect(res.data.id).toBe(idpUid);
+  });
+
+  it("メール重複 (auth/email-already-exists) は conflict、DB に到達しない", async () => {
+    createIdpUserMock.mockRejectedValue({ code: "auth/email-already-exists" });
+    const res = await createStaffAction(VALID);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(deleteIdpUserMock).not.toHaveBeenCalled();
+  });
+
+  it("不明な IdP エラーは握らず throw (半端な作成を残さない)", async () => {
+    createIdpUserMock.mockRejectedValue(new Error("idp down"));
+    await expect(createStaffAction(VALID)).rejects.toThrow("idp down");
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("DB mirror 失敗時は孤児 IdP user を補償削除 (deleteIdpUser) して throw", async () => {
+    withSessionMock.mockImplementationOnce((() =>
+      Promise.reject(new Error("db insert failed"))) as typeof withSession);
+    await expect(createStaffAction(VALID)).rejects.toThrow("db insert failed");
+    // IdP 作成済の孤児を補償削除。削除対象 uid は作成した uid と一致。
+    const createdUid = createIdpUserMock.mock.calls[0]?.[0]?.uid;
+    expect(deleteIdpUserMock).toHaveBeenCalledWith(createdUid);
     expect(revalidatePathMock).not.toHaveBeenCalled();
   });
 });
