@@ -163,23 +163,31 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
 
   it("pollPendingTvCommands: device_id で自分宛の pending のみ返る（他デバイスは混ざらない）", async () => {
     // A 校 device に 2 件（reload, restart）、B 校 device に 1 件発行。
+    // 2 件を別トランザクションで発行し issued_at を確実に区別する（同一 tx だと
+    // transaction_timestamp() が同値になり、順序が id タイブレーク=ランダム uuid 落ちで
+    // 非決定になるため）。発行順 = reload → restart。
     await withTenantContext(
       db,
       { userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" },
-      async (tx) => {
-        await enqueueTvCommand(tx, {
+      (tx) =>
+        enqueueTvCommand(tx, {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
           actorSchoolId: fx.schoolA,
-        });
-        await enqueueTvCommand(tx, {
+        }),
+      APP,
+    );
+    await withTenantContext(
+      db,
+      { userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" },
+      (tx) =>
+        enqueueTvCommand(tx, {
           deviceRowId: rowA,
           command: "service_restart",
           actorUserId: fx.userA,
           actorSchoolId: fx.schoolA,
-        });
-      },
+        }),
       APP,
     );
     await withTenantContext(
@@ -283,23 +291,31 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
   });
 
   it("listRecentTvCommands: 自校 device の履歴を新しい順に返す（RLS スコープ、他校は空）", async () => {
+    // 2 件を別トランザクションで発行し issued_at を確実に区別する（同一 tx だと
+    // transaction_timestamp() が同値になり、順序が id タイブレーク=ランダム uuid 落ちで
+    // 非決定になるため）。発行順 = reload → restart。
     await withTenantContext(
       db,
       { userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" },
-      async (tx) => {
-        await enqueueTvCommand(tx, {
+      (tx) =>
+        enqueueTvCommand(tx, {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
           actorSchoolId: fx.schoolA,
-        });
-        await enqueueTvCommand(tx, {
+        }),
+      APP,
+    );
+    await withTenantContext(
+      db,
+      { userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" },
+      (tx) =>
+        enqueueTvCommand(tx, {
           deviceRowId: rowA,
           command: "service_restart",
           actorUserId: fx.userA,
           actorSchoolId: fx.schoolA,
-        });
-      },
+        }),
       APP,
     );
     const aHist = await withTenantContext(

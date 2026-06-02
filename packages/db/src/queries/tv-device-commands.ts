@@ -168,7 +168,7 @@ export async function pollPendingTvCommands(
             or(isNull(tvDeviceCommands.expiresAt), sql`${tvDeviceCommands.expiresAt} > now()`),
           ),
         )
-        .orderBy(asc(tvDeviceCommands.issuedAt))
+        .orderBy(asc(tvDeviceCommands.issuedAt), asc(tvDeviceCommands.id))
         .limit(limit);
       return rows.map((r) => ({
         id: r.id,
@@ -287,6 +287,6 @@ export async function listRecentTvCommands(
     })
     .from(tvDeviceCommands)
     .where(eq(tvDeviceCommands.deviceId, deviceId))
-    .orderBy(desc(tvDeviceCommands.issuedAt))
+    .orderBy(desc(tvDeviceCommands.issuedAt), desc(tvDeviceCommands.id))
     .limit(limit);
 }
