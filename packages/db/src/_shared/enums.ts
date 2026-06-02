@@ -37,6 +37,43 @@ export const sensorKind = pgEnum("sensor_kind", ["presence_pir"]);
 // 将来 `degraded` 等を足すなら末尾追加（ADD VALUE、非破壊）。
 export const tvAlertState = pgEnum("tv_alert_state", ["ok", "down"]);
 
+// F15 (ADR-022): TV へ配信するリモートコマンドの種別。`tv_device_commands.command` の値域を DB で
+// 固定する（ルール3）。F15 §1 の確定値:
+//   signage_reload  … サイネージ WebView をリロード（最頻・「変更を今すぐ反映」）
+//   signage_open    … サイネージアプリを強制起動（前面化）
+//   signage_exit    … サイネージアプリを強制終了
+//   service_restart … TV 常駐サービス（com.kimiterrace.tvbridge）を再起動
+// ポーリング応答で pending を配信し、TV は version 増分時のみ実行（再実行抑制、ADR-022 §設計詳細）。
+// 将来 reboot 等を足すなら末尾追加（ADD VALUE、非破壊）。
+export const tvCommandType = pgEnum("tv_command_type", [
+  "signage_reload",
+  "signage_open",
+  "signage_exit",
+  "service_restart",
+]);
+
+/**
+ * TV リモートコマンド種別の型（単一ソース）。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema`
+ * から `import type` でこれを引き込み、発行ボタンの許可値・ラベルが enum とズレないことを
+ * `satisfies Record<TvCommandType, ...>` でコンパイル時に強制する（`PublishScope` と同方針）。型のみなので
+ * Next バンドルに enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type TvCommandType = (typeof tvCommandType.enumValues)[number];
+
+// F15 (ADR-022): TV リモートコマンドのライフサイクル状態。`tv_device_commands.status` の値域を DB で
+// 固定する（ルール3）。send-once セマンティクス（F15 §1）:
+//   pending   … 発行直後・未配信。次のポーリングで配信対象。
+//   delivered … TV がポーリングで受領（acknowledged_at をセット）。再配信しない（冪等 ack）。
+//   failed    … 配信後 TV 側で実行失敗を報告（将来の失敗 ack 用に予約）。
+//   expired   … expires_at 超過で配信されないまま無効化（掃除ジョブが遷移、本スライスは列のみ）。
+// 将来値を足すなら末尾追加（ADD VALUE、非破壊）。
+export const tvCommandStatus = pgEnum("tv_command_status", [
+  "pending",
+  "delivered",
+  "failed",
+  "expired",
+]);
+
 // F16 (ADR-023): TV ダウンタイムの原因の機械推定。`tv_device_downtime.cause_hint` の値域を DB で
 // 固定する（ルール3）。`unknown` = 区別不能（電源OFF/ネット断/アプリ停止はすべてポーリング途絶に
 // 見える、ADR-023 §悪い影響）/ `reboot` = 復帰時に last_boot_at の進行を検出（再起動と推定）/

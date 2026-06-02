@@ -1,4 +1,4 @@
-import { pollTvConfig } from "@kimiterrace/db";
+import { type PendingTvCommand, pollPendingTvCommands, pollTvConfig } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { getDb } from "../../../../lib/db";
 import { clientKeyFromHeaders } from "../../../../lib/guide/rate-limit";
@@ -19,6 +19,10 @@ import { tvPollRateLimiter } from "../../../../lib/tv/rate-limit";
  *  4. `device_id → school_id` を cross-tenant 解決して設定を返しつつ `last_seen_at` を更新
  *     （packages/db `pollTvConfig`、system_admin policy 経由で BYPASSRLS 不使用、ルール2）。
  *     未登録 device_id は `{ unknown: true, version: 0 }`（F15 §2、UI 側で未登録ポーリング検出通知）。
+ *  5. 登録済みなら自分宛の **pending リモートコマンド**を同梱（F15 §1/§4.2、ADR-022 `commands.*`）。
+ *     `pollPendingTvCommands`（同じ system_admin cross-tenant 解決）で取得し、最小 payload（id +
+ *     command + params、PII 非格納）を返す。TV は実行後 `POST /api/tv/commands/ack` で delivered に落とす
+ *     （冪等）。コマンド取得失敗は config 配信を妨げない（commands は空配列にフォールバック）。
  *
  * **runtime='nodejs'**（F15 §5）: 外部 origin（TV）からの GET を Server Action CSRF から分離し、
  * node:crypto（定数時間比較）を使うため Edge ではなく Node runtime に固定する。`force-dynamic` で
@@ -64,7 +68,18 @@ export async function GET(request: Request): Promise<NextResponse> {
       deviceId,
       lastKnownIp: ipKey === "unknown" ? null : ipKey,
     });
-    return NextResponse.json(result, { status: 200 });
+    // 未登録（unknown）はコマンドを引かず従来通りの形をそのまま返す（解決行が無く配信対象も無い）。
+    if (result.unknown) {
+      return NextResponse.json(result, { status: 200 });
+    }
+    // 5. 登録済み: 自分宛の pending コマンドを同梱。取得失敗は config 配信を止めない（空配列）。
+    let commands: PendingTvCommand[] = [];
+    try {
+      commands = await pollPendingTvCommands(getDb(), deviceId);
+    } catch {
+      commands = [];
+    }
+    return NextResponse.json({ ...result, commands }, { status: 200 });
   } catch {
     // 一時的 DB エラー等。詳細は返さず 500（TV は次のポーリングで自然回復）。
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
