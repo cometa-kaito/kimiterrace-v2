@@ -1,0 +1,175 @@
+import { randomUUID } from "node:crypto";
+import { getDb } from "@/lib/db";
+import { hashToken } from "@/lib/magic-link/token";
+import { executeChat } from "@/lib/student-qa/chat-service";
+import { createPublishedContentProvider } from "@/lib/student-qa/context-provider";
+import { createVertexChatStreamClient } from "@kimiterrace/ai";
+import { resolveMagicLink, withTenantContext } from "@kimiterrace/db";
+
+/**
+ * F06 (#42 第2スライス, #373): 生徒対話 Q&A の **SSE route handler** `POST /api/classes/{classToken}/chat`。
+ *
+ * 生徒（匿名・クラス magic_link）の質問 1 件を受け、自校の公開掲示物を grounding に Vertex Gemini で
+ * 回答を SSE (`text/event-stream`) で逐次返す。オーケストレーション本体は {@link executeChat}
+ * (chat-service.ts)、grounding は {@link createPublishedContentProvider} (#480)、ストリーミングは
+ * {@link createVertexChatStreamClient} (packages/ai, #478) に委譲し、本 route は **HTTP/SSE 配線**に徹する。
+ *
+ * ## 設計（#373 の設計論点に対する決定、CLAUDE.md ルール2/4/5）
+ * - **トークン解決 → 410**: `resolveMagicLink` (SECURITY DEFINER, RLS 文脈不要) で {schoolId, classId,
+ *   id} に解決。失効/期限切れ/不明は **410 Gone** (signage と整合・即時失効)。`classToken` は credential
+ *   なのでログ/レスポンスに反射しない (ルール5)。
+ * - **RLS tx 寿命 = ストリーム寿命**: 永続化 (user→assistant) は呼び出し側が張る RLS tx 内で行い、
+ *   assistant 書き込みは `executeChat` 戻り後の `done` で走る。よって `withTenantContext` を
+ *   **`ReadableStream` の `start()` 内**で回し、チャンク送出 + `await done` までを 1 つの tx で囲う
+ *   (tx がストリーム途中で閉じない)。handler は即 `Response(stream)` を返す。
+ * - **拒否の返し方**: 無効トークン (410) と不正ボディ (400) は **200 SSE を開く前**に実 HTTP で返す。
+ *   一方 validate/rate-limit/PII 由来の拒否は `executeChat` が内部で 1 回だけ判定する (route で先行
+ *   実行すると rate-limit を二重消費する) ため、200 開始後の **SSE `error` フレーム**で通知する。
+ * - **PII (ルール4)**: 生徒は匿名で v2 に氏名ロスターが無いため `piiEntries` は空。質問内の電話/メールは
+ *   `maskPII` の検出 (既定 ON) が chat-service 内で除去する。grounding コンテンツも chat-service が
+ *   マスクしてから Vertex/DB へ渡す。本 route は生 PII を組み立てない。
+ *
+ * 関連: ADR-005/006 (Vertex/Vercel AI SDK), ADR-016 (magic link), ADR-019 (RLS), ADR-028 (回答ポリシー)。
+ */
+
+/** レート制限の第二キー (端末識別子) を載せる cookie 名。HttpOnly = サーバ専用、JS から読めない。 */
+const QA_COOKIE = "kt_qa_cid";
+/** cookie の有効期間 (秒)。端末識別子なので長め (1 年)。 */
+const QA_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+
+let memoStreamClient: ReturnType<typeof createVertexChatStreamClient> | null = null;
+/** Vertex ストリームクライアントを env から遅延生成 (construct は lazy = 認証/通信なし、ルール5)。 */
+function getChatStreamClient(): ReturnType<typeof createVertexChatStreamClient> {
+  if (memoStreamClient) return memoStreamClient;
+  const project = process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
+  const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
+  memoStreamClient = createVertexChatStreamClient({ project, location });
+  return memoStreamClient;
+}
+
+/** Cookie ヘッダから 1 つの値を取り出す。無ければ null。 */
+function readCookie(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+/** 名前付き SSE フレーム (`event: <name>\ndata: <json>\n\n`) を組み立てる。 */
+function sseFrame(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function jsonError(status: number, error: string): Response {
+  return new Response(JSON.stringify({ error }), {
+    status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
+}
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ classToken: string }> },
+): Promise<Response> {
+  const { classToken } = await context.params;
+
+  // 1) トークン解決 (RLS 文脈不要)。無効は 410 Gone (credential はレスポンスに反射しない)。
+  const resolved = await resolveMagicLink(getDb(), hashToken(classToken));
+  if (!resolved) {
+    return jsonError(410, "gone");
+  }
+
+  // 2) ボディ検証。JSON 不正・question 非文字列は 200 を開く前に 400 で弾く。
+  let question: string;
+  try {
+    const body: unknown = await request.json();
+    const q = (body as { question?: unknown } | null)?.question;
+    if (typeof q !== "string") {
+      return jsonError(400, "invalid_body");
+    }
+    question = q;
+  } catch {
+    return jsonError(400, "invalid_json");
+  }
+
+  // 3) 端末識別子 cookie (レート制限の第二キー)。無ければ採番して Set-Cookie する。
+  let cookieId = readCookie(request.headers.get("cookie"), QA_COOKIE);
+  let issueCookie = false;
+  if (!cookieId) {
+    cookieId = randomUUID();
+    issueCookie = true;
+  }
+
+  // 4) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
+  const contextProvider = createPublishedContentProvider();
+  const modelClient = getChatStreamClient();
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, data: unknown) =>
+        controller.enqueue(encoder.encode(sseFrame(event, data)));
+      try {
+        await withTenantContext(getDb(), { schoolId: resolved.schoolId }, async (tx) => {
+          const result = await executeChat({
+            tx,
+            schoolId: resolved.schoolId,
+            classId: resolved.classId,
+            magicLinkId: resolved.id,
+            // cookieId は手順 3 で必ず確定済 (null 不可)。
+            cookieId: cookieId as string,
+            rawQuestion: question,
+            // 匿名生徒・氏名ロスター無し。質問の電話/メールは chat-service の maskPII が除去 (ルール4)。
+            piiEntries: [],
+            contextProvider,
+            modelClient,
+          });
+
+          if (result.kind === "rejected") {
+            send("error", {
+              status: result.status,
+              reason: result.reason,
+              message: result.message,
+            });
+            return;
+          }
+
+          for await (const chunk of result.textStream) {
+            send("delta", { text: chunk });
+          }
+          // assistant 永続化はこの tx 内で完了させる。ストリームエラー時の reject を握り潰さない。
+          try {
+            const fin = await result.done;
+            send("done", { sessionId: fin.sessionId, messageId: fin.assistantMessageId });
+          } catch {
+            send("error", {
+              status: 500,
+              reason: "stream_failed",
+              message: "応答の生成に失敗しました。",
+            });
+          }
+        });
+      } catch {
+        send("error", { status: 500, reason: "internal", message: "内部エラーが発生しました。" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  const headers = new Headers({
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    "x-accel-buffering": "no",
+  });
+  if (issueCookie) {
+    headers.append(
+      "set-cookie",
+      `${QA_COOKIE}=${cookieId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=${QA_COOKIE_MAX_AGE}`,
+    );
+  }
+  return new Response(stream, { status: 200, headers });
+}
