@@ -27,6 +27,9 @@ type TvDeviceRow = InferSelectModel<typeof tvDevices>;
 /** SELECT だけできれば良い（Drizzle db / トランザクションの両方を受ける）。 */
 type Selectable = Pick<PostgresJsDatabase, "select">;
 
+/** UPDATE だけできれば良い（設定編集 Action は RLS context tx を渡す）。 */
+type Updatable = Pick<PostgresJsDatabase, "update">;
+
 /**
  * TV デバイス一覧 1 行（管理 UI の一覧用射影）。設定の生値（webhook_url / notes）や監査列は含めず、
  * 一覧表示と稼働ステータス判定に要る最小限に絞る。`targetMac` は UI 側でマスク表示する（F15 §5）。
@@ -160,4 +163,122 @@ export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> 
     .from(tvDevices)
     .where(isNull(tvDevices.deletedAt))
     .orderBy(asc(tvDevices.label), asc(tvDevices.deviceId));
+}
+
+/**
+ * 編集画面が読み込む単一デバイスの **編集対象設定 + 現在の version**（F15 §4.2）。設定変更ではなく
+ * 表示用の読み取りなので監査列・心拍列（last_seen_at 等）・device_id（識別子は編集不可）は最小限に絞る。
+ * `version` はフォームには出さないが、編集前後の差分表示や楽観表示に使えるよう返す。
+ */
+export type TvDeviceEditable = Pick<
+  TvDeviceRow,
+  | "id"
+  | "label"
+  | "targetMac"
+  | "signageUrl"
+  | "webhookUrl"
+  | "scheduleJson"
+  | "monitoringEnabled"
+  | "notes"
+  | "version"
+>;
+
+/**
+ * 編集画面の読み込み: 1 デバイスの編集可能な設定を `id` で取得する。可視範囲は RLS が決める
+ * （他校 / ソフトデリート済は不可視 → undefined → 呼び出し側で `notFound()`）。
+ *
+ * `WHERE deleted_at IS NULL` は対象絞り込み（退役 TV は編集させない）であってテナント境界ではない。
+ * 越境は RLS（tenant_isolation）が弾く（schools.ts と同方針、ルール2）。手書きの `WHERE school_id` は
+ * 書かない。呼び出し側は非 BYPASSRLS 接続（kimiterrace_app）を使うこと。
+ */
+export async function getTvDeviceConfig(
+  db: Selectable,
+  id: string,
+): Promise<TvDeviceEditable | undefined> {
+  const rows = await db
+    .select({
+      id: tvDevices.id,
+      label: tvDevices.label,
+      targetMac: tvDevices.targetMac,
+      signageUrl: tvDevices.signageUrl,
+      webhookUrl: tvDevices.webhookUrl,
+      scheduleJson: tvDevices.scheduleJson,
+      monitoringEnabled: tvDevices.monitoringEnabled,
+      notes: tvDevices.notes,
+      version: tvDevices.version,
+    })
+    .from(tvDevices)
+    .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * 設定編集が書き込める **オペレーター編集可能フィールド**（F15 §4.2）の正規化済みパッチ。
+ *
+ * ここに無いフィールドは **システム管理列**で編集経路から書けない（型レベルで遮断）:
+ *  - `device_id`（TV 生成の不変識別子、ポーリング解決キー） / `school_id`（テナント、移動不可）
+ *  - `version`（本関数が +1 する。手で渡させない） / `last_seen_at` / `last_known_ip` /
+ *    `last_boot_at` / `app_version`（TV 由来の心拍・起動報告） / `alert_state`（定期チェッカが遷移）
+ *  - `deleted_at`（ソフトデリートは別 Action） / 監査列（created_by / updated_* は本関数が設定）
+ *  - 教室コンテキスト FK（grade/department/class は signage_url から自動抽出する別経路）
+ *
+ * `null` を渡したフィールドはクリア（未設定化）を意味する。`undefined` は「変更しない」（部分更新）。
+ */
+export type TvDeviceConfigPatch = {
+  label?: string | null;
+  targetMac?: string | null;
+  signageUrl?: string | null;
+  webhookUrl?: string | null;
+  scheduleJson?: TvSchedule | null;
+  monitoringEnabled?: boolean;
+  notes?: string | null;
+};
+
+/**
+ * 設定編集: オペレーター編集可能フィールドを **`version` を +1 しつつ** 更新する（F15 §4.2 / ADR-022）。
+ *
+ * - **version バンプ（ADR-022 の中核）**: TV は 60 秒ごとにポーリングし、応答の `version` を local の
+ *   `last_seen_version` と比較して **版が上がった時のみ** 設定を反映する。設定を書き換えても version を
+ *   上げなければ TV は変更を検知できない。よって同一 UPDATE 内で `version = version + 1`（DB 側で原子的に
+ *   monotonic 加算、並行更新でも飛ばない）を必ず行う。
+ * - **監査（ルール1）**: `auditColumns.updatedAt` には `$onUpdate` もトリガも無いため、UPDATE で
+ *   `updatedAt: new Date()` を**明示**しないと作成時刻のまま残り監査不整合になる
+ *   ([[updatedat-explicit-on-update]] の既知トラップ)。`updatedBy` も actor を明示設定する。設定変更の
+ *   `audit_log` 追記は呼び出し側 Action が同一 tx で行う（F15 §1、心拍 touch とは別経路）。
+ * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。RLS（tenant_isolation）が自校に
+ *   スコープするため、他校 / 不可視デバイスへの UPDATE は **0 行**になる（→ undefined → 呼び出し側で
+ *   not_found）。ソフトデリート済（`deleted_at IS NOT NULL`）も対象外（退役 TV は編集不可）。
+ *
+ * @param db        非 BYPASSRLS の Drizzle クライアント / tx（RLS context 下で呼ぶこと）。
+ * @param params    対象 `id` / 編集パッチ / 監査 actor（`updatedBy`）。
+ * @returns         更新後の `{ id, version }`（version は +1 後）。0 行（不可視 / 退役）なら `undefined`。
+ */
+export type UpdateTvDeviceConfigParams = {
+  id: string;
+  patch: TvDeviceConfigPatch;
+  actorUserId: string;
+};
+
+type TvDeviceUpdatedRef = Pick<TvDeviceRow, "id" | "version">;
+
+export async function updateTvDeviceConfig(
+  db: Updatable,
+  params: UpdateTvDeviceConfigParams,
+): Promise<TvDeviceUpdatedRef | undefined> {
+  const { id, patch, actorUserId } = params;
+  // 編集パッチ（undefined キーは Drizzle が SET から除外＝部分更新）に version バンプ + 監査列を重ねる。
+  // version は DB 側で原子的に +1（並行編集でも monotonic、競合で飛ばない）。
+  const rows = await db
+    .update(tvDevices)
+    .set({
+      ...patch,
+      version: sql`${tvDevices.version} + 1`,
+      // 設定変更なので updated_at を明示的に進める（ルール1 / [[updatedat-explicit-on-update]]）。
+      updatedAt: new Date(),
+      updatedBy: actorUserId,
+    })
+    .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
+    .returning({ id: tvDevices.id, version: tvDevices.version });
+  return rows[0];
 }
