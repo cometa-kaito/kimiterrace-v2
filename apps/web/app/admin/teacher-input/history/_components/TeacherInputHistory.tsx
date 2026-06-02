@@ -24,6 +24,7 @@ const STATUS_COLOR = {
 const TYPE_LABEL = {
   voice: "音声",
   chat: "チャット",
+  file: "ファイル",
 } as const;
 
 export type TeacherInputHistoryRow = {
