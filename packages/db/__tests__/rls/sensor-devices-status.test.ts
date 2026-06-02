@@ -49,7 +49,7 @@ describeOrSkip("RLS: F13 listSensorDeviceStatuses (#391)", () => {
         ${schoolId},
         'presence',
         now() - make_interval(hours => ${hoursAgo}::int),
-        ${sql.json({ source: "switchbot", device_mac: normMac(mac), detection_state: "DETECTED" })}
+        ${JSON.stringify({ source: "switchbot", device_mac: normMac(mac), detection_state: "DETECTED" })}::jsonb
       )
     `;
   }
