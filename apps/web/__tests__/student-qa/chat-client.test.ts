@@ -73,6 +73,19 @@ describe("streamChat", () => {
     ]);
   });
 
+  it("マルチバイト UTF-8 (日本語) が byte 境界で分割されても正しく再構成する", async () => {
+    // 日本語 1 文字 = UTF-8 3 byte。chunkSize=1 で 1 文字が複数チャンクに割れ、
+    // TextDecoder({stream:true}) の繋ぎ込みを実際に pin する (本番の主用途 = 日本語ストリーム)。
+    const payload =
+      frame("delta", { text: "今日の予定は" }) + frame("done", { sessionId: "s", messageId: "m" });
+    const fetchImpl = vi.fn().mockResolvedValue(sseResponse(payload, { chunkSize: 1 }));
+    const events = await collect(streamChat({ classToken: TOKEN, question: "q", fetchImpl }));
+    expect(events).toEqual([
+      { type: "delta", text: "今日の予定は" },
+      { type: "done", sessionId: "s", messageId: "m" },
+    ]);
+  });
+
   it("error フレームを status/reason/message 付きで yield する", async () => {
     const payload = frame("error", {
       status: 429,
