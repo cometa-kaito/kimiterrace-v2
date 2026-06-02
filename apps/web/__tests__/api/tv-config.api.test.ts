@@ -10,8 +10,10 @@ import { TV_POLL_LIMIT, tvPollRateLimiter } from "../../lib/tv/rate-limit";
  * シークレット検証・レート制限は本物を通す。RLS/解決/last_seen 更新の実挙動は packages/db 実 PG テストで担保。
  */
 const pollTvConfig = vi.fn();
+const pollPendingTvCommands = vi.fn();
 vi.mock("@kimiterrace/db", () => ({
   pollTvConfig: (...args: unknown[]) => pollTvConfig(...args),
+  pollPendingTvCommands: (...args: unknown[]) => pollPendingTvCommands(...args),
 }));
 vi.mock("../../lib/db", () => ({ getDb: () => ({}) }));
 
@@ -52,6 +54,8 @@ describe("GET /api/tv/config", () => {
     tvPollRateLimiter.reset();
     pollTvConfig.mockReset();
     pollTvConfig.mockResolvedValue(OK_RESULT);
+    pollPendingTvCommands.mockReset();
+    pollPendingTvCommands.mockResolvedValue([]);
     process.env.TV_POLL_SECRET = SECRET;
   });
   afterEach(() => {
@@ -84,16 +88,34 @@ describe("GET /api/tv/config", () => {
     expect(pollTvConfig).not.toHaveBeenCalled();
   });
 
-  it("正鍵（query key）+ device_id → pollTvConfig 呼出 + 200 で config 返却", async () => {
+  it("正鍵（query key）+ device_id → pollTvConfig 呼出 + 200 で config + commands 返却", async () => {
     const res = await GET(makeReq({ deviceId: DEV, key: SECRET, xff: "203.0.113.5" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual(OK_RESULT);
+    // 登録済みは config に commands（既定モックは空配列）を同梱して返す。
+    expect(await res.json()).toEqual({ ...OK_RESULT, commands: [] });
     expect(pollTvConfig).toHaveBeenCalledTimes(1);
     // device_id と XFF 由来 IP が渡る。
     expect(pollTvConfig.mock.calls[0]?.[1]).toMatchObject({
       deviceId: DEV,
       lastKnownIp: "203.0.113.5",
     });
+  });
+
+  it("登録済みなら pending コマンドを commands に同梱して返す（device_id で取得）", async () => {
+    const cmds = [{ id: "cmd-1", command: "signage_reload", params: null }];
+    pollPendingTvCommands.mockResolvedValue(cmds);
+    const res = await GET(makeReq({ deviceId: DEV, key: SECRET }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...OK_RESULT, commands: cmds });
+    expect(pollPendingTvCommands).toHaveBeenCalledTimes(1);
+    expect(pollPendingTvCommands.mock.calls[0]?.[1]).toBe(DEV);
+  });
+
+  it("コマンド取得失敗は config 配信を止めない（commands は空配列フォールバック）", async () => {
+    pollPendingTvCommands.mockRejectedValue(new Error("transient"));
+    const res = await GET(makeReq({ deviceId: DEV, key: SECRET }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ...OK_RESULT, commands: [] });
   });
 
   it("正鍵を x-tv-key ヘッダで渡しても 200", async () => {
@@ -107,11 +129,13 @@ describe("GET /api/tv/config", () => {
     expect(pollTvConfig.mock.calls[0]?.[1]).toMatchObject({ lastKnownIp: null });
   });
 
-  it("未登録 device_id → 200 + unknown:true（pollTvConfig が unknown を返す）", async () => {
+  it("未登録 device_id → 200 + unknown:true（commands は引かない）", async () => {
     pollTvConfig.mockResolvedValue({ unknown: true, version: 0 });
     const res = await GET(makeReq({ deviceId: DEV, key: SECRET }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ unknown: true, version: 0 });
+    // 解決行が無いので pending コマンド取得は呼ばない（無駄な往復を避ける）。
+    expect(pollPendingTvCommands).not.toHaveBeenCalled();
   });
 
   it("レート制限超過（同 device_id で 1 分 5 回超）→ 429、解決なし", async () => {

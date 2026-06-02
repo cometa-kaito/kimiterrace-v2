@@ -1,8 +1,9 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { TV_CONFIG_EDIT_ROLES, isUuid } from "@/lib/tv/config-edit-core";
-import { getTvDeviceConfig } from "@kimiterrace/db";
+import { getTvDeviceConfig, listRecentTvCommands } from "@kimiterrace/db";
 import { notFound } from "next/navigation";
+import { TvCommandControl } from "./_components/TvCommandControl";
 import { TvConfigEditForm } from "./_components/TvConfigEditForm";
 
 /**
@@ -31,15 +32,24 @@ export default async function TvDeviceEditPage({
     notFound();
   }
 
-  const device = await withSession((tx) => getTvDeviceConfig(tx, deviceId), {
-    allowedRoles: TV_CONFIG_EDIT_ROLES,
-    tenantScoped: true,
-  });
+  // 設定と直近コマンド履歴を同一 RLS セッションで取得する（コマンド送信コントロールの履歴表示用）。
+  const loaded = await withSession(
+    async (tx) => {
+      const device = await getTvDeviceConfig(tx, deviceId);
+      if (!device) {
+        return null;
+      }
+      const commands = await listRecentTvCommands(tx, deviceId);
+      return { device, commands };
+    },
+    { allowedRoles: TV_CONFIG_EDIT_ROLES, tenantScoped: true },
+  );
 
   // 他校 / 存在しない / 退役 TV は RLS or deleted_at で不可視 → 404。
-  if (!device) {
+  if (!loaded) {
     notFound();
   }
+  const { device, commands } = loaded;
 
   return (
     <section style={{ maxWidth: "640px" }}>
@@ -60,6 +70,16 @@ export default async function TvDeviceEditPage({
           notes: device.notes,
         }}
         currentVersion={device.version}
+      />
+      <TvCommandControl
+        deviceRowId={device.id}
+        recent={commands.map((c) => ({
+          id: c.id,
+          command: c.command,
+          status: c.status,
+          issuedAt: c.issuedAt.toISOString(),
+          acknowledgedAt: c.acknowledgedAt ? c.acknowledgedAt.toISOString() : null,
+        }))}
       />
     </section>
   );

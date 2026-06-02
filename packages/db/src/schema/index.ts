@@ -17,6 +17,8 @@ export * from "./sensor-devices.js";
 export * from "./tv-devices.js";
 // F16 (ADR-023): TV ダウンタイム（無応答インシデント）記録。定期チェッカが down/recover 遷移で書く
 export * from "./tv-device-downtime.js";
+// F15 (ADR-022): TV リモートコマンドキュー（enqueue + ポーリング配信 + ack、send-once）
+export * from "./tv-device-commands.js";
 // F14 (#128, ADR-021): サイネージ天気予報の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
 export * from "./weather-forecasts.js";
 export * from "./ai-extractions.js";

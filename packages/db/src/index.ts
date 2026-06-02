@@ -40,6 +40,8 @@ export * from "./queries/rag-search.js";
 export * from "./queries/sensor-presence.js";
 // F15/F16 (ADR-022/ADR-023): TV デバイスのポーリング設定取得 + last_seen 心拍更新 / 管理一覧読み取り
 export * from "./queries/tv-devices.js";
+// F15 (ADR-022): TV リモートコマンドキュー (enqueue + ポーリング配信 pollPending + 冪等 ack + 履歴)
+export * from "./queries/tv-device-commands.js";
 // F16 (ADR-023): TV 死活ギャップチェッカの純粋判定ロジック (last_seen ギャップ → down/recover 遷移)
 export * from "./queries/tv-liveness.js";
 // F16 (ADR-023): TV 死活チェックの DB 反映層 (alert_state 反転 + tv_device_downtime 記録、RLS 委譲)
