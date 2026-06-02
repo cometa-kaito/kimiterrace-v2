@@ -61,3 +61,27 @@ export function exceedsContentLength(contentLength: string | null | undefined): 
   const n = Number(contentLength);
   return Number.isFinite(n) && n > MAX_UPLOAD_BYTES;
 }
+
+/**
+ * アップロード API (`POST /api/teacher-inputs/upload`) の HTTP ステータスを、教員向けの日本語
+ * エラーメッセージに写像する (#509 S3b、クライアント表示用の純粋関数)。route の error コードに依存せず
+ * status だけで判定し、想定外は汎用文言にフォールバックする。
+ */
+export function uploadErrorMessage(status: number): string {
+  switch (status) {
+    case 401:
+      return "ログインが必要です。";
+    case 403:
+      return "アップロードの権限がありません。";
+    case 413:
+      return "ファイルが大きすぎます（上限 50MB）。";
+    case 415:
+      return "対応していない形式です（PDF / Word / Excel / PNG / JPEG のみ）。";
+    case 422:
+      return "ファイルを読み取れませんでした（破損・暗号化の可能性）。";
+    case 502:
+      return "保存に失敗しました。時間をおいて再試行してください。";
+    default:
+      return "アップロードに失敗しました。";
+  }
+}

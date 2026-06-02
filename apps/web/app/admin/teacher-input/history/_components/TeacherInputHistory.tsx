@@ -1,9 +1,14 @@
+import { CreateDraftButton } from "../../_components/CreateDraftButton";
+
 /**
  * F02 (#38, FR-08): 教員入力の履歴一覧 (presentational, 副作用なし)。
  *
  * server page から RLS スコープ済みの行を ISO 文字列 + 表示用に正規化して受け取り、表示するだけ。
  * 認可・取得は page (server) が担う。transcript は PII を含みうるが、閲覧者は自校の staff
  * (teacher / school_admin) に限定済みで、ここでは抜粋のみ表示する (LLM には渡さない = ルール4)。
+ *
+ * F01/F02 (#509 S3b): 本文があり未送信 (submitted でない) の行には「編集して公開」(CreateDraftButton) を
+ * 出し、transcript から下書き content を作ってエディタへ進める。submitted は content 化済みとして畳む。
  */
 
 /** ライフサイクル状態の表示ラベル (teacher_input_status enum と 1:1)。 */
@@ -78,6 +83,11 @@ export function TeacherInputHistory({ rows }: { rows: TeacherInputHistoryRow[] }
           <p style={{ margin: "0.35rem 0 0", color: "#374151", whiteSpace: "pre-wrap" }}>
             {row.transcriptPreview || <span style={{ color: "#9ca3af" }}>（本文なし）</span>}
           </p>
+          {row.transcriptPreview && row.status !== "submitted" && (
+            <div style={{ marginTop: "0.45rem" }}>
+              <CreateDraftButton inputId={row.id} />
+            </div>
+          )}
         </li>
       ))}
     </ul>

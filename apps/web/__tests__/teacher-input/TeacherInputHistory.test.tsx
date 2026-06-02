@@ -1,5 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// #509 S3b: 行に CreateDraftButton (useRouter / draft action 利用) を埋め込んだため、
+// presentational テストでも next/navigation と action を mock する。
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/lib/teacher-input/draft-actions", () => ({ createDraftFromInputAction: vi.fn() }));
+
 import {
   TeacherInputHistory,
   type TeacherInputHistoryRow,
