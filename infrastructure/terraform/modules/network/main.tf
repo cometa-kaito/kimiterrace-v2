@@ -25,6 +25,9 @@ resource "google_compute_network" "main" {
 }
 
 # Private services access 用の予約レンジ（Cloud SQL Private IP 用）
+# 【enable-time チェックリスト】address 未指定 = GCP 自動割当のため、connector_cidr（既定 10.8.0.0/28）と
+# 理論上重複しうる。enabled = true 化前に明示 address を pin して connector レンジと非重複を保証すること
+# （現状は enabled = false で実体未割当ゆえ無害。Reviewer PR #493 Low 指摘）。
 resource "google_compute_global_address" "private_service_range" {
   count = var.enabled ? 1 : 0
 
