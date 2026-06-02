@@ -2,6 +2,7 @@
 
 import {
   type DeniedPublishAction,
+  createContent,
   publishContent,
   recordPublishDenial,
   rollbackContent,
@@ -15,13 +16,16 @@ import type { AuthUser } from "../auth/session";
 import { withSession, withUserSession } from "../db";
 import {
   type ActionResult,
+  type CreateContentInput,
   PUBLISHER_ROLES,
+  type PublishScopeValue,
   type UpdateContentInput,
   forbidden,
   invalid,
   isUuid,
   mapDomainError,
   toActor,
+  validateCreateInput,
   validateUpdateInput,
 } from "./publish-core";
 
@@ -107,6 +111,46 @@ export async function publishContentAction(
     revalidatePath("/admin/editor");
     revalidatePath("/");
     return { ok: true, data: { publishId: result.publishId, version: result.version } };
+  } catch (error) {
+    return mapDomainError(error);
+  }
+}
+
+/**
+ * F01/F02 (#509 S3a): content を draft で新規作成する。publisher (school_admin / teacher) のみ。
+ *
+ * 教員入力 (ファイル / 音声・チャット) の抽出結果を「編集してから公開」する下書きの受け皿。
+ * 作成後に呼出側が `/admin/contents/{contentId}` へ誘導し、既存エディタで編集 → `publishContentAction` で公開する。
+ * 未認証は /login、publisher 以外は /forbidden (`requireUser` + role gate)。新規作成のため contentId が
+ * まだ無く拒否監査 (recordPublishDenial) は対象外。
+ */
+export async function createContentAction(
+  input: CreateContentInput,
+): Promise<ActionResult<{ contentId: string; version: number }>> {
+  const invalidInput = validateCreateInput(input);
+  if (invalidInput) {
+    return invalidInput;
+  }
+  const user = await requireUser();
+  if (!isRoleAllowed(user.role, PUBLISHER_ROLES)) {
+    redirect("/forbidden");
+  }
+  const actor = toActor(user);
+  if (!actor) {
+    return forbidden("学校に属さないユーザーはコンテンツを作成できません。");
+  }
+  try {
+    const result = await withSession((tx) =>
+      createContent(tx, actor, {
+        title: input.title,
+        body: input.body ?? "",
+        // validateCreateInput が enum 値であることを保証済み (ルール3: DB enum が最終強制)。
+        publishScope: input.publishScope as PublishScopeValue,
+        targets: input.targets,
+      }),
+    );
+    revalidatePath("/admin/contents");
+    return { ok: true, data: { contentId: result.id, version: result.version } };
   } catch (error) {
     return mapDomainError(error);
   }

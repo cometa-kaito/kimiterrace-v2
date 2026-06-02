@@ -21,6 +21,7 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn(), withUserSession: vi.fn() 
 import { redirect } from "next/navigation";
 import { requireUser } from "../../lib/auth/guard";
 import {
+  createContentAction,
   publishContentAction,
   rollbackContentAction,
   unpublishContentAction,
@@ -68,6 +69,36 @@ describe("mapDomainError", () => {
   });
   it("想定外の例外は握りつぶさず再 throw する", () => {
     expect(() => mapDomainError(new Error("boom"))).toThrow("boom");
+  });
+});
+
+describe("createContentAction (#509 S3a)", () => {
+  const validInput = { title: "進路だより", body: "本文", publishScope: "class" };
+
+  it("title 空は invalid_input を返し、認証も走らせない", async () => {
+    const res = await createContentAction({ ...validInput, title: "" });
+    expect(res).toEqual({ ok: false, code: "invalid_input", message: expect.any(String) });
+    expect(requireUserMock).not.toHaveBeenCalled();
+  });
+
+  it("publishScope 不正は invalid_input を返す", async () => {
+    const res = await createContentAction({ ...validInput, publishScope: "galaxy" });
+    expect(res).toEqual({ ok: false, code: "invalid_input", message: expect.any(String) });
+    expect(requireUserMock).not.toHaveBeenCalled();
+  });
+
+  it("正常系: publisher が draft を作成し contentId + version を返す", async () => {
+    withSessionMock.mockResolvedValue({ id: "content-new", version: 1 });
+    const res = await createContentAction(validInput);
+    expect(res).toEqual({ ok: true, data: { contentId: "content-new", version: 1 } });
+    expect(requireUserMock).toHaveBeenCalled();
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it("非 publisher (生徒) は /forbidden に redirect する", async () => {
+    requireUserMock.mockResolvedValue(student);
+    await expect(createContentAction(validInput)).rejects.toThrow("REDIRECT:/forbidden");
+    expect(redirectMock).toHaveBeenCalledWith("/forbidden");
   });
 });
 

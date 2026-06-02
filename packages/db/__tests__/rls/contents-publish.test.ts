@@ -4,6 +4,7 @@ import {
   ContentNotFoundError,
   NoActivePublishError,
   VersionNotFoundError,
+  createContent,
   publishContent,
   recordPublishDenial,
   rollbackContent,
@@ -69,6 +70,63 @@ describeOrSkip("F04 publish flow (publish / update / unpublish / rollback + audi
   // テスト実行時 (= beforeAll 後) に fx を読む。
   const actorA = () => ({ userId: fx.userA, schoolId: fx.schoolA });
   const ctxA = () => ({ userId: fx.userA, schoolId: fx.schoolA, role: "teacher" as const });
+
+  it("createContent: draft 作成 + 初版 version=1 + audit insert を追記する (#509 S3a)", async () => {
+    const result = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        createContent(tx, actorA(), {
+          title: "進路だより 12 月号",
+          body: "抽出された本文",
+          publishScope: "class",
+        }),
+      APP,
+    );
+    expect(result.id).toBeTruthy();
+    expect(result.version).toBe(1);
+
+    const [c] = await raw<
+      { status: string; publish_scope: string; title: string; created_by: string }[]
+    >`SELECT status, publish_scope, title, created_by FROM contents WHERE id = ${result.id}`;
+    expect(c.status).toBe("draft");
+    expect(c.publish_scope).toBe("class");
+    expect(c.title).toBe("進路だより 12 月号");
+    expect(c.created_by).toBe(fx.userA);
+
+    const versions = await raw<
+      { version: number }[]
+    >`SELECT version FROM content_versions WHERE content_id = ${result.id}`;
+    expect(versions).toHaveLength(1);
+    expect(versions[0].version).toBe(1);
+
+    const audits = await raw`
+      SELECT operation, table_name FROM audit_log
+      WHERE table_name = 'contents' AND record_id = ${result.id} AND operation = 'insert'
+    `;
+    expect(audits.length).toBe(1);
+  });
+
+  it("createContent: 別校 schoolId を actor に渡しても RLS WITH CHECK が越境 INSERT を拒否する", async () => {
+    // ctx は school A だが actor.schoolId を school B にすると tenant_isolation の WITH CHECK 違反。
+    await expect(
+      withTenantContext(
+        db,
+        ctxA(),
+        (tx) =>
+          createContent(
+            tx,
+            { userId: fx.userA, schoolId: fx.schoolB },
+            {
+              title: "越境",
+              body: "x",
+              publishScope: "school",
+            },
+          ),
+        APP,
+      ),
+    ).rejects.toThrow();
+  });
 
   it("publishContent: status=published + publishes 行 + version + audit を追記する", async () => {
     const result = await withTenantContext(
