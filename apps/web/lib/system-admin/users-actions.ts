@@ -1,10 +1,18 @@
 "use server";
 
-import { type TenantRole, type TenantTx, auditLog, users } from "@kimiterrace/db";
+import { randomUUID } from "node:crypto";
+import { type TenantRole, type TenantTx, auditLog, schools, users } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { changeIdpUserRole, deactivateIdpUser, reactivateIdpUser } from "../auth/admin-mutations";
+import {
+  changeIdpUserRole,
+  createIdpUser,
+  deactivateIdpUser,
+  deleteIdpUser,
+  isEmailAlreadyExistsError,
+  reactivateIdpUser,
+} from "../auth/admin-mutations";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
@@ -13,6 +21,11 @@ import { type ActionResult, conflict, forbidden, invalid, isUuid, notFound } fro
 /** この画面が扱う教職員ロール (school_admin ↔ teacher の相互変更)。student/guardian/system_admin は対象外。 */
 const STAFF_ROLES = ["school_admin", "teacher"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
+
+/** 発行入力の最小検証 (member-actions.ts と同方針)。`users.email` は varchar(320)。 */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL = 320;
+const MAX_DISPLAY_NAME = 100;
 
 /**
  * mirror tx 内の FOR UPDATE 再カウントで last-admin レース (#355 Low-2) を検出したとき投げる番兵。
@@ -450,4 +463,118 @@ async function withRoleGate(userId: string, nextRole: StaffRole): Promise<RoleGa
     },
     { allowedRoles: SYSTEM_ADMIN_ROLES },
   );
+}
+
+/**
+ * F11 (#508): system_admin が **任意校に school_admin / teacher アカウントを新規発行**する Server Action
+ * (全校横断発行)。school_admin 版 (`createStaffAction`, role-management) の system_admin スコープ版。
+ *
+ * ## school_admin 版との違い
+ * - **認可**: `requireRole(SYSTEM_ADMIN_ROLES)`。発行先の **学校を入力で指定** (cross-tenant)。
+ * - **ロール**: 入力で `school_admin` / `teacher` を選べる (system_admin への昇格は不可、STAFF_ROLES に限定)。
+ * - **RLS**: system_admin context で INSERT (`system_admin_full_access` が任意校への users INSERT を許可)。
+ *   IdP 作成前に **対象校の実在を検証** (system_admin は全校可視) して、存在しない学校への孤児発行を防ぐ。
+ * - **監査**: system_admin は `users` 行でないため `actorUserId` / `createdBy` は NULL、`school_id` は
+ *   発行先の対象校 (setStaffActiveAction と同じ system_admin 監査規律)。
+ *
+ * ## 共通規律 (createStaffAction と同じ)
+ * - **uid 規約 (ADR-003)**: `randomUUID()` を createUser の localId・`users.id`・`identity_uid` に共用。
+ * - **IdP を先に** (ADR-026) → DB mirror + 監査。**部分失敗は `deleteIdpUser` で孤児を補償**。
+ * - email 重複は IdP の atomic uniqueness に依存し `conflict`。password は設定せず reset link を返す。
+ */
+export async function createSystemStaffAction(raw: {
+  email?: unknown;
+  displayName?: unknown;
+  role?: unknown;
+  schoolId?: unknown;
+}): Promise<ActionResult<{ id: string; setupLink: string }>> {
+  // 入力検証 (IdP / DB 到達前に弾く)。
+  const email = typeof raw.email === "string" ? raw.email.trim() : "";
+  const displayName = typeof raw.displayName === "string" ? raw.displayName.trim() : "";
+  if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
+    return invalid("メールアドレスの形式が不正です。");
+  }
+  if (displayName.length === 0 || displayName.length > MAX_DISPLAY_NAME) {
+    return invalid("表示名を入力してください (100 文字以内)。");
+  }
+  // role は school_admin / teacher のみ (system_admin 昇格は不可)。
+  if (raw.role !== "school_admin" && raw.role !== "teacher") {
+    return invalid("ロールは school_admin または teacher を指定してください。");
+  }
+  const role: StaffRole = raw.role;
+  if (!isUuid(raw.schoolId)) {
+    return invalid("学校の指定が不正です。");
+  }
+  const schoolId = raw.schoolId;
+
+  // 認可: system_admin のみ。未認証→/login, 権限不足→/forbidden の redirect 副作用はここで起きる。
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  // 対象校の実在を IdP 作成前に検証 (system_admin は全校可視)。存在しない学校への孤児発行を防ぐ。
+  const schoolExists = await withSession(
+    async (tx) => {
+      const [s] = await tx
+        .select({ id: schools.id })
+        .from(schools)
+        .where(eq(schools.id, schoolId))
+        .limit(1);
+      return Boolean(s);
+    },
+    { allowedRoles: SYSTEM_ADMIN_ROLES },
+  );
+  if (!schoolExists) {
+    return notFound("指定された学校が見つかりません。");
+  }
+
+  // localId == users.id == identity_uid に共用する UUID (ADR-003)。
+  const newUid = randomUUID();
+
+  // 1) IdP を先に作成 (ADR-026)。メール重複は conflict、その他不明エラーは throw。
+  let setupLink: string;
+  try {
+    ({ setupLink } = await createIdpUser({ uid: newUid, email, displayName, role, schoolId }));
+  } catch (error) {
+    if (isEmailAlreadyExistsError(error)) {
+      return conflict("このメールアドレスは既に登録されています。");
+    }
+    throw error;
+  }
+
+  // 2) DB mirror (users 行) + 監査を system_admin context で。失敗時は孤児 IdP user を補償削除。
+  try {
+    await withSession(
+      async (tx) => {
+        await tx.insert(users).values({
+          id: newUid,
+          identityUid: newUid,
+          schoolId,
+          role,
+          displayName,
+          email,
+          isActive: true,
+          // system_admin は users 行でないため作成者系は NULL (setStaffActiveAction 監査規律と同じ)。
+          createdBy: null,
+          updatedBy: null,
+        });
+        await tx.insert(auditLog).values({
+          actorUserId: null,
+          schoolId,
+          tableName: "users",
+          recordId: newUid,
+          operation: "insert",
+          diff: { after: { role, displayName, email, isActive: true } },
+          rowHash: "",
+          createdBy: null,
+          updatedBy: null,
+        });
+      },
+      { allowedRoles: SYSTEM_ADMIN_ROLES },
+    );
+  } catch (error) {
+    await deleteIdpUser(newUid).catch(() => {});
+    throw error;
+  }
+
+  revalidatePath("/admin/system/users");
+  return { ok: true, data: { id: newUid, setupLink } };
 }
