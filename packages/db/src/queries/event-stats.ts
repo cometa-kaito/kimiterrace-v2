@@ -380,3 +380,63 @@ export async function getDailyPresenceCounts(
 
   return rows.map((r) => ({ day: r.day, presence: r.presence }));
 }
+
+/** 平日 (月〜金) か休日 (土・日) か。F08 人感ヒートマップの曜日区分。 */
+export type PresenceDayType = "weekday" | "weekend";
+
+/** 在室ヒートマップの 1 セル (= 平日/休日 × 15 分バケット の presence 件数)。 */
+export type PresenceHeatmapCell = {
+  /** JST の曜日区分。土日 (dow 0/6) を `weekend`、それ以外を `weekday` とする。 */
+  dayType: PresenceDayType;
+  /** JST の 15 分バケット番号 (0-95)。`時 * 4 + 分 / 15`。0=00:00-00:15, 95=23:45-24:00。 */
+  bucket: number;
+  /** そのバケットの presence イベント数。 */
+  presence: number;
+};
+
+/**
+ * 自校の presence イベント (F13 人感センサー由来、`events.type='presence'`) を **JST の 15 分バケット
+ * × 平日/休日**で集計する (RLS で school スコープ)。F08 人感ヒートマップ用 (時間帯別 1 時間粒度の
+ * `getHourlyPresenceCounts` を 15 分粒度に細分し、さらに平日/休日で分けたもの)。
+ *
+ * 「登校直後の 8:00-8:15 に集中」「休日は人がいない」のような、時 (hour) 粒度では潰れる山谷と平日
+ * /休日の差を見せる。F08 受け入れ条件「人感センサー検知の時間帯別ヒートマップ (5/15 分バケット ×
+ * 平日/休日)」に対応する。**15 分粒度**を採る (5 分=288 バケットは表示が過密。5 分版は将来 opts で
+ * 切替できる素地を残すが本スライスは 15 分)。
+ *
+ * - **バケット**: `occurred_at` を Asia/Tokyo に変換し `時 * 4 + floor(分 / 15)` で 0-95 を得る。UTC の
+ *   まま取ると JST と 9h ずれる (`getHourlyPresenceCounts` と同じ JST 変換を inline)。
+ * - **曜日区分**: 同じく JST 変換後の `dow` (0=日..6=土) で土日を `weekend`、月〜金を `weekday`。祝日は
+ *   暦データを持たないため本スライスでは休日に含めない (土日のみ。祝日対応は将来の拡張)。
+ * - **テナント分離 (ルール2)**: `school_id` を書かず `events` の RLS (`tenant_isolation`) に委譲。
+ * - 件数のみ。`payload` (device 詳細) は読まない。個人別粒度には落とさない (ルール4、ADR-020 §6)。
+ * - 返す行は presence が存在する (dayType, bucket) の組のみ (sparse)。0-95 × 平日/休日の密化は表示層
+ *   の責務 (`densifyPresenceHeatmap`)。並びは dayType 昇順 → bucket 昇順で決定的。
+ *
+ * @param opts.sinceDays 集計対象の遡及日数 (既定 30)。期間窓は DB の `now()` 基準。
+ */
+export async function getPresenceQuarterHourHeatmap(
+  db: Selectable,
+  opts: { sinceDays?: number } = {},
+): Promise<PresenceHeatmapCell[]> {
+  const sinceDays = opts.sinceDays ?? DEFAULT_SINCE_DAYS;
+  const where = and(
+    eq(events.type, "presence"),
+    gte(events.occurredAt, sql`now() - make_interval(days => ${sinceDays}::int)`),
+  );
+  // extract(...) は numeric を返すため ::int に落としてから Number 化する。時 * 4 + 分 / 15 で 0-95。
+  const bucket =
+    sql<number>`(extract(hour from ${events.occurredAt} at time zone 'Asia/Tokyo')::int * 4 + floor(extract(minute from ${events.occurredAt} at time zone 'Asia/Tokyo') / 15)::int)`.mapWith(
+      Number,
+    );
+  const dayType = sql<PresenceDayType>`case when extract(dow from ${events.occurredAt} at time zone 'Asia/Tokyo') in (0, 6) then 'weekend' else 'weekday' end`;
+  const presence = sql<number>`count(*)`.mapWith(Number);
+  const rows = await db
+    .select({ dayType, bucket, presence })
+    .from(events)
+    .where(where)
+    .groupBy(dayType, bucket)
+    .orderBy(dayType, bucket);
+
+  return rows.map((r) => ({ dayType: r.dayType, bucket: r.bucket, presence: r.presence }));
+}

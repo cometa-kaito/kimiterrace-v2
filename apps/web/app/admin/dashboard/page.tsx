@@ -2,7 +2,13 @@ import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
 import { EffectCommentPanel } from "./_components/EffectCommentPanel";
-import { densifyPresenceHourly, hasPresenceData } from "@/lib/dashboard/presence";
+import {
+  densifyPresenceHeatmap,
+  densifyPresenceHourly,
+  formatBucket,
+  hasPresenceData,
+  hasPresenceHeatmapData,
+} from "@/lib/dashboard/presence";
 import { withSession } from "@/lib/db";
 import {
   type DailyEventCount,
@@ -12,8 +18,10 @@ import {
   getEventStats,
   getHourlyEventCounts,
   getHourlyPresenceCounts,
+  getPresenceQuarterHourHeatmap,
   type HourlyEventCount,
   type HourlyPresenceCount,
+  type PresenceHeatmapCell,
 } from "@kimiterrace/db";
 
 /**
@@ -40,13 +48,16 @@ import {
 export default async function DashboardPage() {
   await requireRole(PUBLISHER_ROLES);
   // 同一 RLS context (1 tx) で全クエリを実行する。
-  const { stats, daily, hourly, presence, dailyPresence } = await withSession(async (tx) => ({
-    stats: await getEventStats(tx),
-    daily: await getDailyEventCounts(tx),
-    hourly: await getHourlyEventCounts(tx),
-    presence: await getHourlyPresenceCounts(tx),
-    dailyPresence: await getDailyPresenceCounts(tx),
-  }));
+  const { stats, daily, hourly, presence, dailyPresence, presenceHeatmap } = await withSession(
+    async (tx) => ({
+      stats: await getEventStats(tx),
+      daily: await getDailyEventCounts(tx),
+      hourly: await getHourlyEventCounts(tx),
+      presence: await getHourlyPresenceCounts(tx),
+      dailyPresence: await getDailyPresenceCounts(tx),
+      presenceHeatmap: await getPresenceQuarterHourHeatmap(tx),
+    }),
+  );
 
   return (
     <section>
@@ -116,6 +127,9 @@ export default async function DashboardPage() {
 
       <h2 style={sectionTitleStyle}>日次の在室 (人感センサー)</h2>
       <DailyPresenceTrend dailyPresence={dailyPresence} />
+
+      <h2 style={sectionTitleStyle}>在室ヒートマップ (15 分 × 平日/休日)</h2>
+      <PresenceHeatmap heatmap={presenceHeatmap} />
 
       {/* F08 slice 3: AI 効果コメント (Client island)。生成は課金 + 監査のためボタン起動。 */}
       <EffectCommentPanel />
@@ -259,6 +273,89 @@ function PresenceTrend({ presence }: { presence: HourlyPresenceCount[] }) {
   );
 }
 
+/**
+ * 在室 (presence) を **15 分バケット × 平日/休日**でヒートマップ描画する (F08 受け入れ条件)。時間帯別
+ * (`PresenceTrend`, 1 時間粒度) では潰れる「登校直後の山」「昼休みの谷」や平日/休日差を 15 分粒度で
+ * 見せる。平日・休日を 2 枚の表に分け、各表は 24 行 (時) × 4 列 (:00/:15/:30/:45)。セル背景は在室件数に
+ * 比例した緑の濃淡だが、**色のみに依存せず各セルに件数を併記** + `title` で時刻と件数を補足する
+ * (WCAG 2.2 AA / NFR05)。緑は ADR-020 (PIR・カメラ非使用、上部バッジ) と整合。
+ */
+function PresenceHeatmap({ heatmap }: { heatmap: PresenceHeatmapCell[] }) {
+  if (!hasPresenceHeatmapData(heatmap)) {
+    return <p style={emptyStyle}>対象期間の在室ヒートマップデータはまだありません。</p>;
+  }
+  const dense = densifyPresenceHeatmap(heatmap);
+  // 平日/休日を同一スケールで比べられるよう、両者通しの最大値で正規化する。
+  const max = Math.max(...dense.weekday, ...dense.weekend, 1);
+  return (
+    <div style={heatmapWrapStyle}>
+      <HeatmapGrid title="平日 (月〜金)" buckets={dense.weekday} max={max} />
+      <HeatmapGrid title="休日 (土・日)" buckets={dense.weekend} max={max} />
+    </div>
+  );
+}
+
+/** 在室件数 (0〜max) を緑の濃淡にする。色は補助で、件数テキストを併記するため色のみ依存ではない。 */
+function heatCellColor(count: number, max: number): string {
+  if (count <= 0) {
+    return "#f9fafb";
+  }
+  const t = Math.min(count / max, 1);
+  // 薄→濃を alpha で表現。toFixed で SSR/CSR の文字列を一致させる (hydration 差分回避)。
+  const alpha = (0.18 + 0.82 * t).toFixed(3);
+  return `rgba(16, 185, 129, ${alpha})`;
+}
+
+// ヒートマップ表の行 (時 0-23) と列 (15 分の 4 区分)。値配列を map して安定キー (時/バケット番号) を
+// 使う (React の配列 index キーを避ける、noArrayIndexKey)。
+const HOURS_OF_DAY = Array.from({ length: 24 }, (_, i) => i);
+const QUARTERS = [0, 1, 2, 3];
+
+/** 平日 or 休日の 1 枚分のヒートマップ表 (24 行 × 4 列 = 96 バケット)。 */
+function HeatmapGrid({ title, buckets, max }: { title: string; buckets: number[]; max: number }) {
+  return (
+    <figure style={heatmapFigureStyle}>
+      <figcaption style={heatmapCaptionStyle}>{title}</figcaption>
+      <table style={heatmapTableStyle}>
+        <thead>
+          <tr>
+            <th scope="col" style={heatmapCornerThStyle}>
+              時
+            </th>
+            {["00", "15", "30", "45"].map((m) => (
+              <th key={m} scope="col" style={heatmapColThStyle}>
+                :{m}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {HOURS_OF_DAY.map((hour) => (
+            <tr key={hour}>
+              <th scope="row" style={heatmapRowThStyle}>
+                {formatHour(hour)}
+              </th>
+              {QUARTERS.map((q) => {
+                const bucket = hour * 4 + q;
+                const count = buckets[bucket] ?? 0;
+                return (
+                  <td
+                    key={bucket}
+                    style={{ ...heatmapCellStyle, background: heatCellColor(count, max) }}
+                    title={`${formatBucket(bucket)} 在室 ${count}`}
+                  >
+                    {count > 0 ? count : ""}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </figure>
+  );
+}
+
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -382,4 +479,51 @@ const footnoteStyle: React.CSSProperties = {
   color: "#9ca3af",
   fontSize: "0.8rem",
   marginTop: "1.5rem",
+};
+// 在室ヒートマップ: 平日/休日 2 枚を横並び (狭幅で折り返し)。各表は時(行)×15分(列)の濃淡セル。
+const heatmapWrapStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "1.5rem",
+  alignItems: "flex-start",
+};
+const heatmapFigureStyle: React.CSSProperties = { margin: 0 };
+const heatmapCaptionStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  color: "#374151",
+  marginBottom: "0.4rem",
+};
+const heatmapTableStyle: React.CSSProperties = {
+  borderCollapse: "collapse",
+  fontSize: "0.7rem",
+  fontVariantNumeric: "tabular-nums",
+};
+const heatmapCornerThStyle: React.CSSProperties = {
+  padding: "0.15rem 0.3rem",
+  color: "#6b7280",
+  fontWeight: 600,
+  textAlign: "right",
+};
+const heatmapColThStyle: React.CSSProperties = {
+  padding: "0.15rem 0.25rem",
+  color: "#6b7280",
+  fontWeight: 600,
+  textAlign: "center",
+  width: "2.1rem",
+};
+const heatmapRowThStyle: React.CSSProperties = {
+  padding: "0.1rem 0.3rem",
+  color: "#6b7280",
+  fontWeight: 500,
+  textAlign: "right",
+  whiteSpace: "nowrap",
+};
+const heatmapCellStyle: React.CSSProperties = {
+  padding: "0.1rem",
+  textAlign: "center",
+  color: "#064e3b",
+  border: "1px solid #f3f4f6",
+  minWidth: "2.1rem",
+  height: "1.1rem",
 };
