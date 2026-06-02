@@ -4,6 +4,7 @@ import {
   MAX_UPLOAD_BYTES,
   exceedsContentLength,
   resolveUploadType,
+  uploadErrorMessage,
 } from "../../lib/teacher-input/upload-validation";
 
 /**
@@ -71,5 +72,19 @@ describe("exceedsContentLength", () => {
     expect(exceedsContentLength(null)).toBe(false);
     expect(exceedsContentLength(undefined)).toBe(false);
     expect(exceedsContentLength("not-a-number")).toBe(false);
+  });
+});
+
+describe("uploadErrorMessage (#509 S3b)", () => {
+  it("主要ステータスを日本語メッセージに写像する", () => {
+    expect(uploadErrorMessage(413)).toContain("50MB");
+    expect(uploadErrorMessage(415)).toContain("対応していない");
+    expect(uploadErrorMessage(422)).toContain("読み取れません");
+    expect(uploadErrorMessage(401)).toContain("ログイン");
+    expect(uploadErrorMessage(403)).toContain("権限");
+    expect(uploadErrorMessage(502)).toContain("保存");
+  });
+  it("想定外ステータスは汎用文言にフォールバック", () => {
+    expect(uploadErrorMessage(500)).toBe("アップロードに失敗しました。");
   });
 });

@@ -11,6 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("@kimiterrace/db", () => ({ listTeacherInputs: vi.fn() }));
+// #509 S3b: 行に CreateDraftButton (useRouter / draft action) が入ったため mock する。
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/lib/teacher-input/draft-actions", () => ({ createDraftFromInputAction: vi.fn() }));
 
 import { listTeacherInputs } from "@kimiterrace/db";
 import TeacherInputHistoryPage from "../../app/admin/teacher-input/history/page";

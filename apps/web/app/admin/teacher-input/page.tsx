@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
 import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
+import { FileUploadForm } from "./_components/FileUploadForm";
 import { TeacherInputComposer } from "./_components/TeacherInputComposer";
 
 /**
@@ -26,6 +27,9 @@ export default async function TeacherInputPage() {
         コンテンツ草稿にします。音声は端末内で文字起こしし、サーバーには文字だけを送ります。
       </p>
       <TeacherInputComposer />
+      <div style={{ marginTop: "1.5rem" }}>
+        <FileUploadForm />
+      </div>
     </div>
   );
 }
