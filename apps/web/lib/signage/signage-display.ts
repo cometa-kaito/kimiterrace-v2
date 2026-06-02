@@ -8,6 +8,7 @@ import {
 } from "@kimiterrace/db";
 import { getDb } from "../db";
 import { type EffectiveDailyData, getEffectiveDailyData } from "./effective-daily-data";
+import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
  * 公開サイネージ表示の**データアクセス層** (#48-E / F12)。`/signage/{classToken}` の Server
@@ -53,6 +54,13 @@ export type SignagePayload = {
   date: string;
   daily: EffectiveDailyData;
   ads: EffectiveAd[];
+  /**
+   * F14 (#128, ADR-021): 自校地域の天気予報（本日以降）。**バックエンド Job が `weather_forecasts` に
+   * キャッシュした行を自社 DB から SELECT しただけ**で、端末・本経路とも JMA を直叩きしない（閉域維持、
+   * [[closed-system-security]]）。地域未解決・キャッシュ無し・取得失敗時は `null`（ウィジェット非表示 =
+   * fail-soft。天気が無くても画面の他要素は壊れない、F14 §3 / NFR02）。
+   */
+  weather: SignageWeather | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -89,6 +97,10 @@ export async function getSignageDisplayData(
       return null;
     }
     const ads = await getEffectiveAdsForClass(tx, cls.classId);
-    return { date, daily, ads } satisfies SignagePayload;
+    // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
+    // サイネージ本体 (時間割/連絡/課題/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
+    // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
+    const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
+    return { date, daily, ads, weather } satisfies SignagePayload;
   });
 }

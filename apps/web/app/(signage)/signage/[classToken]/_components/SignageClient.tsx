@@ -18,6 +18,7 @@ import {
 } from "@/lib/signage/rotation";
 import { type SignageSectionKind, formatSignageItem } from "@/lib/signage/section-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
+import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignageInvalid } from "./SignageInvalid";
 
@@ -183,6 +184,9 @@ export function SignageClient({
     <div style={rootStyle}>
       <main style={contentStyle}>
         <header style={dateHeaderStyle}>{data.date}</header>
+        {/* F14 (#128 / ADR-021): 自校地域の天気。weather=null (地域未解決/キャッシュ無し/取得失敗) なら
+            枠ごと出さない (fail-soft、画面は壊さない)。端末は外部 API を叩かず本ペイロードを読むだけ。 */}
+        {data.weather ? <WeatherWidget weather={data.weather} /> : null}
         <div style={gridStyle}>
           <Section title="時間割" kind="schedules" section={data.daily.schedules} />
           <Section title="連絡" kind="notices" section={data.daily.notices} />
@@ -255,6 +259,122 @@ function Section({
       )}
     </section>
   );
+}
+
+/**
+ * F14 (#128 / ADR-021): サイネージ天気ウィジェット。`getSignageWeather` が自社 DB から読んだ
+ * キャッシュ済み予報 (本日 + 週間先頭数日) を描画する。**端末は外部 API を叩かない** — 本コンポーネントは
+ * server で組んだ `SignageWeather` ペイロードを受け取って表示するだけ (閉域維持、[[closed-system-security]])。
+ *
+ * a11y (NFR05 / WCAG 2.2 AA): アイコンは **絵文字 glyph + 日本語ラベル併記**で色だけに依存しない
+ * (`weatherIconFor` が name/label を必ず返す weather.ts の設計に従う)。気温・降水確率も数値テキストで出す。
+ * 鮮度 (F14 §3): `isStale` のとき「最新の取得に失敗」を**色だけでなくテキストで明示**し、いずれの場合も
+ * 「○時時点」の取得時刻を併記する。空表示・黙った古値表示はしない (weather=null は呼び出し側で枠ごと非表示)。
+ */
+function WeatherWidget({ weather }: { weather: SignageWeather }) {
+  // 本日 + 週間先頭数日のみ (視認性、F14 §3「本日 + 翌日 or 週間先頭数日」)。
+  const days = weather.days.slice(0, WEATHER_MAX_DAYS);
+  const areaLabel = weather.areaName ? `天気 (${weather.areaName})` : "天気";
+  const fetchedNote = formatFetchedNote(weather.fetchedAt);
+  return (
+    <section aria-label={areaLabel} style={weatherSectionStyle}>
+      <h2 style={weatherTitleStyle}>
+        <span>{areaLabel}</span>
+        {weather.isStale ? (
+          // 色のみに頼らずテキストで鮮度劣化を明示 (NFR05)。stale でも last-known-good を出し続ける (NFR02)。
+          <span style={weatherStaleBadgeStyle}>最新の取得に失敗（古い予報を表示中）</span>
+        ) : null}
+      </h2>
+      {days.length === 0 ? (
+        // days が空でも weather!=null はありうる (将来) ため黙らず注記を出す。
+        <p style={emptyStyle}>予報データがありません</p>
+      ) : (
+        <ol style={weatherDaysStyle}>
+          {days.map((day) => (
+            <WeatherDayCard key={day.forecastDate} day={day} />
+          ))}
+        </ol>
+      )}
+      {fetchedNote ? <p style={weatherFetchedStyle}>{fetchedNote}</p> : null}
+    </section>
+  );
+}
+
+/** 天気 1 日分のカード。アイコン glyph + ラベル + 気温 + 降水確率 をテキスト併記で出す (色非依存、NFR05)。 */
+function WeatherDayCard({ day }: { day: WeatherDay }) {
+  const glyph = WEATHER_ICON_GLYPH[day.icon];
+  return (
+    <li style={weatherDayStyle}>
+      <span style={weatherDayDateStyle}>{formatDayLabel(day.forecastDate)}</span>
+      <span
+        // glyph は装飾。意味は隣の iconLabel テキストが担うので読み上げから除外する (二重読み回避)。
+        aria-hidden="true"
+        style={weatherGlyphStyle}
+      >
+        {glyph}
+      </span>
+      {/* 天気テキスト: weatherText があれば優先 (例「晴時々曇」)、無ければアイコンラベル。色に頼らない本文。 */}
+      <span style={weatherDayTextStyle}>{day.weatherText ?? day.iconLabel}</span>
+      <span style={weatherTempStyle}>{formatTemps(day.tempMax, day.tempMin)}</span>
+      <span style={weatherPopStyle}>{formatPop(day.pop)}</span>
+    </li>
+  );
+}
+
+/** 絵文字 glyph (装飾)。意味はラベルテキストが担保するため aria-hidden で出す (NFR05 色非依存)。 */
+const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
+  sunny: "☀",
+  cloudy: "☁",
+  rainy: "☂",
+  snowy: "❄",
+  thunder: "⚡",
+  unknown: "？",
+};
+
+/** 表示する天気日数の上限 (本日 + 週間先頭、視認性優先 F14 §3)。 */
+const WEATHER_MAX_DAYS = 5;
+
+/** `YYYY-MM-DD` → サイネージ向けの短い日付ラベル (例「6/2(月)」)。不正値はそのまま返す (落とさない)。 */
+function formatDayLabel(forecastDate: string): string {
+  const parts = forecastDate.split("-");
+  if (parts.length !== 3) {
+    return forecastDate;
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return forecastDate;
+  }
+  const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
+  return `${m}/${d}(${dow})`;
+}
+
+const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** 最高/最低気温のテキスト。欠損は "—" で埋め空白にしない (色非依存 + 黙らない、NFR05)。 */
+function formatTemps(tempMax: number | null, tempMin: number | null): string {
+  const hi = tempMax == null ? "—" : `${tempMax}°`;
+  const lo = tempMin == null ? "—" : `${tempMin}°`;
+  return `最高 ${hi} / 最低 ${lo}`;
+}
+
+/** 降水確率のテキスト。null は "—%"。 */
+function formatPop(pop: number | null): string {
+  return `降水 ${pop == null ? "—" : pop}%`;
+}
+
+/** 取得時刻を JST「○時時点」のテキストにする (鮮度注記、F14 §3)。null は注記なし。 */
+function formatFetchedNote(fetchedAt: SignageWeather["fetchedAt"]): string | null {
+  if (fetchedAt == null) {
+    return null;
+  }
+  const time = new Date(fetchedAt).toLocaleTimeString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${time} 時点`;
 }
 
 /** 広告の media (image/video) + caption。リンク有無で <a> でラップされるため共通部品に切り出す。 */
@@ -392,4 +512,55 @@ const badgeStyle: React.CSSProperties = {
   borderRadius: "999px",
   background: "#334155",
   color: "#e2e8f0",
+};
+
+// --- F14 天気ウィジェット (#128 / ADR-021)。Section と同系統の枠線・余白で既存サイネージ様式に揃える。 ---
+const weatherSectionStyle: React.CSSProperties = {
+  border: "1px solid #334155",
+  borderRadius: "10px",
+  padding: "0.75rem 1rem",
+  background: "rgba(255,255,255,0.03)",
+};
+const weatherTitleStyle: React.CSSProperties = {
+  fontSize: "1.2rem",
+  margin: "0 0 0.5rem",
+  display: "flex",
+  alignItems: "center",
+  flexWrap: "wrap",
+  gap: "0.5rem",
+};
+// 鮮度劣化バッジ。色 (琥珀) に加えテキストで明示し色のみ依存を避ける (NFR05)。
+const weatherStaleBadgeStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  fontWeight: 700,
+  padding: "0.1rem 0.5rem",
+  borderRadius: "999px",
+  background: "#78350f",
+  color: "#fde68a",
+};
+const weatherDaysStyle: React.CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: "0.75rem",
+};
+const weatherDayStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "0.2rem",
+  textAlign: "center",
+};
+const weatherDayDateStyle: React.CSSProperties = { fontSize: "1rem", color: "#cbd5e1" };
+const weatherGlyphStyle: React.CSSProperties = { fontSize: "2.2rem", lineHeight: 1 };
+const weatherDayTextStyle: React.CSSProperties = { fontSize: "1.1rem", fontWeight: 700 };
+const weatherTempStyle: React.CSSProperties = { fontSize: "1rem" };
+const weatherPopStyle: React.CSSProperties = { fontSize: "1rem", color: "#93c5fd" };
+const weatherFetchedStyle: React.CSSProperties = {
+  margin: "0.5rem 0 0",
+  fontSize: "0.9rem",
+  color: "#94a3b8",
+  textAlign: "right",
 };
