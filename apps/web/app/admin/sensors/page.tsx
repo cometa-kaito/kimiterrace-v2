@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
 import { maskDeviceMac, presentSensorStatus } from "@/lib/sensors/status-presentation";
+import { SENSOR_WRITE_ROLES } from "@/lib/sensors/mutations-core";
 import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/db";
 
 /**
@@ -29,8 +30,13 @@ import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/
  * 依存せず日本語ラベルで提示する（`presentSensorStatus` の label を併記、色のみに依存しない）。
  */
 export default async function SensorsPage() {
-  await requireRole(PUBLISHER_ROLES);
+  const user = await requireRole(PUBLISHER_ROLES);
   const sensors = await withSession((tx) => listSensorDeviceStatuses(tx));
+
+  // 登録/編集 (mutation) は school_admin のみ (teacher は read 専用)。link/列も role で出し分ける
+  // (#391 mutation スライス、SENSOR_WRITE_ROLES と整合。teacher に出しても Server Action が 403 で弾くが
+  // 死リンクを見せない)。
+  const canWrite = (SENSOR_WRITE_ROLES as readonly string[]).includes(user.role);
 
   const activeCount = sensors.filter((s) => s.decommissionedAt == null).length;
 
@@ -45,6 +51,11 @@ export default async function SensorsPage() {
         >
           カメラ不使用
         </span>
+        {canWrite ? (
+          <a href="/admin/sensors/new" style={registerLinkStyle}>
+            ＋ センサーを登録
+          </a>
+        ) : null}
       </div>
       <p style={subtitleStyle}>
         登録センサー {sensors.length} 台（稼働中 {activeCount} 台）。稼働状態は直近の検知時刻から
@@ -80,11 +91,16 @@ export default async function SensorsPage() {
               <th scope="col" style={thLeftStyle}>
                 稼働状態
               </th>
+              {canWrite ? (
+                <th scope="col" style={thLeftStyle}>
+                  操作
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {sensors.map((s) => (
-              <SensorRow key={s.id} sensor={s} />
+              <SensorRow key={s.id} sensor={s} canWrite={canWrite} />
             ))}
           </tbody>
         </table>
@@ -102,8 +118,8 @@ export default async function SensorsPage() {
   );
 }
 
-/** 一覧の 1 行。撤去済みは状態欄に明示する。 */
-function SensorRow({ sensor }: { sensor: SensorDeviceStatus }) {
+/** 一覧の 1 行。撤去済みは状態欄に明示する。canWrite (school_admin) のみ編集リンクを出す。 */
+function SensorRow({ sensor, canWrite }: { sensor: SensorDeviceStatus; canWrite: boolean }) {
   const presentation = presentSensorStatus(sensor.status);
   const decommissioned = sensor.decommissionedAt != null;
   return (
@@ -133,6 +149,17 @@ function SensorRow({ sensor }: { sensor: SensorDeviceStatus }) {
         </span>
         {decommissioned ? <span style={decommissionedTagStyle}>撤去済み</span> : null}
       </td>
+      {canWrite ? (
+        <td style={tdLeftStyle}>
+          <a
+            href={`/admin/sensors/${sensor.id}/edit`}
+            style={editLinkStyle}
+            aria-label={`${sensor.locationLabel ?? "未設定のセンサー"}を編集`}
+          >
+            編集
+          </a>
+        </td>
+      ) : null}
     </tr>
   );
 }
@@ -150,6 +177,21 @@ function formatJstDateTime(value: Date): string {
 }
 
 const headerStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.75rem" };
+const registerLinkStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  color: "#fff",
+  background: "#1d4ed8",
+  borderRadius: "0.4rem",
+  padding: "0.4rem 0.9rem",
+  textDecoration: "none",
+};
+const editLinkStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  color: "#1d4ed8",
+};
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
 const cameraBadgeStyle: React.CSSProperties = {
   fontSize: "0.7rem",
