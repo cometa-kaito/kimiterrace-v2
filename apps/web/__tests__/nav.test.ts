@@ -99,12 +99,13 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + フィードバック（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + フィードバック（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
       "/admin/system/users",
       "/admin/system/dashboard",
+      "/admin/system/sensors",
       "/admin/system/feedback",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
@@ -112,10 +113,20 @@ describe("navItemsForRole", () => {
 
   it("センサー管理 (/admin/sensors) は publisher (school_admin/teacher) のみに出す (F13 #391 / #486、system_admin は PUBLISHER_ROLES で 403 のため死リンク防止)", () => {
     // /admin/sensors は requireRole(PUBLISHER_ROLES=school_admin/teacher) で system_admin を 403 に
-    // するため、nav からも system_admin には出さない (死リンク防止)。全校横断ビューは後続スライス。
+    // するため、nav からも system_admin には出さない (死リンク防止)。全校横断ビューは別ルート /admin/system/sensors。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/sensors");
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/sensors");
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/sensors");
+  });
+
+  it("センサー管理（全校） (/admin/system/sensors) は system_admin 専用 (F13 全校横断、自校 /admin/sensors とは別ルート)", () => {
+    // /admin/system/sensors は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
+    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/sensors は別ルートで存続。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/system/sensors");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain(
+      "/admin/system/sensors",
+    );
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/sensors");
   });
 
   it("教職員管理 (/admin/system/users) は system_admin 専用 (F11 全校横断、自校 /admin/school/members とは別)", () => {

@@ -1,8 +1,9 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { classes } from "../schema/classes.js";
 import { events } from "../schema/events.js";
+import { schools } from "../schema/schools.js";
 import { sensorDevices } from "../schema/sensor-devices.js";
 
 /**
@@ -151,6 +152,119 @@ export async function listSensorDeviceStatuses(db: Selectable): Promise<SensorDe
 
   return rows.map((r) => ({
     id: r.id,
+    deviceMac: r.deviceMac,
+    locationLabel: r.locationLabel,
+    classId: r.classId,
+    className: r.className,
+    installedAt: r.installedAt,
+    decommissionedAt: r.decommissionedAt,
+    // postgres ドライバは timestamptz を文字列で返すため Date 化する (実 PG のみ)。NULL は維持。
+    lastDetectedAt: r.lastDetectedAt == null ? null : new Date(r.lastDetectedAt),
+    detections24h: r.detections24h,
+    status: r.status,
+  }));
+}
+
+/**
+ * F13 (#391, ADR-020): system_admin **全校横断**のセンサー状態 1 行。`listSensorDeviceStatuses`
+ * (自校版) に所属校 (`schoolId` / `schoolName`) を併せた全校版。`listAllStaff` (F11 #324) の
+ * 全校横断ディレクトリと同じ形で、どの学校のセンサーかを 1 行で識別できるようにする。
+ */
+export type AllSensorDeviceStatus = SensorDeviceStatus & {
+  /** 所属校 id (sensor_devices.school_id、notNull FK)。 */
+  schoolId: SensorDeviceRow["schoolId"];
+  /** 所属校名 (schools.name)。INNER JOIN で常に 1 校に対応する。 */
+  schoolName: string;
+};
+
+/**
+ * F13 (#391, ADR-020): **全校横断**の登録センサーを、直近検知時刻 + ヘルス状態 + **所属校名**つきで
+ * 列挙する。**SELECT のみ**。system_admin のセンサー運用面 (`/admin/system/sensors`) が消費する。
+ *
+ * `listSensorDeviceStatuses` (自校版) を変えずに併設する sibling — 自校スコープの呼び出し側
+ * (`/admin/sensors`) は所属校名を必要としない (単一校なので自明) ため射影を増やさず据え置き、
+ * 全校横断ビューだけが `INNER JOIN schools` で校名を足す (最小の追加変更、ルール6)。
+ *
+ * ## 認可 / テナント (CLAUDE.md ルール2、多層防御)
+ * `WHERE school_id` を**書かない** — 可視範囲は RLS が決める。`sensor_devices` / `schools` の
+ * `system_admin_full_access` policy により **system_admin context では全校**のセンサーが見える
+ * (ADR-019)。万一テナントロール (school_admin) の context で呼ばれても、`tenant_isolation` が
+ * **自校のみ**に絞り越境しない — RLS が最終境界。呼出側は `requireRole(SYSTEM_ADMIN_ROLES)` +
+ * `withSession` で system_admin context を張ること。`INNER JOIN schools` は `sensor_devices.school_id`
+ * (notNull FK) で常に 1 校に対応し、JOIN 先 `schools` も同 policy で system_admin に全校可視になる。
+ *
+ * ## PII 非格納 / 匿名 (ルール4 / ADR-020)
+ * 自校版と同じく個人を識別する情報は返さない。校名・設置場所ラベル・件数・検知時刻のみ。
+ *
+ * ## 並び
+ * **学校名昇順** → 稼働中 (decommissioned が NULL) を先 → 直近検知が新しい順 (未検知 = NULL は末尾)
+ * → id 昇順で決定的にする (`listAllStaff` の「学校単位で固める」と同方針、学校境界をまたがない)。
+ *
+ * @param db RLS context (system_admin) を張った非 BYPASSRLS 接続 (apps/web の `withSession` 経由)。
+ */
+export async function listAllSensorStatuses(db: Selectable): Promise<AllSensorDeviceStatus[]> {
+  // JOIN 条件・集計式は自校版と同一 (device_mac 正規形突き合わせ、DB now() 基準のヘルス判定)。
+  const eventMacNorm = sql`upper(replace(replace(${events.payload}->>'device_mac', ':', ''), '-', ''))`;
+  const deviceMacNorm = sql`upper(replace(replace(${sensorDevices.deviceMac}, ':', ''), '-', ''))`;
+  const presenceJoinOn = sql`${events.type} = 'presence' and ${eventMacNorm} = ${deviceMacNorm}`;
+
+  const lastDetectedAt = sql<Date | null>`max(${events.occurredAt})`;
+  const detections24h =
+    sql<number>`count(*) filter (where ${events.occurredAt} >= now() - make_interval(hours => ${SENSOR_HEALTHY_WINDOW_HOURS}::int))`.mapWith(
+      Number,
+    );
+  const status = sql<SensorHealthStatus>`case
+    when max(${events.occurredAt}) is null then 'never'
+    when max(${events.occurredAt}) >= now() - make_interval(hours => ${SENSOR_HEALTHY_WINDOW_HOURS}::int) then 'healthy'
+    when max(${events.occurredAt}) >= now() - make_interval(hours => ${SENSOR_QUIET_WINDOW_HOURS}::int) then 'quiet'
+    else 'dead'
+  end`;
+
+  const rows = await db
+    .select({
+      id: sensorDevices.id,
+      schoolId: sensorDevices.schoolId,
+      schoolName: schools.name,
+      deviceMac: sensorDevices.deviceMac,
+      locationLabel: sensorDevices.locationLabel,
+      classId: sensorDevices.classId,
+      className: classes.name,
+      installedAt: sensorDevices.installedAt,
+      decommissionedAt: sensorDevices.decommissionedAt,
+      lastDetectedAt,
+      detections24h,
+      status,
+    })
+    .from(sensorDevices)
+    // 所属校名 (INNER JOIN: school_id は notNull FK で常に 1 校に対応、孤児行は出ない)。
+    .innerJoin(schools, eq(sensorDevices.schoolId, schools.id))
+    // presence イベントを MAC 正規形で畳み込む (LEFT JOIN: 未検知センサーも 1 行残す)。
+    .leftJoin(events, presenceJoinOn)
+    // クラス名解決 (未紐付け / 削除済は NULL)。
+    .leftJoin(classes, eq(sensorDevices.classId, classes.id))
+    .groupBy(
+      sensorDevices.id,
+      sensorDevices.schoolId,
+      schools.name,
+      sensorDevices.deviceMac,
+      sensorDevices.locationLabel,
+      sensorDevices.classId,
+      classes.name,
+      sensorDevices.installedAt,
+      sensorDevices.decommissionedAt,
+    )
+    // 学校名昇順 → 稼働中を先 → 直近検知が新しい順 (未検知は末尾) → id 昇順 (学校単位で固める)。
+    .orderBy(
+      asc(schools.name),
+      sql`(${sensorDevices.decommissionedAt} is not null)`,
+      sql`${lastDetectedAt} desc nulls last`,
+      sensorDevices.id,
+    );
+
+  return rows.map((r) => ({
+    id: r.id,
+    schoolId: r.schoolId,
+    schoolName: r.schoolName,
     deviceMac: r.deviceMac,
     locationLabel: r.locationLabel,
     classId: r.classId,

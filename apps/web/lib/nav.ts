@@ -42,9 +42,10 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。自校ビューの
     // /admin/dashboard とは別ルート (そちらは PUBLISHER_ROLES 専用)。
     { label: "全校ダッシュボード", href: "/admin/system/dashboard" },
-    // F13 (#391): 来場検知センサーの管理/状態一覧 (/admin/sensors) は PUBLISHER_ROLES (school_admin/
-    // teacher) 専用で、system_admin の全校横断ビューは後続スライスに残す (#485/#486 と整合)。よって
-    // system_admin の nav には出さない (requireRole(PUBLISHER_ROLES) で 403 → 死リンク防止)。
+    // F13 (#391, ADR-020): 全校横断の来場検知センサー状態ビュー (system_admin 専用、cross-tenant)。
+    // 自校ビュー /admin/sensors (PUBLISHER_ROLES 専用) とは別ルート。#485/#486 が後続へ defer していた
+    // system_admin 横断ビューがこれ。requireRole(SYSTEM_ADMIN_ROLES) で publisher は 403 → 死リンク防止。
+    { label: "センサー管理（全校）", href: "/admin/system/sensors" },
     { label: "フィードバック", href: "/admin/system/feedback" },
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開 + 効果可視化。
