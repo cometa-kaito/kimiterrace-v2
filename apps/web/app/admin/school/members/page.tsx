@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { type RoleActor, canModifyTargetUser } from "@/lib/role-management/policy";
 import { MEMBER_ADMIN_ROLES } from "@/lib/role-management/roles";
 import { type TenantRole, listSchoolMembers } from "@kimiterrace/db";
+import Link from "next/link";
 import { MemberActiveToggle } from "./_components/MemberActiveToggle";
 
 /**
@@ -48,6 +49,9 @@ export default async function SchoolMembersPage() {
         <span style={countStyle}>
           稼働 {activeCount} / 全 {members.length} 名
         </span>
+        <Link href="/admin/school/members/new" style={newLinkStyle}>
+          ＋ teacher を発行
+        </Link>
       </header>
       <p style={subtitleStyle}>
         自校の教職員のロール状況です。「管理可」の行ではアカウントの無効化 /
@@ -146,6 +150,13 @@ const headerStyle: React.CSSProperties = {
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
 const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const newLinkStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  fontSize: "0.85rem",
+  color: "#1d4ed8",
+  textDecoration: "none",
+  fontWeight: 600,
+};
 const subtitleStyle: React.CSSProperties = { color: "#6b7280", margin: "0 0 1.25rem" };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = {
