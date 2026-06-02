@@ -1,8 +1,25 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { PublishScope } from "../../src/_shared/enums.js";
 import { VECTOR_DIM } from "../../src/_shared/pgvector.js";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getRelevantPublishedContent } from "../../src/queries/rag-search.js";
+import {
+  getRelevantPublishedContent,
+  STUDENT_VISIBLE_PUBLISH_SCOPES,
+} from "../../src/queries/rag-search.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
+
+/**
+ * #481: 生徒可視 scope 許可集合の構成を pin する（DB 不要・常時実行）。
+ * `private` を必ず除外し、`school`/`class`/`homeroom` を網羅することを保証する。
+ * これにより rag-search の `inArray` フィルタが正しい集合で動くことを安価に固定し、
+ * 実 PG テストの private 除外証明（下記）と合わせて非空虚にする。
+ */
+describe("#481 STUDENT_VISIBLE_PUBLISH_SCOPES の構成", () => {
+  it("private を含まず school/class/homeroom を網羅する", () => {
+    expect([...STUDENT_VISIBLE_PUBLISH_SCOPES].sort()).toEqual(["class", "homeroom", "school"]);
+    expect(STUDENT_VISIBLE_PUBLISH_SCOPES).not.toContain("private");
+  });
+});
 
 /**
  * F06 (#364, ADR-028): RAG 検索 getRelevantPublishedContent を実 PG (RLS 込み) で検証する。
@@ -41,6 +58,7 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
   let unpub: { contentId: string; versionId: string };
   let nullEmb: { contentId: string; versionId: string };
   let bDoc: { contentId: string; versionId: string };
+  let priv: { contentId: string; versionId: string };
 
   const ctxA = () => ({ schoolId: fx.schoolA, role: "student" as const });
   const ctxB = () => ({ schoolId: fx.schoolB, role: "student" as const });
@@ -52,11 +70,14 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
     title: string;
     embedding: number[] | null;
     publish: "active" | "unpublished" | "none";
+    /** publish_scope（既定 'school'）。#481 の private 除外検証で 'private' を投入する。 */
+    scope?: PublishScope;
   }): Promise<{ contentId: string; versionId: string }> {
     const status = opts.publish === "active" ? "published" : "draft";
+    const scope = opts.scope ?? "school";
     const [c] = await raw<{ id: string }[]>`
       INSERT INTO contents (school_id, title, body, publish_scope, status, created_by)
-      VALUES (${opts.school}, ${opts.title}, '本文', 'school', ${status}, ${opts.user})
+      VALUES (${opts.school}, ${opts.title}, '本文', ${scope}, ${status}, ${opts.user})
       RETURNING id
     `;
     let versionId: string;
@@ -137,6 +158,17 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
       embedding: vec({ 0: 1 }),
       publish: "active",
     });
+    // #481: A 校で公開中・query に最も近い embedding を持つが publish_scope='private'。
+    // 生徒 grounding から除外されるべき（除外しないと near より上位に来て既存の順序断言も壊れる
+    // = 既存テストが本フィルタの非空虚ガードを兼ねる）。
+    priv = await seedDoc({
+      school: fx.schoolA,
+      user: fx.userA,
+      title: "private-doc",
+      embedding: vec({ 0: 1, 1: 0.3 }),
+      publish: "active",
+      scope: "private",
+    });
   });
 
   beforeEach(async () => {
@@ -178,6 +210,20 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
       APP,
     );
     expect(res.map((r) => r.contentId)).toEqual([near.contentId, mid.contentId]);
+  });
+
+  it("#481 生徒可視 scope: private(公開中+最近傍 embedding) を grounding から除外する", async () => {
+    const res = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getRelevantPublishedContent(tx, query, { limit: 10 }),
+      APP,
+    );
+    const ids = res.map((r) => r.contentId);
+    // private は active publish かつ query に最も近い embedding を持つが scope で除外される。
+    expect(ids).not.toContain(priv.contentId);
+    // 生徒可視 scope(school) の near は引き続き含まれる（除外が過剰でないこと）。
+    expect(ids).toContain(near.contentId);
   });
 
   it("テナント分離: A からは B の公開中コンテンツが見えない", async () => {

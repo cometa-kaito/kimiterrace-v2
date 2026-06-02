@@ -1,5 +1,6 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { PublishScope } from "../_shared/enums.js";
 import { VECTOR_DIM } from "../_shared/pgvector.js";
 import { contentVersions } from "../schema/content-versions.js";
 import { contents } from "../schema/contents.js";
@@ -17,6 +18,12 @@ import { publishes } from "../schema/publishes.js";
  *   deny-by-default で 0 件。本関数は `withTenantContext` を張った接続/tx で呼ぶこと。
  * - **公開中のみ**: active publish が無い (下書き / unpublish 済) version は inner join で除外。
  *   下書き・revoke 済掲示物が RAG コンテキストに漏れない (student-qa シーケンス図)。
+ * - **生徒可視 scope のみ (#481)**: `contents.publish_scope` を {@link STUDENT_VISIBLE_PUBLISH_SCOPES}
+ *   (`school`/`class`/`homeroom`) に絞り、`private` を grounding から除外する。直接取得 provider
+ *   (apps/web `context-provider.ts` の `STUDENT_VISIBLE_SCOPES`) と**同一の生徒可視判定**にし、2 経路で
+ *   private の扱いが乖離しないようにする。`class`/`homeroom` の **classId 厳密一致は未対応**
+ *   (`publishes` が school 単位、`contents.targets` jsonb での解決は cross-cutting follow-up #481-2)。
+ *   両 grounding 経路ともに本スライスでは scope 種別での絞り込みに留める。
  * - **PII (ルール4)**: embedding は **マスキング後テキスト** から生成済み (ADR-007、S2)。本関数は
  *   件数とタイトル・参照 id のみを返し、生 PII は読み出さない。Gemini へ渡す本文の取得とマスキングは
  *   呼び出し側 (S5/S6) の責務。
@@ -42,6 +49,19 @@ export type RagMatch = {
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 20;
+
+/**
+ * 生徒 grounding に載せてよい publish scope (#481)。`private` は生徒向け broadcast でないため除外する
+ * (CLAUDE.md「迷ったら安全側」/ ルール4)。直接取得 provider (apps/web `context-provider.ts` の
+ * `STUDENT_VISIBLE_SCOPES`) と**同一集合**にして 2 経路の生徒可視判定を揃える単一ソース。
+ * `satisfies readonly PublishScope[]` で enum (`["school","class","homeroom","private"]`) とのズレを
+ * コンパイル時に検出する (ルール3、`private` を足し忘れ/綴り誤りで素通りするのを防ぐ)。
+ */
+export const STUDENT_VISIBLE_PUBLISH_SCOPES = [
+  "school",
+  "class",
+  "homeroom",
+] as const satisfies readonly PublishScope[];
 
 /**
  * number[] を pgvector リテラル `[a,b,...]` にする。次元不一致・非有限値は `RangeError`。
@@ -94,8 +114,14 @@ export async function getRelevantPublishedContent(
       and(eq(publishes.versionId, contentVersions.id), isNull(publishes.unpublishedAt)),
     )
     .innerJoin(contents, eq(contents.id, contentVersions.contentId))
-    // embedding 未生成 (S2 バッチ未処理) の version は検索対象外。
-    .where(sql`${contentVersions.embedding} is not null`)
+    .where(
+      and(
+        // embedding 未生成 (S2 バッチ未処理) の version は検索対象外。
+        sql`${contentVersions.embedding} is not null`,
+        // 生徒可視 scope のみ (#481): private を grounding から除外。直接取得 provider と同一判定。
+        inArray(contents.publishScope, STUDENT_VISIBLE_PUBLISH_SCOPES),
+      ),
+    )
     // 近い順 (距離昇順 = ASC が SQL 既定)。距離同値でも決定的にするため version_id を二次キーにする。
     .orderBy(sql`${contentVersions.embedding} <=> ${literal}::vector`, asc(contentVersions.id))
     .limit(limit);
