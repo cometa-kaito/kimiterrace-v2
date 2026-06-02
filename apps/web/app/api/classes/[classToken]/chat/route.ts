@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { hashToken } from "@/lib/magic-link/token";
 import { executeChat } from "@/lib/student-qa/chat-service";
-import { createPublishedContentProvider } from "@/lib/student-qa/context-provider";
-import { createVertexChatStreamClient } from "@kimiterrace/ai";
+import { createRagContentProvider } from "@/lib/student-qa/context-provider";
+import { createVertexChatStreamClient, createVertexEmbeddingClient } from "@kimiterrace/ai";
 import { resolveMagicLink, withTenantContext } from "@kimiterrace/db";
 
 /**
@@ -11,8 +11,9 @@ import { resolveMagicLink, withTenantContext } from "@kimiterrace/db";
  *
  * 生徒（匿名・クラス magic_link）の質問 1 件を受け、自校の公開掲示物を grounding に Vertex Gemini で
  * 回答を SSE (`text/event-stream`) で逐次返す。オーケストレーション本体は {@link executeChat}
- * (chat-service.ts)、grounding は {@link createPublishedContentProvider} (#480)、ストリーミングは
- * {@link createVertexChatStreamClient} (packages/ai, #478) に委譲し、本 route は **HTTP/SSE 配線**に徹する。
+ * (chat-service.ts)、grounding は {@link createRagContentProvider} (#369: マスク済み質問のベクトル類似
+ * 検索、0 件時は最近の公開掲示物にフォールバック)、ストリーミングは {@link createVertexChatStreamClient}
+ * (packages/ai, #478) に委譲し、本 route は **HTTP/SSE 配線**に徹する。
  *
  * ## 設計（#373 の設計論点に対する決定、CLAUDE.md ルール2/4/5）
  * - **トークン解決 → 410**: `resolveMagicLink` (SECURITY DEFINER, RLS 文脈不要) で {schoolId, classId,
@@ -37,14 +38,28 @@ const QA_COOKIE = "kt_qa_cid";
 /** cookie の有効期間 (秒)。端末識別子なので長め (1 年)。 */
 const QA_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
+/** Vertex クライアントの env (project / location)。construct は lazy = 認証/通信なし (ルール5)。 */
+function vertexEnv(): { project: string; location: string } {
+  return {
+    project: process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "",
+    location: process.env.VERTEX_LOCATION ?? "asia-northeast1",
+  };
+}
+
 let memoStreamClient: ReturnType<typeof createVertexChatStreamClient> | null = null;
-/** Vertex ストリームクライアントを env から遅延生成 (construct は lazy = 認証/通信なし、ルール5)。 */
+/** Vertex ストリームクライアントを env から遅延生成。 */
 function getChatStreamClient(): ReturnType<typeof createVertexChatStreamClient> {
   if (memoStreamClient) return memoStreamClient;
-  const project = process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
-  const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
-  memoStreamClient = createVertexChatStreamClient({ project, location });
+  memoStreamClient = createVertexChatStreamClient(vertexEnv());
   return memoStreamClient;
+}
+
+let memoEmbeddingClient: ReturnType<typeof createVertexEmbeddingClient> | null = null;
+/** Vertex embedding クライアントを env から遅延生成 (RAG: マスク済み質問→ベクトル、ADR-007)。 */
+function getEmbeddingClient(): ReturnType<typeof createVertexEmbeddingClient> {
+  if (memoEmbeddingClient) return memoEmbeddingClient;
+  memoEmbeddingClient = createVertexEmbeddingClient(vertexEnv());
+  return memoEmbeddingClient;
 }
 
 /** Cookie ヘッダから 1 つの値を取り出す。無ければ null。 */
@@ -104,7 +119,7 @@ export async function POST(
   }
 
   // 4) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
-  const contextProvider = createPublishedContentProvider();
+  const contextProvider = createRagContentProvider({ embeddingClient: getEmbeddingClient() });
   const modelClient = getChatStreamClient();
   const encoder = new TextEncoder();
 

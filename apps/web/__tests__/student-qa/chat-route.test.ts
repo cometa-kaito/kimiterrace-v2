@@ -13,9 +13,11 @@ vi.mock("@/lib/magic-link/token", () => ({ hashToken: vi.fn((t: string) => `h:${
 vi.mock("@/lib/student-qa/chat-service", () => ({ executeChat: vi.fn() }));
 vi.mock("@/lib/student-qa/context-provider", () => ({
   createPublishedContentProvider: vi.fn(() => async () => []),
+  createRagContentProvider: vi.fn(() => async () => []),
 }));
 vi.mock("@kimiterrace/ai", () => ({
   createVertexChatStreamClient: vi.fn(() => ({ stream: vi.fn() })),
+  createVertexEmbeddingClient: vi.fn(() => ({ embed: vi.fn(async () => []) })),
 }));
 
 import { resolveMagicLink } from "@kimiterrace/db";
