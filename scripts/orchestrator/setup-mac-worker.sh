@@ -35,7 +35,10 @@ fetch_and_run() {
   [[ -s "$tmp" ]] || { rm -f "$tmp"; err "downloaded installer is empty: $desc"; }
   if [[ -n "$expected_sha" ]]; then
     local actual
-    actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+    if ! actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"; then
+      rm -f "$tmp"
+      err "checksum computation failed for $desc"
+    fi
     if [[ "$actual" != "$expected_sha" ]]; then
       rm -f "$tmp"
       err "checksum mismatch for $desc: expected $expected_sha, got $actual"
