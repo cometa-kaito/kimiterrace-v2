@@ -26,7 +26,13 @@ import { MFA_REQUIRED_ROLES } from "./policy";
  * ## PII を監査に残さない (ルール4)
  * `MultiFactorInfo` は SMS factor の場合 `phoneNumber` を含みうる。本 Action は監査に **factor の件数のみ**を
  * 書き (`mfa-admin.ts` が件数へ縮約済み)、電話番号・factor uid・displayName 等は一切 `audit_log` に
- * 入れない。`record_id` も MFA factor を指さず **自分の users 行 id** にする (factor 識別子の漏洩回避)。
+ * 入れない。`record_id` も MFA factor を指さず **自分の所属表の行 id** にする (factor 識別子の漏洩回避)。
+ *
+ * ## 監査の対象表は actor の所属表で解決する (#544 Reviewer Low-1)
+ * actor は `teacher`/`school_admin` なら `users` 行、`system_admin` なら **`system_admins` 行** (テナント外、
+ * ADR-019: system_admin の単一の真実の源)。両者は別表なので `table_name`/`record_id` を一律 `users` に固定すると
+ * system_admin の MFA 操作が `users` に存在しない id を指し**監査の意味的整合が崩れる** (record_id は FK 無し
+ * nullable ゆえ実行時エラーにはならないが追跡不能になる)。`actor.role` で所属表を解決し `table_name` を出し分ける。
  *
  * ## 認可 / 越境
  * `requireRole(MFA_REQUIRED_ROLES)` で teacher 以上に限定 (生徒/保護者は対象外)。**actor = target = 自分**
@@ -57,8 +63,17 @@ export async function recordMfaEnrollmentAudit(raw: {
 }
 
 /**
+ * actor の所属表を返す (#544 Reviewer Low-1)。`system_admin` は `system_admins`、それ以外 (teacher /
+ * school_admin) は `users`。MFA 監査の `record_id` (= 自分の id) がどの表の行を指すかを正しく出すため。
+ */
+function homeTableForActor(actor: AuthUser): "users" | "system_admins" {
+  return actor.role === "system_admin" ? "system_admins" : "users";
+}
+
+/**
  * MFA enrollment / unenrollment を `audit_log` に追記する (ルール1 / NFR04)。prev_hash / row_hash は
- * BEFORE INSERT トリガが計算。actor = 自分、`record_id` = 自分の users 行 (factor 識別子は出さない)。
+ * BEFORE INSERT トリガが計算。actor = 自分、`record_id` = **自分の所属表 (users / system_admins) の行**
+ * (factor 識別子は出さない)。所属表は `actor.role` で解決する (#544 Reviewer Low-1)。
  *
  * **PII を残さない (ルール4)**: `diff` は **件数と操作種別のみ**。電話番号・factor uid・QR/secret は
  * 一切含めない (件数縮約は `getEnrolledMfaFactorCount` 側で済んでいる)。
@@ -73,8 +88,10 @@ async function writeMfaEnrollmentAudit(
     actorUserId: actor.uid,
     // 自テナント操作。system_admin は school を持たない (null) ので user.schoolId をそのまま使う。
     schoolId: actor.schoolId,
-    tableName: "users",
-    // factor を指さず自分の users 行を対象にする (factor uid/電話番号の漏洩回避、ルール4)。
+    // actor の所属表 (system_admin→system_admins / それ以外→users) を指す。users 固定だと
+    // system_admin の操作が存在しない users 行を指し監査が崩れる (#544 Reviewer Low-1)。
+    tableName: homeTableForActor(actor),
+    // factor を指さず自分の所属表の行を対象にする (factor uid/電話番号の漏洩回避、ルール4)。
     recordId: actor.uid,
     operation: "update",
     // PII を残さない: 操作種別と件数のみ (電話番号・factor 識別子は含めない)。

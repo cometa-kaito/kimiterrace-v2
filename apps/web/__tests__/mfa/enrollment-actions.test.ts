@@ -126,6 +126,30 @@ describe("recordMfaEnrollmentAudit (#47 ADR-031)", () => {
     expect(auditValues).toMatchObject({ actorUserId: SA_UID, schoolId: null });
   });
 
+  it("監査 table_name は actor の所属表で解決 — system_admin は system_admins / record_id=自分 (#544 Reviewer Low-1)", async () => {
+    requireRoleMock.mockResolvedValue(systemAdmin);
+    factorCountMock.mockResolvedValue(1);
+    await recordMfaEnrollmentAudit({ op: "enroll" });
+    // users 固定だと system_admin の操作が存在しない users 行を指す。所属表 system_admins を指すこと。
+    expect(auditValues).toMatchObject({ tableName: "system_admins", recordId: SA_UID });
+  });
+
+  it("監査 table_name は teacher/school_admin なら users (所属表解決の対照、#544 Reviewer Low-1)", async () => {
+    // teacher (既定 mock) は users 所属。
+    await recordMfaEnrollmentAudit({ op: "enroll" });
+    expect(auditValues).toMatchObject({ tableName: "users", recordId: TEACHER_UID });
+
+    // school_admin も users 所属 (system_admin 以外は users)。
+    auditValues = null;
+    requireRoleMock.mockResolvedValue({
+      uid: TEACHER_UID,
+      role: "school_admin",
+      schoolId: SCHOOL_ID,
+    });
+    await recordMfaEnrollmentAudit({ op: "enroll" });
+    expect(auditValues).toMatchObject({ tableName: "users", recordId: TEACHER_UID });
+  });
+
   it("withUserSession に解決済み user (自分) を渡す — 自分の context でのみ監査を書く", async () => {
     await recordMfaEnrollmentAudit({ op: "enroll" });
     expect(withUserSessionMock).toHaveBeenCalledTimes(1);
