@@ -5,7 +5,12 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { type AdvertiserCreateInput, validateAdvertiserCreate } from "./advertisers-core";
+import {
+  type AdvertiserCreateInput,
+  type AdvertiserStatus,
+  isActiveForStatus,
+  validateAdvertiserCreate,
+} from "./advertisers-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, invalid, isUuid, notFound } from "./schools-core";
 
@@ -34,6 +39,7 @@ export async function createAdvertiserAction(raw: {
   contactPhone?: unknown;
   address?: unknown;
   notes?: unknown;
+  status?: unknown;
 }): Promise<ActionResult<{ id: string }>> {
   const v = validateAdvertiserCreate(raw);
   if (!v.ok) {
@@ -53,6 +59,9 @@ export async function createAdvertiserAction(raw: {
         contactPhone: v.value.contactPhone,
         address: v.value.address,
         notes: v.value.notes,
+        status: v.value.status,
+        // 不変条件 (PR #534): is_active は status から導出する (paused ⟺ false)。
+        isActive: isActiveForStatus(v.value.status),
         // system_admin は users 行ではないため監査カラムの actor は NULL (FK は users(id))。
         createdBy: isSystemAdmin ? null : user.uid,
         updatedBy: isSystemAdmin ? null : user.uid,
@@ -115,6 +124,7 @@ export async function updateAdvertiserAction(
     contactPhone?: unknown;
     address?: unknown;
     notes?: unknown;
+    status?: unknown;
   },
 ): Promise<ActionResult<{ id: string }>> {
   if (!isUuid(id)) {
@@ -140,6 +150,7 @@ export async function updateAdvertiserAction(
           contactPhone: advertisers.contactPhone,
           address: advertisers.address,
           notes: advertisers.notes,
+          status: advertisers.status,
         })
         .from(advertisers)
         .where(eq(advertisers.id, advertiserId))
@@ -156,6 +167,9 @@ export async function updateAdvertiserAction(
           contactPhone: v.value.contactPhone,
           address: v.value.address,
           notes: v.value.notes,
+          status: v.value.status,
+          // 不変条件 (PR #534): is_active は status から導出して整合させる (paused ⟺ false)。
+          isActive: isActiveForStatus(v.value.status),
           // updated_at は auditColumns では INSERT 時のみ default のため UPDATE では明示更新する
           // (sibling UPDATE と同方針、ルール1: 監査カラム整合)。
           updatedBy: isSystemAdmin ? null : user.uid,
@@ -227,19 +241,27 @@ export async function setAdvertiserActiveAction(raw: {
   await requireRole(SYSTEM_ADMIN_ROLES);
 
   try {
+    // 不変条件 (PR #534): 停止 = status:'paused' / 再開 = status:'active' を同時に set し、is_active と
+    // status のズレを防ぐ。再開時に元が 'prospect' だったかは区別せず 'active' に倒す (稼働=契約中扱い)。
+    const status: AdvertiserStatus = isActive ? "active" : "paused";
     const data = await withSession(async (tx: TenantTx, user) => {
       const isSystemAdmin = user.role === "system_admin";
       const updated = await tx
         .update(advertisers)
         // updated_at は auditColumns では INSERT 時のみ default のため UPDATE では明示更新する
         // (sibling の schools/magic-links/contents の UPDATE と同方針、ルール1: 監査カラム整合)。
-        .set({ isActive, updatedBy: isSystemAdmin ? null : user.uid, updatedAt: new Date() })
+        .set({
+          isActive,
+          status,
+          updatedBy: isSystemAdmin ? null : user.uid,
+          updatedAt: new Date(),
+        })
         .where(eq(advertisers.id, id))
         .returning({ id: advertisers.id });
       if (updated.length === 0) {
         throw new AdvertiserNotFoundError();
       }
-      await writeAdvertiserActiveAudit(tx, user, id, isActive);
+      await writeAdvertiserActiveAudit(tx, user, id, isActive, status);
       return { id, isActive };
     });
     revalidatePath("/admin/system/advertisers");
@@ -252,12 +274,13 @@ export async function setAdvertiserActiveAction(raw: {
   }
 }
 
-/** 稼働状態変更を audit_log に追記 (operation=update、diff は変更後の is_active のみ)。 */
+/** 稼働状態変更を audit_log に追記 (operation=update、diff は変更後の is_active + 連動 status)。 */
 async function writeAdvertiserActiveAudit(
   tx: TenantTx,
   user: { uid: string; role: string },
   advertiserId: string,
   isActive: boolean,
+  status: AdvertiserStatus,
 ): Promise<void> {
   const isSystemAdmin = user.role === "system_admin";
   await tx.insert(auditLog).values({
@@ -266,7 +289,7 @@ async function writeAdvertiserActiveAudit(
     tableName: "advertisers",
     recordId: advertiserId,
     operation: "update",
-    diff: { after: { isActive } },
+    diff: { after: { isActive, status } },
     rowHash: "",
     createdBy: isSystemAdmin ? null : user.uid,
     updatedBy: isSystemAdmin ? null : user.uid,

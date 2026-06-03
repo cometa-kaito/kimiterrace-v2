@@ -31,6 +31,7 @@ const BEFORE_ROW = {
   contactPhone: "000",
   address: "旧住所",
   notes: "旧備考",
+  status: "prospect" as const,
 };
 
 const VALID_INPUT = {
@@ -40,6 +41,7 @@ const VALID_INPUT = {
   contactPhone: "111",
   address: "新住所",
   notes: "新備考",
+  status: "active" as const,
 };
 
 let updateSet: Record<string, unknown> | null;
@@ -111,7 +113,7 @@ describe("updateAdvertiserAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("成功時: 全 6 フィールド + updated_at を更新し、updatedBy は system_admin で NULL", async () => {
+  it("成功時: 全フィールド + status + 導出 is_active + updated_at を更新し、updatedBy は NULL", async () => {
     const res = await updateAdvertiserAction(ADV_ID, VALID_INPUT);
     expect(res).toEqual({ ok: true, data: { id: ADV_ID } });
     expect(updateSet).toMatchObject({
@@ -121,9 +123,23 @@ describe("updateAdvertiserAction", () => {
       contactPhone: "111",
       address: "新住所",
       notes: "新備考",
+      // status=active なので is_active は導出で true (不変条件)。
+      status: "active",
+      isActive: true,
       updatedBy: null,
     });
     expect(updateSet?.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("status=paused に編集すると is_active=false に導出される (不変条件)", async () => {
+    await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, status: "paused" });
+    expect(updateSet).toMatchObject({ status: "paused", isActive: false });
+  });
+
+  it("不正な status は invalid で DB に到達しない", async () => {
+    const res = await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, status: "bogus" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
   });
 
   it("監査: operation=update / diff は before+after / cross-tenant ゆえ school_id・actor は NULL", async () => {

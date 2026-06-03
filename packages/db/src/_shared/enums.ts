@@ -124,6 +124,24 @@ export const teacherInputStatus = pgEnum("teacher_input_status", [
 export const auditOp = pgEnum("audit_op", ["insert", "update", "delete"]);
 
 // CRM 系
+// F10 (#46, PR #534): 広告主 (advertisers) の営業ステータス。is_active boolean (論理削除) の上位概念で、
+// 仕様 (F10 受け入れ条件) の 3 状態を DB レベルで固定する (ルール3: 値域の単一ソース化)。
+//   prospect … 見込み (提案・商談中。未契約)
+//   active   … 契約中 (稼働中の出稿あり)
+//   paused   … 休止 (一時停止・解約済み等で配信対象外。is_active=false と等価)
+// **不変条件**: status='paused' ⟺ is_active=false / status∈{prospect,active} ⟺ is_active=true。
+// is_active は当面残し (toggle / 並び / 既存テストの blast radius を抑えるため)、両者を整合させる
+// (drop は別フォローアップ)。将来値を足すなら末尾追加 (ALTER TYPE ADD VALUE、非破壊)。
+export const advertiserStatus = pgEnum("advertiser_status", ["prospect", "active", "paused"]);
+
+/**
+ * 広告主ステータスの型 (単一ソース)。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema`
+ * から `import type` でこれを引き込み、許可値配列・ラベルが enum とズレないことを
+ * `satisfies` でコンパイル時に強制する (`PublishScope` / `TvCommandType` と同方針)。型のみなので
+ * Next バンドルに enum のランタイム値 (= postgres を引き込む barrel) を持ち込まない。
+ */
+export type AdvertiserStatus = (typeof advertiserStatus.enumValues)[number];
+
 export const contractStatus = pgEnum("contract_status", [
   "draft",
   "active",

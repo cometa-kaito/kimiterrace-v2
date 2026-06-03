@@ -1,6 +1,10 @@
 import { requireRole } from "@/lib/auth/guard";
-import { withSession } from "@/lib/db";
+import {
+  ADVERTISER_STATUS_LABEL,
+  type AdvertiserStatus,
+} from "@/lib/system-admin/advertisers-core";
 import { listAdvertisers } from "@/lib/system-admin/advertisers-queries";
+import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import Link from "next/link";
 import { AdvertiserActiveToggle } from "./_components/AdvertiserActiveToggle";
@@ -58,7 +62,7 @@ export default async function SystemAdvertisersPage() {
                 <td style={tdStyle}>{a.contactEmail ?? "—"}</td>
                 <td style={tdStyle}>
                   <span style={statusCellStyle}>
-                    <StatusBadge isActive={a.isActive} />
+                    <StatusBadge status={a.status} />
                     <AdvertiserActiveToggle
                       advertiserId={a.id}
                       isActive={a.isActive}
@@ -81,13 +85,12 @@ export default async function SystemAdvertisersPage() {
   );
 }
 
-/** 稼働中 / 停止 (論理削除) のステータスバッジ。 */
-function StatusBadge({ isActive }: { isActive: boolean }) {
-  return (
-    <span style={isActive ? activeBadgeStyle : inactiveBadgeStyle}>
-      {isActive ? "稼働中" : "停止"}
-    </span>
-  );
+/**
+ * 営業ステータス (見込/契約中/休止) のバッジ。NFR05 (色のみに依存しない) のため、色に加えて必ず
+ * 日本語ラベルを併記する。ラベルは `ADVERTISER_STATUS_LABEL` を単一ソースに使う (enum とズレない)。
+ */
+function StatusBadge({ status }: { status: AdvertiserStatus }) {
+  return <span style={statusBadgeStyle[status]}>{ADVERTISER_STATUS_LABEL[status]}</span>;
 }
 
 /** createdAt を JST の YYYY/MM/DD で表示する (サーバー描画、ロケール非依存に固定)。 */
@@ -145,17 +148,14 @@ const statusCellStyle: React.CSSProperties = {
   alignItems: "center",
   gap: "0.6rem",
 };
-const activeBadgeStyle: React.CSSProperties = {
+const badgeBaseStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   padding: "0.1rem 0.5rem",
   borderRadius: "999px",
-  background: "#dcfce7",
-  color: "#166534",
 };
-const inactiveBadgeStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  padding: "0.1rem 0.5rem",
-  borderRadius: "999px",
-  background: "#f3f4f6",
-  color: "#6b7280",
+/** ステータスごとのバッジ配色。色のみに依存しないよう必ずラベルと併記する (NFR05)。 */
+const statusBadgeStyle: Record<AdvertiserStatus, React.CSSProperties> = {
+  prospect: { ...badgeBaseStyle, background: "#fef9c3", color: "#854d0e" },
+  active: { ...badgeBaseStyle, background: "#dcfce7", color: "#166534" },
+  paused: { ...badgeBaseStyle, background: "#f3f4f6", color: "#6b7280" },
 };

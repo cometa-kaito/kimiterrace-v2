@@ -87,10 +87,11 @@ describe("setAdvertiserActiveAction", () => {
     expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 
-  it("正常系: is_active を更新し、監査 operation=update / school_id・actor NULL を残す", async () => {
+  it("停止: is_active=false + status=paused を同時 set し、監査に両方を残す (不変条件)", async () => {
     const res = await setAdvertiserActiveAction({ id: ADV_ID, isActive: false });
     expect(res).toEqual({ ok: true, data: { id: ADV_ID, isActive: false } });
-    expect(updateSet).toMatchObject({ isActive: false, updatedBy: null });
+    // 停止は is_active=false かつ status=paused を同時に set してズレを防ぐ (PR #534)。
+    expect(updateSet).toMatchObject({ isActive: false, status: "paused", updatedBy: null });
     // updated_at を明示更新する (auditColumns は UPDATE で自動更新しないため、ルール1)。
     expect(updateSet?.updatedAt).toBeInstanceOf(Date);
     expect(auditValues).toMatchObject({
@@ -100,7 +101,17 @@ describe("setAdvertiserActiveAction", () => {
       recordId: ADV_ID,
       operation: "update",
     });
-    expect((auditValues?.diff as { after?: { isActive?: boolean } })?.after?.isActive).toBe(false);
+    const after = (auditValues?.diff as { after?: { isActive?: boolean; status?: string } })?.after;
+    expect(after?.isActive).toBe(false);
+    expect(after?.status).toBe("paused");
     expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/advertisers");
+  });
+
+  it("再開: is_active=true + status=active を同時 set する (不変条件)", async () => {
+    const res = await setAdvertiserActiveAction({ id: ADV_ID, isActive: true });
+    expect(res).toEqual({ ok: true, data: { id: ADV_ID, isActive: true } });
+    expect(updateSet).toMatchObject({ isActive: true, status: "active" });
+    const after = (auditValues?.diff as { after?: { status?: string } })?.after;
+    expect(after?.status).toBe("active");
   });
 });

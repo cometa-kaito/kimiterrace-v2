@@ -1,6 +1,11 @@
 "use client";
 
 import { createAdvertiserAction } from "@/lib/system-admin/advertisers-actions";
+import {
+  ADVERTISER_STATUS_DESCRIPTION,
+  ADVERTISER_STATUS_LABEL,
+  ADVERTISER_STATUS_ORDER,
+} from "@/lib/system-admin/advertisers-core";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
@@ -26,6 +31,7 @@ export function AdvertiserCreateForm() {
         contactPhone: fd.get("contactPhone"),
         address: fd.get("address"),
         notes: fd.get("notes"),
+        status: fd.get("status"),
       });
       if (res.ok) {
         router.push("/admin/system/advertisers");
@@ -43,6 +49,17 @@ export function AdvertiserCreateForm() {
       <label style={labelStyle}>
         会社名（必須）
         <input name="companyName" required maxLength={200} style={inputStyle} />
+      </label>
+
+      <label style={labelStyle}>
+        ステータス
+        <select name="status" defaultValue="prospect" style={inputStyle}>
+          {ADVERTISER_STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {ADVERTISER_STATUS_LABEL[s]}（{ADVERTISER_STATUS_DESCRIPTION[s]}）
+            </option>
+          ))}
+        </select>
       </label>
 
       <label style={labelStyle}>

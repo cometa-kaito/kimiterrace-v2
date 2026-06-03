@@ -15,18 +15,24 @@ import { type InferSelectModel, asc, desc, eq } from "drizzle-orm";
  */
 
 /**
- * 一覧 1 行の軽量射影。識別 + ステータス + 主担当連絡先に絞る (住所・電話・備考は詳細ビューに回す)。
- * いずれも営業上のビジネス情報で生徒 PII ではない (ルール4 の対象外)。
+ * 一覧 1 行の軽量射影。識別 + 営業ステータス + 稼働フラグ + 主担当連絡先に絞る (住所・電話・備考は
+ * 詳細ビューに回す)。いずれも営業上のビジネス情報で生徒 PII ではない (ルール4 の対象外)。
+ *
+ * `status` (見込/契約中/休止) と `isActive` は不変条件 (`status='paused' ⟺ is_active=false`) で連動する
+ * が、両方を射影してバッジ表示 (status) と並び (isActive) の双方に使う。型は advertisers スキーマ由来
+ * (`InferSelectModel`) で単一ソースを維持する (ルール3)。
  */
 export type AdvertiserSummary = Pick<
   InferSelectModel<typeof advertisers>,
-  "id" | "companyName" | "industry" | "contactEmail" | "isActive" | "createdAt"
+  "id" | "companyName" | "industry" | "contactEmail" | "status" | "isActive" | "createdAt"
 >;
 
 /**
  * 広告主一覧を返す。並びは**稼働中 (is_active) を先頭**に、会社名昇順
- * (`ix_advertisers_company_name` を利用)。論理削除済 (is_active=false) も末尾に残し、過去契約の
- * トレース用に閲覧できるようにする (物理 DELETE しない方針、advertisers schema doc)。
+ * (`ix_advertisers_company_name` を利用)。休止 (status='paused' ⟺ is_active=false) も末尾に残し、
+ * 過去契約のトレース用に閲覧できるようにする (物理 DELETE しない方針、advertisers schema doc)。
+ * status は不変条件で is_active と連動するため、並びは従来どおり is_active を主キーに保つ
+ * (active/prospect が先頭・paused が末尾)。
  */
 export async function listAdvertisers(tx: TenantTx): Promise<AdvertiserSummary[]> {
   return await tx
@@ -35,6 +41,7 @@ export async function listAdvertisers(tx: TenantTx): Promise<AdvertiserSummary[]
       companyName: advertisers.companyName,
       industry: advertisers.industry,
       contactEmail: advertisers.contactEmail,
+      status: advertisers.status,
       isActive: advertisers.isActive,
       createdAt: advertisers.createdAt,
     })
@@ -43,13 +50,21 @@ export async function listAdvertisers(tx: TenantTx): Promise<AdvertiserSummary[]
 }
 
 /**
- * 編集フォームの初期値に使う**編集可能フィールドの全射影** (id + 6 フィールド)。一覧の軽量射影
- * (`AdvertiserSummary`) と違い、住所・電話・備考も含む。is_active は別アクション (稼働トグル) の
- * 管轄なので含めない。生徒 PII ではなく営業上のビジネス情報 (ルール4 の対象外)。
+ * 編集フォームの初期値に使う**編集可能フィールドの全射影** (id + 7 フィールド)。一覧の軽量射影
+ * (`AdvertiserSummary`) と違い、住所・電話・備考も含む。`status` (営業ステータス) は編集フォームの
+ * セレクトに preselect するため含める。is_active は別アクション (稼働トグル) の管轄かつ status と不変条件で
+ * 連動するため含めない。生徒 PII ではなく営業上のビジネス情報 (ルール4 の対象外)。
  */
 export type AdvertiserDetail = Pick<
   InferSelectModel<typeof advertisers>,
-  "id" | "companyName" | "industry" | "contactEmail" | "contactPhone" | "address" | "notes"
+  | "id"
+  | "companyName"
+  | "industry"
+  | "contactEmail"
+  | "contactPhone"
+  | "address"
+  | "notes"
+  | "status"
 >;
 
 /**
@@ -70,6 +85,7 @@ export async function getAdvertiserDetail(
       contactPhone: advertisers.contactPhone,
       address: advertisers.address,
       notes: advertisers.notes,
+      status: advertisers.status,
     })
     .from(advertisers)
     .where(eq(advertisers.id, id))
