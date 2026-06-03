@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // 永続化層は mock（実 DB を使わない、ADR-012）。tx は素通しのスタブで良い。
 vi.mock("../../lib/student-qa/persistence", () => ({
   findOrCreateSession: vi.fn(),
+  findOrCreateSessionForUser: vi.fn(),
   appendUserMessage: vi.fn(),
   appendAssistantMessage: vi.fn(),
 }));
@@ -104,9 +105,12 @@ function baseParams(overrides: Partial<ExecuteChatParams> = {}): ExecuteChatPara
   return {
     tx: {} as TenantTx,
     schoolId: SCHOOL_ID,
-    classId: CLASS_ID,
-    magicLinkId: MAGIC_LINK_ID,
-    cookieId: "cookie-abc",
+    identity: {
+      kind: "student",
+      magicLinkId: MAGIC_LINK_ID,
+      classId: CLASS_ID,
+      cookieId: "cookie-abc",
+    },
     rawQuestion: "体育祭はいつですか？",
     piiEntries: [],
     contextProvider: fixedProvider([{ id: "c1", title: "体育祭", body: "6/10 開催。" }]),

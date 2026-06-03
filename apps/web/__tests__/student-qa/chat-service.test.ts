@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // 永続化層は mock する (実 DB を使わない、ADR-012)。tx は素通しのスタブで良い。
 vi.mock("../../lib/student-qa/persistence", () => ({
   findOrCreateSession: vi.fn(),
+  findOrCreateSessionForUser: vi.fn(),
   appendUserMessage: vi.fn(),
   appendAssistantMessage: vi.fn(),
 }));
@@ -19,8 +20,9 @@ import {
   appendAssistantMessage,
   appendUserMessage,
   findOrCreateSession,
+  findOrCreateSessionForUser,
 } from "../../lib/student-qa/persistence";
-import { studentQaRateLimiter } from "../../lib/student-qa/rate-limit";
+import { studentQaRateLimiter, teacherQaRateLimiter } from "../../lib/student-qa/rate-limit";
 import { OUT_OF_SCOPE_REPLY } from "../../lib/student-qa/scope";
 
 /**
@@ -34,6 +36,7 @@ import { OUT_OF_SCOPE_REPLY } from "../../lib/student-qa/scope";
 const SCHOOL_ID = "00000000-0000-0000-0000-0000000000aa";
 const CLASS_ID = "00000000-0000-0000-0000-0000000000bb";
 const MAGIC_LINK_ID = "00000000-0000-0000-0000-0000000000cc";
+const USER_ID = "00000000-0000-0000-0000-0000000000dd";
 
 /** チャンク列とフル本文を返すフェイク `ChatStreamClient`。最後に受け取った req を `state` で覗ける。 */
 function makeModelClient(opts: {
@@ -76,9 +79,12 @@ function baseParams(overrides: Partial<ExecuteChatParams> = {}): ExecuteChatPara
   return {
     tx: {} as TenantTx,
     schoolId: SCHOOL_ID,
-    classId: CLASS_ID,
-    magicLinkId: MAGIC_LINK_ID,
-    cookieId: "cookie-abc",
+    identity: {
+      kind: "student",
+      magicLinkId: MAGIC_LINK_ID,
+      classId: CLASS_ID,
+      cookieId: "cookie-abc",
+    },
     rawQuestion: "体育祭はいつですか？",
     piiEntries: [],
     contextProvider: ctx,
@@ -88,8 +94,17 @@ function baseParams(overrides: Partial<ExecuteChatParams> = {}): ExecuteChatPara
   };
 }
 
+/** 教員経路の baseParams (identity=teacher、#370)。 */
+function teacherParams(overrides: Partial<ExecuteChatParams> = {}): ExecuteChatParams {
+  return baseParams({
+    identity: { kind: "teacher", userId: USER_ID },
+    ...overrides,
+  });
+}
+
 beforeEach(() => {
   studentQaRateLimiter.reset();
+  teacherQaRateLimiter.reset();
   vi.clearAllMocks();
   vi.mocked(findOrCreateSession).mockResolvedValue({
     id: "sess-1",
@@ -98,6 +113,14 @@ beforeEach(() => {
     // 生徒経路のセッションなので user_id は null（#370 XOR）。
     userId: null,
     classId: CLASS_ID,
+  });
+  vi.mocked(findOrCreateSessionForUser).mockResolvedValue({
+    id: "sess-t1",
+    schoolId: SCHOOL_ID,
+    // 教員経路のセッションは user_id のみ（magic_link/class は null、#370 XOR）。
+    magicLinkId: null,
+    userId: USER_ID,
+    classId: null,
   });
   vi.mocked(appendUserMessage).mockResolvedValue({ id: "umsg-1" });
   vi.mocked(appendAssistantMessage).mockResolvedValue({ id: "amsg-1" });
@@ -335,5 +358,64 @@ describe("executeChat: スコープ分類ゲート (ADR-028 §2 pre-Gemini)", ()
     // in_scope は RAG + Gemini が呼ばれる (ゲートを素通り)。
     expect(ctx).toHaveBeenCalled();
     expect(state.req).not.toBeNull();
+  });
+});
+
+describe("executeChat: 教員経路 (identity=teacher, #370)", () => {
+  it("user_id でセッションを解決し (magic_link 経路は呼ばない)、classId は null で grounding する", async () => {
+    const ctx: ContextProvider = vi.fn(async () => [
+      { id: "c1", title: "職員向け掲示", body: "保護者会は 6/20。" },
+    ]);
+    const { client } = makeModelClient({ chunks: ["保護者会は6/20です"] });
+    const result = await executeChat(
+      teacherParams({ modelClient: client, contextProvider: ctx, rawQuestion: "保護者会はいつ？" }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    await collect(result.textStream);
+    expect(await result.done).toEqual({ assistantMessageId: "amsg-1", sessionId: "sess-t1" });
+
+    // 教員は user_id キーでセッション解決。生徒経路 (magic_link) は呼ばれない。
+    expect(findOrCreateSessionForUser).toHaveBeenCalledWith(expect.anything(), {
+      schoolId: SCHOOL_ID,
+      userId: USER_ID,
+    });
+    expect(findOrCreateSession).not.toHaveBeenCalled();
+    // 教員はクラス非バインド: contextProvider に classId=null が渡る。
+    expect(vi.mocked(ctx).mock.calls[0]?.[1].classId).toBeNull();
+    // 永続化は教員セッション (sess-t1) に対して行われる。
+    expect(vi.mocked(appendUserMessage).mock.calls[0]?.[1].sessionId).toBe("sess-t1");
+  });
+
+  it("レート上限は user_id 単一キー (10/分)、11 回目で 429 rate_limited_user", async () => {
+    for (let i = 0; i < 10; i++) {
+      const r = await executeChat(teacherParams());
+      expect(r.kind).toBe("stream");
+    }
+    const denied = await executeChat(teacherParams());
+    expect(denied).toMatchObject({ kind: "rejected", status: 429, reason: "rate_limited_user" });
+    // 生徒の二重キー制限とは独立 (同 nowMs でも生徒側は消費されていない)。
+    const studentOk = await executeChat(baseParams());
+    expect(studentOk.kind).toBe("stream");
+  });
+
+  it("スコープ外質問も教員セッション (user_id) に決定論拒否を永続化する", async () => {
+    const { client, state } = makeModelClient({ chunks: ["呼ばれない"] });
+    const result = await executeChat(
+      teacherParams({ modelClient: client, rawQuestion: "志望校の受験勉強の相談に乗って" }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    expect(await collect(result.textStream)).toContain("掲示物の話題から外れます");
+    await result.done;
+    // Gemini 非経由 (state.req null)、セッションは user_id 経路で解決。
+    expect(state.req).toBeNull();
+    expect(findOrCreateSessionForUser).toHaveBeenCalledWith(expect.anything(), {
+      schoolId: SCHOOL_ID,
+      userId: USER_ID,
+    });
+    expect(vi.mocked(appendAssistantMessage).mock.calls[0]?.[1].modelVersion).toContain(
+      "scope-refusal",
+    );
   });
 });

@@ -1,5 +1,9 @@
 import { resolveStudentSession } from "@/lib/magic-link/student-session";
-import { jsonError, respondWithChatStream } from "@/lib/student-qa/sse-handler";
+import {
+  jsonError,
+  resolveStudentQaCookie,
+  respondWithChatStream,
+} from "@/lib/student-qa/sse-handler";
 
 /**
  * F06 (#42, #371): 生徒対話 Q&A の **SSE route handler** `POST /api/student/chat`。
@@ -27,5 +31,21 @@ export async function POST(request: Request): Promise<Response> {
   if (!resolved) {
     return jsonError(410, "gone");
   }
-  return respondWithChatStream(resolved, request);
+  // レート制限の第二キー (kt_qa_cid 端末識別子)。無ければ採番して Set-Cookie する。
+  const { cookieId, setCookieHeader } = resolveStudentQaCookie(request);
+  return respondWithChatStream(
+    {
+      // 匿名生徒は school_id のみで RLS tx を張る (user/role なし、ADR-019)。
+      tenantContext: { schoolId: resolved.schoolId },
+      schoolId: resolved.schoolId,
+      identity: {
+        kind: "student",
+        magicLinkId: resolved.id,
+        classId: resolved.classId,
+        cookieId,
+      },
+      setCookieHeader,
+    },
+    request,
+  );
 }

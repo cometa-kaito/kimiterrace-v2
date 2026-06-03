@@ -9,8 +9,14 @@ import {
   maskPII,
 } from "@kimiterrace/ai";
 import type { TenantTx } from "@kimiterrace/db";
-import { appendAssistantMessage, appendUserMessage, findOrCreateSession } from "./persistence";
-import { type QaRateResult, studentQaRateLimiter } from "./rate-limit";
+import {
+  type ChatSession,
+  appendAssistantMessage,
+  appendUserMessage,
+  findOrCreateSession,
+  findOrCreateSessionForUser,
+} from "./persistence";
+import { type QaRateResult, studentQaRateLimiter, teacherQaRateLimiter } from "./rate-limit";
 import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
 
 /**
@@ -37,15 +43,40 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  */
 
 /**
- * caller が注入する「公開中コンテンツ」プロバイダ。RLS スコープ tx と classId で自校に閉じる。
+ * caller が注入する「公開中コンテンツ」プロバイダ。RLS スコープ tx で自校に閉じる。
  * `maskedQuestion` は **マスク済み**（PII 除去後）の質問文で、RAG provider がこれを embedding 化して
  * ベクトル検索する（生 PII を Vertex embedding へ送らないため、chat-service が先にマスクして渡す契約）。
  * MVP 直接取得 provider は `maskedQuestion` を無視し最近の公開掲示物を返す。
+ * `classId` は生徒経路のクラス（将来のクラス絞り込み #481-2 用、現 provider は未使用）。**教員経路は
+ * クラス非バインドのため `null`**。
  */
 export type ContextProvider = (
   tx: TenantTx,
-  params: { classId: string; maskedQuestion: string },
+  params: { classId: string | null; maskedQuestion: string },
 ) => Promise<readonly ChatContext[]>;
+
+/**
+ * {@link executeChat} の認証アイデンティティ（F06 #370）。`ai_chat_sessions` の identity XOR
+ * （magic_link ⊻ user_id, #514）に対応する判別共用体。**1 つのオーケストレーション seam で生徒・教員
+ * 両経路を扱う**ことで、敵対的テスト (adversarial.test.ts) の injection/捏造/拒否/テナント分離の保証が
+ * 両経路に等しく効く（経路ごとに別関数を作ると教員経路が無防備になる）。
+ */
+export type StudentChatIdentity = {
+  kind: "student";
+  /** クラス magic_link セッション id。レート制限の第一キー + セッション解決キー。 */
+  magicLinkId: string;
+  /** 生徒のクラス（grounding スコープ用、現 provider は未使用 #481-2）。 */
+  classId: string;
+  /** cookie 由来の端末識別子（レート制限の第二キー）。 */
+  cookieId: string;
+};
+export type TeacherChatIdentity = {
+  kind: "teacher";
+  /** 認証済み教員の users.id。**route が Identity Platform セッションから導出**して渡す（外部入力不可、
+   * confused-deputy 防止 #514 Reviewer）。レート制限キー + セッション解決キー + 監査 created_by。 */
+  userId: string;
+};
+export type ChatIdentity = StudentChatIdentity | TeacherChatIdentity;
 
 /** Vertex SSE ストリームクライアントの抽象境界。Vercel AI SDK `streamText` を想定。 */
 export interface ChatStreamClient {
@@ -59,15 +90,13 @@ export interface ChatStreamClient {
   };
 }
 
-/** {@link executeChat} の入力。RLS context (tx) と認証コンテキスト (school/class/magic-link) は caller が確立。 */
+/** {@link executeChat} の入力。RLS context (tx) と認証コンテキスト (school + identity) は caller が確立。 */
 export type ExecuteChatParams = {
   tx: TenantTx;
   schoolId: string;
-  classId: string;
-  magicLinkId: string;
-  /** cookie 由来の端末識別子 (レート制限の第二キー)。 */
-  cookieId: string;
-  /** 生徒が送信した生の質問文 (PII を含みうる)。**本層を出たら全てマスク済**。 */
+  /** 認証アイデンティティ（生徒 magic_link ⊻ 教員 user_id, #370）。レート制限・セッション・grounding を分岐。 */
+  identity: ChatIdentity;
+  /** 生徒/教員が送信した生の質問文 (PII を含みうる)。**本層を出たら全てマスク済**。 */
   rawQuestion: string;
   /** マスキング対象の名簿エントリ (生徒氏名等)。caller が school スコープで解決して渡す。 */
   piiEntries: readonly PiiEntry[];
@@ -94,19 +123,38 @@ export type ExecuteChatResult =
   | { kind: "rejected"; status: number; reason: string; message: string };
 
 /**
+ * identity に応じて active セッションを 1 件解決する（無ければ作成）。生徒は magic_link キー、教員は
+ * user_id キー（#370）。レート制限・バリデーションを通過した後にのみ呼ぶ（拒否経路でセッションを作らない）。
+ */
+function resolveChatSession(
+  tx: TenantTx,
+  identity: ChatIdentity,
+  schoolId: string,
+): Promise<ChatSession> {
+  if (identity.kind === "teacher") {
+    return findOrCreateSessionForUser(tx, { schoolId, userId: identity.userId });
+  }
+  return findOrCreateSession(tx, {
+    schoolId,
+    magicLinkId: identity.magicLinkId,
+    classId: identity.classId,
+  });
+}
+
+/**
  * Gemini を経由しない **決定論応答** (スコープ外拒否など) を `stream` 結果として返し、
  * user / assistant を通常経路と同じ形で永続化する (会話履歴の連続性 + 監査追跡性、ルール1/4)。
  *
  * Gemini 経路との違いは: 本文が固定文字列 (単一チャンクで stream)、evidence 空、confidence 0、
  * model_version はセンチネル (`scope-refusal:*` 等)。answerText は **既にマスク不要な定型文** で、
- * 生 PII を含まない (拒否文・OUT_OF_SCOPE 等)。
+ * 生 PII を含まない (拒否文・OUT_OF_SCOPE 等)。session は caller が {@link resolveChatSession} で
+ * 解決済み（生徒/教員で同一フロー）。
  */
 async function streamFixedAnswer(
   tx: TenantTx,
   args: {
     schoolId: string;
-    magicLinkId: string;
-    classId: string;
+    session: ChatSession;
     /** 永続化する user メッセージ (マスク済)。 */
     maskedUserText: string;
     /** 固定のアシスタント応答 (拒否文等、生 PII なし)。 */
@@ -115,11 +163,7 @@ async function streamFixedAnswer(
     modelVersion: string;
   },
 ): Promise<ExecuteChatResult> {
-  const session = await findOrCreateSession(tx, {
-    schoolId: args.schoolId,
-    magicLinkId: args.magicLinkId,
-    classId: args.classId,
-  });
+  const session = args.session;
   await appendUserMessage(tx, {
     schoolId: args.schoolId,
     sessionId: session.id,
@@ -145,18 +189,18 @@ async function streamFixedAnswer(
 }
 
 /**
- * 生徒の質問 1 件を処理する SSE ハンドラの中核。
+ * 生徒・教員の質問 1 件を処理する SSE ハンドラの中核 (#370)。
  *
  * **副作用**: rate-limit カウンタ消費 + DB 2 行 (user/assistant) INSERT + session 進捗更新。
- * いずれも RLS コンテキスト (caller の `tx`) 内で実行される。
+ * いずれも RLS コンテキスト (caller の `tx`) 内で実行される。生徒/教員の違いは `identity` で
+ * **レート制限キー (magic_link+cookie ⊻ user_id) とセッション解決 (magic_link ⊻ user_id) のみ**に
+ * 局在し、マスキング/分類/RAG/プロンプト/生成/fail-closed は両経路で同一 (敵対的保証も同一)。
  */
 export async function executeChat(params: ExecuteChatParams): Promise<ExecuteChatResult> {
   const {
     tx,
     schoolId,
-    classId,
-    magicLinkId,
-    cookieId,
+    identity,
     rawQuestion,
     piiEntries,
     contextProvider,
@@ -164,6 +208,8 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     locale = "ja",
     nowMs = Date.now(),
   } = params;
+  // grounding スコープ用 classId: 生徒は自クラス、教員はクラス非バインドで null。
+  const classId = identity.kind === "student" ? identity.classId : null;
 
   // 1) 入力バリデーション。空・長すぎは LLM 前に弾く (コスト/濫用対策)。
   const validated = validateQuestion(rawQuestion);
@@ -177,17 +223,27 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     };
   }
 
-  // 2) 二重キーレート制限 (per-instance、F06 受け入れ条件)。
-  const rl: QaRateResult = studentQaRateLimiter.tryAcquire({
-    magicLinkId,
-    cookieId,
-    nowMs,
-  });
-  if (!rl.allowed) {
+  // 2) レート制限 (per-instance、F06 受け入れ条件)。生徒=magic_link+cookie 二重キー、
+  //    教員=user_id 単一キー (ADR-028)。いずれも超過は何も消費せず 429。
+  if (identity.kind === "student") {
+    const rl: QaRateResult = studentQaRateLimiter.tryAcquire({
+      magicLinkId: identity.magicLinkId,
+      cookieId: identity.cookieId,
+      nowMs,
+    });
+    if (!rl.allowed) {
+      return {
+        kind: "rejected",
+        status: 429,
+        reason: `rate_limited_${rl.blockedBy}`,
+        message: "リクエストが多すぎます。少し時間をおいて再度お試しください。",
+      };
+    }
+  } else if (!teacherQaRateLimiter.tryAcquire(identity.userId, nowMs)) {
     return {
       kind: "rejected",
       status: 429,
-      reason: `rate_limited_${rl.blockedBy}`,
+      reason: "rate_limited_user",
       message: "リクエストが多すぎます。少し時間をおいて再度お試しください。",
     };
   }
@@ -202,10 +258,11 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   //    分類はマスク済み質問で行う (PII を再露出しない。キーワード判定はマスクの影響を受けない)。
   const scope = classifyScope(maskedQuestion.masked);
   if (scope.verdict === "out_of_scope") {
+    // セッションは識別子に応じて解決 (生徒=magic_link / 教員=user_id、#370)。
+    const session = await resolveChatSession(tx, identity, schoolId);
     return streamFixedAnswer(tx, {
       schoolId,
-      magicLinkId,
-      classId,
+      session,
       maskedUserText: maskedQuestion.masked,
       answerText: buildScopeRefusal(scope, locale),
       // 監査用に拒否理由 (study / career) を model_version 相当のセンチネルへ残す。
@@ -257,7 +314,8 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   //    - assistant メッセージ (マスク済) を 1 行追記、evidence/confidence/model_version 含む
   //    永続化失敗は SSE 受信側の表示には影響させない (応答は既に流れている) が、Promise として
   //    route.ts が後続でハンドルできるよう done に詰める。
-  const session = await findOrCreateSession(tx, { schoolId, magicLinkId, classId });
+  //    セッションは識別子に応じて解決 (生徒=magic_link / 教員=user_id、#370)。
+  const session = await resolveChatSession(tx, identity, schoolId);
 
   // user メッセージは LLM 呼び出し前に書いておく (応答失敗時もユーザー入力が残る)。
   await appendUserMessage(tx, {

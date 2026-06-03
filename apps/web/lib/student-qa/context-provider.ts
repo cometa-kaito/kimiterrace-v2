@@ -72,7 +72,10 @@ export function createPublishedContentProvider(
 ): ContextProvider {
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
 
-  return async (tx: TenantTx, _params: { classId: string }): Promise<readonly ChatContext[]> => {
+  return async (
+    tx: TenantTx,
+    _params: { classId: string | null },
+  ): Promise<readonly ChatContext[]> => {
     // 1) 公開中候補（本文を含まない軽量 summary、更新新しい順で決定的）。
     const candidates = await listContents(tx, { status: "published" });
 
@@ -136,7 +139,7 @@ export function createRagContentProvider(opts: RagContentProviderOptions): Conte
 
   return async (
     tx: TenantTx,
-    params: { classId: string; maskedQuestion: string },
+    params: { classId: string | null; maskedQuestion: string },
   ): Promise<readonly ChatContext[]> => {
     const question = params.maskedQuestion.trim();
     if (question.length > 0) {

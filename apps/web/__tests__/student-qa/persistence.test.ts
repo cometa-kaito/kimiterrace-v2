@@ -4,6 +4,7 @@ import {
   appendAssistantMessage,
   appendUserMessage,
   findOrCreateSession,
+  findOrCreateSessionForUser,
 } from "../../lib/student-qa/persistence";
 
 /**
@@ -83,6 +84,41 @@ describe("findOrCreateSession", () => {
     });
     expect(got).toEqual(created);
     expect(calls.insertValues[0]).toEqual({ schoolId: "s1", magicLinkId: "ml1", classId: "c1" });
+  });
+});
+
+describe("findOrCreateSessionForUser (#370 教員経路)", () => {
+  it("active な user セッションがあれば再利用し、INSERT しない", async () => {
+    const existing = {
+      id: "sess-existing",
+      schoolId: "s1",
+      magicLinkId: null,
+      userId: "u1",
+      classId: null,
+    };
+    const { tx, calls } = makeTx({ selects: [[existing]] });
+    const got = await findOrCreateSessionForUser(tx, { schoolId: "s1", userId: "u1" });
+    expect(got).toEqual(existing);
+    expect(calls.insertValues).toHaveLength(0);
+  });
+
+  it("無ければ user_id + created_by で新規作成する (magic_link/class は null, 監査=教員 actor)", async () => {
+    const created = {
+      id: "sess-new",
+      schoolId: "s1",
+      magicLinkId: null,
+      userId: "u1",
+      classId: null,
+    };
+    const { tx, calls } = makeTx({ selects: [[]], inserts: [[created]] });
+    const got = await findOrCreateSessionForUser(tx, { schoolId: "s1", userId: "u1" });
+    expect(got).toEqual(created);
+    // 教員は認証済みアクター: created_by を立てる (ルール1)。magic_link_id/class_id は渡さない (XOR)。
+    expect(calls.insertValues[0]).toEqual({
+      schoolId: "s1",
+      userId: "u1",
+      createdBy: "u1",
+    });
   });
 });
 
