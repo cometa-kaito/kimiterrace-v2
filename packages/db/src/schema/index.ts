@@ -32,6 +32,8 @@ export * from "./teacher-input-attachments.js";
 // Part C1: CRM + cross-tenant
 export * from "./advertisers.js";
 export * from "./contracts.js";
+// F10 (#46): 契約 ⇄ 出稿コンテンツの紐付け (cross-tenant CRM 中間表、system_admin_only RLS)
+export * from "./contract-contents.js";
 export * from "./communications.js";
 export * from "./monthly-reports.js";
 export * from "./system-admins.js";
