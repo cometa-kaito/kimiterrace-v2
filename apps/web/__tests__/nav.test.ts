@@ -32,7 +32,7 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理 (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート、F13 センサー)", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理 + 掲示物 Q&A + 二要素認証 (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート、F13 センサー、F06 チャット、F11 MFA)", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
@@ -42,6 +42,7 @@ describe("navItemsForRole", () => {
       "/admin/reports",
       "/admin/sensors",
       "/admin/chat",
+      "/admin/account/mfa",
     ]);
   });
 
@@ -109,7 +110,7 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック + 二要素認証（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
@@ -118,6 +119,7 @@ describe("navItemsForRole", () => {
       "/admin/system/sensors",
       "/admin/system/reports",
       "/admin/system/feedback",
+      "/admin/account/mfa",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
   });
