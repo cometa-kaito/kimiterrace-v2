@@ -26,6 +26,22 @@ import { getClientAuth } from "../../../../../lib/auth/clientApp";
  * **session 前提**: client SDK の `currentUser` が必要 (同ブラウザでログイン済みなら persistence から復元)。
  * 復元できない / TOTP 登録に再認証が要る場合は再ログインを促す (deny でなく案内、UX)。
  */
+
+/**
+ * 監査記録を試み、成功なら true。**enroll/unenroll が既に成功した段で呼ぶ**ため監査の失敗は致命ではない。
+ * 戻り値 `!ok` (監査が失敗を返した) だけでなく **IdP 一時障害等で `recordMfaEnrollmentAudit` が throw した
+ * 場合も握り潰して false に畳む** (#544 Reviewer Low-2)。これにより呼び出し側は throw を enroll/unenroll
+ * 自体の失敗 (汎用エラー) と取り違えず、「登録/解除は成功・監査のみ失敗」として案内できる。
+ */
+async function tryRecordMfaAudit(op: "enroll" | "unenroll"): Promise<boolean> {
+  try {
+    const res = await recordMfaEnrollmentAudit({ op });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function MfaEnrollment() {
   const router = useRouter();
   const [enrolled, setEnrolled] = useState<MultiFactorInfo[] | null>(null);
@@ -86,23 +102,28 @@ export function MfaEnrollment() {
     setError(null);
     setBusy(true);
     try {
-      const assertion = TotpMultiFactorGenerator.assertionForEnrollment(secret, code.trim());
-      await multiFactor(user).enroll(assertion, "Authenticator アプリ");
-      // 監査 (件数は IdP 再読の authoritative 値、PII 非記録)。監査失敗は致命ではないが UI に出す。
-      const res = await recordMfaEnrollmentAudit({ op: "enroll" });
+      // enroll 自体の失敗 (コード誤り・要再認証) はここで弾く。これ以降に進めば登録は成功している。
+      try {
+        const assertion = TotpMultiFactorGenerator.assertionForEnrollment(secret, code.trim());
+        await multiFactor(user).enroll(assertion, "Authenticator アプリ");
+      } catch {
+        setError(
+          "コードが正しくないか、登録に失敗しました。authenticator のコードを確認してください。",
+        );
+        return;
+      }
+      // 監査 (件数は IdP 再読の authoritative 値、PII 非記録)。監査の失敗 (!ok / throw) は致命ではなく、
+      // 「登録は成功・監査のみ失敗」として案内し、登録失敗と取り違えない (#544 Reviewer Low-2)。
+      const auditOk = await tryRecordMfaAudit("enroll");
       setSecret(null);
       setCode("");
       setNotice(
-        res.ok
+        auditOk
           ? "二要素認証を登録しました。"
           : "登録は完了しましたが監査記録に失敗しました。管理者に連絡してください。",
       );
       refresh();
       router.refresh();
-    } catch {
-      setError(
-        "コードが正しくないか、登録に失敗しました。authenticator のコードを確認してください。",
-      );
     } finally {
       setBusy(false);
     }
@@ -121,17 +142,23 @@ export function MfaEnrollment() {
     setError(null);
     setBusy(true);
     try {
-      await multiFactor(user).unenroll(factor);
-      const res = await recordMfaEnrollmentAudit({ op: "unenroll" });
+      // unenroll 自体の失敗 (要再認証等) はここで弾く。これ以降に進めば解除は成功している。
+      try {
+        await multiFactor(user).unenroll(factor);
+      } catch {
+        setError("解除に失敗しました。直前にログインし直す必要がある場合があります。");
+        return;
+      }
+      // 監査の失敗 (!ok / throw) は致命ではなく、「解除は成功・監査のみ失敗」として案内し、
+      // 解除失敗と取り違えない (#544 Reviewer Low-2)。
+      const auditOk = await tryRecordMfaAudit("unenroll");
       setNotice(
-        res.ok
+        auditOk
           ? "二要素認証を解除しました。"
           : "解除は完了しましたが監査記録に失敗しました。管理者に連絡してください。",
       );
       refresh();
       router.refresh();
-    } catch {
-      setError("解除に失敗しました。直前にログインし直す必要がある場合があります。");
     } finally {
       setBusy(false);
     }
