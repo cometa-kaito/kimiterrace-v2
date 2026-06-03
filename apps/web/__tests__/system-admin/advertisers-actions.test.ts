@@ -76,7 +76,7 @@ describe("createAdvertiserAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("正常系: 広告主を INSERT し id を返す (監査カラム actor は system_admin で NULL)", async () => {
+  it("正常系: 広告主を INSERT し id を返す (status 既定 prospect・is_active 導出・actor NULL)", async () => {
     const res = await createAdvertiserAction({
       companyName: "アクメ商事",
       industry: "広告",
@@ -90,10 +90,30 @@ describe("createAdvertiserAction", () => {
       contactPhone: null,
       address: null,
       notes: null,
+      // status 未指定は prospect、is_active は status から導出 (prospect → true)。
+      status: "prospect",
+      isActive: true,
       createdBy: null,
       updatedBy: null,
     });
     expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/advertisers");
+  });
+
+  it("status=paused で作成すると is_active=false に導出される (不変条件)", async () => {
+    await createAdvertiserAction({ companyName: "休止社", status: "paused" });
+    expect(advValues).toMatchObject({ status: "paused", isActive: false });
+  });
+
+  it("status=active で作成すると is_active=true に導出される", async () => {
+    await createAdvertiserAction({ companyName: "契約社", status: "active" });
+    expect(advValues).toMatchObject({ status: "active", isActive: true });
+  });
+
+  it("不正な status は invalid を返し、認可も DB も走らせない", async () => {
+    const res = await createAdvertiserAction({ companyName: "X社", status: "bogus" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
   });
 
   it("監査: table=advertisers / op=insert / school_id・actor NULL / diff.after", async () => {
@@ -107,8 +127,9 @@ describe("createAdvertiserAction", () => {
       recordId: ADV_ID,
       operation: "insert",
     });
-    expect((auditValues?.diff as { after?: { companyName?: string } })?.after?.companyName).toBe(
-      "アクメ商事",
-    );
+    const after = (auditValues?.diff as { after?: { companyName?: string; status?: string } })
+      ?.after;
+    expect(after?.companyName).toBe("アクメ商事");
+    expect(after?.status).toBe("prospect");
   });
 });

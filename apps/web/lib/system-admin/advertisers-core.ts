@@ -1,3 +1,9 @@
+// 型・定数は **client-safe な /schema サブパス** や enum 由来の値域から組み立てる。barrel
+// (`@kimiterrace/db`) は client.ts 経由で postgres を引き込み、"use client" のフォームにバンドルされると
+// next build が落ちる (#148 の罠)。`import type` なので enum のランタイム値も postgres も持ち込まない
+// (command-core.ts と同方針)。許可値・ラベルは下記 satisfies で DB enum とズレないことを保証する。
+import type { AdvertiserStatus } from "@kimiterrace/db/schema";
+
 /**
  * F10 (#46): 広告主 (CRM) 作成の純粋検証・型・定数。
  *
@@ -19,7 +25,51 @@ const NOTES_MAX = 2000;
 /** 簡易メール形式 (空白なし・@ の前後・ドメインに `.`)。RFC 完全準拠はしない (送信検証で担保)。 */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** 検証済みの広告主作成入力。任意項目は未指定を null に正規化する。 */
+/** 広告主ステータスの型 (単一ソース)。DB enum (`advertiser_status`) 由来で手書き union を作らない。 */
+export type { AdvertiserStatus };
+
+/**
+ * 営業ステータスの日本語ラベル (見込/契約中/休止)。`satisfies Record<AdvertiserStatus, string>` で
+ * **DB enum の全値を網羅し余剰キーを持たない**ことをコンパイル時に強制する (enum を末尾追加したら
+ * ここがコンパイルエラーになり気付ける = ルール3 の値域単一ソース)。順序は UI のセレクト並びに使う。
+ */
+export const ADVERTISER_STATUS_LABEL = {
+  prospect: "見込み",
+  active: "契約中",
+  paused: "休止",
+} as const satisfies Record<AdvertiserStatus, string>;
+
+/** セレクトに添える説明 (UX: 各ステータスの意味を一言で)。enum 全値を網羅する。 */
+export const ADVERTISER_STATUS_DESCRIPTION = {
+  prospect: "提案・商談中（未契約）",
+  active: "契約中（配信対象）",
+  paused: "休止（配信対象外）",
+} as const satisfies Record<AdvertiserStatus, string>;
+
+/** フォームのセレクト並び順。enum 全値を列挙する (見込 → 契約中 → 休止)。 */
+export const ADVERTISER_STATUS_ORDER: readonly AdvertiserStatus[] = [
+  "prospect",
+  "active",
+  "paused",
+];
+
+/**
+ * 受け取った値が許可ステータスか (クライアント自由入力の検証)。`Object.hasOwn` で **自身のキー**のみ
+ * 判定し、`in` 演算子の prototype チェーン誤判定 ("toString" 等を真と誤認) を避ける (command-core と同方針)。
+ */
+export function isAdvertiserStatus(value: unknown): value is AdvertiserStatus {
+  return typeof value === "string" && Object.hasOwn(ADVERTISER_STATUS_LABEL, value);
+}
+
+/**
+ * `status` と `is_active` の不変条件 (advertisers schema doc / PR #534): `status='paused' ⟺ is_active=false`、
+ * `status∈{prospect,active} ⟺ is_active=true`。create/update/toggle の各 Action がこの導出で両者を整合させる。
+ */
+export function isActiveForStatus(status: AdvertiserStatus): boolean {
+  return status !== "paused";
+}
+
+/** 検証済みの広告主作成入力。任意項目は未指定を null に正規化する。status は既定 'prospect'。 */
 export type AdvertiserCreateInput = {
   companyName: string;
   industry: string | null;
@@ -27,6 +77,7 @@ export type AdvertiserCreateInput = {
   contactPhone: string | null;
   address: string | null;
   notes: string | null;
+  status: AdvertiserStatus;
 };
 
 type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -66,10 +117,20 @@ export function validateAdvertiserCreate(raw: {
   contactPhone?: unknown;
   address?: unknown;
   notes?: unknown;
+  status?: unknown;
 }): Validated<AdvertiserCreateInput> {
   const companyName = required(raw.companyName, COMPANY_MAX);
   if (!companyName) {
     return { ok: false, message: `会社名は 1〜${COMPANY_MAX} 文字で入力してください。` };
+  }
+
+  // status: 未指定は既定 'prospect' (新規行)。指定時は 3 値の membership を enum 由来で検証する。
+  let status: AdvertiserStatus = "prospect";
+  if (raw.status !== undefined && raw.status !== null && raw.status !== "") {
+    if (!isAdvertiserStatus(raw.status)) {
+      return { ok: false, message: "ステータスの指定が不正です。" };
+    }
+    status = raw.status;
   }
 
   const industry = optional(raw.industry, INDUSTRY_MAX);
@@ -102,6 +163,6 @@ export function validateAdvertiserCreate(raw: {
 
   return {
     ok: true,
-    value: { companyName, industry, contactEmail, contactPhone, address, notes },
+    value: { companyName, industry, contactEmail, contactPhone, address, notes, status },
   };
 }

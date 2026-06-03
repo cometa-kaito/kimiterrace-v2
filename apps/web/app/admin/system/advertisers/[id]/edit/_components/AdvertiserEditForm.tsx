@@ -1,6 +1,11 @@
 "use client";
 
 import { updateAdvertiserAction } from "@/lib/system-admin/advertisers-actions";
+import {
+  ADVERTISER_STATUS_DESCRIPTION,
+  ADVERTISER_STATUS_LABEL,
+  ADVERTISER_STATUS_ORDER,
+} from "@/lib/system-admin/advertisers-core";
 import type { AdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
@@ -28,6 +33,7 @@ export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetai
         contactPhone: fd.get("contactPhone"),
         address: fd.get("address"),
         notes: fd.get("notes"),
+        status: fd.get("status"),
       });
       if (res.ok) {
         router.push("/admin/system/advertisers");
@@ -51,6 +57,17 @@ export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetai
           defaultValue={advertiser.companyName}
           style={inputStyle}
         />
+      </label>
+
+      <label style={labelStyle}>
+        ステータス
+        <select name="status" defaultValue={advertiser.status} style={inputStyle}>
+          {ADVERTISER_STATUS_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {ADVERTISER_STATUS_LABEL[s]}（{ADVERTISER_STATUS_DESCRIPTION[s]}）
+            </option>
+          ))}
+        </select>
       </label>
 
       <label style={labelStyle}>

@@ -93,6 +93,62 @@ describeOrSkip("RLS CRM cross-tenant (system_admin 限定アクセス)", () => {
     });
   });
 
+  it("advertiser_status: 3 値が永続化され、既定は prospect (新規行)、不正値は拒否される", async () => {
+    // system_admin context で status を明示 INSERT し read で戻ることを確認 (enum 値域 + 永続化)。
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+      const [row] = await tx<{ status: string; is_active: boolean }[]>`
+        INSERT INTO advertisers (company_name, status)
+        VALUES ('契約中社', 'active')
+        RETURNING status, is_active
+      `;
+      expect(row.status).toBe("active");
+    });
+    // status を指定しない INSERT は既定 'prospect' (新規行のデフォルト)。
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+      const [row] = await tx<{ status: string }[]>`
+        INSERT INTO advertisers (company_name) VALUES ('既定社') RETURNING status
+      `;
+      expect(row.status).toBe("prospect");
+    });
+    // enum に無い値は DB が拒否する (値域の単一ソース、ルール3)。
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+        await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+        await tx`INSERT INTO advertisers (company_name, status) VALUES ('不正社', 'terminated')`;
+      }),
+    ).rejects.toThrow(/invalid input value for enum|advertiser_status/i);
+  });
+
+  it("backfill 不変条件: 既存行は is_active から status へ写像できる (paused ⟺ is_active=false)", async () => {
+    // migration の backfill (CASE WHEN is_active THEN 'active' ELSE 'paused') と同じ写像が成り立つことを
+    // app 層の整合と同値で検証する。is_active=true の既存行 (seed の 'テスト広告主') は active/prospect 側、
+    // is_active=false なら paused 側でなければならない。
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+      // 停止 (is_active=false) + status=paused の行を投入し、不変条件の両端を確認する。
+      await tx`
+        INSERT INTO advertisers (company_name, status, is_active)
+        VALUES ('休止社', 'paused', false)
+      `;
+      const rows = await tx<{ status: string; is_active: boolean }[]>`
+        SELECT status, is_active FROM advertisers
+      `;
+      for (const r of rows) {
+        // status='paused' ⟺ is_active=false の双条件を全行で満たす。
+        expect(r.status === "paused").toBe(r.is_active === false);
+      }
+      // paused 行が少なくとも 1 件 (vacuous 防止)。
+      expect(rows.some((r) => r.status === "paused" && r.is_active === false)).toBe(true);
+      expect(rows.some((r) => r.status !== "paused" && r.is_active === true)).toBe(true);
+    });
+  });
+
   it("system_admins / schools も同じ系統 (system_admin のみ書き込み可)", async () => {
     // school_admin による schools INSERT は拒否
     await expect(

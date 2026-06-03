@@ -16,6 +16,7 @@ vi.mock("@kimiterrace/db", () => ({
     contactPhone: { name: "contact_phone" },
     address: { name: "address" },
     notes: { name: "notes" },
+    status: { name: "status" },
     isActive: { name: "is_active" },
     createdAt: { name: "created_at" },
   },
@@ -63,11 +64,12 @@ beforeEach(() => {
 });
 
 describe("listAdvertisers", () => {
-  it("射影は一覧用カラムのみ — 住所/電話/備考は含めない", async () => {
+  it("射影は一覧用カラムのみ (status を含む) — 住所/電話/備考は含めない", async () => {
     await listAdvertisers(fakeTx());
     expect(Object.keys(projection ?? {}).sort()).toEqual(
-      ["companyName", "contactEmail", "createdAt", "id", "industry", "isActive"].sort(),
+      ["companyName", "contactEmail", "createdAt", "id", "industry", "status", "isActive"].sort(),
     );
+    expect(projection).toHaveProperty("status");
     expect(projection).not.toHaveProperty("address");
     expect(projection).not.toHaveProperty("notes");
     expect(projection).not.toHaveProperty("contactPhone");
@@ -89,6 +91,7 @@ describe("listAdvertisers", () => {
         companyName: "X社",
         industry: null,
         contactEmail: null,
+        status: "prospect",
         isActive: true,
         createdAt: new Date(0),
       },
@@ -133,11 +136,21 @@ describe("getAdvertiserDetail", () => {
     detailRows = [];
   });
 
-  it("射影は編集可能フィールド全部 (住所/電話/備考を含む)、is_active は含めない", async () => {
+  it("射影は編集可能フィールド全部 (住所/電話/備考/status を含む)、is_active は含めない", async () => {
     await getAdvertiserDetail(fakeDetailTx(), "a1");
     expect(Object.keys(detailProjection ?? {}).sort()).toEqual(
-      ["address", "companyName", "contactEmail", "contactPhone", "id", "industry", "notes"].sort(),
+      [
+        "address",
+        "companyName",
+        "contactEmail",
+        "contactPhone",
+        "id",
+        "industry",
+        "notes",
+        "status",
+      ].sort(),
     );
+    expect(detailProjection).toHaveProperty("status");
     expect(detailProjection).not.toHaveProperty("isActive");
   });
 
@@ -156,6 +169,7 @@ describe("getAdvertiserDetail", () => {
       contactPhone: null,
       address: null,
       notes: null,
+      status: "active",
     };
     detailRows = [row];
     expect(await getAdvertiserDetail(fakeDetailTx(), "a1")).toEqual(row);
