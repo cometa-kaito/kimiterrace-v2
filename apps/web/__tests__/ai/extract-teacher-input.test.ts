@@ -87,6 +87,39 @@ describe("extractTeacherInput", () => {
     expect("schoolId" in (captured?.request ?? {})).toBe(false);
   });
 
+  it("抽出が公開先・掲示期間を提案したら結果に持ち越す (F01 pre-fill 用)", async () => {
+    const { deps } = makeDeps({
+      runAndPersist: vi.fn(async () =>
+        structureResult({
+          extraction: {
+            kind: "announcement",
+            data: { title: "球技大会", body: "本文" },
+            confidenceScore: 0.9,
+            evidence: [],
+            suggestedPublishScope: "school",
+            suggestedPeriod: { start: "2026-06-10", end: "2026-06-20" },
+          },
+        }),
+      ),
+    });
+    const res = await extractTeacherInput("input-1", "announcement", deps);
+    expect(res).toMatchObject({
+      ok: true,
+      suggestedPublishScope: "school",
+      suggestedPeriod: { start: "2026-06-10", end: "2026-06-20" },
+    });
+  });
+
+  it("提案が無い抽出は suggested* を載せない (任意・従来既定にフォールバック)", async () => {
+    const { deps } = makeDeps({ runAndPersist: vi.fn(async () => structureResult()) });
+    const res = await extractTeacherInput("input-1", "schedule", deps);
+    expect(res).toMatchObject({ ok: true });
+    if (res.ok) {
+      expect(res.suggestedPublishScope).toBeUndefined();
+      expect(res.suggestedPeriod).toBeUndefined();
+    }
+  });
+
   it("職員氏名 roster を piiEntries(category=STAFF) として seam に渡す (#289 ルール4)", async () => {
     let captured: RunAndPersistParams | undefined;
     const runAndPersist: ExtractTeacherInputDeps["runAndPersist"] = vi.fn(async (p) => {
