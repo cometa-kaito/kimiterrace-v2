@@ -14,9 +14,9 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 現在のフェーズ
 
-**Phase 開発 (Development)**
+**Phase 開発 (Development) 完了 → Phase 検証 (Verification) へ移行**
 
-（調査・設計は完了。F0 V1 移植が frontier 完了し、F07–F10 等の MVP 機能を実装・merge 中 → 実態は開発フェーズ。旧「調査 → 設計 (移行中)」表記は実績とズレていたため 2026-06-01 修正。）
+（2026-06-03: 全16機能 F01-F16 の **feature 実装が完了**。umbrella F01-F12 のうち F03/F04/F05/F06/F07/F08/F09/F10/F11/F12 を close、F01/F02 は実 Vertex 有効化[#289 PII 設計] + GCS infra apply が gated で OPEN 維持。残りは検証フェーズ[#243]・infra デプロイ[Terraform、人間/CIゲート＝ルール8]・follow-up[#553/#555 等]に分類済み。次は Phase 検証の Entry ゲート[staging が feature-complete + 移行 dry-run]→ 5トラック受入。）
 
 ロードマップは **5 Phase 構成（調査・設計・開発・検証・導入）** に再設計済 (2026-05-28 に 4 Phase、2026-05-31 に「検証」を新設)。
 **Claude は調査〜検証を全力で進める。導入は人間担当**。「検証」は開発と導入の間の受入ゲート → [docs/testing/test-strategy.md](testing/test-strategy.md)。
@@ -30,6 +30,12 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
+- 2026-06-03: **★ 開発フェーズ (feature 実装) 完了判定 — 全16機能 land + umbrella 10 close**（スレッドA「開発フェーズ完走」フロー、2 並行スレッドのうち A=コンテンツ&AI パイプライン）: 全 OPEN umbrella の AC を **fresh-context Explore ×3 で実装突合** → close 可否を判定。
+  - **スレッドA land 2 PR**: [#552](https://github.com/cometa-kaito/kimiterrace-v2/pull/552) F06/F04 — RAG grounding の `class`/`homeroom` を生徒 classId で**厳密一致**（別クラス向け掲示物が生徒 Q&A grounding に混入する**情報境界漏れ #481-2 を修正**、`canStudentSeeContent` と単一ソース化、rag-search SQL + collectActiveContexts の多層防御、実 PG class 突合テスト）/ [#554](https://github.com/cometa-kaito/kimiterrace-v2/pull/554) F09 — 広告主別レポート集計（`advertisers→contracts→contract_contents→contents→events` チェーン、`count(distinct)` fan-out dedup、system_admin RLS deny-by-default、実 PG 11 テスト）。両者 **fresh Reviewer APPROVE + CI clean green で自律 squash merge**（flaky #553 は黙殺せず再実行で clean green 裏取り）。
+  - **umbrella close (10)**: F03/F04/F12（AC 突合）+ F06（F06.3 Vercel AI SDK は [#478](https://github.com/cometa-kaito/kimiterrace-v2/pull/478) で実装済と Worker が live code 裏取り訂正＝Explore の「未配線」は chat-stream.ts 見落とし）+ F09（広告主別 land）。既 close の F05/F07/F10/F11 と合わせ **F01-F12 のうち 10 close**。
+  - **OPEN 維持 (2)**: F01/F02 — feature コードは完了、残は実 Vertex 有効化（#289 PII 設計 gated）+ GCS infra apply（人間/CIゲート）。各 issue に残作業コメント済。
+  - **follow-up 起票**: [#553](https://github.com/cometa-kaito/kimiterrace-v2/issues/553)（PublishControls flaky 根治、#552/#554 で連続再発、根治タスク chip 化）/ [#555](https://github.com/cometa-kaito/kimiterrace-v2/issues/555)（F09 契約 active_in_month フィルタ、Reviewer Medium-1）。F08 月次バッチ自動化は**追加スコープ**（ボタン起動が MVP 正、本コミットで spec 同期）。
+  - **判定**: **feature 実装は完了**。残りは ①検証 #243 ②infra デプロイ（Terraform 人間ゲート）③gated（#289）④follow-up に分類。→ **開発フェーズ完了 → 検証フェーズ**。
 - 2026-06-03: **メタ整理 — スレッドB ドメイン (デバイス/運用/アカウント) の全 merge 完了を確認 + issue/branch ハイジーン**（起動が「2 並行スレッドのうちスレッドB・自律」前提だったが、**本日の『暴走 fleet 停止 → 単独・制御下』判断 (下記) と矛盾** → ユーザーに確認し「承知で自律続行」を得た上で、in-lane に自律 feature 残が無いことを `origin/main` 実体で裏取りしてメタ整理を実施）:
   - **担当 F 機能は全 merge 済みを確認**: F05 (#285/#548/#550/#551) / F07 (#258/#263/#272/#312/#333/#471/#420、**dwell のみ Phase 2 延期=滞留秒の計測手段未確定**) / F10 (#270〜#307 広告主・#423〜#458 契約/コミュ・#540〜#547) / F11 (#275〜#363 + DB トリガ #414/#421 + MFA #541/#544/#545/#549 + 発行 #512/#515/#526) / F13 (#486/#491) / F14 (#488/#490/#493/#536) / F15 (#494) / F16 (#492)。
   - **#508 (F11 新規アカウント発行) を完了確認し close**: 「uid モデル不整合」の設計ブロッカーは **ADR-003 規約 (localId==`users.id`、`createUser({uid:<users.id>})`、`identity_uid` は mirror) で既に解消済**、#512/#515/#526 で実装済。作成アカウントは既存 `setStaffActiveAction`/`changeStaffRoleAction` で操作可。
