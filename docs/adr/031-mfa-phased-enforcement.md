@@ -40,4 +40,11 @@
   - PoC 期間中は MFA 未登録教員が存在しうる＝その間のアカウント乗っ取りリスクは MFA で緩和されない（パスワード強度・revoke・監査などの既存統制に依存）。PoC は実生徒データの本番運用ではない前提でこのリスクを受容する。
   - 強制化のタイミング・grace period・factor 種別（TOTP/SMS）の詳細は導入計画で確定する必要がある（本 ADR では「本番ゲートで強制」までを確定し、運用詳細は実装/導入スライスに委譲）。
 - **トレードオフ**: 「即・完全強制（最安全）」ではなく「capability 先行 + 本番ゲート強制」を選んだため、PoC 期間に MFA 緩和が効かない窓が残る。実生徒データを扱う本番では強制が前提であり、PoC の限定スコープでこの窓を許容する。
-- **未確定（実装/導入で決め本 ADR に追補）**: 許可する factor 種別（TOTP のみか SMS 併用か）、本番強制化時の grace period の有無と長さ。
+- **未確定（実装/導入で決め本 ADR に追補）**: 本番強制化時の grace period の有無と長さ。
+
+## 追補（2026-06-03、アプリ enrollment capability スライス #47）
+
+- **factor 種別 = TOTP に確定（アプリ層）**: アプリ側の enrollment フロー（`/admin/account/mfa`）は **TOTP（authenticator アプリ）のみ**で実装した。理由: SMS は電話番号（PII）を IdP に預け SMS 送信コストも生じる一方、TOTP は端末内シークレットのみで電話番号を扱わず監査にも PII が乗らない（[CLAUDE.md ルール4](../../CLAUDE.md) / 外部連携より自校内完結を優先）。本決定の §決定「TOTP を既定、SMS は要否を実装時判断」を、アプリ層は **TOTP 単独**で確定。将来 SMS を併用する場合は別スライスで factor 種別を拡張し、電話番号 PII の取扱い（マスキング・保存範囲）を別途設計する。
+- **登録/解除は client SDK が正規経路**: 第2要素の登録/解除は Identity Platform client SDK（`multiFactor(user).enroll/unenroll`）で本人が行う。Admin SDK は他人の MFA を登録する API を持たないため、サーバー側は登録自体は行わず、認可（teacher 以上）と監査に徹する。
+- **監査**: enrollment / unenrollment の成否を `audit_log` に記録（actor=本人・件数のみ・PII 非記録、ルール1 / [NFR04](../requirements/non-functional/NFR04-audit-log.md)）。件数は IdP から再読した authoritative 値（クライアント自己申告を信用しない、ADR-026 思想）。MFA challenge（ログイン時の検証）成否の監査は IdP 側ログに依存し、アプリ層では未配線（本番導入で Cloud Logging 連携を検討）。
+- **強制ゲート（既定 OFF）は後続スライス**: 「未登録 teacher 以上をログイン後 enrollment へ誘導する」強制ゲートは env フラグ `MFA_ENFORCEMENT`（厳密に `"on"` のときのみ有効、既定 OFF）で切り替える設計とし、**別スライス**で `/admin` レイアウトに配線する。OFF では既存ログイン挙動が不変（PoC 非強制、§2）。本番導入ゲートで `MFA_ENFORCEMENT=on` + Terraform `mfa_state=ENABLED`（[#541](https://github.com/cometa-kaito/kimiterrace-v2/pull/541)）を対で有効化して強制を成立させる。エンフォースの最終防衛線は IdP の MFA challenge（§4）。
