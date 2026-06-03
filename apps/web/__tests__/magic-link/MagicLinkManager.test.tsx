@@ -290,4 +290,54 @@ describe("MagicLinkManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "QR を印刷" }));
     expect(printFn).toHaveBeenCalledTimes(1);
   });
+
+  it("『失効済みも表示』で includeRevoked=true 取得し、失効済はグレー表示・操作ボタンなし", async () => {
+    const fetchFn = stubFetch((url) => {
+      if (url.includes("includeRevoked=true")) {
+        return Promise.resolve(
+          jsonRes({
+            links: [
+              {
+                id: "ml-active",
+                expiresAt: "2026-09-01T00:00:00.000Z",
+                createdAt: "2026-05-31T00:00:00.000Z",
+                revokedAt: null,
+              },
+              {
+                id: "ml-revoked",
+                expiresAt: "2026-09-01T00:00:00.000Z",
+                createdAt: "2026-05-30T00:00:00.000Z",
+                revokedAt: "2026-06-01T00:00:00.000Z",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(jsonRes({ links: [] }));
+    });
+    render(
+      <MagicLinkManager
+        classId={CLASS_ID}
+        initialLinks={[
+          {
+            id: "ml-active",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            createdAt: "2026-05-31T00:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+    // トグル前は失効ボタンが active 1 件分。
+    expect(screen.getAllByRole("button", { name: "失効" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() =>
+      expect(fetchFn.mock.calls.some((c) => String(c[0]).includes("includeRevoked=true"))).toBe(
+        true,
+      ),
+    );
+    // 失効済リンクが「失効済み」ラベルで出る。
+    expect(await screen.findByText("失効済み")).toBeInTheDocument();
+    // 失効済の行には操作ボタンを出さない (失効ボタンは active 1 件分のみのまま)。
+    expect(screen.getAllByRole("button", { name: "失効" })).toHaveLength(1);
+  });
 });

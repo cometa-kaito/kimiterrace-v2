@@ -20,6 +20,8 @@ export type MagicLinkRow = {
   id: string;
   expiresAt: string;
   createdAt: string;
+  /** 非 null = 失効済 (失効履歴表示時のみ届く)。既定の一覧では失効済は除外され null。 */
+  revokedAt?: string | null;
 };
 
 /** 発行直後にだけ手に入る平文 URL の情報。 */
@@ -46,14 +48,24 @@ export function MagicLinkManager({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [extendDays, setExtendDays] = useState("");
+  const [showRevoked, setShowRevoked] = useState(false);
 
-  async function refreshLinks() {
-    const res = await fetch(`/api/magic-links?classId=${encodeURIComponent(classId)}`);
+  async function refreshLinks(includeRevoked = showRevoked) {
+    const url = `/api/magic-links?classId=${encodeURIComponent(classId)}${
+      includeRevoked ? "&includeRevoked=true" : ""
+    }`;
+    const res = await fetch(url);
     if (!res.ok) {
       return;
     }
     const data: { links: MagicLinkRow[] } = await res.json();
     setLinks(data.links);
+  }
+
+  async function toggleRevoked() {
+    const next = !showRevoked;
+    setShowRevoked(next);
+    await refreshLinks(next);
   }
 
   async function issue() {
@@ -281,9 +293,33 @@ export function MagicLinkManager({
         </div>
       ) : null}
 
-      <h2 style={{ fontSize: "1.05rem", margin: "1.25rem 0 0.5rem" }}>発行済みリンク</h2>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          flexWrap: "wrap",
+          margin: "1.25rem 0 0.5rem",
+        }}
+      >
+        <h2 style={{ fontSize: "1.05rem", margin: 0 }}>発行済みリンク</h2>
+        <label
+          style={{
+            fontSize: "0.85rem",
+            color: "#374151",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+          }}
+        >
+          <input type="checkbox" checked={showRevoked} onChange={toggleRevoked} />
+          失効済みも表示
+        </label>
+      </div>
       {links.length === 0 ? (
-        <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>有効なリンクはありません。</p>
+        <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>
+          {showRevoked ? "リンクはありません。" : "有効なリンクはありません。"}
+        </p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {links.map((link) => (
@@ -299,10 +335,15 @@ export function MagicLinkManager({
                 fontSize: "0.9rem",
               }}
             >
-              <span style={{ color: "#374151" }}>
-                発行 {formatDate(link.createdAt)} / 期限 {formatDate(link.expiresAt)}
+              <span style={{ color: link.revokedAt ? "#9ca3af" : "#374151" }}>
+                発行 {formatDate(link.createdAt)} /{" "}
+                {link.revokedAt
+                  ? `失効 ${formatDate(link.revokedAt)}`
+                  : `期限 ${formatDate(link.expiresAt)}`}
               </span>
-              {extendingId === link.id ? (
+              {link.revokedAt ? (
+                <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>失効済み</span>
+              ) : extendingId === link.id ? (
                 <span style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                   <input
                     type="number"

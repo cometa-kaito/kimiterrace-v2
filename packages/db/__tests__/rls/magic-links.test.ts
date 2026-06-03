@@ -431,6 +431,33 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
     }
   });
 
+  it("listClassMagicLinks: includeRevoked で失効済も含めて返す (失効履歴・監査表示)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      const [withRevoked, activeOnly] = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return Promise.all([
+          listClassMagicLinks(tx, classA, { includeRevoked: true }),
+          listClassMagicLinks(tx, classA),
+        ]);
+      });
+      // includeRevoked は失効済 (seed の hash-revoked 等、revokedAt != null) を含む。
+      expect(withRevoked.some((r) => r.revokedAt !== null)).toBe(true);
+      // 既定は失効済を含まない → includeRevoked の方が件数が多い。
+      expect(activeOnly.every((r) => r.revokedAt === null)).toBe(true);
+      expect(withRevoked.length).toBeGreaterThan(activeOnly.length);
+      // どちらも自クラスのみ (RLS + classId 条件)。
+      expect(withRevoked.every((r) => r.classId === classA)).toBe(true);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
   it("listClassMagicLinks: 他校 context では別校クラスのリンクは見えない (RLS)", async () => {
     // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
     const client = postgres(url!, { max: 1, onnotice: () => {} });

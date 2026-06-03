@@ -165,6 +165,34 @@ describe("GET /api/magic-links (一覧)", () => {
     const res = await GET(new Request("http://test/api/magic-links"));
     expect(res.status).toBe(400);
   });
+
+  it("既定では listClassMagicLinks に includeRevoked=false を渡す", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    listClassMagicLinks.mockResolvedValue([]);
+    await GET(new Request(`http://test/api/magic-links?classId=${CLASS_ID}`));
+    expect(listClassMagicLinks).toHaveBeenCalledWith({}, CLASS_ID, { includeRevoked: false });
+  });
+
+  it("includeRevoked=true で失効済も要求し、revokedAt を返す (失効履歴)", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    listClassMagicLinks.mockResolvedValue([
+      {
+        id: LINK_ID,
+        classId: CLASS_ID,
+        expiresAt: new Date("2026-04-01T00:00:00.000Z"),
+        revokedAt: new Date("2026-02-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ]);
+    const res = await GET(
+      new Request(`http://test/api/magic-links?classId=${CLASS_ID}&includeRevoked=true`),
+    );
+    expect(listClassMagicLinks).toHaveBeenCalledWith({}, CLASS_ID, { includeRevoked: true });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.links[0].revokedAt).toBe("2026-02-01T00:00:00.000Z");
+    expect(json.links[0]).not.toHaveProperty("tokenHash");
+  });
 });
 
 describe("POST /api/magic-links/{id}/revoke (失効)", () => {

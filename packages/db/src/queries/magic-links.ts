@@ -260,15 +260,23 @@ export async function extendMagicLink(
 }
 
 /**
- * 教員 UI 用: クラスの有効なリンク一覧 (失効済を除く) を新しい順に返す。RLS で自校のみ。
+ * 教員 UI 用: クラスのリンク一覧を新しい順に返す。RLS で自校のみ。
+ *
+ * 既定は **有効なリンクのみ** (失効済を除く)。`includeRevoked` を渡すと失効済も含めて返す
+ * (F05: 漏洩失効フローの監査透明性 — 教員が「どのリンクをいつ失効したか」を確認できる)。
+ * 失効済かどうかは戻り値の `revokedAt` (非 null = 失効済) で判別する。
  */
 export async function listClassMagicLinks(
   tx: TenantTx,
   classId: string,
+  options?: { includeRevoked?: boolean },
 ): Promise<IssuedMagicLink[]> {
+  const where = options?.includeRevoked
+    ? eq(magicLinks.classId, classId)
+    : and(eq(magicLinks.classId, classId), isNull(magicLinks.revokedAt));
   return tx
     .select(ISSUED_COLUMNS)
     .from(magicLinks)
-    .where(and(eq(magicLinks.classId, classId), isNull(magicLinks.revokedAt)))
+    .where(where)
     .orderBy(desc(magicLinks.createdAt));
 }
