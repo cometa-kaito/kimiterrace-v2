@@ -129,12 +129,29 @@ module "logging_iam" {
 
 # 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。
 # staging は recreate 容易性優先で force_destroy=true（Issue #70 同規律）。
+# writer_service_account に reports Job runtime SA を渡し、当該バケット限定で objectAdmin を付与（ルール5 最小権限）。
+# 雛形段階は両モジュール enabled=false ＝ SA 未生成（output null）→ "" にフォールバックして付与なし。
 module "report_storage" {
-  source        = "../../modules/report_storage"
-  project_id    = var.project_id
-  env           = local.env
-  enabled       = false # TODO(Phase 開発)
-  force_destroy = true
+  source                 = "../../modules/report_storage"
+  project_id             = var.project_id
+  env                    = local.env
+  enabled                = false # TODO(Phase 開発)
+  force_destroy          = true
+  writer_service_account = coalesce(module.cloud_run_job_reports.runtime_service_account_email, "")
+}
+
+# F09 月次レポート生成 Cloud Run Job + Scheduler（#430, #45）。雛形段階は enabled = false。
+# enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) /
+#   report_bucket(report_storage.bucket_name) を設定。外部 egress は不要（Cloud SQL + GCS のみ、embedding と同設計）。
+# Scheduler は月初 04:00 JST（前月分を生成）。runtime SA の email は report_storage.writer_service_account に配線済。
+module "cloud_run_job_reports" {
+  source              = "../../modules/cloud_run_job_reports"
+  project_id          = var.project_id
+  region              = var.region
+  env                 = local.env
+  enabled             = false
+  deletion_protection = false # staging は recreate 容易性優先（Issue #70）
+  report_bucket       = module.report_storage.bucket_name
 }
 
 # 教員アップロード素材の Cloud Storage バケット（F01 / #509 / #37, ADR-024）。90 日後コールド移送。
