@@ -125,14 +125,30 @@ module "logging_iam" {
   enabled    = false # TODO(Phase 開発): true + log_viewer_members を設定
 }
 
-# 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。
-# enabled 化時に reports Job runtime SA を writer_service_account に設定し、Job の REPORT_BUCKET に
-# 出力 bucket_name を渡す（Scheduler/Job 配線・DL 導線は follow-up）。
+# 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。prod は force_destroy 既定 false。
+# writer_service_account に reports Job runtime SA を渡し、当該バケット限定で objectAdmin を付与（ルール5 最小権限）。
+# 雛形段階は両モジュール enabled=false ＝ SA 未生成（output null）→ "" にフォールバックして付与なし。
+# Job の REPORT_BUCKET には report_storage.bucket_name を cloud_run_job_reports 側で配線（DL 導線は follow-up）。
 module "report_storage" {
-  source     = "../../modules/report_storage"
-  project_id = var.project_id
-  env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  source                 = "../../modules/report_storage"
+  project_id             = var.project_id
+  env                    = local.env
+  enabled                = false # TODO(Phase 開発)
+  writer_service_account = coalesce(module.cloud_run_job_reports.runtime_service_account_email, "")
+}
+
+# F09 月次レポート生成 Cloud Run Job + Scheduler（#430, #45）。
+# enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) /
+#   report_bucket(report_storage.bucket_name) を設定。外部 egress は不要（Cloud SQL + GCS のみ、embedding と同設計）。
+# Scheduler は月初 04:00 JST（前月分を生成）。prod は deletion_protection 既定 true（モジュール側既定）。
+# runtime SA の email は report_storage.writer_service_account に配線済。
+module "cloud_run_job_reports" {
+  source        = "../../modules/cloud_run_job_reports"
+  project_id    = var.project_id
+  region        = var.region
+  env           = local.env
+  enabled       = false # TODO(Phase 開発)
+  report_bucket = module.report_storage.bucket_name
 }
 
 # 教員アップロード素材の Cloud Storage バケット（F01 / #509 / #37, ADR-024）。90 日後コールド移送。
