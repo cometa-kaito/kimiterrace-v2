@@ -136,7 +136,7 @@
 | chokepoint | 衝突理由 | 規律 |
 |---|---|---|
 | **単一 staging / 統合 DB**（最大） | ③の破壊的攻撃（トリガ DISABLE・`audit_log` への UPDATE/DELETE 試行・連投）、④の負荷/failover/エラー注入、⑤ MIG の DB リセットが**同一環境を同時に叩くと相互汚染**（③のトリガ無効化中に⑤が監査チェーン検証＝誤判定、④負荷中の①/④測定＝flaky） | **env トークン**（[parallel-lanes.md](../parallel-lanes.md) の infra-token 同思想）で破壊的トラックを排他・直列化。非破壊 read 主体は並列可 |
-| **k6 二重利用** | ③ SEC-021〜023（DoS 遮断攻撃）と ④ LOAD/COST が同一環境に負荷＝測定が混ざる（③ §11 / ④ §7 が「分担未決」と認識するも未解決） | env トークン下で直列。k6 シナリオは共有し責務分離（③=遮断の有効性 / ④=課金線形性） |
+| **k6 二重利用** | ③ SEC-021〜023（DoS 遮断攻撃）と ④ LOAD/COST が同一環境に負荷＝測定が混ざる（③ §11 が分担未決と認識、④ §7 は COST-002 で片側を定義） | env トークン下で直列。k6 シナリオは共有し責務分離（③=遮断の有効性 / ④=課金線形性） |
 | **共有合成シード** | ①§7・③§3・⑤§5 が `global-setup.ts` を各自拡張＝loader 配列 + RLS 真実ソースが [parallel-lanes.md](../parallel-lanes.md) の schema-token chokepoint | **先に 1 レーンで受入用合成シードを land → 各トラックは read のみ**（migration-loader-pattern 厳守） |
 | **共有台帳** | matrix（状態列）/ defect-log（起票）/ go-no-go（寄稿）を全 5 トラックが更新＝`STATUS.md` ヘッダ上書きレースと同型 | 欠陥は **GitHub Issue 駆動**（defect = issue、状態 = PR/issue）。markdown 台帳は**実行完了後の集約スナップショット**に役割を限定 |
 
