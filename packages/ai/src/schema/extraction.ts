@@ -23,10 +23,38 @@ export const evidenceItemSchema = z.object({
 });
 export type EvidenceItem = z.infer<typeof evidenceItemSchema>;
 
-// すべての抽出結果が共通で持つメタ（自己評価 + 根拠）。
+/**
+ * AI が提案できる公開先（publish scope）の値域。
+ *
+ * 単一ソースは `@kimiterrace/db` の `publishScope` pgEnum（= `apps/web` の `PUBLISH_SCOPES`、
+ * publish-core.ts も同 enum 由来）。CLAUDE.md ルール3 に従い手書きの二重定義を避けたいが、
+ * `packages/ai` は `@kimiterrace/db` に依存しない方針（Next バンドル/モデル層へ DB を引き込まない）
+ * のため、ここでは enum の **値域だけ** を `as const` で写す。値が増減した場合は
+ * `apps/web/lib/contents/publish-core.ts` の `_ExhaustivePublishScopeCheck`（enum 全メンバが
+ * 配列に含まれることを型レベルで強制）と本配列の両方を更新する（DB enum が最終強制点）。
+ */
+export const SUGGESTED_PUBLISH_SCOPES = ["school", "class", "homeroom", "private"] as const;
+export type SuggestedPublishScope = (typeof SUGGESTED_PUBLISH_SCOPES)[number];
+
+/**
+ * AI が提案する掲示期間（ISO 日付/日時文字列、両端 optional）。
+ * 教員はエディタで上書きできる前提のため、提案できない端は省略する（捏造しない）。
+ */
+export const suggestedPeriodSchema = z.object({
+  start: z.string().min(1).optional(),
+  end: z.string().min(1).optional(),
+});
+export type SuggestedPeriod = z.infer<typeof suggestedPeriodSchema>;
+
+// すべての抽出結果が共通で持つメタ（自己評価 + 根拠 + 教員 UI 既定値の提案）。
 const metaShape = {
   confidenceScore: z.number().min(0).max(1),
   evidence: z.array(evidenceItemSchema).default([]),
+  // 公開先・掲示期間の提案（2026-06-03 ユーザー確定、F01）。AI が常に提案できるとは限らないため
+  // **任意**。存在すれば教員編集 UI の既定値として pre-fill し、無ければ従来の既定にフォールバックする。
+  // 教員は常に上書き可能（提案は強制でない）。
+  suggestedPublishScope: z.enum(SUGGESTED_PUBLISH_SCOPES).optional(),
+  suggestedPeriod: suggestedPeriodSchema.optional(),
 };
 
 const scheduleEntry = z.object({

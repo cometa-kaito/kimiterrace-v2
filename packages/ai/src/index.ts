@@ -18,8 +18,17 @@ export {
   extractionSchema,
   evidenceItemSchema,
   schemaForKind,
+  // F01 (2026-06-03): 教員 UI の既定値提案（公開先・掲示期間、optional）
+  SUGGESTED_PUBLISH_SCOPES,
+  suggestedPeriodSchema,
 } from "./schema/extraction.js";
-export type { Extraction, ExtractionKind, EvidenceItem } from "./schema/extraction.js";
+export type {
+  Extraction,
+  ExtractionKind,
+  EvidenceItem,
+  SuggestedPublishScope,
+  SuggestedPeriod,
+} from "./schema/extraction.js";
 
 // プロンプト構築（インジェクション対策）
 export {
