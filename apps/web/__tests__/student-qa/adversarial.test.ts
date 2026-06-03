@@ -433,7 +433,7 @@ describe("executeChat 敵対的: PII マスク漏れ時 fail-closed", () => {
 });
 
 describe("executeChat 敵対的: テナント分離 pass-through 不変条件", () => {
-  it("provider は caller の RLS tx（同一参照）と解決済み classId でのみ呼ばれる", async () => {
+  it("provider は caller の RLS tx（同一参照）と解決済み audience でのみ呼ばれる", async () => {
     const sentinelTx = { __rls: "scoped" } as unknown as TenantTx;
     const provider: ContextProvider = vi.fn(async () => []);
     const { client } = makeModelClient({ chunks: ["はい"] });
@@ -448,6 +448,6 @@ describe("executeChat 敵対的: テナント分離 pass-through 不変条件", 
     // （= RLS スコープ外で grounding を引かない。実 RLS 強制は rag-search.test.ts が実 PG で証明）。
     const call = vi.mocked(provider).mock.calls[0];
     expect(call?.[0]).toBe(sentinelTx);
-    expect(call?.[1]?.classId).toBe(CLASS_ID);
+    expect(call?.[1]?.audience).toEqual({ kind: "student", classId: CLASS_ID });
   });
 });

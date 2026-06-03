@@ -9,7 +9,7 @@ import {
   findUnmaskedPii,
   maskPII,
 } from "@kimiterrace/ai";
-import type { TenantTx } from "@kimiterrace/db";
+import type { RagAudience, TenantTx } from "@kimiterrace/db";
 import {
   type ChatSession,
   appendAssistantMessage,
@@ -61,8 +61,9 @@ export type GroundingResult = {
  * `maskedQuestion` は **マスク済み**（PII 除去後）の質問文で、RAG provider がこれを embedding 化して
  * ベクトル検索する（生 PII を Vertex embedding へ送らないため、chat-service が先にマスクして渡す契約）。
  * MVP 直接取得 provider は `maskedQuestion` を無視し最近の公開掲示物を返す。
- * `classId` は生徒経路のクラス（将来のクラス絞り込み #481-2 用、現 provider は未使用）。**教員経路は
- * クラス非バインドのため `null`**。
+ * `audience` は grounding の class 境界（#481-2）: 生徒は自クラス（`class`/`homeroom` は classId 厳密一致）、
+ * **教員はクラス非バインド (`{kind:"staff"}`)**。provider はこれを rag-search / 直接取得の両経路で強制し、
+ * 別クラス向け掲示物が生徒 Q&A に混入しないようにする（`canStudentSeeContent` と同一判定）。
  *
  * 戻り値は {@link GroundingResult}（mode + contexts）。後方互換のため **素の `ChatContext[]` を返す
  * provider も受け付ける**（{@link normalizeGrounding} が非空なら grounded / 空なら general_supplement に
@@ -70,7 +71,7 @@ export type GroundingResult = {
  */
 export type ContextProvider = (
   tx: TenantTx,
-  params: { classId: string | null; maskedQuestion: string },
+  params: { audience: RagAudience; maskedQuestion: string },
 ) => Promise<GroundingResult | readonly ChatContext[]>;
 
 /**
@@ -97,7 +98,7 @@ export type StudentChatIdentity = {
   kind: "student";
   /** クラス magic_link セッション id。レート制限の第一キー + セッション解決キー。 */
   magicLinkId: string;
-  /** 生徒のクラス（grounding スコープ用、現 provider は未使用 #481-2）。 */
+  /** 生徒のクラス。grounding の class 境界（`class`/`homeroom` の classId 厳密一致、#481-2）に使用。 */
   classId: string;
   /** cookie 由来の端末識別子（レート制限の第二キー）。 */
   cookieId: string;
@@ -240,8 +241,12 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     locale = "ja",
     nowMs = Date.now(),
   } = params;
-  // grounding スコープ用 classId: 生徒は自クラス、教員はクラス非バインドで null。
-  const classId = identity.kind === "student" ? identity.classId : null;
+  // grounding スコープ: 生徒は自クラス境界（class/homeroom は classId 厳密一致）、教員はクラス非バインド。
+  // 別クラス向け掲示物が生徒 Q&A の grounding に混入しないよう audience を provider に伝播する（#481-2）。
+  const audience: RagAudience =
+    identity.kind === "student"
+      ? { kind: "student", classId: identity.classId }
+      : { kind: "staff" };
 
   // 1) 入力バリデーション。空・長すぎは LLM 前に弾く (コスト/濫用対策)。
   const validated = validateQuestion(rawQuestion);
@@ -306,7 +311,7 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   //    (MVP 直接取得 provider は無視)。RLS スコープ tx で自校に閉じる。
   //    provider は grounding モード (掲示準拠 / 一般補足) も申告する (ADR-028 §3)。
   const grounding = normalizeGrounding(
-    await contextProvider(tx, { classId, maskedQuestion: maskedQuestion.masked }),
+    await contextProvider(tx, { audience, maskedQuestion: maskedQuestion.masked }),
   );
   const rawContexts = grounding.contexts;
 

@@ -261,3 +261,127 @@ describeOrSkip("F06 RAG 検索 getRelevantPublishedContent (pgvector / RLS / 公
     await expect(getRelevantPublishedContent(db, [1, 2, 3])).rejects.toThrow(RangeError);
   });
 });
+
+/**
+ * #481-2 (F06/F04): RAG grounding の class/homeroom を生徒の classId で厳密一致させる。
+ *
+ * `school` は全校 broadcast で classId 非依存、`class`/`homeroom` は `contents.targets`（jsonb の
+ * class_id 配列）に生徒の classId を含むものだけを採用する。**別クラス向け掲示物が生徒 Q&A の
+ * grounding に混入しない**ことを実 PG で証明する（F04 安全網「公開先と一致しない magic_link アクセスは
+ * 403」を RAG にも適用）。教員 (`staff`) と audience 未指定（後方互換）は classId 非依存で全 visible scope。
+ *
+ * 全 doc を query に一致する embedding で投入し、**scope/classId フィルタだけが選別要因**になるようにする
+ * （similarity は同値、選別は audienceScopeFilter の WHERE 由来であることを純化）。
+ */
+describeOrSkip("#481-2 RAG class/homeroom の classId 厳密一致 (audience)", () => {
+  // biome-ignore lint/style/noNonNullAssertion: describe.skip 時は実行されない
+  const { sql: raw, db } = createDbClient(url!);
+  const APP = { appRole: "kimiterrace_app" };
+  let fx: Awaited<ReturnType<typeof seedBaseFixture>>;
+
+  const query = vec({ 0: 1 });
+  const CLASS_X = "11111111-1111-1111-1111-111111111111";
+  const CLASS_Y = "22222222-2222-2222-2222-222222222222";
+
+  let schoolDoc: string;
+  let classX: string;
+  let classY: string;
+  let homeroomX: string;
+
+  /** A 校の公開中 content を scope/targets 付きで 1 件投入し contentId を返す（embedding は query 一致）。 */
+  async function seedScoped(
+    title: string,
+    scope: PublishScope,
+    targets: string[],
+  ): Promise<string> {
+    const [c] = await raw<{ id: string }[]>`
+      INSERT INTO contents (school_id, title, body, publish_scope, status, targets, created_by)
+      VALUES (${fx.schoolA}, ${title}, '本文', ${scope}, 'published', ${JSON.stringify(targets)}::jsonb, ${fx.userA})
+      RETURNING id
+    `;
+    const literal = `[${vec({ 0: 1 }).join(",")}]`;
+    const [v] = await raw<{ id: string }[]>`
+      INSERT INTO content_versions (school_id, content_id, version, snapshot, embedding, created_by)
+      VALUES (${fx.schoolA}, ${c.id}, 1, '{}'::jsonb, ${literal}::vector, ${fx.userA})
+      RETURNING id
+    `;
+    await raw`
+      INSERT INTO publishes (school_id, content_id, version_id)
+      VALUES (${fx.schoolA}, ${c.id}, ${v.id})
+    `;
+    return c.id;
+  }
+
+  beforeAll(async () => {
+    fx = await seedBaseFixture(raw);
+    schoolDoc = await seedScoped("school-wide", "school", []);
+    classX = await seedScoped("class-X", "class", [CLASS_X]);
+    classY = await seedScoped("class-Y", "class", [CLASS_Y]);
+    homeroomX = await seedScoped("homeroom-X", "homeroom", [CLASS_X]);
+  });
+
+  beforeEach(async () => {
+    await raw`RESET ROLE`;
+  });
+
+  afterAll(async () => {
+    await raw.end({ timeout: 5 });
+  });
+
+  const studentCtx = () => ({ schoolId: fx.schoolA, role: "student" as const });
+
+  it("生徒(classX): school + 自クラスの class/homeroom のみ、別クラス(classY)を grounding から除外する", async () => {
+    const res = await withTenantContext(
+      db,
+      studentCtx(),
+      (tx) =>
+        getRelevantPublishedContent(tx, query, {
+          limit: 10,
+          audience: { kind: "student", classId: CLASS_X },
+        }),
+      APP,
+    );
+    const ids = res.map((r) => r.contentId);
+    expect(ids).toContain(schoolDoc);
+    expect(ids).toContain(classX);
+    expect(ids).toContain(homeroomX);
+    // 核心リスク: 別クラス向け掲示物が生徒 Q&A の grounding に混入しない (F04 安全網)。
+    expect(ids).not.toContain(classY);
+  });
+
+  it("生徒(classId なし): class/homeroom は突合不能で除外し school のみ", async () => {
+    const res = await withTenantContext(
+      db,
+      studentCtx(),
+      (tx) =>
+        getRelevantPublishedContent(tx, query, {
+          limit: 10,
+          audience: { kind: "student", classId: null },
+        }),
+      APP,
+    );
+    expect(res.map((r) => r.contentId)).toEqual([schoolDoc]);
+  });
+
+  it("教員(staff): class/homeroom も classId 非依存で全件 grounding する", async () => {
+    const res = await withTenantContext(
+      db,
+      studentCtx(),
+      (tx) => getRelevantPublishedContent(tx, query, { limit: 10, audience: { kind: "staff" } }),
+      APP,
+    );
+    const ids = res.map((r) => r.contentId);
+    expect(ids).toEqual(expect.arrayContaining([schoolDoc, classX, classY, homeroomX]));
+  });
+
+  it("audience 未指定は後方互換で staff 相当 (全 visible scope, classId 非依存)", async () => {
+    const res = await withTenantContext(
+      db,
+      studentCtx(),
+      (tx) => getRelevantPublishedContent(tx, query, { limit: 10 }),
+      APP,
+    );
+    const ids = res.map((r) => r.contentId);
+    expect(ids).toEqual(expect.arrayContaining([schoolDoc, classX, classY, homeroomX]));
+  });
+});
