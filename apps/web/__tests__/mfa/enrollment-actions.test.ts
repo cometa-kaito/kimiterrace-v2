@@ -8,7 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * - 認可: requireRole(MFA_REQUIRED_ROLES=teacher 以上) を呼ぶ (生徒/保護者は redirect)。
  * - actor = target = 自分: uid は session 由来 (requireRole 戻り値)。外部入力の uid を受け取らない。
  * - 件数は IdP 再読 (getEnrolledMfaFactorCount) の authoritative 値で、クライアント申告を信用しない。
- * - 監査: table=users / op=update / actor=自分 / record_id=自分 / diff に op と件数のみ (PII なし)。
+ * - 監査: table_name は actor の所属表で解決 (system_admin→system_admins / それ以外→users、#544 Reviewer
+ *   Low-1) / op=update / actor=自分 / record_id=自分 / diff に op と件数のみ (PII なし)。
  */
 
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
@@ -90,7 +91,7 @@ describe("recordMfaEnrollmentAudit (#47 ADR-031)", () => {
     expect(res).toEqual({ ok: true, data: { enrolledFactorCount: 2 } });
   });
 
-  it("監査: table=users / op=update / actor=自分 / record_id=自分 / school_id=自校", async () => {
+  it("監査 (teacher=users 所属): table=users / op=update / actor=自分 / record_id=自分 / school_id=自校", async () => {
     factorCountMock.mockResolvedValue(1);
     await recordMfaEnrollmentAudit({ op: "enroll" });
     expect(auditValues).toMatchObject({
