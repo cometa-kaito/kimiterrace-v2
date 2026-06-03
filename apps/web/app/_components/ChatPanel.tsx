@@ -29,7 +29,10 @@ const STR = {
   roleUser: "あなた",
   roleAssistant: "アシスタント",
   errors: {
+    // 生徒経路 (magic_link 失効 = 410 gone)。
     gone: "このアクセスリンクは無効か期限切れです。担任の先生に新しいリンクの発行を依頼してください。",
+    // 教員経路 (未認証 401 / 権限不足 403)。magic_link 文言は教員に不適切なので分ける (#370 Reviewer nit)。
+    accessDenied: "アクセス権限がありません。お手数ですが、再度ログインしてからお試しください。",
     invalidBody: "質問を入力してください。",
     network: "通信に失敗しました。電波の良い場所でもう一度お試しください。",
     generic: "応答できませんでした。もう一度お試しください。",
@@ -48,9 +51,10 @@ function errorMessage(ev: Extract<ChatEvent, { type: "error" }>): string {
   if (ev.message) return ev.message;
   switch (ev.reason) {
     case "gone":
+      return STR.errors.gone;
     case "unauthenticated":
     case "forbidden":
-      return STR.errors.gone;
+      return STR.errors.accessDenied;
     case "invalid_body":
     case "invalid_json":
       return STR.errors.invalidBody;

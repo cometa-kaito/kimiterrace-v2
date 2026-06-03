@@ -59,6 +59,18 @@ describe("ChatPanel (F06 汎用チャット UI, #370/#371)", () => {
     });
   });
 
+  it("教員経路の forbidden/unauthenticated は magic_link 文言でなくアクセス権限エラーを表示する (#370 nit)", async () => {
+    mockStreamChat.mockReturnValue(gen([{ type: "error", status: 403, reason: "forbidden" }]));
+    render(<ChatPanel {...TEACHER_PROPS} />);
+    const input = screen.getByLabelText("質問を入力") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "質問" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+    const alert = await screen.findByRole("alert");
+    // 教員に「担任の先生にリンク発行を依頼」は不適切。権限/再ログイン文言にする。
+    expect(alert).toHaveTextContent(/アクセス権限がありません/);
+    expect(alert).not.toHaveTextContent(/リンク/);
+  });
+
   it("endpoint=/api/student/chat なら生徒経路で streamChat を呼ぶ (汎用性の確認)", async () => {
     mockStreamChat.mockReturnValue(gen([{ type: "done", sessionId: "s", messageId: "m" }]));
     render(
