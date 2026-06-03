@@ -1,12 +1,14 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getAdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
+import { listLinkedContents } from "@/lib/system-admin/contract-contents-queries";
 import { CONTRACT_STATUS_LABEL } from "@/lib/system-admin/contracts-core";
 import { listContractsByAdvertiser } from "@/lib/system-admin/contracts-queries";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ContractContentLinks } from "./_components/ContractContentLinks";
 import { ContractCreateForm } from "./_components/ContractCreateForm";
 import { ContractStatusControl } from "./_components/ContractStatusControl";
 
@@ -40,7 +42,12 @@ export default async function AdvertiserContractsPage({
       return null;
     }
     const contracts = await listContractsByAdvertiser(tx, id);
-    return { advertiser, contracts };
+    // 各契約に紐付いた出稿コンテンツを同一 RLS tx で取得する (system_admin context = cross-tenant 可視)。
+    const linksByContract = new Map<string, Awaited<ReturnType<typeof listLinkedContents>>>();
+    for (const c of contracts) {
+      linksByContract.set(c.id, await listLinkedContents(tx, c.id));
+    }
+    return { advertiser, contracts, linksByContract };
   });
   if (!data) {
     notFound();
@@ -84,6 +91,30 @@ export default async function AdvertiserContractsPage({
         </table>
       )}
 
+      {data.contracts.length > 0 ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <h2 style={subTitleStyle}>契約ごとの出稿コンテンツ</h2>
+          {data.contracts.map((c) => (
+            <div key={c.id} style={contractBlockStyle}>
+              <p style={contractCaptionStyle}>
+                {CONTRACT_STATUS_LABEL[c.status]}・{formatDate(c.startedAt)}〜
+                {formatDate(c.endedAt)}・ ¥{c.monthlyFeeJpy.toLocaleString("ja-JP")}
+              </p>
+              <ContractContentLinks
+                contractId={c.id}
+                advertiserId={id}
+                links={(data.linksByContract.get(c.id) ?? []).map((l) => ({
+                  linkId: l.linkId,
+                  contentId: l.contentId,
+                  title: l.title,
+                  schoolId: l.schoolId,
+                }))}
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
         <h2 style={subTitleStyle}>新規契約の登録</h2>
         <ContractCreateForm advertiserId={id} />
@@ -91,6 +122,17 @@ export default async function AdvertiserContractsPage({
     </section>
   );
 }
+
+const contractBlockStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+};
+const contractCaptionStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.82rem",
+  color: "#6b7280",
+};
 
 const backLinkStyle: React.CSSProperties = {
   fontSize: "0.85rem",
