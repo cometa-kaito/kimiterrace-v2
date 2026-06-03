@@ -93,6 +93,38 @@ describe("structureContent", () => {
     expect(res.rawInputHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("公開先・掲示期間の提案を構造化結果に持ち越す（F01、提案あり）", async () => {
+    const withSuggestions = JSON.stringify({
+      kind: "announcement",
+      data: { title: "球技大会", body: "本文" },
+      confidenceScore: 0.9,
+      evidence: [{ text: "球技大会" }],
+      suggestedPublishScope: "school",
+      suggestedPeriod: { start: "2026-06-10", end: "2026-06-20" },
+    });
+    const res = await structureContent({
+      kind: "announcement",
+      input: "球技大会を全校に掲示",
+      model: fakeModel([withSuggestions]),
+    });
+    expect(res.status).toBe("success");
+    expect(res.extraction).toMatchObject({
+      suggestedPublishScope: "school",
+      suggestedPeriod: { start: "2026-06-10", end: "2026-06-20" },
+    });
+  });
+
+  it("提案が無い応答も成功する（提案は任意・F01）", async () => {
+    const res = await structureContent({
+      kind: "announcement",
+      input: "x",
+      model: fakeModel([announcement("ok")]),
+    });
+    expect(res.status).toBe("success");
+    expect(res.extraction?.suggestedPublishScope).toBeUndefined();
+    expect(res.extraction?.suggestedPeriod).toBeUndefined();
+  });
+
   it("schedule 種別のペイロードを検証する", async () => {
     const schedule = JSON.stringify({
       kind: "schedule",

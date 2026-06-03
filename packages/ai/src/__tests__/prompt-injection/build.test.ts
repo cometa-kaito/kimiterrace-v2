@@ -31,4 +31,16 @@ describe("プロンプトインジェクション対策", () => {
     expect(sys).toContain("confidence_score");
     expect(sys).toContain("JSON");
   });
+
+  it("公開先・掲示期間の提案を要求し、捏造を促さない（F01）", () => {
+    const sys = buildSystemPrompt("announcement");
+    expect(sys).toContain("suggested_publish_scope");
+    expect(sys).toContain("suggested_period");
+    // 許可値域を明示する。
+    expect(sys).toContain("school");
+    expect(sys).toContain("private");
+    // 中立指示: 根拠が無ければ省略させ、推測・捏造を促さない。
+    expect(sys).toContain("省略");
+    expect(sys).toMatch(/推測|捏造/);
+  });
 });
