@@ -36,7 +36,7 @@ export {
   buildContextBlock,
   buildQuestionBlock,
 } from "./prompt/chat.js";
-export type { ChatContext, ChatPrompt } from "./prompt/chat.js";
+export type { ChatContext, ChatPrompt, GroundingMode } from "./prompt/chat.js";
 
 // F08 (#44, ADR-005) AI 効果コメント生成プロンプト builder（決定論的・PII マスク前提、slice 1）
 export {

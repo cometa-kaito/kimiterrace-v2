@@ -258,6 +258,36 @@ describe("executeChat 敵対的: 捏造抑止 / スコープ外拒否", () => {
     expect(saved?.evidence).toEqual([]);
   });
 
+  it("根拠なし(general_supplement): ラベル付与 + 学校固有事実の推測抑止 + 先生誘導が必ずモデルへ渡る", async () => {
+    // 掲示物の話題だが閾値 (cosine 類似度 0.70) を満たす根拠が 0 件 = 掲示に根拠なし。
+    // provider が general_supplement を申告 → system が「掲示固有事実を捏造しない / ラベル / 先生確認」を強制。
+    const { client, state } = makeModelClient({ chunks: ["掲示には無い一般的な情報です。…"] });
+    const result = await executeChat(
+      baseParams({
+        modelClient: client,
+        rawQuestion: "文化祭の持ち物は何ですか？", // in_scope だが掲示に根拠なし想定
+        contextProvider: async () => ({
+          mode: "general_supplement",
+          contexts: [{ id: "c1", title: "最近の掲示", body: "本文" }],
+        }),
+      }),
+    );
+    await drain(result);
+
+    const system = state.req?.system ?? "";
+    // ① 明示ラベルを必ず付ける指示。
+    expect(system).toContain("掲示には無い一般的な情報です");
+    // ② 学校固有事実 (日時・持ち物・場所・対象クラス) を推測生成しない指示。
+    expect(system).toContain("学校固有の事実は推測で生成しない");
+    expect(system).toContain("先生に確認してください");
+    // ③ 捏造禁止を明示。
+    expect(system).toContain("捏造禁止");
+    expect(system).toContain("ラベル付きの一般補足モード");
+    // ④ 意味的根拠未検証ゆえ confidence は 0（自信を捏造しない、ADR-028 §3 / ルール4）。
+    const saved = vi.mocked(appendAssistantMessage).mock.calls[0]?.[1];
+    expect(saved?.confidenceScore).toBe(0);
+  });
+
   it("model 経路: モデル自身の拒否文はそのまま保存され、誘導文を足さない", async () => {
     // in-scope 質問（classifyScope を通過）でモデルが自ら定型拒否を返すケース。
     // chat-service はモデル出力を後加工しない（拒否に誘導文を継ぎ足さない）。

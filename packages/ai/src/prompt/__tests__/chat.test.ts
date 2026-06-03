@@ -61,6 +61,37 @@ describe("F06 生徒 Q&A プロンプト builder (ADR-028)", () => {
     });
   });
 
+  describe("buildChatSystemPrompt — grounding モード切替 (ADR-028 §3)", () => {
+    it("既定 (引数なし) は grounded で、従来 base プロンプトと byte 単位で一致 (非回帰)", () => {
+      expect(buildChatSystemPrompt()).toBe(buildChatSystemPrompt("grounded"));
+    });
+
+    it("grounded は general_supplement の強調ブロックを含まない", () => {
+      const grounded = buildChatSystemPrompt("grounded");
+      expect(grounded).not.toContain("ラベル付きの一般補足モード");
+      expect(grounded).not.toContain("質問へ十分に近い掲示物の根拠が見つかりませんでした");
+    });
+
+    it("general_supplement は grounded base を内包しつつ強調ブロックを追記する", () => {
+      const grounded = buildChatSystemPrompt("grounded");
+      const supplement = buildChatSystemPrompt("general_supplement");
+      // base を byte 単位で先頭に含む（grounded の契約を失わない）。
+      expect(supplement.startsWith(grounded)).toBe(true);
+      expect(supplement.length).toBeGreaterThan(grounded.length);
+    });
+
+    it("general_supplement: 掲示根拠なしの明示 + ラベル + 学校固有事実の推測抑止 + 先生誘導 + 捏造禁止", () => {
+      const supplement = buildChatSystemPrompt("general_supplement");
+      expect(supplement).toContain("質問へ十分に近い掲示物の根拠が見つかりませんでした");
+      expect(supplement).toContain("ラベル付きの一般補足モード");
+      // 応答パーサ・E2E が同文字列で検査するラベル / 誘導文言。
+      expect(supplement).toContain("掲示には無い一般的な情報です");
+      expect(supplement).toContain("学校固有の事実は推測で生成しない");
+      expect(supplement).toContain("先生に確認してください");
+      expect(supplement).toContain("捏造禁止");
+    });
+  });
+
   describe("buildContextBlock — RAG 文脈注入", () => {
     it("空配列のとき『該当なし』を明示する", () => {
       const block = buildContextBlock([]);
@@ -162,6 +193,20 @@ describe("F06 生徒 Q&A プロンプト builder (ADR-028)", () => {
         contexts: [{ id: "x", title: "y", body: "z" }],
       });
       expect(a.system).toBe(b.system);
+    });
+
+    it("mode 既定は grounded、mode=general_supplement で system が切り替わる (user は不変)", () => {
+      const grounded = buildChatPrompt({ question: "Q", contexts: [] });
+      const supplement = buildChatPrompt({
+        question: "Q",
+        contexts: [],
+        mode: "general_supplement",
+      });
+      expect(grounded.system).toBe(buildChatSystemPrompt("grounded"));
+      expect(supplement.system).toBe(buildChatSystemPrompt("general_supplement"));
+      // user パートはモードに依存しない (system のみ切り替わる)。
+      expect(supplement.user).toBe(grounded.user);
+      expect(supplement.system).not.toBe(grounded.system);
     });
   });
 });

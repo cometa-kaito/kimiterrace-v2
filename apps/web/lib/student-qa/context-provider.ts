@@ -1,7 +1,7 @@
 import type { ChatContext, EmbeddingClient } from "@kimiterrace/ai";
 import { getContentDetail, getRelevantPublishedContent, listContents } from "@kimiterrace/db";
-import type { TenantTx } from "@kimiterrace/db";
-import type { ContextProvider } from "./chat-service";
+import type { RagMatch, TenantTx } from "@kimiterrace/db";
+import type { GroundingResult } from "./chat-service";
 
 /**
  * F06 (#42 第2スライス, #369 follow-up): 生徒 Q&A の **コンテキストプロバイダ具体実装**。
@@ -43,11 +43,35 @@ const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 20;
 
 /**
+ * F06 grounding 採用しきい値（ADR-028 §結果 追補, 2026-06-03 ユーザー確定）= **コサイン類似度 0.70**。
+ *
+ * **方向性（重要・取り違え注意）**: pgvector の `<=>` は cosine **距離**（0 = 完全一致、2 = 真逆）で、
+ * `getRelevantPublishedContent` はこれを **similarity = 1 - distance** に変換して返す（高いほど近い）。
+ * よって採用条件「similarity ≥ 0.70」は **cosine 距離 ≤ 0.30** と等価。距離で比較すると不等号が反転する
+ * ため、本コードでは必ず **similarity 値で比較**する（`>=` で 0.70 ちょうども採用）。
+ *
+ * 役割: RAG 近傍 top-k のうち本しきい値を満たすチャンクだけを grounding (掲示準拠) に採用する。
+ * 満たすものが 0 件なら「掲示に根拠なし」= general_supplement モード（ADR-028 §3、ラベル付き一般補足 +
+ * 学校固有事実の推測抑止 + 先生誘導）へ落とす。
+ */
+export const GROUNDING_SIMILARITY_THRESHOLD = 0.7;
+
+/**
  * 生徒に見せてよい publish scope。`private` は生徒向け broadcast でないため grounding から除外する
  * （CLAUDE.md「迷ったら安全側」）。`class`/`homeroom` の classId 厳密一致は publishes が school 単位の
  * ため本 MVP では未対応（follow-up）だが、scope 種別としては生徒可視に含める。
  */
 const STUDENT_VISIBLE_SCOPES: ReadonlySet<string> = new Set(["school", "class", "homeroom"]);
+
+/**
+ * 本モジュールの provider が返す **narrow な** 関数型。{@link ContextProvider}（union 戻り）に代入可能だが、
+ * 戻り値を `GroundingResult` に固定して呼び出し側で `.mode` / `.contexts` を直接読めるようにする
+ * （factory を `ContextProvider` で注釈すると戻りが union に広がり narrowing が要るため）。
+ */
+type GroundingProvider = (
+  tx: TenantTx,
+  params: { classId: string | null; maskedQuestion: string },
+) => Promise<GroundingResult>;
 
 /** {@link createPublishedContentProvider} の任意設定。 */
 export type PublishedContentProviderOptions = {
@@ -65,17 +89,20 @@ export type PublishedContentProviderOptions = {
  *     （権威的な公開状態ゲート）。RLS 不可視（別テナント / 不存在）は `null` で除外。
  *  4. `{ id, title, body }`（{@link ChatContext}）に整形して返す。順序は手順 1 の決定的順序を維持。
  *
+ * **grounding モード（ADR-028 §3）**: 本 provider は「更新の新しい順」の **直接取得** であり、質問との
+ * 意味的な近さ（cosine 類似度）を一切評価しない。したがって掲示準拠（grounded）と断定できず、常に
+ * **`general_supplement`** を返す。RAG のフォールバック先として呼ばれる場合も、単体 MVP として
+ * 呼ばれる場合も、安全側（ラベル付き一般補足 + 学校固有事実の推測抑止 + 先生誘導）に倒すのが
+ * ADR-028 §3 と整合する（「掲示に意味的根拠あり」を未検証の文脈で grounded と誤断定しない）。
+ *
  * @param opts.limit grounding 件数上限（既定 6）
  */
 export function createPublishedContentProvider(
   opts: PublishedContentProviderOptions = {},
-): ContextProvider {
+): GroundingProvider {
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
 
-  return async (
-    tx: TenantTx,
-    _params: { classId: string | null },
-  ): Promise<readonly ChatContext[]> => {
+  return async (tx: TenantTx, _params: { classId: string | null }): Promise<GroundingResult> => {
     // 1) 公開中候補（本文を含まない軽量 summary、更新新しい順で決定的）。
     const candidates = await listContents(tx, { status: "published" });
 
@@ -88,18 +115,30 @@ export function createPublishedContentProvider(
     const details = await Promise.all(visible.map((c) => getContentDetail(tx, c.id)));
 
     // 4) active publish を持つものだけ採用し ChatContext に整形（順序は visible のまま）。
-    const contexts: ChatContext[] = [];
-    for (const detail of details) {
-      if (detail && detail.activePublish !== null) {
-        contexts.push({
-          id: detail.content.id,
-          title: detail.content.title,
-          body: detail.content.body,
-        });
-      }
-    }
-    return contexts;
+    // 直接取得は意味的根拠を保証しないため常に general_supplement（ADR-028 §3、安全側）。
+    return { mode: "general_supplement", contexts: collectActiveContexts(details) };
   };
+}
+
+/**
+ * `getContentDetail` の結果列から **active publish を持つもの**だけ {@link ChatContext} に整形する。
+ * RLS 不可視（別テナント / 不存在）の `null`・unpublish 済 / 下書き（`activePublish === null`）を除外し、
+ * 入力配列の順序を保つ。直接取得 / RAG 両 provider で共有する権威的公開状態ゲート。
+ */
+function collectActiveContexts(
+  details: readonly (Awaited<ReturnType<typeof getContentDetail>> | null)[],
+): ChatContext[] {
+  const contexts: ChatContext[] = [];
+  for (const detail of details) {
+    if (detail && detail.activePublish !== null) {
+      contexts.push({
+        id: detail.content.id,
+        title: detail.content.title,
+        body: detail.content.body,
+      });
+    }
+  }
+  return contexts;
 }
 
 /** {@link createRagContentProvider} の設定。 */
@@ -118,12 +157,19 @@ export type RagContentProviderOptions = {
  *     空質問はベクトル検索せず即フォールバック。
  *  2. `getRelevantPublishedContent` で cosine 近傍 top-k を取得（`school_id` 非記述 → RLS で自校、
  *     公開中 inner join、生徒可視 scope=`private` 除外はクエリ層が強制 #481）。
- *  3. 各ヒットを `getContentDetail` で本文込み取得し `activePublish !== null` ゲート（権威的公開状態）。
- *  4. 使える context が 1 件以上あればそれを返す。0 件なら **MVP 直接取得にフォールバック**。
+ *  3. **しきい値フィルタ（ADR-028 §結果, #366）**: 近傍のうち **cosine 類似度 ≥
+ *     {@link GROUNDING_SIMILARITY_THRESHOLD}（0.70）** のヒットだけを grounding 候補に残す（弱い類似は
+ *     掲示準拠の根拠と見なさない）。`getRelevantPublishedContent` の `similarity = 1 - 距離` で比較するため
+ *     方向は正しい（距離で比較すると反転する、{@link GROUNDING_SIMILARITY_THRESHOLD} のコメント参照）。
+ *  4. 残ったヒットを `getContentDetail` で本文込み取得し `activePublish !== null` ゲート（権威的公開状態）。
+ *  5. 使える context が 1 件以上あれば `mode="grounded"` で返す。0 件なら **MVP 直接取得にフォールバック**し、
+ *     その結果を **`mode="general_supplement"`** に倒す（ADR-028 §3、フォールバックは掲示準拠と断定しない）。
  *
- * **フォールバックの意義**: embedding 投入バッチ（#365/#398）実行前は `content_versions.embedding` が
- * 全 NULL でベクトル検索が 0 件になる。フォールバックで「最近の公開掲示物」を grounding し、空答弁への
- * 退行を防ぐ。バッチ実行後は 0 件でなくなり自動で意味的 RAG に切り替わる（コード変更不要）。
+ * **フォールバックの意義 + grounding モードの扱い**: embedding 投入バッチ（#365/#398）実行前は
+ * `content_versions.embedding` が全 NULL でベクトル検索が 0 件になる。フォールバックで「最近の公開掲示物」を
+ * 文脈として渡し、空答弁への退行を防ぐ。ただしフォールバック由来の文脈は **意味的に近いと検証されていない**
+ * ため `general_supplement`（ラベル付き一般補足 + 学校固有事実の推測抑止 + 先生誘導）で扱い、grounded と
+ * 誤断定しない。バッチ実行後は閾値を満たすヒットが出れば自動で grounded に切り替わる（コード変更不要）。
  *
  * **PII（ルール4）**: embedding には **マスク済み質問のみ** を渡す（生 PII を Vertex embedding へ送らない）。
  * title/body は本 provider ではマスクせず返し、chat-service の fail-closed マスキングに委ねる（MVP と同契約）。
@@ -133,38 +179,44 @@ export type RagContentProviderOptions = {
  * @param opts.embeddingClient 質問 embedding クライアント（caller が env から生成して注入）
  * @param opts.limit grounding 件数上限（既定 6）
  */
-export function createRagContentProvider(opts: RagContentProviderOptions): ContextProvider {
+export function createRagContentProvider(opts: RagContentProviderOptions): GroundingProvider {
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
   const fallback = createPublishedContentProvider({ limit });
 
   return async (
     tx: TenantTx,
     params: { classId: string | null; maskedQuestion: string },
-  ): Promise<readonly ChatContext[]> => {
+  ): Promise<GroundingResult> => {
     const question = params.maskedQuestion.trim();
     if (question.length > 0) {
       // embedding エラーは握り潰さず伝播（誠実な失敗）。次元検証は embed() / rag-search 双方が行う。
       const [embedding] = await opts.embeddingClient.embed([question]);
       if (embedding) {
         const matches = await getRelevantPublishedContent(tx, embedding, { limit });
-        if (matches.length > 0) {
+        // しきい値（cosine 類似度 ≥ 0.70）を満たすヒットだけを grounding 候補にする。
+        const grounded = selectGroundedMatches(matches);
+        if (grounded.length > 0) {
           // 本文 + 権威的公開状態を取得（順序保持のため Promise.all、similarity 降順は matches のまま）。
-          const details = await Promise.all(matches.map((m) => getContentDetail(tx, m.contentId)));
-          const contexts: ChatContext[] = [];
-          for (const detail of details) {
-            if (detail && detail.activePublish !== null) {
-              contexts.push({
-                id: detail.content.id,
-                title: detail.content.title,
-                body: detail.content.body,
-              });
-            }
-          }
-          if (contexts.length > 0) return contexts;
+          const details = await Promise.all(grounded.map((m) => getContentDetail(tx, m.contentId)));
+          const contexts = collectActiveContexts(details);
+          if (contexts.length > 0) return { mode: "grounded", contexts };
         }
       }
     }
-    // ベクトル検索が 0 件（embedding 未投入 / 該当なし / 空質問）→ 最近の公開掲示物にフォールバック。
+    // ベクトル検索 0 件 / 弱い類似のみ / embedding 未投入 / 空質問 → 最近の公開掲示物にフォールバック。
+    // フォールバック文脈は意味的根拠未検証ゆえ general_supplement に倒す（fallback provider が既に付与）。
     return fallback(tx, params);
   };
+}
+
+/**
+ * RAG 近傍 top-k のうち、grounding に採用する（= cosine 類似度 ≥
+ * {@link GROUNDING_SIMILARITY_THRESHOLD}）ヒットだけを返す純関数（ADR-028 §結果, #366）。
+ *
+ * `RagMatch.similarity` は `1 - cosine 距離`（高いほど近い）。**しきい値ちょうど（0.70）は採用**する
+ * （`>=`）。距離で比較すると不等号が反転する罠を避けるため必ず similarity で比較する。順序は入力
+ * （similarity 降順）を保つ。
+ */
+export function selectGroundedMatches(matches: readonly RagMatch[]): RagMatch[] {
+  return matches.filter((m) => m.similarity >= GROUNDING_SIMILARITY_THRESHOLD);
 }
