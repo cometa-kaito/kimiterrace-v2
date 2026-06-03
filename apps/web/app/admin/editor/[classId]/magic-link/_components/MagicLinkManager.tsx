@@ -41,6 +41,8 @@ export function MagicLinkManager({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [extendingId, setExtendingId] = useState<string | null>(null);
+  const [extendDays, setExtendDays] = useState("");
 
   async function refreshLinks() {
     const res = await fetch(`/api/magic-links?classId=${encodeURIComponent(classId)}`);
@@ -121,6 +123,38 @@ export function MagicLinkManager({
       setError("ネットワークエラーが発生しました。");
     } finally {
       setConfirmingId(null);
+    }
+  }
+
+  async function extend(id: string) {
+    setError(null);
+    const n = Number(extendDays.trim());
+    if (
+      extendDays.trim() === "" ||
+      !Number.isInteger(n) ||
+      n < EXPIRES_MIN_DAYS ||
+      n > EXPIRES_MAX_DAYS
+    ) {
+      setError(`有効期限は ${EXPIRES_MIN_DAYS}〜${EXPIRES_MAX_DAYS} 日の整数で指定してください。`);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/magic-links/${id}/extend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expiresInDays: n }),
+      });
+      if (!res.ok) {
+        setError(`期限の更新に失敗しました (${res.status})。`);
+        return;
+      }
+      // サーバが返す新しい期限 (今から N 日) で該当行を差し替える。
+      const data: { id: string; expiresAt: string } = await res.json();
+      setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, expiresAt: data.expiresAt } : l)));
+      setExtendingId(null);
+      setExtendDays("");
+    } catch {
+      setError("ネットワークエラーが発生しました。");
     }
   }
 
@@ -227,7 +261,56 @@ export function MagicLinkManager({
               <span style={{ color: "#374151" }}>
                 発行 {formatDate(link.createdAt)} / 期限 {formatDate(link.expiresAt)}
               </span>
-              {confirmingId === link.id ? (
+              {extendingId === link.id ? (
+                <span style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={EXPIRES_MIN_DAYS}
+                    max={EXPIRES_MAX_DAYS}
+                    value={extendDays}
+                    onChange={(e) => setExtendDays(e.target.value)}
+                    aria-label="新しい有効日数（今日から）"
+                    placeholder="90"
+                    style={{
+                      width: "4.5rem",
+                      padding: "0.3rem 0.4rem",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "0.3rem",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => extend(link.id)}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "none",
+                      background: "#2563eb",
+                      color: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    更新
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExtendingId(null);
+                      setExtendDays("");
+                    }}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid #d1d5db",
+                      background: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    やめる
+                  </button>
+                </span>
+              ) : confirmingId === link.id ? (
                 <span style={{ display: "flex", gap: "0.4rem" }}>
                   <button
                     type="button"
@@ -258,20 +341,39 @@ export function MagicLinkManager({
                   </button>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmingId(link.id)}
-                  style={{
-                    padding: "0.3rem 0.7rem",
-                    borderRadius: "0.3rem",
-                    border: "1px solid #fca5a5",
-                    background: "#fff",
-                    color: "#b91c1c",
-                    cursor: "pointer",
-                  }}
-                >
-                  失効
-                </button>
+                <span style={{ display: "flex", gap: "0.4rem" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExtendingId(link.id);
+                      setExtendDays("");
+                    }}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid #93c5fd",
+                      background: "#fff",
+                      color: "#1d4ed8",
+                      cursor: "pointer",
+                    }}
+                  >
+                    期限更新
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingId(link.id)}
+                    style={{
+                      padding: "0.3rem 0.7rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid #fca5a5",
+                      background: "#fff",
+                      color: "#b91c1c",
+                      cursor: "pointer",
+                    }}
+                  >
+                    失効
+                  </button>
+                </span>
               )}
             </li>
           ))}

@@ -205,6 +205,61 @@ export async function revokeMagicLink(
 }
 
 /**
+ * クラスリンクの有効期限を更新する (F05: 教員 UI からの短縮/延長)。`newExpiresAt` は
+ * 呼び出し側 (apps/web) が **サーバ時刻 `new Date()` を起点に** 算出した値を渡す前提
+ * (発行 API と同思想で client 時刻を信用しない)。
+ *
+ * - **失効済リンクは更新不可** (`revoked_at IS NULL` 条件)。失効は不可逆 (再有効化は新規発行)。
+ * - **期限切れ (未失効) リンクは再有効化できる**: `resolve_magic_link` は期限切れを 410 にする
+ *   だけで、新しい未来の期限を張れば再び解決可能になる (新学期の再利用)。
+ * - 自校のリンクのみ更新できる (RLS tenant_isolation)。他校/不存在は undefined。
+ * - 監査 (ルール1): 更新前後の `expires_at` を before/after で `audit_log` に残す。token は載せない。
+ *
+ * @returns 更新後の行 (見つからない/失効済/他校なら undefined)
+ */
+export async function extendMagicLink(
+  tx: TenantTx,
+  id: string,
+  newExpiresAt: Date,
+  actorUserId: string,
+): Promise<IssuedMagicLink | undefined> {
+  // 監査の before 値 (旧期限) を取るため更新前に読む。同一 tx・同一 WHERE で直後に UPDATE するため
+  // 取り違えは起きない (単一テナント seam、UPDATE も revoked_at IS NULL を再評価)。
+  const [before] = await tx
+    .select({ expiresAt: magicLinks.expiresAt, schoolId: magicLinks.schoolId })
+    .from(magicLinks)
+    .where(and(eq(magicLinks.id, id), isNull(magicLinks.revokedAt)));
+  if (!before) {
+    return undefined;
+  }
+  const [row] = await tx
+    .update(magicLinks)
+    // expiresAt は drizzle ORM 経由で Date を bind (createClassMagicLink と同方式、
+    // raw sql の timestamptz Date-bind 罠を踏まない)。updatedAt は DB now() で監査整合。
+    .set({ expiresAt: newExpiresAt, updatedBy: actorUserId, updatedAt: sql`now()` })
+    .where(and(eq(magicLinks.id, id), isNull(magicLinks.revokedAt)))
+    .returning(ISSUED_COLUMNS);
+  if (!row) {
+    return undefined;
+  }
+  await writeMagicLinkAudit(
+    tx,
+    { userId: actorUserId, schoolId: before.schoolId },
+    {
+      recordId: row.id,
+      operation: "update",
+      diff: {
+        expiresAt: {
+          before: before.expiresAt.toISOString(),
+          after: row.expiresAt.toISOString(),
+        },
+      },
+    },
+  );
+  return row;
+}
+
+/**
  * 教員 UI 用: クラスの有効なリンク一覧 (失効済を除く) を新しい順に返す。RLS で自校のみ。
  */
 export async function listClassMagicLinks(

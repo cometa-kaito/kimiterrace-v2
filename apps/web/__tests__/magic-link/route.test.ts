@@ -26,6 +26,7 @@ const {
   createClassMagicLink,
   listClassMagicLinks,
   revokeMagicLink,
+  extendMagicLink,
 } = vi.hoisted(() => {
   class MagicLinkClassNotFoundError extends Error {}
   return {
@@ -36,6 +37,7 @@ const {
     createClassMagicLink: vi.fn(),
     listClassMagicLinks: vi.fn(),
     revokeMagicLink: vi.fn(),
+    extendMagicLink: vi.fn(),
   };
 });
 
@@ -47,10 +49,12 @@ vi.mock("@kimiterrace/db", () => ({
   createClassMagicLink,
   listClassMagicLinks,
   revokeMagicLink,
+  extendMagicLink,
   // RLS context を張る代わりに、fake tx でコールバックを実行する。
   withTenantContext: (_db: unknown, _ctx: unknown, fn: (tx: unknown) => unknown) => fn({}),
 }));
 
+import { POST as EXTEND } from "../../app/api/magic-links/[id]/extend/route";
 import { POST as REVOKE } from "../../app/api/magic-links/[id]/revoke/route";
 import { GET, POST } from "../../app/api/magic-links/route";
 
@@ -67,6 +71,7 @@ beforeEach(() => {
   createClassMagicLink.mockReset();
   listClassMagicLinks.mockReset();
   revokeMagicLink.mockReset();
+  extendMagicLink.mockReset();
   generateToken.mockReturnValue("PLAINTOKEN");
   hashToken.mockReturnValue("HASHED");
 });
@@ -196,5 +201,78 @@ describe("POST /api/magic-links/{id}/revoke (失効)", () => {
     const res = await REVOKE(new Request("http://test"), ctx(LINK_ID));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: LINK_ID, revokedAt: "2026-02-01T00:00:00.000Z" });
+  });
+});
+
+describe("POST /api/magic-links/{id}/extend (期限更新)", () => {
+  const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+  function extendReq(body: unknown): Request {
+    return new Request("http://test/api/magic-links/x/extend", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("未認証は 401", async () => {
+    getCurrentUser.mockResolvedValue(null);
+    const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
+    expect(res.status).toBe(401);
+  });
+
+  it("発行不可ロール (student) は 403", async () => {
+    getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
+    expect(res.status).toBe(403);
+    expect(extendMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("不正な id は 400 (body 読取前にゲート)", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx("bad"));
+    expect(res.status).toBe(400);
+    expect(extendMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("expiresInDays 欠落は 400 で DB に到達しない", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    const res = await EXTEND(extendReq({}), ctx(LINK_ID));
+    expect(res.status).toBe(400);
+    expect(extendMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("壊れた JSON body は 400 invalid_body", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    const req = new Request("http://test/api/magic-links/x/extend", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+    const res = await EXTEND(req, ctx(LINK_ID));
+    expect(res.status).toBe(400);
+    expect(extendMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("存在しない/失効済 (undefined) は 404", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    extendMagicLink.mockResolvedValue(undefined);
+    const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
+    expect(res.status).toBe(404);
+  });
+
+  it("成功は 200 + 新しい expiresAt、DB にはサーバ時刻起点の Date を渡す", async () => {
+    getCurrentUser.mockResolvedValue(TEACHER);
+    extendMagicLink.mockResolvedValue({
+      id: LINK_ID,
+      classId: CLASS_ID,
+      expiresAt: new Date("2026-09-01T00:00:00.000Z"),
+      revokedAt: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: LINK_ID, expiresAt: "2026-09-01T00:00:00.000Z" });
+    // DB には id・サーバ時刻から算出した Date・actor uid が渡る (computeExpiresAt の結果)。
+    expect(extendMagicLink).toHaveBeenCalledWith({}, LINK_ID, expect.any(Date), TEACHER.uid);
   });
 });

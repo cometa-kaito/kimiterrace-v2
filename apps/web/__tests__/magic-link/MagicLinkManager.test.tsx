@@ -172,4 +172,86 @@ describe("MagicLinkManager", () => {
     expect(screen.getByRole("button", { name: "失効" })).toBeInTheDocument();
     expect(fetchFn).not.toHaveBeenCalled();
   });
+
+  it("期限更新: インライン日数入力 → 更新で extend API を呼び行の期限を差し替える", async () => {
+    const fetchFn = stubFetch((url, init) => {
+      if (url === "/api/magic-links/ml-9/extend" && init?.method === "POST") {
+        return Promise.resolve(jsonRes({ id: "ml-9", expiresAt: "2027-06-15T00:00:00.000Z" }));
+      }
+      return Promise.resolve(jsonRes({ error: "unexpected" }, 500));
+    });
+    render(
+      <MagicLinkManager
+        classId={CLASS_ID}
+        initialLinks={[
+          {
+            id: "ml-9",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            createdAt: "2026-05-31T00:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "期限更新" }));
+    // インライン入力が出るまで API は呼ばない。
+    expect(fetchFn).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "新しい有効日数（今日から）" }), {
+      target: { value: "60" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith(
+        "/api/magic-links/ml-9/extend",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const postCall = fetchFn.mock.calls.find((c) => String(c[0]).endsWith("/extend"));
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ expiresInDays: 60 });
+    // 成功で控えが閉じ「期限更新」ボタンが戻り、行に新しい年 (2027) が反映される。
+    expect(await screen.findByRole("button", { name: "期限更新" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("listitem")).toHaveTextContent("2027"));
+  });
+
+  it("期限更新の『やめる』で控えを閉じ API を呼ばない", () => {
+    const fetchFn = stubFetch(() => Promise.resolve(jsonRes({})));
+    render(
+      <MagicLinkManager
+        classId={CLASS_ID}
+        initialLinks={[
+          {
+            id: "ml-9",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            createdAt: "2026-05-31T00:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "期限更新" }));
+    fireEvent.click(screen.getByRole("button", { name: "やめる" }));
+    expect(screen.getByRole("button", { name: "期限更新" })).toBeInTheDocument();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("範囲外の延長日数はクライアントで弾き fetch しない", () => {
+    const fetchFn = stubFetch(() => Promise.resolve(jsonRes({})));
+    render(
+      <MagicLinkManager
+        classId={CLASS_ID}
+        initialLinks={[
+          {
+            id: "ml-9",
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            createdAt: "2026-05-31T00:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "期限更新" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "新しい有効日数（今日から）" }), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "更新" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("有効期限は");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
 });

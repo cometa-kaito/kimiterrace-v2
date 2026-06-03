@@ -6,6 +6,7 @@ import {
   MagicLinkClassNotFoundError,
   classBelongsToTenant,
   createClassMagicLink,
+  extendMagicLink,
   listClassMagicLinks,
   resolveMagicLink,
   revokeMagicLink,
@@ -443,6 +444,160 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         return listClassMagicLinks(tx, classA);
       });
       expect(rows).toHaveLength(0);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  // --- 期限更新 (extendMagicLink, F05 教員 UI からの短縮/延長) ---
+
+  it("extendMagicLink: 自校 context で期限を張り直し、before/after を監査に残す", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      // 旧期限 30 日の専用リンクを owner で投入
+      await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+        VALUES (${fx.schoolA}, ${classA}, 'hash-to-extend', now() + interval '30 days')`;
+      const id = (
+        await sql<{ id: string }[]>`SELECT id FROM magic_links WHERE token_hash = 'hash-to-extend'`
+      )[0].id;
+
+      const newExpiresAt = new Date(Date.now() + 200 * 86_400_000);
+      const updated = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return extendMagicLink(tx, id, newExpiresAt, fx.userA);
+      });
+      if (!updated) throw new Error("extendMagicLink が undefined を返した (更新できるはず)");
+      // 返却の新期限が ~200 日後 (旧 30 日から延長された)。
+      const days = (updated.expiresAt.getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(199);
+      expect(days).toBeLessThan(201);
+
+      // 監査 (ルール1): update 行に before/after の expiresAt が載り、token は載らない。
+      const audit = await sql<{ operation: string; diff: Record<string, unknown> }[]>`
+        SELECT operation, diff FROM audit_log
+        WHERE table_name = 'magic_links' AND record_id = ${id} AND operation = 'update'
+      `;
+      expect(audit).toHaveLength(1);
+      const diff = audit[0].diff as { expiresAt?: { before?: string; after?: string } };
+      expect(typeof diff.expiresAt?.before).toBe("string");
+      expect(diff.expiresAt?.after).toBe(updated.expiresAt.toISOString());
+      expect(diff.expiresAt?.before).not.toBe(diff.expiresAt?.after);
+      // before は旧 ~30 日後の値。
+      // biome-ignore lint/style/noNonNullAssertion: 直前の typeof string アサートで保証
+      const beforeDays = (new Date(diff.expiresAt!.before!).getTime() - Date.now()) / 86_400_000;
+      expect(beforeDays).toBeGreaterThan(29);
+      expect(beforeDays).toBeLessThan(31);
+      expect(JSON.stringify(audit[0].diff)).not.toContain("hash-to-extend");
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("extendMagicLink: 失効済リンクは更新できない (undefined)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      // seed の hash-revoked (school A, 失効済) を対象に。
+      const id = (
+        await sql<{ id: string }[]>`SELECT id FROM magic_links WHERE token_hash = 'hash-revoked'`
+      )[0].id;
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), fx.userA);
+      });
+      expect(result).toBeUndefined();
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("extendMagicLink: 期限切れ (未失効) は再有効化でき、更新後は resolve が通る (新学期の再利用)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      // 期限切れ・未失効の専用リンク。
+      await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+        VALUES (${fx.schoolA}, ${classA}, 'hash-to-renew', now() - interval '1 day')`;
+      const id = (
+        await sql<{ id: string }[]>`SELECT id FROM magic_links WHERE token_hash = 'hash-to-renew'`
+      )[0].id;
+
+      // 更新前: 期限切れゆえ resolve は null (→ 410)。
+      await sql.unsafe("SET ROLE kimiterrace_app");
+      try {
+        expect(await resolveMagicLink(drizzle(sql), "hash-to-renew")).toBeNull();
+      } finally {
+        await sql.unsafe("RESET ROLE");
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), fx.userA);
+      });
+      expect(updated).toBeDefined();
+
+      // 更新後: 未来の期限ゆえ resolve できる (再有効化された)。
+      await sql.unsafe("SET ROLE kimiterrace_app");
+      try {
+        const r = await resolveMagicLink(drizzle(sql), "hash-to-renew");
+        expect(r).not.toBeNull();
+        expect(r?.classId).toBe(classA);
+      } finally {
+        await sql.unsafe("RESET ROLE");
+      }
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("extendMagicLink: 他校のリンクは更新できない (RLS で不可視 → undefined、越境書込なし)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      // school A の専用リンク (旧 30 日)。
+      await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+        VALUES (${fx.schoolA}, ${classA}, 'hash-xtenant-ext', now() + interval '30 days')`;
+      const id = (
+        await sql<
+          { id: string }[]
+        >`SELECT id FROM magic_links WHERE token_hash = 'hash-xtenant-ext'`
+      )[0].id;
+
+      // school B context で school A のリンクを延長 → before SELECT が 0 行 → undefined、UPDATE 未実行。
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolB}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return extendMagicLink(tx, id, new Date(Date.now() + 200 * 86_400_000), fx.userA);
+      });
+      expect(result).toBeUndefined();
+
+      // 越境更新が起きていないことを直接確認: expires_at は ~30 日のまま (200 日化していない)。
+      const after = (
+        await sql<
+          { expires_at: string }[]
+        >`SELECT expires_at FROM magic_links WHERE token_hash = 'hash-xtenant-ext'`
+      )[0].expires_at;
+      const days = (new Date(after).getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeLessThan(31);
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });

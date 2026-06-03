@@ -76,3 +76,30 @@ export function parseIssueBody(body: unknown): ParseResult {
 export function computeExpiresAt(expiresInDays: number, now: Date): Date {
   return new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
 }
+
+export type ParsedExtendBody = { expiresInDays: number };
+
+export type ExtendParseResult =
+  | { ok: true; value: ParsedExtendBody }
+  | { ok: false; error: string };
+
+/**
+ * 期限更新リクエストの body を検証する (F05: 教員 UI からの短縮/延長)。
+ * 発行 (`parseIssueBody`) と違い `expiresInDays` は **必須** — 「今から N 日」を明示する操作のため
+ * 省略は許さない。範囲は発行と同じ `EXPIRES_MIN_DAYS..EXPIRES_MAX_DAYS` の整数。
+ */
+export function parseExtendBody(body: unknown): ExtendParseResult {
+  if (typeof body !== "object" || body === null) {
+    return { ok: false, error: "invalid_body" };
+  }
+  const { expiresInDays } = body as { expiresInDays?: unknown };
+  if (
+    typeof expiresInDays !== "number" ||
+    !Number.isInteger(expiresInDays) ||
+    expiresInDays < EXPIRES_MIN_DAYS ||
+    expiresInDays > EXPIRES_MAX_DAYS
+  ) {
+    return { ok: false, error: "invalid_expires_in_days" };
+  }
+  return { ok: true, value: { expiresInDays } };
+}

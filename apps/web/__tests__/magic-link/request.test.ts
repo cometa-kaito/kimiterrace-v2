@@ -4,6 +4,7 @@ import {
   computeExpiresAt,
   isIssuerRole,
   isUuid,
+  parseExtendBody,
   parseIssueBody,
 } from "../../lib/magic-link/request";
 
@@ -63,5 +64,34 @@ describe("magic-link request validation", () => {
   it("computeExpiresAt: now からの日数を加算", () => {
     const now = new Date("2026-01-01T00:00:00.000Z");
     expect(computeExpiresAt(10, now).toISOString()).toBe("2026-01-11T00:00:00.000Z");
+  });
+
+  it("parseExtendBody: 有効な expiresInDays を受理", () => {
+    expect(parseExtendBody({ expiresInDays: 30 })).toEqual({
+      ok: true,
+      value: { expiresInDays: 30 },
+    });
+  });
+
+  it.each([
+    ["non-object", "string"],
+    ["null", null],
+  ])("parseExtendBody: 不正な body (%s) は invalid_body", (_label, body) => {
+    expect(parseExtendBody(body)).toEqual({ ok: false, error: "invalid_body" });
+  });
+
+  it.each([
+    ["欠落", undefined],
+    ["null", null],
+    ["0", 0],
+    ["負", -5],
+    ["小数", 1.5],
+    ["上限超過", EXPIRES_MAX_DAYS + 1],
+    ["文字列", "30"],
+  ])("parseExtendBody: 必須かつ範囲内整数のみ — %s は invalid_expires_in_days", (_label, bad) => {
+    expect(parseExtendBody({ expiresInDays: bad })).toEqual({
+      ok: false,
+      error: "invalid_expires_in_days",
+    });
   });
 });
