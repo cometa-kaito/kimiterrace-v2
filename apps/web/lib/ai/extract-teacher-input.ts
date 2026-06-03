@@ -6,6 +6,8 @@ import {
   type RateLimiter,
   RateLimitExceededError,
   type StructureResult,
+  type SuggestedPeriod,
+  type SuggestedPublishScope,
   createPerSchoolRateLimiter,
   createVertexModelClient,
 } from "@kimiterrace/ai";
@@ -44,7 +46,15 @@ import {
 
 /** 抽出トリガの結果（route が HTTP に写像する判別共用体）。 */
 export type ExtractTeacherInputResult =
-  | { ok: true; status: "success" | "failed"; confidenceScore: number | null }
+  | {
+      ok: true;
+      status: "success" | "failed";
+      confidenceScore: number | null;
+      // F01 (2026-06-03): 教員 UI の既定値 pre-fill 用の提案（任意・成功時のみ非 null になりうる）。
+      // 下書き作成 (createDraftFromInputAction) へ橋渡しして公開先・掲示期間の既定に反映する。
+      suggestedPublishScope?: SuggestedPublishScope;
+      suggestedPeriod?: SuggestedPeriod;
+    }
   | {
       ok: false;
       reason:
@@ -159,7 +169,14 @@ export async function extractTeacherInput(
       contentId: null,
     });
 
-    return { ok: true, status: result.status, confidenceScore: result.confidenceScore };
+    return {
+      ok: true,
+      status: result.status,
+      confidenceScore: result.confidenceScore,
+      // 提案は任意。抽出成功時のみ extraction に載りうる（失敗時は extraction=null）。
+      suggestedPublishScope: result.extraction?.suggestedPublishScope,
+      suggestedPeriod: result.extraction?.suggestedPeriod,
+    };
   } catch (err) {
     if (err instanceof UnauthenticatedError) return { ok: false, reason: "unauthenticated" };
     if (err instanceof ForbiddenError) return { ok: false, reason: "forbidden" };

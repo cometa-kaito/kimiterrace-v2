@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
 import {
+  DEFAULT_PUBLISH_SCOPE,
   PUBLISHER_ROLES,
   PUBLISH_SCOPES,
   TITLE_MAX_LENGTH,
   isPublishScope,
   isUuid,
   isValidTargets,
+  resolveEditorDefaults,
   validateCreateInput,
   validateUpdateInput,
 } from "../../lib/contents/publish-core";
@@ -175,5 +177,50 @@ describe("validateCreateInput (#509 S3a)", () => {
     expect(validateCreateInput({ ...ok, targets: { classId: "x" } })).toMatchObject({
       code: "invalid_input",
     });
+  });
+});
+
+describe("resolveEditorDefaults (F01: AI 提案 → 編集 UI 既定値の pre-fill)", () => {
+  it("提案なし (undefined) は private + 期間未設定にフォールバック", () => {
+    expect(resolveEditorDefaults()).toEqual({
+      publishScope: DEFAULT_PUBLISH_SCOPE,
+      period: {},
+    });
+    expect(DEFAULT_PUBLISH_SCOPE).toBe("private");
+  });
+
+  it("空の提案も private + 期間未設定にフォールバック", () => {
+    expect(resolveEditorDefaults({})).toEqual({ publishScope: "private", period: {} });
+  });
+
+  it("公開先の提案 (許可値) を既定に採用する", () => {
+    expect(resolveEditorDefaults({ publishScope: "school" }).publishScope).toBe("school");
+    expect(resolveEditorDefaults({ publishScope: "class" }).publishScope).toBe("class");
+  });
+
+  it("掲示期間の提案 (両端) を pre-fill する", () => {
+    expect(
+      resolveEditorDefaults({ period: { start: "2026-06-10", end: "2026-06-20" } }).period,
+    ).toEqual({ start: "2026-06-10", end: "2026-06-20" });
+  });
+
+  it("掲示期間は片端だけの提案も保持する (end のみ)", () => {
+    expect(resolveEditorDefaults({ period: { end: "2026-06-20" } }).period).toEqual({
+      end: "2026-06-20",
+    });
+  });
+
+  it("空文字・非文字列の期間端は落とす (防御的)", () => {
+    expect(
+      resolveEditorDefaults({
+        period: { start: "", end: undefined as unknown as string },
+      }).period,
+    ).toEqual({});
+  });
+
+  it("無効な公開先提案は private にフォールバック (越境入力を信用しない)", () => {
+    expect(resolveEditorDefaults({ publishScope: "everyone" as never }).publishScope).toBe(
+      "private",
+    );
   });
 });

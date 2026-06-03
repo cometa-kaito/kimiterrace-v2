@@ -1,3 +1,4 @@
+import type { SuggestedPeriod, SuggestedPublishScope } from "@kimiterrace/ai";
 import {
   ContentNotFoundError,
   NoActivePublishError,
@@ -174,6 +175,54 @@ export function validateCreateInput(input: CreateContentInput): ActionError | nu
     return invalid("targets が不正です (配列で指定してください)。");
   }
   return null;
+}
+
+/**
+ * 教員が公開先を明示選択するまでの既定スコープ。最も狭い「下書き（自分のみ）」(F04.4)。
+ * AI 提案 (`suggestedPublishScope`) が無いときのフォールバックでもある。
+ */
+export const DEFAULT_PUBLISH_SCOPE = "private" satisfies PublishScopeValue;
+
+/** AI 抽出由来の提案 (公開先・掲示期間)。いずれも任意 (AI が常に提案できるとは限らない)。 */
+export type ExtractionSuggestions = {
+  publishScope?: SuggestedPublishScope;
+  period?: SuggestedPeriod;
+};
+
+/** 教員編集 UI に渡す既定値 (pre-fill)。期間は両端 optional (提案できた端のみ)。 */
+export type EditorDefaults = {
+  /** 公開先の既定選択。提案があれば採用、無ければ `DEFAULT_PUBLISH_SCOPE` (private)。 */
+  publishScope: PublishScopeValue;
+  /** 掲示期間の既定。提案が無ければ未設定 (両端 undefined)。 */
+  period: { start?: string; end?: string };
+};
+
+/**
+ * F01 (2026-06-03): AI 抽出の提案 → 教員編集 UI の既定値 (pre-fill) を解決する純粋関数。
+ *
+ * - `publishScope`: 提案が許可値 (`PUBLISH_SCOPES`) ならそれを既定に、無効値・未提案なら
+ *   `DEFAULT_PUBLISH_SCOPE` (private) にフォールバックする。提案は強制でなく、教員はエディタで
+ *   常に上書きできる (F04.4 明示選択)。AI スキーマ側で enum 検証済みだが、ここでも防御的に再検証する
+ *   (越境入力を信用しない・ルール2 と同じ姿勢)。
+ * - `period`: 提案できた端だけを反映する。文字列でない端は落とす (空文字・型不一致を弾く)。提案が無ければ
+ *   両端 undefined (従来どおり期間未設定)。掲示期間は ISO 文字列の入れ物のみで、ここで暦解釈はしない。
+ */
+export function resolveEditorDefaults(suggestions?: ExtractionSuggestions): EditorDefaults {
+  const publishScope = isPublishScope(suggestions?.publishScope)
+    ? suggestions.publishScope
+    : DEFAULT_PUBLISH_SCOPE;
+
+  const period: { start?: string; end?: string } = {};
+  const start = suggestions?.period?.start;
+  const end = suggestions?.period?.end;
+  if (typeof start === "string" && start.length > 0) {
+    period.start = start;
+  }
+  if (typeof end === "string" && end.length > 0) {
+    period.end = end;
+  }
+
+  return { publishScope, period };
 }
 
 /** invalid_input エラーを作る。 */
