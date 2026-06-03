@@ -173,6 +173,16 @@ describe("streamChat", () => {
     });
   });
 
+  it("endpoint 指定時はその URL に POST する (教員経路 /api/teacher/chat, #370)", async () => {
+    let capturedUrl = "";
+    const fetchImpl = vi.fn((url: string | URL | Request) => {
+      capturedUrl = String(url);
+      return Promise.resolve(sseResponse(frame("done", { sessionId: "s", messageId: "m" })));
+    });
+    await collect(streamChat({ question: "質問", endpoint: "/api/teacher/chat", fetchImpl }));
+    expect(capturedUrl).toBe("/api/teacher/chat");
+  });
+
   it("abort signal を fetch にそのまま渡す", async () => {
     const ctrl = new AbortController();
     let capturedSignal: AbortSignal | null | undefined;

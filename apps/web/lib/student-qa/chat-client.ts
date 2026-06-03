@@ -27,12 +27,19 @@ export type ChatEvent =
   | { type: "done"; sessionId: string; messageId: string };
 
 /** 生徒チャット SSE エンドポイント。トークンは送らず httpOnly cookie `__student_session` で認証する。 */
-const STUDENT_CHAT_ENDPOINT = "/api/student/chat";
+export const STUDENT_CHAT_ENDPOINT = "/api/student/chat";
+/** 教員チャット SSE エンドポイント (#370)。Identity Platform セッションで認証する。 */
+export const TEACHER_CHAT_ENDPOINT = "/api/teacher/chat";
 
 /** {@link streamChat} の入力。 */
 export interface StreamChatParams {
-  /** 生徒の質問文 (生 PII を含みうる。マスキングはサーバ側 chat-service の責務)。 */
+  /** 生徒/教員の質問文 (生 PII を含みうる。マスキングはサーバ側 chat-service の責務)。 */
   question: string;
+  /**
+   * 投稿先 SSE エンドポイント。既定は生徒経路 ({@link STUDENT_CHAT_ENDPOINT})。教員 UI は
+   * {@link TEACHER_CHAT_ENDPOINT} を渡す (#370)。いずれも認証は cookie / session で行い、本体は質問のみ。
+   */
+  endpoint?: string;
   /** 中断用シグナル (ページ離脱・キャンセル時に fetch を abort)。 */
   signal?: AbortSignal;
   /** テスト用の fetch 差し替え (既定はグローバル `fetch`)。 */
@@ -50,9 +57,10 @@ const FRAME_SEPARATOR = "\n\n";
  */
 export async function* streamChat(params: StreamChatParams): AsyncGenerator<ChatEvent> {
   const { question, signal } = params;
+  const endpoint = params.endpoint ?? STUDENT_CHAT_ENDPOINT;
   const doFetch = params.fetchImpl ?? fetch;
 
-  const res = await doFetch(STUDENT_CHAT_ENDPOINT, {
+  const res = await doFetch(endpoint, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ question }),

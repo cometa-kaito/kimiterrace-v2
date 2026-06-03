@@ -66,6 +66,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // PUBLISHER_ROLES (school_admin/teacher) が見られる (/admin/sensors の requireRole(PUBLISHER_ROLES)
     // と整合)。system_admin には出さない (全校横断ビューは後続スライス → 死リンク防止)。
     { label: "センサー管理", href: "/admin/sensors" },
+    // F06 (#370): 教員も使える掲示物 Q&A チャット。/admin/chat も /api/teacher/chat も
+    // requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止で publisher のみ。
+    { label: "掲示物 Q&A", href: "/admin/chat" },
   ],
   // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 効果ダッシュボード (F08) + 月次レポート (F09)。
   // コンテンツ一覧 (/admin/contents) / ダッシュボード (/admin/dashboard) / 月次レポート (/admin/reports) は
@@ -79,6 +82,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F13 (#391 / #486): 来場検知センサーの管理/状態一覧 (/admin/sensors)。PUBLISHER_ROLES に teacher を
     // 含むため出す (requireRole(PUBLISHER_ROLES) で teacher は許可 → 死リンクにならない、#485 のアクセス境界を維持)。
     { label: "センサー管理", href: "/admin/sensors" },
+    // F06 (#370): 教員も使える掲示物 Q&A チャット (/admin/chat → /api/teacher/chat)。teacher も
+    // PUBLISHER_ROLES に含まれるため出す (requireRole(PUBLISHER_ROLES) で許可 → 死リンクにならない)。
+    { label: "掲示物 Q&A", href: "/admin/chat" },
   ],
 };
 

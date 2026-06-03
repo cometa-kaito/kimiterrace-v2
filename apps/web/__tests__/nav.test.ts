@@ -41,6 +41,7 @@ describe("navItemsForRole", () => {
       "/admin/dashboard",
       "/admin/reports",
       "/admin/sensors",
+      "/admin/chat",
     ]);
   });
 
@@ -54,6 +55,15 @@ describe("navItemsForRole", () => {
     expect(hrefs).toContain("/admin/dashboard");
     expect(hrefs).toContain("/admin/reports");
     expect(hrefs).toContain("/admin/sensors");
+    expect(hrefs).toContain("/admin/chat");
+  });
+
+  it("掲示物 Q&A (/admin/chat) は publisher (school_admin/teacher) のみ、system_admin には出さない (F06 #370、死リンク防止)", () => {
+    // /admin/chat も /api/teacher/chat も requireRole(PUBLISHER_ROLES) で system_admin を 403 にする
+    // ため、nav からも system_admin には出さない。生徒は /student の StudentChat (別経路) を使う。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/chat");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/chat");
+    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/chat");
   });
 
   it("教職員 (/admin/school/members) は school_admin 専用 (F11 第2スライス、自校運用)。teacher / system_admin には出さない (死リンク防止)", () => {
