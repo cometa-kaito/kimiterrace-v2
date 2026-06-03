@@ -20,7 +20,7 @@
 - [x] 生徒アクセス時にセッション cookie を発行（ブラウザ閉じても 24h 保持）。個人特定情報は一切持たない — 実装済（[#160](https://github.com/cometa-kaito/kimiterrace-v2/pull/160)、`apps/web/lib/magic-link/student-session.ts`／`apps/web/app/s/[token]/route.ts`）。httpOnly cookie に token のみ格納（school_id 等は埋めず毎リクエスト再解決）、maxAge=24h
 - [x] アクセス元 IP・User-Agent は events テーブルに記録（個人特定はしない、集計用）— 実装済（[#160](https://github.com/cometa-kaito/kimiterrace-v2/pull/160)、`apps/web/lib/magic-link/student-access.ts`）。`/s/{token}` 到達時に `recordStudentAccess` が `events`（type=view）へ IP/UA を payload で記録（userId 非載・ベストエフォート）
 - [x] 失効後アクセスは 410 Gone レスポンス — 実装済（[#160](https://github.com/cometa-kaito/kimiterrace-v2/pull/160)、[#198](https://github.com/cometa-kaito/kimiterrace-v2/pull/198) 期限境界、`apps/web/app/s/[token]/route.ts`）。`resolve_magic_link` が失効/期限切れ/不明を 0 行で返し route が 410 Gone を返す
-- [ ] QR コード生成機能（教員 UI 上で印刷可能）— 未実装（QR ライブラリ/実装なし、`MagicLinkManager` は平文 URL コピーのみ）
+- [x] QR コード生成機能（教員 UI 上で印刷可能）— 実装済（#41、`MagicLinkManager` が発行直後の平文 URL を `qrcode.react` で SVG にクライアント側エンコードして表示＋「QR を印刷」。token は URL コピーと同一露出範囲で外部送信なし）
 - [ ] 漏洩検知時の即時失効フロー (runbook 化) — 未実装（失効 API/UI `revokeMagicLink` は存在するが、漏洩検知→失効の runbook 文書が `docs/runbooks/` に無い）
 
 ## 関連

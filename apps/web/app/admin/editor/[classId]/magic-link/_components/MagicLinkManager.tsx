@@ -1,13 +1,16 @@
 "use client";
 
 import { EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
+import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 
 /**
  * F05 (#41): クラス magic link の発行 / 一覧 / 失効を行う client。
  *
  * - 発行: `POST /api/magic-links` に `{classId, expiresInDays?}` を送り、返ってきた **1 回限りの
- *   平文 URL** を表示する (コピー可)。以降サーバーは hash しか持たず再表示不可 (ルール5)。
+ *   平文 URL** を表示する (コピー可 / QR 表示・印刷可)。以降サーバーは hash しか持たず再表示不可 (ルール5)。
+ * - QR: 発行直後の平文 URL を **クライアント側で** SVG にエンコードして掲示用に表示する。token は
+ *   `issued.url` (既に画面表示済の値) と同一で外部送信しない (ルール4/5、URL コピーと同じ露出範囲)。
  * - 失効: `POST /api/magic-links/{id}/revoke`。生きたリンクを誤って失効しないよう 2 段階確認。
  * - 一覧の token は表示しない (メタのみ)。期限は ISO を locale 表示する。
  */
@@ -237,6 +240,44 @@ export function MagicLinkManager({
           >
             {copied ? "コピーしました" : "URL をコピー"}
           </button>
+
+          <div data-testid="magic-link-qr" style={{ marginTop: "0.75rem" }}>
+            <p style={{ margin: "0 0 0.4rem", fontSize: "0.85rem", color: "#1e3a8a" }}>
+              QR コード（印刷して教室に掲示できます）
+            </p>
+            <div
+              style={{
+                display: "inline-block",
+                padding: "0.5rem",
+                background: "#fff",
+                border: "1px solid #bfdbfe",
+                borderRadius: "0.3rem",
+              }}
+            >
+              <QRCodeSVG
+                value={issued.url}
+                size={160}
+                level="M"
+                title="クラス magic link の QR コード"
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                style={{
+                  marginTop: "0.4rem",
+                  padding: "0.3rem 0.8rem",
+                  borderRadius: "0.3rem",
+                  border: "1px solid #93c5fd",
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                QR を印刷
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

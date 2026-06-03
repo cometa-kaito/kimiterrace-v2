@@ -254,4 +254,40 @@ describe("MagicLinkManager", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("有効期限は");
     expect(fetchFn).not.toHaveBeenCalled();
   });
+
+  it("発行直後に QR コード(SVG)を URL から生成して表示する／発行前は表示しない", async () => {
+    stubFetch((url, init) => {
+      if (url === "/api/magic-links" && (init?.method ?? "GET") === "POST") {
+        return Promise.resolve(
+          jsonRes({ id: "ml-q", path: "/s/QRTOKEN", expiresAt: "2026-09-01T00:00:00.000Z" }, 201),
+        );
+      }
+      return Promise.resolve(jsonRes({ links: [] }));
+    });
+    render(<MagicLinkManager classId={CLASS_ID} initialLinks={[]} />);
+    // 発行前は QR を出さない (平文 URL が無いため)。
+    expect(screen.queryByTestId("magic-link-qr")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "新しいリンクを発行" }));
+    await screen.findByTestId("issued-url");
+    const qr = screen.getByTestId("magic-link-qr");
+    expect(qr.querySelector("svg")).not.toBeNull();
+    // a11y: SVG <title> が付く (WCAG 2.2 AA / NFR05)。
+    expect(qr.querySelector("svg title")?.textContent).toBe("クラス magic link の QR コード");
+  });
+
+  it("『QR を印刷』で window.print を呼ぶ", async () => {
+    const printFn = vi.fn();
+    vi.stubGlobal("print", printFn);
+    stubFetch((url, init) => {
+      if (url === "/api/magic-links" && (init?.method ?? "GET") === "POST") {
+        return Promise.resolve(jsonRes({ id: "ml-q2", path: "/s/QRT2", expiresAt: "x" }, 201));
+      }
+      return Promise.resolve(jsonRes({ links: [] }));
+    });
+    render(<MagicLinkManager classId={CLASS_ID} initialLinks={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "新しいリンクを発行" }));
+    await screen.findByTestId("issued-url");
+    fireEvent.click(screen.getByRole("button", { name: "QR を印刷" }));
+    expect(printFn).toHaveBeenCalledTimes(1);
+  });
 });
