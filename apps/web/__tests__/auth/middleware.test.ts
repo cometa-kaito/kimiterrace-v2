@@ -34,6 +34,14 @@ describe("middleware", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
+  it("session cookie 有り → 現在パスを x-kt-pathname リクエストヘッダに注入する (F11 MFA ゲートのループ防止用)", () => {
+    // 純加算的: cookie 検証・redirect 判定は変えず、下流 layout が pathname を読めるヘッダだけ足す。
+    const res = middleware(makeRequest("/admin/account/mfa", { withCookie: true }));
+    expect(res.headers.get("location")).toBeNull(); // redirect しないことは不変
+    // NextResponse.next({request:{headers}}) は注入ヘッダを x-middleware-request-* に反映する。
+    expect(res.headers.get("x-middleware-request-x-kt-pathname")).toBe("/admin/account/mfa");
+  });
+
   it("クエリ付き path も next= に保持される", () => {
     const res = middleware(makeRequest("/reports?month=2026-05"));
     const url = new URL(res.headers.get("location") as string);

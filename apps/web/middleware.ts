@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { PATHNAME_HEADER } from "./lib/mfa/policy";
 
 /**
  * Edge middleware — 保護ルートのゲート (ADR-003 / ADR-008)。
@@ -21,7 +22,13 @@ const SESSION_COOKIE_NAME = "__session";
 export function middleware(request: NextRequest): NextResponse {
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
   if (hasSession) {
-    return NextResponse.next();
+    // 認証済みリクエストはそのまま通すが、layout が現在パスを読めるようヘッダを付与する
+    // (F11 ADR-031 MFA 強制ゲートのループ防止用、`PATHNAME_HEADER` は lib/mfa/policy.ts が単一ソース)。
+    // **リクエストヘッダのみ**を足す純加算的変更で、cookie 検証・redirect 判定・matcher・レスポンスは
+    // 一切変えない (既存挙動の不変)。
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(PATHNAME_HEADER, request.nextUrl.pathname);
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // 未ログイン: /login へリダイレクト。元の遷移先を ?next= に載せてログイン後に戻せるようにする。
