@@ -263,7 +263,7 @@ function Section({
 
 /**
  * F14 (#128 / ADR-021): サイネージ天気ウィジェット。`getSignageWeather` が自社 DB から読んだ
- * キャッシュ済み予報 (本日 + 週間先頭数日) を描画する。**端末は外部 API を叩かない** — 本コンポーネントは
+ * キャッシュ済み予報 (本日 + 翌日の 2 日) を描画する。**端末は外部 API を叩かない** — 本コンポーネントは
  * server で組んだ `SignageWeather` ペイロードを受け取って表示するだけ (閉域維持、[[closed-system-security]])。
  *
  * a11y (NFR05 / WCAG 2.2 AA): アイコンは **絵文字 glyph + 日本語ラベル併記**で色だけに依存しない
@@ -272,7 +272,7 @@ function Section({
  * 「○時時点」の取得時刻を併記する。空表示・黙った古値表示はしない (weather=null は呼び出し側で枠ごと非表示)。
  */
 function WeatherWidget({ weather }: { weather: SignageWeather }) {
-  // 本日 + 週間先頭数日のみ (視認性、F14 §3「本日 + 翌日 or 週間先頭数日」)。
+  // 本日 + 翌日の 2 日のみ (視認性、2026-06-03 ユーザー確定 F14 表示範囲)。
   const days = weather.days.slice(0, WEATHER_MAX_DAYS);
   const areaLabel = weather.areaName ? `天気 (${weather.areaName})` : "天気";
   const fetchedNote = formatFetchedNote(weather.fetchedAt);
@@ -331,8 +331,8 @@ const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
   unknown: "？",
 };
 
-/** 表示する天気日数の上限 (本日 + 週間先頭、視認性優先 F14 §3)。 */
-const WEATHER_MAX_DAYS = 5;
+/** 表示する天気日数の上限 = 本日 + 翌日の 2 日 (2026-06-03 ユーザー確定、視認性優先 F14 表示範囲)。 */
+const WEATHER_MAX_DAYS = 2;
 
 /** `YYYY-MM-DD` → サイネージ向けの短い日付ラベル (例「6/2(月)」)。不正値はそのまま返す (落とさない)。 */
 function formatDayLabel(forecastDate: string): string {
