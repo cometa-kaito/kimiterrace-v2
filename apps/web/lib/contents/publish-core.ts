@@ -53,11 +53,36 @@ export type ActionResult<T> =
   | { ok: true; data: T }
   | {
       ok: false;
-      code: "invalid_input" | "not_found" | "no_active_publish" | "version_not_found" | "forbidden";
+      code:
+        | "invalid_input"
+        | "not_found"
+        | "no_active_publish"
+        | "version_not_found"
+        | "forbidden"
+        // ADR-030 (#426): authoring soft-gate。本文に氏名らしき高確信パターンを検出。warn のみで
+        // hard-block しない (override で公開可)。`suspects` に疑わしい表層を載せ UI が提示する。
+        | "pii_warning";
       message: string;
+      /** `code:"pii_warning"` 時のみ。疑わしい表層 (例 `"田中さん"`)。投稿者本人へ提示する警告用。 */
+      suspects?: readonly string[];
     };
 
 export type ActionError = Extract<ActionResult<never>, { ok: false }>;
+
+/**
+ * ADR-030 (#426) soft-gate の警告結果。掲示物本文に氏名らしき高確信パターン (敬称連接) を検出した際、
+ * **hard-block せず** warn して投稿者の明示 override を促す。`suspects` は投稿者本人が書いた表層なので
+ * 本人への提示は新たな漏洩ではない (監査側は件数のみ記録し生氏名を複製しない、ルール4)。
+ */
+export function piiWarning(suspects: readonly string[]): ActionError {
+  return {
+    ok: false,
+    code: "pii_warning",
+    message:
+      "本文に個人名らしき表現が含まれている可能性があります。公開掲示物に個別の生徒・保護者氏名を載せない方針です。内容を確認し、問題なければ承知の上で公開してください。",
+    suspects,
+  };
+}
 
 /** content 更新 patch の生入力 (フォーム / クライアントから来る、未検証)。 */
 export type UpdateContentInput = {

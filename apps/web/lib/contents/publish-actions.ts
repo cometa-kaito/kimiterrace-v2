@@ -1,8 +1,13 @@
 "use server";
 
+import { findSuspectedPersonalNames } from "@kimiterrace/ai";
 import {
   type DeniedPublishAction,
+  type PublishActor,
+  type TenantTx,
+  auditLog,
   createContent,
+  getContentDetail,
   publishContent,
   recordPublishDenial,
   rollbackContent,
@@ -24,6 +29,7 @@ import {
   invalid,
   isUuid,
   mapDomainError,
+  piiWarning,
   toActor,
   validateCreateInput,
   validateUpdateInput,
@@ -94,9 +100,42 @@ async function recordDenialBestEffort(
   }
 }
 
-/** F04: content を即公開する。publisher (school_admin / teacher) のみ。 */
+/**
+ * content-scoped 監査記録 (ルール1)。`schedule-actions.ts` の writeAudit と同型で、本モジュール固有の
+ * 用途 (PII override の立証) に用いる。`recordPublishDenial` (packages/db) とは別経路: 同一 publish tx
+ * 内で append し、override と公開を原子化する。prev_hash / row_hash は BEFORE INSERT トリガ (0003) が計算。
+ */
+async function writeContentAudit(
+  tx: TenantTx,
+  actor: PublishActor,
+  params: { recordId: string; operation: "insert" | "update"; diff: unknown },
+): Promise<void> {
+  await tx.insert(auditLog).values({
+    actorUserId: actor.userId,
+    schoolId: actor.schoolId,
+    tableName: "contents",
+    recordId: params.recordId,
+    operation: params.operation,
+    diff: params.diff as object,
+    rowHash: "",
+    createdBy: actor.userId,
+    updatedBy: actor.userId,
+  });
+}
+
+/**
+ * F04: content を即公開する。publisher (school_admin / teacher) のみ。
+ *
+ * **ADR-030 (#426) authoring soft-gate**: 公開対象本文に氏名らしき高確信パターン (敬称連接、
+ * `findSuspectedPersonalNames`) を検出したら、**hard-block せず** `pii_warning` を返して投稿者の明示
+ * override を促す (FP で正当な掲示を阻害しないため、warn + override + 監査)。`acknowledgePii` が true の
+ * ときのみ公開を実行し、override を `audit_log` に記録する (NFR04: 誰が PII 含有を承知で公開したかを立証)。
+ * 監査 diff は **件数のみ** で生の疑わしい氏名を複製しない (ルール4: PII を audit_log に焼き込まない)。
+ * 本 gate は embedding バッチの fail-closed (`findUnmaskedPii`) の上流の追加層 (多層防御)。
+ */
 export async function publishContentAction(
   contentId: string,
+  opts?: { acknowledgePii?: boolean },
 ): Promise<ActionResult<{ publishId: string; version: number }>> {
   if (!isUuid(contentId)) {
     return invalid("contentId が不正です。");
@@ -107,10 +146,37 @@ export async function publishContentAction(
     return forbidden("学校に属さないユーザーは公開できません。");
   }
   try {
-    const result = await withSession((tx) => publishContent(tx, actor, contentId));
-    revalidatePath("/admin/editor");
-    revalidatePath("/");
-    return { ok: true, data: { publishId: result.publishId, version: result.version } };
+    const outcome = await withSession(
+      async (tx): Promise<ActionResult<{ publishId: string; version: number }>> => {
+        // 公開対象本文を RLS 下で取得 (不可視/不存在は not_found)。氏名らしき高確信パターンを走査。
+        const detail = await getContentDetail(tx, contentId);
+        if (!detail) {
+          return { ok: false, code: "not_found", message: "コンテンツが見つかりません。" };
+        }
+        const suspects = findSuspectedPersonalNames(detail.content.body);
+        // 検出あり & 未 override → warn のみ (公開しない)。投稿者へ疑わしい表層を提示。
+        if (suspects.length > 0 && !opts?.acknowledgePii) {
+          return piiWarning(suspects.map((s) => s.surface));
+        }
+        const result = await publishContent(tx, actor, contentId);
+        // override 公開時のみ監査 (件数だけ、生氏名は audit に複製しない)。公開と同一 tx で原子化。
+        if (suspects.length > 0) {
+          await writeContentAudit(tx, actor, {
+            recordId: contentId,
+            operation: "update",
+            diff: { piiOverride: true, suspectedNameCount: suspects.length },
+          });
+        }
+        return { ok: true, data: { publishId: result.publishId, version: result.version } };
+      },
+    );
+    // 公開成功時のみ再検証 (warn / not_found では掲示状態は不変)。
+    if (outcome.ok) {
+      revalidatePath("/admin/editor");
+      revalidatePath("/admin/contents");
+      revalidatePath("/");
+    }
+    return outcome;
   } catch (error) {
     return mapDomainError(error);
   }
