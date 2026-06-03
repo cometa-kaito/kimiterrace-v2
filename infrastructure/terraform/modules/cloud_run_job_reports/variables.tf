@@ -93,7 +93,8 @@ variable "report_month" {
 variable "vpc_connector" {
   description = <<-EOT
     Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。
-    本 Job は内部 egress（PRIVATE_RANGES_ONLY）のみで Cloud NAT は不要（外部 API へ出ない、GCS は Private Google Access）。
+    本 Job は内部 egress（PRIVATE_RANGES_ONLY）= private 宛先だけ connector 経由。Cloud NAT は不要
+    （public な外部 API を叩かず、GCS の public endpoint は connector を通らず直接出るため NAT も PGA も不要）。
     空文字なら VPC egress を付けない（雛形）。enabled = true のときは必須（lifecycle.precondition で fail-fast）。
   EOT
   type        = string

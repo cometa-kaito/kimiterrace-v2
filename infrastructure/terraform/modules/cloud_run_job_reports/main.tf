@@ -18,9 +18,12 @@
 # する。月次レポート Job は Vertex AI を一切使わない（PDF 生成 = pdfkit、集計 = SQL のみ）ため、再利用すると
 # 不要な Vertex 権限が runtime SA に付き最小権限（ルール5）に反する。また REPORT_BUCKET / REPORT_YEAR /
 # REPORT_MONTH という reports 固有 env が必要。よって embedding を**範に**新規モジュールを作る。
-# egress 設計は embedding 準拠（PRIVATE_RANGES_ONLY、Cloud NAT 不要）: 本 Job は外部 internet を叩かず
-# Cloud SQL private IP + Cloud Storage（Google API は Private Google Access 経由）のみ。external_egress_ready /
-# NAT precondition は付けない（外部 egress が要るのは weather Job だけ、ADR-021 単一 egress 経路）。
+# egress 設計は embedding 準拠（PRIVATE_RANGES_ONLY、Cloud NAT 不要）: 本 Job は public な外部サイト
+# （JMA 等）を叩かず、内部の Cloud SQL private IP への到達にだけ VPC connector が要る。PRIVATE_RANGES_ONLY
+# では RFC1918 等の private 宛先だけが connector 経由で VPC に流れ、Cloud Storage の public endpoint
+# （storage.googleapis.com）は connector を通らず Google 管理経路で直接出るため、NAT も Private Google Access も
+# 不要で GCS に到達できる。よって external_egress_ready / NAT precondition は付けない（NAT が要るのは
+# ALL_TRAFFIC で外部に出る weather Job だけ、ADR-021 単一 egress 経路）。
 #
 # === GCS 書込権限の所在 ===
 # report_storage モジュールが**バケット限定**の writer IAM（roles/storage.objectAdmin）を `writer_service_account`
@@ -140,10 +143,11 @@ resource "google_cloud_run_v2_job" "reports" {
       }
 
       # Cloud SQL private IP への egress（network モジュールの VPC connector を渡す）。
-      # egress = PRIVATE_RANGES_ONLY = **内部のみ**。本 Job は外部 API へ出ないため、
-      # network モジュールの connector（network.vpc_connector_id）は要るが Cloud NAT は不要
-      # （GCS は Private Google Access 経由）。外部 egress(NAT) が要るのは weather Job だけ
-      # （cloud_run_job_weather, ADR-021 単一 egress 経路）。
+      # egress = PRIVATE_RANGES_ONLY = private 宛先のみ connector 経由で VPC に流す。本 Job は public な
+      # 外部 API を叩かないため、connector（network.vpc_connector_id）は Cloud SQL private IP 到達のために
+      # 要るが Cloud NAT は不要。GCS の public endpoint（storage.googleapis.com）は connector を通らず
+      # Google 管理経路で直接出るため NAT も Private Google Access も不要。外部 egress(NAT) が要るのは
+      # ALL_TRAFFIC で出る weather Job だけ（cloud_run_job_weather, ADR-021 単一 egress 経路）。
       dynamic "vpc_access" {
         for_each = var.vpc_connector != "" ? [1] : []
         content {
