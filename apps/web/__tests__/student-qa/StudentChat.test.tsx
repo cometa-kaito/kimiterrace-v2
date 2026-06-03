@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatEvent } from "../../lib/student-qa/chat-client";
 
 // SSE クライアントを mock し、コンポーネントの UX/状態遷移のみを決定的に検証 (ADR-012)。
-// 実 SSE 解析は chat-client.test.ts、実 route は #372 E2E が担う。
+// 実 SSE 解析は chat-client.test.ts、実 route は #372 E2E が担う。エンドポイント定数は実値を維持
+// (StudentChat → ChatPanel が endpoint prop に使うため)。
 vi.mock("../../lib/student-qa/chat-client", () => ({
   streamChat: vi.fn(),
+  STUDENT_CHAT_ENDPOINT: "/api/student/chat",
+  TEACHER_CHAT_ENDPOINT: "/api/teacher/chat",
 }));
 
 import { streamChat } from "../../lib/student-qa/chat-client";
@@ -59,8 +62,11 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
 
     expect(await screen.findByText("体育祭の持ち物は？")).toBeInTheDocument();
     expect(await screen.findByText("体育祭の持ち物は体操服です。")).toBeInTheDocument();
-    // streamChat が正しい引数で呼ばれる (トークンは渡さない、cookie 認証経路 #371)。
-    expect(mockStreamChat).toHaveBeenCalledWith({ question: "体育祭の持ち物は？" });
+    // streamChat が生徒エンドポイントで呼ばれる (トークンは渡さない、cookie 認証経路 #371)。
+    expect(mockStreamChat).toHaveBeenCalledWith({
+      question: "体育祭の持ち物は？",
+      endpoint: "/api/student/chat",
+    });
     // 送信後に入力欄はクリアされる。
     await waitFor(() => expect(ui().input.value).toBe(""));
   });
