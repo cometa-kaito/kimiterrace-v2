@@ -22,6 +22,33 @@ ok()   { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
 warn() { printf "  \033[1;33m!\033[0m %s\n" "$*"; }
 err()  { printf "  \033[1;31m✗\033[0m %s\n" "$*"; exit 1; }
 
+# 信頼済みの公式インストーラを「取得 → 実体化 → (任意で SHA-256 検証) → 実行」する。
+# ネットワーク取得を直接シェルへパイプする方式は (a) 途中切断で部分実行されうる
+# (b) SAST(Semgrep curl-pipe-bash) を恒常 fail させセキュリティゲートを盲目化する (#518)。
+# 一旦ファイルへ落としてから実行することで両者を回避する (dev-only の Mac worker setup)。
+# 使い方: fetch_and_run <url> <description> [expected_sha256]
+fetch_and_run() {
+  local url="$1" desc="$2" expected_sha="${3:-}"
+  local tmp
+  tmp="$(mktemp)" || err "mktemp failed"
+  curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; err "download failed: $desc ($url)"; }
+  [[ -s "$tmp" ]] || { rm -f "$tmp"; err "downloaded installer is empty: $desc"; }
+  if [[ -n "$expected_sha" ]]; then
+    local actual
+    if ! actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"; then
+      rm -f "$tmp"
+      err "checksum computation failed for $desc"
+    fi
+    if [[ "$actual" != "$expected_sha" ]]; then
+      rm -f "$tmp"
+      err "checksum mismatch for $desc: expected $expected_sha, got $actual"
+    fi
+    ok "checksum verified: $desc"
+  fi
+  /bin/bash "$tmp" || { rm -f "$tmp"; err "installer failed: $desc"; }
+  rm -f "$tmp"
+}
+
 # ---------------------------------------------------------------------------
 log "1/8  OS check"
 OS="$(uname -s)"
@@ -47,7 +74,8 @@ if command -v brew >/dev/null 2>&1; then
   ok "already installed: $(brew --version | head -1)"
 else
   warn "installing Homebrew..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  # HEAD = upstream の移動する公式インストーラ。pin 不能ゆえ checksum 検証なし (公式手順踏襲)。
+  fetch_and_run "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh" "Homebrew"
   if [[ "$ARCH" == "arm64" ]]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
     echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
@@ -58,7 +86,8 @@ fi
 log "4/8  nvm + Node.js $NODE_VERSION"
 if [[ ! -d "$HOME/.nvm" ]]; then
   warn "installing nvm..."
-  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+  # タグ v0.39.7 固定 = 内容不変。NVM_INSTALL_SHA256 を渡せば供給網検証を強制できる。
+  fetch_and_run "https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh" "nvm v0.39.7" "${NVM_INSTALL_SHA256:-}"
 fi
 export NVM_DIR="$HOME/.nvm"
 # shellcheck disable=SC1091
