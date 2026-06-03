@@ -75,7 +75,11 @@ describe("PublishControls (F04 即公開 / 非公開)", () => {
         .mockResolvedValueOnce({ ok: true, data: { publishId: "p9", version: 2 } });
       render(<PublishControls contentId="c-5" status="draft" />);
       fireEvent.click(screen.getByRole("button", { name: "公開する" }));
-      fireEvent.click(await screen.findByRole("button", { name: "承知の上で公開する" }));
+      const overrideBtn = await screen.findByRole("button", { name: "承知の上で公開する" });
+      // 公開トランジションが settle (ボタン enabled) してからクリックする。pending 中は
+      // disabled でクリックが no-op になり override が再送されない (flaky の原因、#553)。
+      await waitFor(() => expect(overrideBtn).toBeEnabled());
+      fireEvent.click(overrideBtn);
       await waitFor(() =>
         expect(publishMock).toHaveBeenLastCalledWith("c-5", { acknowledgePii: true }),
       );
@@ -91,10 +95,14 @@ describe("PublishControls (F04 即公開 / 非公開)", () => {
       });
       render(<PublishControls contentId="c-6" status="draft" />);
       fireEvent.click(screen.getByRole("button", { name: "公開する" }));
-      fireEvent.click(await screen.findByRole("button", { name: "編集に戻る" }));
-      await waitFor(() =>
-        expect(screen.queryByText(/個人名らしき表現が含まれています/)).not.toBeInTheDocument(),
-      );
+      const backBtn = await screen.findByRole("button", { name: "編集に戻る" });
+      // 公開トランジションが settle (ボタン enabled) してからクリックする。pending 中は
+      // disabled でクリックが no-op になり、警告が閉じず waitFor がタイムアウトしていた
+      // (flaky の根因、#553)。setPiiSuspects(null) は onClick 直結の同期更新で act() 内に
+      // flush されるため、enabled で確実にクリックできれば消失は即時 = 待機不要。
+      await waitFor(() => expect(backBtn).toBeEnabled());
+      fireEvent.click(backBtn);
+      expect(screen.queryByText(/個人名らしき表現が含まれています/)).not.toBeInTheDocument();
       expect(refresh).not.toHaveBeenCalled();
     });
   });
