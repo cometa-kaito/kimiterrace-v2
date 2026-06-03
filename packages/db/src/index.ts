@@ -34,6 +34,8 @@ export * from "./queries/monthly-reports-read.js";
 export * from "./queries/users.js";
 // F07/F09 (#322): 広告到達数 (advertiser reach) の minute-dedup 集計読み取り層 (ADR-025)
 export * from "./queries/ad-reach.js";
+// F09 (#45): 広告主アカウント単位の月次レポート集計読み取り層 (advertisers⋈contracts⋈contents⋈events, system_admin)
+export * from "./queries/advertiser-report.js";
 // F03 (#348, ADR-027): 分散レート制限の Cloud SQL store (DistributedRateLimiter 用)
 export * from "./queries/ai-rate-limit.js";
 // F06 (#364, ADR-028): 生徒 Q&A の RAG 検索 (公開中 content_versions を pgvector で top-k、RLS 委譲)
