@@ -60,7 +60,10 @@ describe("PublishControls (F04 即公開 / 非公開)", () => {
       fireEvent.click(screen.getByRole("button", { name: "公開する" }));
       expect(await screen.findByText(/個人名らしき表現が含まれています/)).toBeInTheDocument();
       expect(screen.getByText(/田中さん/)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "承知の上で公開する" })).toBeInTheDocument();
+      // 公開トランジションが pending の間は override ボタンの表示が "処理中…" になり
+      // アクセシブル名が "承知の上で公開する" でないため getByRole が落ちる (flaky の原因、#553)。
+      // findByRole で settle (名前が確定) するまで待つ。
+      expect(await screen.findByRole("button", { name: "承知の上で公開する" })).toBeInTheDocument();
       expect(refresh).not.toHaveBeenCalled();
     });
 
