@@ -55,7 +55,9 @@ await db.execute(sql`
 
 ### CRM テーブル（school_id を持たない）
 
-RLS 対象外。アプリケーション middleware で system_admin チェック（[ADR-018](018-custom-crm-design.md)）。
+**RLS 有効**。CRM テーブル（advertisers / contracts / communications）は `school_id` を持たないため `tenant_isolation`（レイヤー 1）は適用せず、`system_admin_full_access`（レイヤー 2 と同一の `current_setting('app.current_user_role', true) = 'system_admin'` 条件）policy のみを付与する二層モデルとする。これにより school_admin 以下は DB レベルで全件不可視、`system_admin` のみが到達できる（[migration 0001](../../packages/db/migrations/0001_enable_rls.sql) で `ENABLE ROW LEVEL SECURITY`、[migration 0002](../../packages/db/migrations/0002_rls_policies.sql) で policy 付与）。DB レベル強制に加え、アプリ層でも middleware で system_admin チェックを行い多層防御とする（[ADR-018](018-custom-crm-design.md)）。
+
+> 命名規約表は `school_id` を持たない system_admin 専用テーブルの予約名として `system_admin_only` を定めるが（後述 §適用ルール 4: USING 句は `system_admin_full_access` と同等）、CRM の現行 migration 0002 は同条件の `system_admin_full_access` で実装されている。
 
 ### BYPASSRLS
 
@@ -136,7 +138,7 @@ RLS policy 名は、grep 可能性・migration 追跡性・新規テーブル追
 - **`SET LOCAL` の漏れリスク**: トランザクション境界外（コネクションプール再利用）で context が残ると別ユーザーに混入 → middleware で SET LOCAL を必須化、テスト必須
 - **`current_setting(..., true)` の `true` 引数**: missing_ok を指定しないと未設定時に ERROR、true だと NULL を返して `school_id = NULL` が False になり結果として拒否 → 拒否がデフォルトになる設計だが、明示テスト必要
 - **RLS のパフォーマンス影響**: 大規模テーブルで全クエリに `WHERE school_id = X` が暗黙追加されるためインデックス設計が重要 → school_id を全 RLS テーブルの先頭インデックスに含める
-- **CRM テーブルの RLS 対象外問題**: アプリ層 system_admin チェック漏れが全広告主漏洩に直結 → middleware の system_admin チェック必須化、CRM ハンドラ専用 e2e テスト必須
+- **CRM テーブルの cross-tenant 露出リスク**: CRM は `school_id` を持たず `system_admin_full_access` policy のみで保護されるため、`app.current_user_role` を誤って `system_admin` に設定する／middleware の role チェックが漏れると全広告主データに到達しうる → role context 設定の厳格化 + middleware の system_admin チェック必須化、CRM ハンドラ専用 e2e テスト必須
 
 ### トレードオフ
 
