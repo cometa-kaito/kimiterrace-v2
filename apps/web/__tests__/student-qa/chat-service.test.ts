@@ -301,7 +301,7 @@ describe("executeChat: PII マスキング (ルール4)", () => {
     );
     expect(ctx).toHaveBeenCalledTimes(1);
     const passed = vi.mocked(ctx).mock.calls[0]?.[1];
-    expect(passed?.classId).toBe(CLASS_ID);
+    expect(passed?.audience).toEqual({ kind: "student", classId: CLASS_ID });
     // RAG が embedding 化する前提なので、provider へ渡る質問に生 PII (電話) は含まない。
     expect(passed?.maskedQuestion).not.toContain("090-1234-5678");
     expect(passed?.maskedQuestion).toContain("体育祭");
@@ -422,7 +422,7 @@ describe("executeChat: スコープ分類ゲート (ADR-028 §2 pre-Gemini)", ()
 });
 
 describe("executeChat: 教員経路 (identity=teacher, #370)", () => {
-  it("user_id でセッションを解決し (magic_link 経路は呼ばない)、classId は null で grounding する", async () => {
+  it("user_id でセッションを解決し (magic_link 経路は呼ばない)、staff audience で grounding する", async () => {
     const ctx: ContextProvider = vi.fn(async () => [
       { id: "c1", title: "職員向け掲示", body: "保護者会は 6/20。" },
     ]);
@@ -441,8 +441,8 @@ describe("executeChat: 教員経路 (identity=teacher, #370)", () => {
       userId: USER_ID,
     });
     expect(findOrCreateSession).not.toHaveBeenCalled();
-    // 教員はクラス非バインド: contextProvider に classId=null が渡る。
-    expect(vi.mocked(ctx).mock.calls[0]?.[1].classId).toBeNull();
+    // 教員はクラス非バインド: contextProvider に staff audience が渡る (#481-2)。
+    expect(vi.mocked(ctx).mock.calls[0]?.[1].audience).toEqual({ kind: "staff" });
     // 永続化は教員セッション (sess-t1) に対して行われる。
     expect(vi.mocked(appendUserMessage).mock.calls[0]?.[1].sessionId).toBe("sess-t1");
   });

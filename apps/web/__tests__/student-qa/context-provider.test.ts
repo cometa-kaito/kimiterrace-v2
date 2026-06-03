@@ -11,7 +11,7 @@ vi.mock("@kimiterrace/db", () => ({
 
 import type { EmbeddingClient } from "@kimiterrace/ai";
 import { getContentDetail, getRelevantPublishedContent, listContents } from "@kimiterrace/db";
-import type { TenantTx } from "@kimiterrace/db";
+import type { RagAudience, TenantTx } from "@kimiterrace/db";
 import type { GroundingResult } from "../../lib/student-qa/chat-service";
 import {
   GROUNDING_SIMILARITY_THRESHOLD,
@@ -21,6 +21,10 @@ import {
 } from "../../lib/student-qa/context-provider";
 
 const CLASS_ID = "00000000-0000-0000-0000-0000000000bb";
+/** 生徒の classId と一致しない別クラス。#481-2 の class 境界除外を検証する。 */
+const OTHER_CLASS_ID = "00000000-0000-0000-0000-0000000000cc";
+/** 生徒 audience（自クラス境界、#481-2）。既存テストは生徒経路を前提に provider を呼ぶ。 */
+const STUDENT_AUDIENCE: RagAudience = { kind: "student", classId: CLASS_ID };
 
 /** provider は GroundingResult を返す。contexts だけ見たい既存アサート用の薄い抽出。 */
 function contextsOf(r: GroundingResult): readonly { id: string; title: string; body: string }[] {
@@ -54,16 +58,19 @@ function summary(id: string, publishScope: string): Summary {
 }
 
 /** getContentDetail の戻り値。active=false で activePublish:null (未公開/下書き相当)。 */
-function detail(id: string, opts: { active?: boolean; body?: string } = {}) {
+function detail(
+  id: string,
+  opts: { active?: boolean; body?: string; publishScope?: string; targets?: unknown } = {},
+) {
   const active = opts.active ?? true;
   return {
     content: {
       id,
       title: `title-${id}`,
       body: opts.body ?? `body-${id}`,
-      publishScope: "school",
+      publishScope: opts.publishScope ?? "school",
       status: "published" as const,
-      targets: null,
+      targets: opts.targets ?? null,
       updatedAt: new Date("2026-06-01T00:00:00Z"),
     },
     versions: [],
@@ -86,7 +93,7 @@ describe("createPublishedContentProvider", () => {
   it("公開中 (status='published') で listContents を呼ぶ", async () => {
     mockListContents.mockResolvedValue([]);
     const provider = createPublishedContentProvider();
-    await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(mockListContents).toHaveBeenCalledTimes(1);
     expect(mockListContents).toHaveBeenCalledWith(tx, { status: "published" });
   });
@@ -95,7 +102,7 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school"), summary("b", "class")]);
     wireDetails({ a: detail("a"), b: detail("b") });
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(contextsOf(out)).toEqual([
       { id: "a", title: "title-a", body: "body-a" },
       { id: "b", title: "title-b", body: "body-b" },
@@ -106,7 +113,7 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school")]);
     wireDetails({ a: detail("a") });
     const out = await createPublishedContentProvider()(tx, {
-      classId: CLASS_ID,
+      audience: STUDENT_AUDIENCE,
       maskedQuestion: "",
     });
     // 非空でも grounded と断定しない（更新新しい順は意味的近さでない）。
@@ -118,7 +125,7 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school"), summary("b", "school")]);
     wireDetails({ a: detail("a", { active: false }), b: detail("b", { active: true }) });
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(contextsOf(out)).toEqual([{ id: "b", title: "title-b", body: "body-b" }]);
   });
 
@@ -126,7 +133,7 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school"), summary("b", "school")]);
     wireDetails({ a: null, b: detail("b") });
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(contextsOf(out)).toEqual([{ id: "b", title: "title-b", body: "body-b" }]);
   });
 
@@ -144,7 +151,7 @@ describe("createPublishedContentProvider", () => {
       hr: detail("hr"),
     });
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(out.contexts.map((c) => c.id)).toEqual(["pub", "cls", "hr"]);
     // private は detail 取得すらしない (limit を消費しない)。
     expect(mockGetContentDetail).not.toHaveBeenCalledWith(tx, "priv");
@@ -159,7 +166,7 @@ describe("createPublishedContentProvider", () => {
     ]);
     wireDetails({ a: detail("a"), b: detail("b"), c: detail("c") });
     const provider = createPublishedContentProvider({ limit: 2 });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     // private を除いた [a,b,c] の先頭 2 件 = [a,b]。private は limit を食わない。
     expect(out.contexts.map((c) => c.id)).toEqual(["a", "b"]);
     expect(mockGetContentDetail).toHaveBeenCalledTimes(2);
@@ -173,14 +180,14 @@ describe("createPublishedContentProvider", () => {
     ]);
     wireDetails({ z: detail("z"), m: detail("m"), a: detail("a") });
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(out.contexts.map((c) => c.id)).toEqual(["z", "m", "a"]);
   });
 
   it("公開中ゼロ件なら空配列 (getContentDetail を呼ばない)", async () => {
     mockListContents.mockResolvedValue([]);
     const provider = createPublishedContentProvider();
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "" });
     expect(contextsOf(out)).toEqual([]);
     expect(mockGetContentDetail).not.toHaveBeenCalled();
   });
@@ -190,7 +197,7 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school"), summary("b", "school")]);
     wireDetails({ a: detail("a"), b: detail("b") });
     const out0 = await createPublishedContentProvider({ limit: 0 })(tx, {
-      classId: CLASS_ID,
+      audience: STUDENT_AUDIENCE,
       maskedQuestion: "",
     });
     expect(out0.contexts.map((c) => c.id)).toEqual(["a"]);
@@ -201,10 +208,63 @@ describe("createPublishedContentProvider", () => {
     mockListContents.mockResolvedValue(many);
     wireDetails(Object.fromEntries(many.map((s) => [s.id, detail(s.id)])));
     const outMax = await createPublishedContentProvider({ limit: 999 })(tx, {
-      classId: CLASS_ID,
+      audience: STUDENT_AUDIENCE,
       maskedQuestion: "",
     });
     expect(outMax.contexts).toHaveLength(20);
+  });
+
+  it("生徒 audience: class/homeroom は自クラス(targets)のみ採用し他クラスを除外する (#481-2)", async () => {
+    mockListContents.mockResolvedValue([
+      summary("school", "school"),
+      summary("mine", "class"),
+      summary("other", "class"),
+      summary("hr", "homeroom"),
+    ]);
+    wireDetails({
+      school: detail("school", { publishScope: "school" }),
+      mine: detail("mine", { publishScope: "class", targets: [CLASS_ID] }),
+      other: detail("other", { publishScope: "class", targets: [OTHER_CLASS_ID] }),
+      hr: detail("hr", { publishScope: "homeroom", targets: [CLASS_ID] }),
+    });
+    const out = await createPublishedContentProvider()(tx, {
+      audience: STUDENT_AUDIENCE,
+      maskedQuestion: "",
+    });
+    // school + 自クラスの class/homeroom のみ。別クラス向け(other)は混入しない（核心リスク）。
+    expect(out.contexts.map((c) => c.id)).toEqual(["school", "mine", "hr"]);
+  });
+
+  it("生徒 audience で classId 無しは class/homeroom を突合不能で除外し school のみ (#481-2)", async () => {
+    mockListContents.mockResolvedValue([summary("school", "school"), summary("cls", "class")]);
+    wireDetails({
+      school: detail("school", { publishScope: "school" }),
+      cls: detail("cls", { publishScope: "class", targets: [CLASS_ID] }),
+    });
+    const out = await createPublishedContentProvider()(tx, {
+      audience: { kind: "student", classId: null },
+      maskedQuestion: "",
+    });
+    expect(out.contexts.map((c) => c.id)).toEqual(["school"]);
+  });
+
+  it("教員 audience (staff): class/homeroom も classId 非依存で全件採用する (#481-2)", async () => {
+    mockListContents.mockResolvedValue([
+      summary("school", "school"),
+      summary("a", "class"),
+      summary("b", "class"),
+    ]);
+    wireDetails({
+      school: detail("school", { publishScope: "school" }),
+      a: detail("a", { publishScope: "class", targets: [CLASS_ID] }),
+      b: detail("b", { publishScope: "class", targets: [OTHER_CLASS_ID] }),
+    });
+    const out = await createPublishedContentProvider()(tx, {
+      audience: { kind: "staff" },
+      maskedQuestion: "",
+    });
+    // 教員はクラス非バインド: 他クラス向け(b)も含め全件。
+    expect(out.contexts.map((c) => c.id)).toEqual(["school", "a", "b"]);
   });
 });
 
@@ -232,7 +292,10 @@ describe("createRagContentProvider", () => {
     mockGetRelevant.mockResolvedValue([ragMatch("m1"), ragMatch("m2")]);
     wireDetails({ m1: detail("m1"), m2: detail("m2") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭はいつ？" });
+    const out = await provider(tx, {
+      audience: STUDENT_AUDIENCE,
+      maskedQuestion: "体育祭はいつ？",
+    });
     // 閾値以上のヒットがあるので grounded (掲示準拠)。
     expect(out.mode).toBe("grounded");
     expect(out.contexts).toEqual([
@@ -250,8 +313,11 @@ describe("createRagContentProvider", () => {
     mockGetRelevant.mockResolvedValue([ragMatch("m1")]);
     wireDetails({ m1: detail("m1") });
     const provider = createRagContentProvider({ embeddingClient: client, limit: 3 });
-    await provider(tx, { classId: CLASS_ID, maskedQuestion: "q" });
-    expect(mockGetRelevant).toHaveBeenCalledWith(tx, expect.any(Array), { limit: 3 });
+    await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "q" });
+    expect(mockGetRelevant).toHaveBeenCalledWith(tx, expect.any(Array), {
+      limit: 3,
+      audience: STUDENT_AUDIENCE,
+    });
   });
 
   it("ベクトル検索 0 件 (embedding 未投入相当) は MVP 直接取得に general_supplement でフォールバックする", async () => {
@@ -260,7 +326,7 @@ describe("createRagContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school")]);
     wireDetails({ a: detail("a") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
     // フォールバック文脈は意味的根拠未検証ゆえ general_supplement (ADR-028 §3)。
     expect(out.mode).toBe("general_supplement");
     expect(out.contexts).toEqual([{ id: "a", title: "title-a", body: "body-a" }]);
@@ -274,7 +340,7 @@ describe("createRagContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school")]);
     wireDetails({ weak: detail("weak"), weaker: detail("weaker"), a: detail("a") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
     expect(out.mode).toBe("general_supplement");
     // 閾値未満のヒットは本文取得すらしない (grounding に採用しない)。
     expect(mockGetContentDetail).not.toHaveBeenCalledWith(tx, "weak");
@@ -288,7 +354,7 @@ describe("createRagContentProvider", () => {
     mockGetRelevant.mockResolvedValue([ragMatch("edge", GROUNDING_SIMILARITY_THRESHOLD)]);
     wireDetails({ edge: detail("edge") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
     expect(out.mode).toBe("grounded");
     expect(out.contexts.map((c) => c.id)).toEqual(["edge"]);
     // フォールバックには乗らない (閾値を満たした)。
@@ -304,7 +370,7 @@ describe("createRagContentProvider", () => {
     ]);
     wireDetails({ ok1: detail("ok1"), weak: detail("weak"), ok2: detail("ok2") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
     expect(out.mode).toBe("grounded");
     expect(out.contexts.map((c) => c.id)).toEqual(["ok1", "ok2"]);
     // 閾値未満 (weak) は本文取得しない。
@@ -316,7 +382,7 @@ describe("createRagContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school")]);
     wireDetails({ a: detail("a") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "   " });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "   " });
     expect(embed).not.toHaveBeenCalled();
     expect(mockGetRelevant).not.toHaveBeenCalled();
     expect(out.mode).toBe("general_supplement");
@@ -330,7 +396,7 @@ describe("createRagContentProvider", () => {
     mockListContents.mockResolvedValue([summary("a", "school")]);
     wireDetails({ m1: detail("m1", { active: false }), a: detail("a") });
     const provider = createRagContentProvider({ embeddingClient: client });
-    const out = await provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
     expect(out.mode).toBe("general_supplement");
     expect(out.contexts.map((c) => c.id)).toEqual(["a"]);
   });
@@ -342,10 +408,36 @@ describe("createRagContentProvider", () => {
     const provider = createRagContentProvider({
       embeddingClient: { embed } as unknown as EmbeddingClient,
     });
-    await expect(provider(tx, { classId: CLASS_ID, maskedQuestion: "体育祭は？" })).rejects.toThrow(
-      "vertex down",
-    );
+    await expect(
+      provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" }),
+    ).rejects.toThrow("vertex down");
     expect(mockListContents).not.toHaveBeenCalled();
+  });
+
+  it("RAG grounded でも他クラス向け掲示は collectActiveContexts で除外する (多層防御 #481-2)", async () => {
+    const { client } = makeEmbeddingClient();
+    // rag-search は SQL で絞る想定だが mock は両方返す。アプリ層の collectActiveContexts が
+    // 他クラス(other)を最終防御で落とすことを pin する（rag-search が将来退行しても漏れない）。
+    mockGetRelevant.mockResolvedValue([ragMatch("mine"), ragMatch("other")]);
+    wireDetails({
+      mine: detail("mine", { publishScope: "class", targets: [CLASS_ID] }),
+      other: detail("other", { publishScope: "class", targets: [OTHER_CLASS_ID] }),
+    });
+    const provider = createRagContentProvider({ embeddingClient: client });
+    const out = await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "体育祭は？" });
+    expect(out.contexts.map((c) => c.id)).toEqual(["mine"]);
+  });
+
+  it("RAG provider は audience を getRelevantPublishedContent に渡す (#481-2)", async () => {
+    const { client } = makeEmbeddingClient();
+    mockGetRelevant.mockResolvedValue([ragMatch("m1")]);
+    wireDetails({ m1: detail("m1") });
+    const provider = createRagContentProvider({ embeddingClient: client });
+    await provider(tx, { audience: STUDENT_AUDIENCE, maskedQuestion: "q" });
+    expect(mockGetRelevant).toHaveBeenCalledWith(tx, expect.any(Array), {
+      limit: 6,
+      audience: STUDENT_AUDIENCE,
+    });
   });
 });
 

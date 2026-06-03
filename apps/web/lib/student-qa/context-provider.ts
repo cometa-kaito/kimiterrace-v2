@@ -1,6 +1,7 @@
 import type { ChatContext, EmbeddingClient } from "@kimiterrace/ai";
 import { getContentDetail, getRelevantPublishedContent, listContents } from "@kimiterrace/db";
-import type { RagMatch, TenantTx } from "@kimiterrace/db";
+import type { RagAudience, RagMatch, TenantTx } from "@kimiterrace/db";
+import { normalizeTargets } from "@/lib/contents/visibility";
 import type { GroundingResult } from "./chat-service";
 
 /**
@@ -28,10 +29,11 @@ import type { GroundingResult } from "./chat-service";
  *   （chat-service の step 4）が `maskPII` で行い、`findUnmaskedPii` で fail-closed する契約。
  *   {@link ChatContext} の docstring が「マスク済みである前提」と述べるのは route→chat-service の
  *   下流契約であり、本プロバイダはその **上流（生 body 取得）** に位置する。
- * - **class/homeroom ターゲティング**: `publishes` は school 単位で classId を持たないため、
- *   `publishScope='class'/'homeroom'` の **classId 厳密一致は未対応**（rag-search.ts も同様）。
- *   本 MVP は `private` のみ除外して生徒可視スコープに寄せる安全側の既定とし、classId 厳密一致は
- *   rag-search と共通の cross-cutting follow-up とする。引数 `classId` は将来の絞り込み用に保持。
+ * - **class/homeroom ターゲティング (#481-2)**: `params.audience` の class 境界を両 provider で強制する。
+ *   生徒 (`kind:"student"`) の `class`/`homeroom` は `contents.targets` に生徒の classId を含むものだけを
+ *   採用する（RAG 経路は rag-search が SQL で、直接取得経路は {@link collectActiveContexts} が
+ *   getContentDetail の targets で突合）。教員 (`kind:"staff"`) はクラス非バインド。`canStudentSeeContent`
+ *   （visibility.ts）と同一判定で、**別クラス向け掲示物が生徒 Q&A に混入しない**（F04 安全網）。
  *
  * 関連: F06 (docs/requirements/functional/F06-student-qa.md), ADR-007 (pgvector),
  * ADR-019 (RLS 二層), ADR-028 (回答ポリシー), #373 (executeChat 注入境界)。
@@ -57,9 +59,9 @@ const MAX_LIMIT = 20;
 export const GROUNDING_SIMILARITY_THRESHOLD = 0.7;
 
 /**
- * 生徒に見せてよい publish scope。`private` は生徒向け broadcast でないため grounding から除外する
- * （CLAUDE.md「迷ったら安全側」）。`class`/`homeroom` の classId 厳密一致は publishes が school 単位の
- * ため本 MVP では未対応（follow-up）だが、scope 種別としては生徒可視に含める。
+ * 直接取得経路の scope 種別 **粗フィルタ**。`private` は生徒向け broadcast でないため grounding から
+ * 除外する（CLAUDE.md「迷ったら安全側」）。`class`/`homeroom` の classId 厳密一致はこの集合では行わず、
+ * targets を持つ {@link isVisibleToAudience}（getContentDetail 後）で突合する（#481-2）。
  */
 const STUDENT_VISIBLE_SCOPES: ReadonlySet<string> = new Set(["school", "class", "homeroom"]);
 
@@ -70,7 +72,7 @@ const STUDENT_VISIBLE_SCOPES: ReadonlySet<string> = new Set(["school", "class", 
  */
 type GroundingProvider = (
   tx: TenantTx,
-  params: { classId: string | null; maskedQuestion: string },
+  params: { audience: RagAudience; maskedQuestion: string },
 ) => Promise<GroundingResult>;
 
 /** {@link createPublishedContentProvider} の任意設定。 */
@@ -102,21 +104,26 @@ export function createPublishedContentProvider(
 ): GroundingProvider {
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? DEFAULT_LIMIT)), MAX_LIMIT);
 
-  return async (tx: TenantTx, _params: { classId: string | null }): Promise<GroundingResult> => {
+  return async (tx: TenantTx, params: { audience: RagAudience }): Promise<GroundingResult> => {
     // 1) 公開中候補（本文を含まない軽量 summary、更新新しい順で決定的）。
     const candidates = await listContents(tx, { status: "published" });
 
     // 2) 生徒可視 scope に絞り、grounding 件数にクランプ（private を弾いてから limit を消費する）。
+    //    class/homeroom の classId 厳密一致は targets が要るため getContentDetail 後に collectActiveContexts
+    //    で突合する（listContents は targets を射影しない、#481-2）。ここは scope 種別の粗フィルタに留める。
     const visible = candidates
       .filter((c) => STUDENT_VISIBLE_SCOPES.has(c.publishScope))
       .slice(0, limit);
 
-    // 3) 本文 + 権威的公開状態（activePublish）を取得。順序を保つため Promise.all で並列取得。
+    // 3) 本文 + 権威的公開状態（activePublish）+ targets を取得。順序を保つため Promise.all で並列取得。
     const details = await Promise.all(visible.map((c) => getContentDetail(tx, c.id)));
 
-    // 4) active publish を持つものだけ採用し ChatContext に整形（順序は visible のまま）。
+    // 4) active publish + audience の class 境界を満たすものだけ採用し ChatContext に整形（順序は visible のまま）。
     // 直接取得は意味的根拠を保証しないため常に general_supplement（ADR-028 §3、安全側）。
-    return { mode: "general_supplement", contexts: collectActiveContexts(details) };
+    return {
+      mode: "general_supplement",
+      contexts: collectActiveContexts(details, params.audience),
+    };
   };
 }
 
@@ -127,18 +134,44 @@ export function createPublishedContentProvider(
  */
 function collectActiveContexts(
   details: readonly (Awaited<ReturnType<typeof getContentDetail>> | null)[],
+  audience: RagAudience,
 ): ChatContext[] {
   const contexts: ChatContext[] = [];
   for (const detail of details) {
-    if (detail && detail.activePublish !== null) {
-      contexts.push({
-        id: detail.content.id,
-        title: detail.content.title,
-        body: detail.content.body,
-      });
-    }
+    if (!detail || detail.activePublish === null) continue;
+    // audience の class 境界 (#481-2)。RAG 経路は rag-search が SQL で既に絞るため冗長だが、直接取得
+    // フォールバック経路ではここが唯一の class ガード（listContents が targets 非射影のため）。
+    if (!isVisibleToAudience(detail.content, audience)) continue;
+    contexts.push({
+      id: detail.content.id,
+      title: detail.content.title,
+      body: detail.content.body,
+    });
   }
   return contexts;
+}
+
+/**
+ * audience の class 境界で content 1 件の可視性を判定する（#481-2）。school 境界は RLS、公開状態は
+ * activePublish が別途保証するため、ここは **scope×class のみ**を見る。
+ * - staff: 全 visible scope（`private` は listContents / rag-search が除外済み）。
+ * - student + `school`: 無条件可視。
+ * - student + `class`/`homeroom`: `targets` に生徒の classId を含むものだけ（classId 無しは不可視）。
+ *
+ * `normalizeTargets`（visibility.ts）を再利用し、`canStudentSeeContent` の class 突合と単一ソース化する。
+ */
+function isVisibleToAudience(
+  content: { publishScope: string; targets: unknown },
+  audience: RagAudience,
+): boolean {
+  if (audience.kind === "staff") return true;
+  if (content.publishScope === "school") return true;
+  if (content.publishScope === "class" || content.publishScope === "homeroom") {
+    return (
+      audience.classId !== null && normalizeTargets(content.targets).includes(audience.classId)
+    );
+  }
+  return false;
 }
 
 /** {@link createRagContentProvider} の設定。 */
@@ -185,20 +218,25 @@ export function createRagContentProvider(opts: RagContentProviderOptions): Groun
 
   return async (
     tx: TenantTx,
-    params: { classId: string | null; maskedQuestion: string },
+    params: { audience: RagAudience; maskedQuestion: string },
   ): Promise<GroundingResult> => {
     const question = params.maskedQuestion.trim();
     if (question.length > 0) {
       // embedding エラーは握り潰さず伝播（誠実な失敗）。次元検証は embed() / rag-search 双方が行う。
       const [embedding] = await opts.embeddingClient.embed([question]);
       if (embedding) {
-        const matches = await getRelevantPublishedContent(tx, embedding, { limit });
+        // audience を rag-search に渡し、class/homeroom を生徒の classId で SQL レベル厳密一致 (#481-2)。
+        const matches = await getRelevantPublishedContent(tx, embedding, {
+          limit,
+          audience: params.audience,
+        });
         // しきい値（cosine 類似度 ≥ 0.70）を満たすヒットだけを grounding 候補にする。
         const grounded = selectGroundedMatches(matches);
         if (grounded.length > 0) {
           // 本文 + 権威的公開状態を取得（順序保持のため Promise.all、similarity 降順は matches のまま）。
           const details = await Promise.all(grounded.map((m) => getContentDetail(tx, m.contentId)));
-          const contexts = collectActiveContexts(details);
+          // class 境界は rag-search で SQL 済みだが collectActiveContexts でも再適用（多層防御、#481-2）。
+          const contexts = collectActiveContexts(details, params.audience);
           if (contexts.length > 0) return { mode: "grounded", contexts };
         }
       }
