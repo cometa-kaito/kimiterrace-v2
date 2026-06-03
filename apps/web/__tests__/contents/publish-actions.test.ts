@@ -1,11 +1,22 @@
-import { ContentNotFoundError, NoActivePublishError, VersionNotFoundError } from "@kimiterrace/db";
+import {
+  ContentNotFoundError,
+  NoActivePublishError,
+  VersionNotFoundError,
+  getContentDetail,
+  publishContent,
+} from "@kimiterrace/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// next/cache・next/navigation・guard・db を mock。@kimiterrace/db は **mock しない** (mapDomainError の
-// instanceof 判定に実クラスが要るため。recordPublishDenial は withUserSession mock 越しで呼ばれないので実害なし)。
-// guard は requireUser を mock し、純粋関数 isRoleAllowed は実装をそのまま使う (認可分岐を実挙動で突く)。
+// next/cache・next/navigation・guard・db を mock。@kimiterrace/db は **部分 mock** (mapDomainError の
+// instanceof 判定に実クラスが要るため `...actual` を保持しつつ、PII soft-gate (#426) が呼ぶ
+// getContentDetail / publishContent だけを vi.fn 化)。recordPublishDenial は withUserSession mock 越しで
+// 呼ばれないので実害なし。guard は requireUser を mock し、純粋関数 isRoleAllowed は実装をそのまま使う。
 // redirect は throw する mock にして、認可拒否時に /forbidden へ遷移する (= action が reject する) ことを検証する。
 // 正常系の mutation は withSession、拒否時の監査記録は withUserSession (cookie 再検証を避ける、#211 L-1) を使う。
+vi.mock("@kimiterrace/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kimiterrace/db")>();
+  return { ...actual, getContentDetail: vi.fn(), publishContent: vi.fn() };
+});
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn((path: string) => {
@@ -34,10 +45,39 @@ const requireUserMock = vi.mocked(requireUser);
 const withSessionMock = vi.mocked(withSession);
 const withUserSessionMock = vi.mocked(withUserSession);
 const redirectMock = vi.mocked(redirect);
+const getContentDetailMock = vi.mocked(getContentDetail);
+const publishContentMock = vi.mocked(publishContent);
 
 const CONTENT_ID = "11111111-1111-4111-8111-111111111111";
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
+
+/** getContentDetail の戻り値を body 指定で組む (PII soft-gate は content.body のみ読む)。 */
+function detailWithBody(body: string): NonNullable<Awaited<ReturnType<typeof getContentDetail>>> {
+  return {
+    content: {
+      id: CONTENT_ID,
+      title: "お知らせ",
+      body,
+      publishScope: "school",
+      status: "draft",
+      targets: [],
+      updatedAt: new Date(0),
+    },
+    versions: [],
+    activePublish: null,
+  };
+}
+
+/** withSession の callback を実行する fakeTx。`insert().values()` (監査書込) を記録できる。 */
+function makeFakeTx() {
+  const inserted: unknown[] = [];
+  const tx = {
+    insert: () => ({ values: (v: unknown) => inserted.push(v) }),
+  };
+  // biome-ignore lint/suspicious/noExplicitAny: テスト用の最小 tx スタブ (実 RLS tx は実 PG E2E が担う)。
+  return { tx: tx as any, inserted };
+}
 
 const teacher = { uid: USER_ID, role: "teacher" as const, schoolId: SCHOOL_ID };
 /** 自校に属する非 publisher (生徒)。公開系を叩くと拒否され、拒否が監査記録される。 */
@@ -109,12 +149,64 @@ describe("publishContentAction", () => {
     expect(requireUserMock).not.toHaveBeenCalled();
   });
 
-  it("正常系: publisher ロールで公開し、結果を返す", async () => {
-    withSessionMock.mockResolvedValue({ publishId: "pub-1", versionId: "v-1", version: 1 });
+  it("正常系: publisher ロールで公開し、結果を返す (氏名検出なし)", async () => {
+    getContentDetailMock.mockResolvedValue(detailWithBody("体育祭は6月10日に開催します。"));
+    publishContentMock.mockResolvedValue({ publishId: "pub-1", versionId: "v-1", version: 1 });
+    const { tx, inserted } = makeFakeTx();
+    withSessionMock.mockImplementation(async (fn) => fn(tx, teacher));
     const res = await publishContentAction(CONTENT_ID);
     expect(res).toEqual({ ok: true, data: { publishId: "pub-1", version: 1 } });
+    expect(publishContentMock).toHaveBeenCalledTimes(1);
+    // 氏名検出なし → 監査 (PII override) は書かれない。
+    expect(inserted).toHaveLength(0);
     expect(requireUserMock).toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  describe("PII soft-gate (ADR-030, #426)", () => {
+    it("本文に氏名らしき表現 (敬称連接) を検出すると pii_warning を返し、公開しない", async () => {
+      getContentDetailMock.mockResolvedValue(detailWithBody("田中さんが県大会で優勝しました。"));
+      const { tx, inserted } = makeFakeTx();
+      withSessionMock.mockImplementation(async (fn) => fn(tx, teacher));
+      const res = await publishContentAction(CONTENT_ID);
+      expect(res).toMatchObject({ ok: false, code: "pii_warning" });
+      if (res.ok) throw new Error("expected pii_warning");
+      // 疑わしい表層を投稿者へ提示する。
+      expect(res.suspects).toContain("田中さん");
+      // hard-block: 実際の公開も監査も走らない。
+      expect(publishContentMock).not.toHaveBeenCalled();
+      expect(inserted).toHaveLength(0);
+    });
+
+    it("acknowledgePii=true (override) なら公開し、override を監査記録する (件数のみ・生氏名は複製しない)", async () => {
+      getContentDetailMock.mockResolvedValue(detailWithBody("田中さんが県大会で優勝しました。"));
+      publishContentMock.mockResolvedValue({ publishId: "pub-2", versionId: "v-2", version: 3 });
+      const { tx, inserted } = makeFakeTx();
+      withSessionMock.mockImplementation(async (fn) => fn(tx, teacher));
+      const res = await publishContentAction(CONTENT_ID, { acknowledgePii: true });
+      expect(res).toEqual({ ok: true, data: { publishId: "pub-2", version: 3 } });
+      expect(publishContentMock).toHaveBeenCalledTimes(1);
+      // override 監査: contents / update / piiOverride。生の疑わしい氏名は diff に複製しない (ルール4)。
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0]).toMatchObject({
+        tableName: "contents",
+        recordId: CONTENT_ID,
+        operation: "update",
+        actorUserId: USER_ID,
+        schoolId: SCHOOL_ID,
+        diff: { piiOverride: true, suspectedNameCount: 1 },
+      });
+      expect(JSON.stringify(inserted[0])).not.toContain("田中");
+    });
+
+    it("不可視/不存在 (getContentDetail=null) は not_found、公開しない", async () => {
+      getContentDetailMock.mockResolvedValue(null);
+      const { tx } = makeFakeTx();
+      withSessionMock.mockImplementation(async (fn) => fn(tx, teacher));
+      const res = await publishContentAction(CONTENT_ID);
+      expect(res).toMatchObject({ ok: false, code: "not_found" });
+      expect(publishContentMock).not.toHaveBeenCalled();
+    });
   });
 
   it("非 publisher (生徒) は /forbidden に redirect し、拒否を best-effort 監査記録する (NFR04, #150 L-2)", async () => {
