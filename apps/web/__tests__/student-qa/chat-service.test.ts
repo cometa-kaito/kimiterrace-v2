@@ -182,6 +182,66 @@ describe("executeChat: 正常系 (SSE stream + 永続化)", () => {
   });
 });
 
+describe("executeChat: grounding モード切替 (ADR-028 §3)", () => {
+  it("provider が grounded を申告: 掲示準拠 system + 件数ベース confidence", async () => {
+    const { client, state } = makeModelClient({ chunks: ["体育祭は6/10です"] });
+    const result = await executeChat(
+      baseParams({
+        modelClient: client,
+        contextProvider: async () => ({
+          mode: "grounded",
+          contexts: [{ id: "c1", title: "体育祭", body: "6/10 開催" }],
+        }),
+      }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    await collect(result.textStream);
+    await result.done;
+    // grounded は強調ブロックを付けない（従来 base 契約のまま）。
+    expect(state.req?.system).not.toContain("ラベル付きの一般補足モード");
+    // grounded は件数ベースで confidence を積む（1 件 → 0.4）。
+    expect(vi.mocked(appendAssistantMessage).mock.calls[0]?.[1].confidenceScore).toBe(0.4);
+  });
+
+  it("provider が general_supplement を申告: ラベル付き一般補足 system + confidence 0", async () => {
+    const { client, state } = makeModelClient({ chunks: ["掲示には無い一般的な情報です。…"] });
+    const result = await executeChat(
+      baseParams({
+        modelClient: client,
+        // 非空文脈でも general_supplement なら自信を捏造しない（意味的根拠未検証）。
+        contextProvider: async () => ({
+          mode: "general_supplement",
+          contexts: [{ id: "c1", title: "最近の掲示", body: "本文" }],
+        }),
+      }),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") return;
+    await collect(result.textStream);
+    await result.done;
+    // system は一般補足モードの強調ブロックを含む（ADR-028 §3）。
+    expect(state.req?.system).toContain("ラベル付きの一般補足モード");
+    expect(state.req?.system).toContain("掲示には無い一般的な情報です");
+    expect(state.req?.system).toContain("学校固有の事実は推測で生成しない");
+    expect(state.req?.system).toContain("先生に確認してください");
+    // 一般補足は意味的根拠未検証ゆえ confidence 0（非空文脈でも自信を捏造しない）。
+    expect(vi.mocked(appendAssistantMessage).mock.calls[0]?.[1].confidenceScore).toBe(0);
+  });
+
+  it("素の配列を返すレガシー provider は非空=grounded に畳む（後方互換）", async () => {
+    const { client, state } = makeModelClient({ chunks: ["はい"] });
+    await executeChat(
+      baseParams({
+        modelClient: client,
+        contextProvider: async () => [{ id: "c1", title: "体育祭", body: "6/10" }],
+      }),
+    );
+    expect(state.req?.system).not.toContain("ラベル付きの一般補足モード");
+    expect(vi.mocked(appendAssistantMessage).mock.calls[0]?.[1].confidenceScore).toBe(0.4);
+  });
+});
+
 describe("executeChat: PII マスキング (ルール4)", () => {
   it("質問内の電話番号は Vertex プロンプト・DB 保存テキストから除去される (検出は既定 ON)", async () => {
     const { client, state } = makeModelClient({ chunks: ["了解しました"] });

@@ -29,7 +29,51 @@ import { neutralizeInput } from "./build.js";
  * は ADR-028 確定前の第 1 スライス（packages/ai が他レーンで占有中だった当時の暫定実装）。
  * 本モジュールが ADR-028 反映後の **canonical** 版で、後続 slice で route 層が本モジュールへ
  * 切り替える。
+ *
+ * ## grounding モード（ADR-028 §3 + §結果 追補, #366/#369）
+ *
+ * RAG 近傍のうち **コサイン類似度 ≥ 0.70**（= cosine 距離 ≤ 0.30）のチャンクが grounding に
+ * 採用されたかで system プロンプトを 2 モードに切り替える（しきい値判定とフォールバックの扱いは
+ * apps/web 側 {@link ../../../../apps/web/lib/student-qa/context-provider.ts context-provider.ts}
+ * の責務、本モジュールは判定結果 {@link GroundingMode} を受けてプロンプトを構成するだけ）:
+ *
+ * - `"grounded"`: 掲示に十分近い根拠が 1 件以上ある。掲示準拠で回答する（従来挙動、非回帰）。
+ * - `"general_supplement"`: 閾値を満たす根拠が 0 件（掲示に根拠なし）。ADR-028 §3 の
+ *   **ラベル付き一般補足モード**。掲示の意味的根拠が無いことを system で明示し、ラベル付与・
+ *   学校固有事実の推測抑止・先生誘導を **grounded より強い必須事項** として固定する。
+ *
+ * 両モードとも §3 のガードレール文言（ラベル「掲示には無い一般的な情報です」/「先生に確認して
+ * ください」）を含むため、grounded から general_supplement へは **base に強調ブロックを追記** する
+ * 形にして、grounded プロンプトを byte 単位で不変に保つ（既存テスト・E2E の文字列検査と非回帰）。
  */
+
+/**
+ * 応答の grounding モード（ADR-028 §3）。
+ * - `"grounded"`: 閾値（cosine 類似度 ≥ 0.70）を満たす掲示根拠が 1 件以上 → 掲示準拠で回答。
+ * - `"general_supplement"`: 閾値を満たす根拠が 0 件（掲示に根拠なし / フォールバック）→ ラベル付き
+ *   一般補足モード（学校固有事実は推測せず先生誘導）。
+ */
+export type GroundingMode = "grounded" | "general_supplement";
+
+/**
+ * `general_supplement` モードでのみ system に追記する強調ブロック（ADR-028 §3）。
+ *
+ * grounded の base 契約（出典提示・スコープ拒否・補足ガード）は既に system に含まれるが、
+ * 「掲示に意味的根拠が無いと判定された」事実を明示し、ラベル付与・学校固有事実の推測抑止・先生誘導を
+ * **grounded より強い必須事項** として再固定する。文言は応答パーサ・E2E が同文字列で検査するため
+ * 変更時は連動修正が必要。
+ */
+function generalSupplementDirective(): string {
+  return [
+    "",
+    "【重要】今回は <contents> に質問へ十分に近い掲示物の根拠が見つかりませんでした。",
+    "このため、回答は掲示準拠ではなく **ラベル付きの一般補足モード** で行うこと:",
+    "- 回答の冒頭に必ず「掲示には無い一般的な情報です」と明示ラベルを付ける。",
+    "- 日時・持ち物・場所・対象クラス・締切など **学校固有の事実は推測で生成しない**。",
+    "  これらは「先生に確認してください」と案内し、断定的に答えない。",
+    "- 関連しそうな掲示物があれば案内し、無ければ無理に作らない（捏造禁止）。",
+  ].join("\n");
+}
 
 /**
  * RAG 検索で得た自校・公開中コンテンツ 1 件。
@@ -59,9 +103,13 @@ export interface ChatPrompt {
  *
  * 受け入れ条件 (F06) を構造で固定する。プロンプト中の「明示ラベル文言」は応答パーサ・E2E テストが
  * 同文字列で検査するため変更時は連動修正が必要。
+ *
+ * @param mode grounding モード（既定 `"grounded"`）。`"grounded"` は従来の base プロンプトを **byte 単位で
+ *   不変** に返す（非回帰）。`"general_supplement"` は base に {@link generalSupplementDirective} を
+ *   追記し、掲示根拠なし時のラベル付き一般補足モード（学校固有事実の推測抑止 + 先生誘導）を強調する。
  */
-export function buildChatSystemPrompt(): string {
-  return [
+export function buildChatSystemPrompt(mode: GroundingMode = "grounded"): string {
+  const base = [
     "あなたは公立高校のサイネージに掲示された「掲示物」について質問に答えるアシスタントです。",
     "",
     "厳守事項:",
@@ -84,6 +132,8 @@ export function buildChatSystemPrompt(): string {
     "  回答言語で意味的に同等な表現で必ず含める。",
     "- 回答は中立・丁寧（敬語ベース、キャラ付けなし）、簡潔にする。",
   ].join("\n");
+  // general_supplement のときだけ base に強調ブロックを追記（grounded は base を不変に保つ）。
+  return mode === "general_supplement" ? base + generalSupplementDirective() : base;
 }
 
 /**
@@ -117,14 +167,19 @@ export function buildQuestionBlock(question: string): string {
  *
  * user プロンプトは「コンテキスト → 質問」の順に並べ、どちらも XML セパレータで包む。
  * コンテキストは {@link ChatContext} の契約どおり **マスク済み** である前提。
+ *
+ * @param params.mode grounding モード（既定 `"grounded"`、ADR-028 §3）。閾値（cosine 類似度 ≥ 0.70）を
+ *   満たす根拠が 0 件のとき呼び出し側が `"general_supplement"` を渡し、ラベル付き一般補足モードへ
+ *   切り替える。user パート（contexts/質問）はモードに依存しない（system のみ切り替わる）。
  */
 export function buildChatPrompt(params: {
   question: string;
   contexts: readonly ChatContext[];
+  mode?: GroundingMode;
 }): ChatPrompt {
-  const { question, contexts } = params;
+  const { question, contexts, mode = "grounded" } = params;
   return {
-    system: buildChatSystemPrompt(),
+    system: buildChatSystemPrompt(mode),
     user: `${buildContextBlock(contexts)}\n\n${buildQuestionBlock(question)}`,
   };
 }

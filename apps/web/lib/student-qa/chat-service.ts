@@ -1,5 +1,6 @@
 import {
   type ChatContext,
+  type GroundingMode,
   type PiiEntry,
   type SupportedLocale,
   buildChatPrompt,
@@ -29,9 +30,11 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  *  3. **質問の PII マスキング** (`packages/ai` maskPII、ルール4) — RAG が embedding 化する前に必ずマスク
  *  4. **スコープ分類** (`classifyScope`, ADR-028 §2) — 学習・進路など掲示物外は **embedding/RAG/Gemini を
  *     一切呼ばず** 決定論の多言語拒否文を即返す (コスト 0 / 誘導なし拒否)
- *  5. クラス公開コンテンツの取得 (caller 注入の `ContextProvider`。RAG はマスク済み質問でベクトル検索)
+ *  5. クラス公開コンテンツの取得 + grounding モード申告 (caller 注入の `ContextProvider`。RAG はマスク済み
+ *     質問でベクトル検索し cosine 類似度 ≥ 0.70 を grounded、満たさなければ general_supplement、ADR-028 §3)
  *  6. **コンテキストの PII マスキング + fail-closed** (ルール4)
- *  7. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、ADR-028 補足ガードレール + インジェクション対策込)
+ *  7. プロンプト構築 (`buildChatPrompt`, @kimiterrace/ai prompt/chat.ts、grounding モードで system 切替 +
+ *     ADR-028 補足ガードレール + インジェクション対策込)
  *  8. Vertex AI ストリーミング (caller 注入 `ChatStreamClient`、Vercel AI SDK 想定、ADR-005/006)
  *  9. 永続化: ai_chat_sessions / ai_chat_messages へ **マスク済テキストのみ** 保存 (ルール4)
  *
@@ -43,17 +46,46 @@ import { OUT_OF_SCOPE_REPLY, validateQuestion } from "./scope";
  */
 
 /**
+ * grounding 結果（ADR-028 §3）。`contexts` に加え `mode` で「掲示準拠（grounded）」か「掲示に根拠なし
+ * の一般補足（general_supplement）」かを provider が申告する。`mode` は閾値判定（cosine 類似度 ≥ 0.70）と
+ * フォールバックの扱いを知る provider 側でしか決められないため、ここまで伝播させて system プロンプトの
+ * 切り替えに使う（{@link buildChatPrompt} の `mode`）。
+ */
+export type GroundingResult = {
+  mode: GroundingMode;
+  contexts: readonly ChatContext[];
+};
+
+/**
  * caller が注入する「公開中コンテンツ」プロバイダ。RLS スコープ tx で自校に閉じる。
  * `maskedQuestion` は **マスク済み**（PII 除去後）の質問文で、RAG provider がこれを embedding 化して
  * ベクトル検索する（生 PII を Vertex embedding へ送らないため、chat-service が先にマスクして渡す契約）。
  * MVP 直接取得 provider は `maskedQuestion` を無視し最近の公開掲示物を返す。
  * `classId` は生徒経路のクラス（将来のクラス絞り込み #481-2 用、現 provider は未使用）。**教員経路は
  * クラス非バインドのため `null`**。
+ *
+ * 戻り値は {@link GroundingResult}（mode + contexts）。後方互換のため **素の `ChatContext[]` を返す
+ * provider も受け付ける**（{@link normalizeGrounding} が非空なら grounded / 空なら general_supplement に
+ * 畳む）。本番経路 provider（{@link createRagContentProvider}）は mode を明示申告する。
  */
 export type ContextProvider = (
   tx: TenantTx,
   params: { classId: string | null; maskedQuestion: string },
-) => Promise<readonly ChatContext[]>;
+) => Promise<GroundingResult | readonly ChatContext[]>;
+
+/**
+ * provider 戻り値を {@link GroundingResult} に正規化する。素の配列を返すレガシー / テスト provider は、
+ * 非空なら掲示準拠とみなし `grounded`、空なら根拠なしとして `general_supplement` に畳む（空配列で grounded
+ * を主張させない安全側の既定）。`{mode, contexts}` を返す provider はそのまま使う。
+ */
+export function normalizeGrounding(
+  result: GroundingResult | readonly ChatContext[],
+): GroundingResult {
+  if (Array.isArray(result)) {
+    return { mode: result.length > 0 ? "grounded" : "general_supplement", contexts: result };
+  }
+  return result as GroundingResult;
+}
 
 /**
  * {@link executeChat} の認証アイデンティティ（F06 #370）。`ai_chat_sessions` の identity XOR
@@ -272,10 +304,11 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
 
   // 5) クラス公開コンテンツを取得。RAG provider は maskedQuestion をベクトル検索に使う
   //    (MVP 直接取得 provider は無視)。RLS スコープ tx で自校に閉じる。
-  const rawContexts = await contextProvider(tx, {
-    classId,
-    maskedQuestion: maskedQuestion.masked,
-  });
+  //    provider は grounding モード (掲示準拠 / 一般補足) も申告する (ADR-028 §3)。
+  const grounding = normalizeGrounding(
+    await contextProvider(tx, { classId, maskedQuestion: maskedQuestion.masked }),
+  );
+  const rawContexts = grounding.contexts;
 
   // 6) コンテキスト本体も必ずマスク (ルール4)。
   const maskedContexts: ChatContext[] = rawContexts.map((c) => {
@@ -301,9 +334,12 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   }
 
   // 7) プロンプト構築 (system/user 役割分離 + XML セパレータ + 中身を data として扱う契約)。
+  //    grounding モードで system を切り替える (ADR-028 §3): general_supplement は掲示根拠なし時の
+  //    ラベル付き一般補足 + 学校固有事実の推測抑止 + 先生誘導を system で強調する。
   const prompt = buildChatPrompt({
     question: maskedQuestion.masked,
     contexts: maskedContexts,
+    mode: grounding.mode,
   });
 
   // 8) Vertex SSE 開始。
@@ -329,8 +365,12 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   // evidence (引用元) は DB の ai_chat_messages.evidence (jsonb) に保存されるため、**マスク済**
   // の title を載せる (ルール4: DB 保存もマスキング後)。id はサーバ生成の content 識別子で非 PII。
   const evidence = maskedContexts.map((c) => ({ contentId: c.id, title: c.title }));
+  // confidence は **掲示準拠 (grounded) のときだけ** 件数で積む。general_supplement は意味的根拠が
+  // 検証されていない一般補足ゆえ 0 に倒し、フォールバック文脈で自信を捏造しない (ADR-028 §3 / ルール4)。
   const confidenceScore =
-    maskedContexts.length === 0 ? 0 : Math.min(0.9, 0.3 + maskedContexts.length * 0.1);
+    grounding.mode !== "grounded" || maskedContexts.length === 0
+      ? 0
+      : Math.min(0.9, 0.3 + maskedContexts.length * 0.1);
 
   const done: Promise<{ assistantMessageId: string; sessionId: string }> = (async () => {
     const final = await stream.done;
