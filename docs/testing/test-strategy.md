@@ -39,6 +39,26 @@
 - **環境**: **staging 限定・合成データのみ**。実生徒データ・本番投入での試験は禁止（CLAUDE.md ルール4 / セキュリティ最優先）。
 - **期間目安**: 1.5〜2 週（開発フェーズ末尾と一部オーバーラップ可）。
 
+### 2.1 Entry ゲートの現状と段階実行（2026-06-03 追記）
+
+全16機能の feature 実装は完了したが（[STATUS](../STATUS.md)、#556）、**Entry ゲートの「staging が feature-complete で動作」は現時点で未充足**:
+
+- [infrastructure/terraform/envs/staging/main.tf](../../infrastructure/terraform/envs/staging/main.tf) は全モジュール `enabled = false`（雛形＝実体未生成）。
+- staging への Cloud Run デプロイ経路（CI ワークフロー）が未整備。
+- → staging の Cloud SQL / Vertex 実呼び出し / デプロイ済への DAST / k6 負荷を**前提とする検証は staging が立つまで実行できない**。staging 構築（Terraform `enabled=true` + デプロイ）は **infra デプロイ＝ルール8 の人間/CI ゲート**であり、検証フェーズの前段。
+
+**段階実行**: 検証トラックを「staging 必須」と「ローカル統合環境で前倒し可能」に仕分け、後者を staging 構築を待たず先行する。ローカル統合環境 = 既存 e2e の **実 PG（非 BYPASSRLS）+ Auth emulator**（[playwright.config.ts](../../apps/web/playwright.config.ts) / [global-setup.ts](../../apps/web/e2e/global-setup.ts)）。
+
+| トラック | ローカル統合で前倒し可 | staging が律速（後段） |
+|---|---|---|
+| ① 機能受入 | 受入 e2e 拡張・ロール別到達性（実 PG + emulator） | Vertex 実呼び出しの通し、デプロイ反映時間 |
+| ② UI/UX | axe-core / Lighthouse / 視覚回帰 / ブラウザ ウォークスルー（`next start`） | 実機解像度・実回線（→ 導入フェーズ） |
+| ③ セキュリティ | RLS 拡張・LLM injection・認可マトリクス・JWT 攻撃・SQLi（実 PG） | デプロイ済への DAST、GCS IAM、Cloud Logging PII、組織ポリシー |
+| ④ 非機能 | （ローカルは Cloud Run 挙動を再現しない＝原則不可） | 性能/負荷/cold start/failover/コスト = **全面 staging 必須** |
+| ⑤ 移行・監査・コンプラ | 移行 dry-run 突合・監査網羅・append-only・ハッシュチェーン・AI 全件（実 PG） | asia-northeast1 固定 / Vertex opt-out 等の実設定証跡 |
+
+→ **③⑤の大半と①②は staging を待たず着手できる**。staging が本質的に律速するのは④と③の DAST 系のみ。
+
 ---
 
 ## 3. テストトラック（5 本）
@@ -106,6 +126,27 @@
 - **Reviewer は必ず別 spawn**（self-review 制約 + 客観性、[CLAUDE.md] worker-review-discipline）。
 - 検出欠陥は defect-log に集約 → 修正 PR → Reviewer → 再検証で閉じる。
 - 最終 Exit はトラック横断の **go/no-go レポート**として人間へ提出。
+
+### 6.1 並列実行の chokepoint と直列化規律
+
+「トラック別に並列 spawn」は**並列の単位を誤ると衝突する**。並列の単位は「トラック」ではなく「**統合環境（staging or 統合 DB）を破壊的に占有するか否か**」で切る。[parallel-lanes.md](../parallel-lanes.md) のファイル所有境界 × chokepoint トークンを検証フェーズに適用する。
+
+**4 つの chokepoint と規律**:
+
+| chokepoint | 衝突理由 | 規律 |
+|---|---|---|
+| **単一 staging / 統合 DB**（最大） | ③の破壊的攻撃（トリガ DISABLE・`audit_log` への UPDATE/DELETE 試行・連投）、④の負荷/failover/エラー注入、⑤ MIG の DB リセットが**同一環境を同時に叩くと相互汚染**（③のトリガ無効化中に⑤が監査チェーン検証＝誤判定、④負荷中の①/④測定＝flaky） | **env トークン**（[parallel-lanes.md](../parallel-lanes.md) の infra-token 同思想）で破壊的トラックを排他・直列化。非破壊 read 主体は並列可 |
+| **k6 二重利用** | ③ SEC-021〜023（DoS 遮断攻撃）と ④ LOAD/COST が同一環境に負荷＝測定が混ざる（③ §11 / ④ §7 が「分担未決」と認識するも未解決） | env トークン下で直列。k6 シナリオは共有し責務分離（③=遮断の有効性 / ④=課金線形性） |
+| **共有合成シード** | ①§7・③§3・⑤§5 が `global-setup.ts` を各自拡張＝loader 配列 + RLS 真実ソースが [parallel-lanes.md](../parallel-lanes.md) の schema-token chokepoint | **先に 1 レーンで受入用合成シードを land → 各トラックは read のみ**（migration-loader-pattern 厳守） |
+| **共有台帳** | matrix（状態列）/ defect-log（起票）/ go-no-go（寄稿）を全 5 トラックが更新＝`STATUS.md` ヘッダ上書きレースと同型 | 欠陥は **GitHub Issue 駆動**（defect = issue、状態 = PR/issue）。markdown 台帳は**実行完了後の集約スナップショット**に役割を限定 |
+
+**並列可 / 直列の仕分け**:
+
+- **並列可（非破壊・read 主体、env トークン不要）**: ② UI/UX、⑤ CMP（証跡収集）、①の read 系シナリオ、③④⑤の**実装・スクリプト整備**段階（攻撃/負荷/突合コードを書く）。
+- **直列必須（env トークン保持時のみ実行）**: ③の破壊的攻撃**実行**、④の負荷・障害注入**実行**、⑤ MIG の投入/リセット**実行**。同時 1 トラックが env を占有し、終わったら解放して次へ。
+- ローカル統合環境（§2.1）なら**トラックごとに使い捨て DB を分けて並列**できる（単一 staging より並列度が出る＝前倒しの利点）。
+
+→ 「トラックを並列 spawn」の前に、**そのトラックが env を破壊的に占有するか**を判定し、占有するものは env トークンで直列化する。これを欠くと並列起動が相互汚染で flaky になる。
 
 ---
 

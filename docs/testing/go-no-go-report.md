@@ -10,6 +10,8 @@
 
 ## 1. Entry ゲート確認（実行開始の前提）
 
+> **現状（2026-06-03）**: feature 実装は全16機能完了（#556）だが、**staging が未構築**（[envs/staging/main.tf](../../infrastructure/terraform/envs/staging/main.tf) 全モジュール `enabled=false`、デプロイ経路未整備）。下記 Entry は未充足。staging 構築は infra デプロイ＝ルール8 の人間/CI ゲート。それまでは [test-strategy.md §2.1](test-strategy.md) の段階実行で、ローカル統合環境（実 PG + Auth emulator）で前倒し可能なトラック（③⑤の大半・①②）を先行する。
+
 - [ ] staging が feature-complete（全 F01–F16 が staging で動作）
 - [ ] データ移行 dry-run が staging で回る
 - [ ] CI 自動スキャン（Semgrep / CodeQL / gitleaks / Dependabot / RLS）が継続 green
