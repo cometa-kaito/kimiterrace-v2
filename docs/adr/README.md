@@ -61,6 +61,7 @@
 | 028 | [F06 生徒対話チャットボットの回答ポリシー](028-f06-chatbot-answer-policy.md)（対象=生徒+教員 / 掲示物 Q&A のみ・学習進路は拒否 / 根拠なし時はラベル付き一般補足だが学校固有事実は推測禁止 / 多言語対応 / コスト天井なし+rate limit） | Accepted |
 | 029 | [公開エンドポイントの URL 内シークレット/トークンのロギング露出方針](029-url-secret-logging-exposure.md)（Cloud Run 自動 request log の URL secret 露出は補償統制下で情報ある受容＋本番はヘッダ優先推奨、ログ除外は NFR04 監査盲目化で不採用。#437 Low-2 / #439 を解決） | Accepted |
 | 030 | [掲示物 authoring 時の生徒/保護者氏名（ロスター無し PII）検出ガード方針](030-authoring-time-pii-gate.md)（匿名設計で roster 源泉が無い生氏名は確定マスク/書式検出の対象外 → authoring 経路に決定論ヒューリスティック soft-gate（warn+override+監査）＋コンテンツポリシー強化。ML-NER は FP/コスト計測後の follow-up、hard-block は FP 阻害で不採用。#426） | Proposed |
+| 031 | [MFA の段階的エンフォース戦略](031-mfa-phased-enforcement.md)（capability＝IdP mfa_config + enrollment フローを MVP で実装、PoC は任意、本番導入ゲートで teacher 以上に強制化して NFR03 充足。即全面強制＝PoC 導入摩擦/全面延期＝NFR03 未達 を不採用。#47） | Accepted |
 
 ## ルール
 
