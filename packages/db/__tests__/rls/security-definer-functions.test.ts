@@ -18,11 +18,13 @@ const describeOrSkip = url ? describe : describe.skip;
  *        張ることで関数本体の `public.magic_links` 等の解決を乗っ取れる（CVE 級の昇格経路）。
  *   3. 各関数が PUBLIC から EXECUTE を剥がし kimiterrace_app にのみ付与（最小権限）。
  *   4. resolve_magic_link が最小列のみ返し token_hash / 監査列を漏らさないこと。
- *   5/6. 扉経由でも cross-tenant の任意列挙・SELECT 面漏洩に悪用できないこと（敵対実行）。
+ *   5. submit_feedback（INSERT 扉）を実際に呼び、同じ匿名 app ロールが書いた行すら
+ *      読み戻せないこと（SELECT 面を一切開けない＝越境読取に悪用不能）を能動的に攻めて確認。
  *
- * 既存 magic-links.test.ts / feedback.test.ts は各扉の「機能」を検証する。本スイートは
- * SECURITY DEFINER という RLS バイパス機構**そのもの**の網羅監査であり二重化しない。
- * メタ監査（1-4）は seed 不要・truncate しない＝並行 RLS テストの DB 状態を汚さない。
+ * resolve_magic_link 側の解決（有効/失効/不正 token）の機能カバレッジは既存
+ * magic-links.test.ts に委ね、本スイートは SECURITY DEFINER という RLS バイパス機構
+ * **そのもの**の網羅監査に集中する（二重化しない）。メタ監査（1-4）は seed 不要・truncate
+ * しない＝並行 RLS テストの DB 状態を汚さない。#5 は sentinel rollback で INSERT を隔離する。
  *
  * 拡張（pgvector 等）が public に入れる関数は pg_depend(deptype='e') で除外し、
  * アプリが定義した SECURITY DEFINER 関数のみを監査対象にする。
@@ -115,27 +117,30 @@ describeOrSkip("RLS / SECURITY DEFINER 監査 (E-02 / SEC-025)", () => {
     expect(result).not.toContain("expires_at");
   });
 
-  it("敵対: context 無し kimiterrace_app が resolve_magic_link(不正hash) を呼んでも任意列挙できない（0 行）", async () => {
-    const bogusHash = `bogus-${"0".repeat(58)}`;
-    await sql.begin(async (tx) => {
-      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
-      // テナント context 未設定（匿名生徒の到達時点を模す）。SECURITY DEFINER で RLS は
-      // バイパスされるが、関数は token 引数に一致する有効行のみ・LIMIT 1。不正 hash は 0 行。
-      // = 扉を持っていても magic_links 全件の任意列挙には悪用できない。
-      const rows = await tx<{ id: string }[]>`
-        SELECT id FROM resolve_magic_link(${bogusHash})
-      `;
-      expect(rows.length).toBe(0);
-    });
-  });
-
-  it("敵対: context 無し kimiterrace_app は feedback を直接 SELECT できない（INSERT 扉は SELECT 面を開けない）", async () => {
-    await sql.begin(async (tx) => {
-      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
-      // submit_feedback は INSERT 1 行（id のみ返す）。SELECT 面は system_admin_only のまま。
-      // context/role 無しの app ロールは feedback を 1 件も読めない（越境読取に悪用不能）。
-      const rows = await tx<{ id: string }[]>`SELECT id FROM public.feedback`;
-      expect(rows.length).toBe(0);
-    });
+  it("敵対: submit_feedback (SECURITY DEFINER) は INSERT できても、書いた行を同じ匿名 app ロールで読み戻せない (扉は SELECT 面を開けない)", async () => {
+    let insertedId: string | null = null;
+    let readbackCount = -1;
+    // sentinel error で rollback し、INSERT 行を永続化しない (並行 RLS テストを汚さない)。
+    await expect(
+      sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+        // テナント context も system_admin role も無い匿名 app ロールが、RLS をくぐる唯一の扉
+        // submit_feedback で 1 行 INSERT する (school_id=NULL で FK 不要、自己申告 schoolName のみ)。
+        const [ins] = await tx<{ new_id: string }[]>`
+          SELECT submit_feedback('SD監査校', NULL::uuid, '1-A', 3, 4, NULL, NULL) AS new_id
+        `;
+        insertedId = ins.new_id;
+        // 同じ匿名 app ロールで、今 INSERT した行すら読み戻せない。SELECT 面は system_admin_only の
+        // まま = SECURITY DEFINER INSERT 扉は SELECT 経路を一切開けていない (越境読取に悪用不能)。
+        const readback = await tx<{ id: string }[]>`
+          SELECT id FROM public.feedback WHERE id = ${ins.new_id}
+        `;
+        readbackCount = readback.length;
+        throw new Error("__sd_audit_rollback__");
+      }),
+    ).rejects.toThrow("__sd_audit_rollback__");
+    // INSERT 扉は機能した (uuid が返る) が、SELECT 面は閉じている (読み戻し 0 行)。
+    expect(insertedId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(readbackCount).toBe(0);
   });
 });
