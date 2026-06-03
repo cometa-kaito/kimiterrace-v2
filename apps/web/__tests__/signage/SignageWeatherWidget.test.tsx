@@ -133,14 +133,14 @@ describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
     expect(screen.getByText("予報データがありません")).toBeInTheDocument();
   });
 
-  it("週間の先頭数日に丸める (視認性、F14 §3)", () => {
+  it("本日 + 翌日の 2 日に丸める (視認性、2026-06-03 確定 F14 表示範囲)", () => {
     const manyDays = Array.from({ length: 8 }, (_, i) =>
       day({ forecastDate: `2026-06-0${i + 1}`.slice(0, 10), weatherText: `予報${i}` }),
     );
     render(<SignageClient classToken={TOKEN} initial={payload(weather({ days: manyDays }))} />);
-    // 先頭 5 日まで表示、6 日目以降は出さない。
+    // 本日 + 翌日 = 先頭 2 日まで表示、3 日目以降は出さない。
     expect(screen.getByText("予報0")).toBeInTheDocument();
-    expect(screen.getByText("予報4")).toBeInTheDocument();
-    expect(screen.queryByText("予報5")).toBeNull();
+    expect(screen.getByText("予報1")).toBeInTheDocument();
+    expect(screen.queryByText("予報2")).toBeNull();
   });
 });
