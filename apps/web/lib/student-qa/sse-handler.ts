@@ -1,36 +1,35 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
-import { executeChat } from "@/lib/student-qa/chat-service";
+import { type ChatIdentity, executeChat } from "@/lib/student-qa/chat-service";
 import { createRagContentProvider } from "@/lib/student-qa/context-provider";
 import {
   createVertexChatStreamClient,
   createVertexEmbeddingClient,
   normalizeLocale,
 } from "@kimiterrace/ai";
-import { type ResolvedMagicLink, withTenantContext } from "@kimiterrace/db";
+import { type TenantContext, withTenantContext } from "@kimiterrace/db";
 
 /**
- * F06 (#42, #371): 生徒対話 Q&A の **SSE 配線コア** (route から認証経路を抜いた共通実装)。
+ * F06 (#42, #371/#370): 生徒・教員対話 Q&A の **SSE 配線コア** (route から認証経路を抜いた共通実装)。
  *
- * 「**解決済みの magic link** ({@link ResolvedMagicLink}) を受け取り、質問 1 件を SSE で返す」までを
- * 担う。**トークンの解決方法 (URL path か httpOnly cookie か) は route に委ねる**ことで、認証経路ごとに
- * route を薄く保ち、SSE/HTTP 配線をここで単一ソース化する。現状の本番経路は cookie 経由
- * (`/api/student/chat` → {@link resolveStudentSession})。
+ * 「**認証・識別子の解決は route に委ね**、解決済みの {@link ChatIdentity} + RLS context を受け取り、質問
+ * 1 件を SSE で返す」までを担う。これにより認証経路ごとに route を薄く保ち、SSE/HTTP 配線と
+ * `executeChat` 呼び出しをここで単一ソース化する。本番経路:
+ * - 生徒 (`/api/student/chat`): httpOnly cookie `__student_session` を再解決 (匿名、school_id context)。
+ * - 教員 (`/api/teacher/chat`): Identity Platform セッションを role gate (teacher/school_admin, #370)。
  *
  * ## 設計 (CLAUDE.md ルール2/4/5、元 route #373/#482 の設計を継承)
- * - **credential を URL/ログに載せない (ルール5)**: magic link トークンは F05 で httpOnly cookie
- *   (`__student_session`) に移し、URL path に出さない。本コアは **既に解決済みの id/schoolId/classId**
- *   だけを受け取り、生トークンには一切触れない (Cloud Run のアクセスログにトークンが残らない)。
+ * - **credential を URL/ログに載せない (ルール5)**: magic link トークンは F05 で httpOnly cookie に移し、
+ *   本コアは **解決済みの identity (生徒 magic_link id ⊻ 教員 user_id)** だけを受け取り生トークンに触れない。
  * - **RLS tx 寿命 = ストリーム寿命 (ルール2)**: 永続化 (user→assistant) を呼び出し側が張る RLS tx 内で
  *   行うため、`withTenantContext` を `ReadableStream` の `start()` 内で回し、チャンク送出 + `await done`
  *   までを 1 つの tx で囲う (tx がストリーム途中で閉じない、[[sse-over-rls-tx-pattern]])。handler は
- *   即 `Response(stream)` を返す。
+ *   即 `Response(stream)` を返す。tenantContext は route が用意 (生徒=schoolId のみ / 教員=userId+role 込)。
  * - **拒否の返し方**: 不正ボディ (400) は **200 SSE を開く前**に実 HTTP で返す。validate/rate-limit/PII
  *   由来の拒否は `executeChat` が内部で 1 回だけ判定する (route で先行実行すると rate-limit を二重消費する)
- *   ため、200 開始後の **SSE `error` フレーム**で通知する。無効トークン (410) は route の責務。
- * - **PII (ルール4)**: 生徒は匿名で氏名ロスターが無いため `piiEntries` は空。質問内の電話/メールは
- *   `maskPII` の検出 (既定 ON) が chat-service 内で除去する。grounding コンテンツも chat-service が
- *   マスクしてから Vertex/DB へ渡す。本コアは生 PII を組み立てない。
+ *   ため、200 開始後の **SSE `error` フレーム**で通知する。無効トークン (410) / 未認証 (401/403) は route の責務。
+ * - **PII (ルール4)**: 氏名ロスターは渡さない (`piiEntries` 空) ため、質問/コンテキストの電話・メールは
+ *   `maskPII` の検出 (既定 ON) が chat-service 内で除去する。本コアは生 PII を組み立てない。
  *
  * 関連: ADR-005/006 (Vertex/Vercel AI SDK), ADR-016 (magic link), ADR-019 (RLS), ADR-028 (回答ポリシー)。
  */
@@ -89,13 +88,45 @@ export function jsonError(status: number, error: string): Response {
 }
 
 /**
- * 解決済み magic link 1 件分の質問を処理し、SSE (`text/event-stream`) Response を返す。
+ * 生徒経路のレート制限第二キー (kt_qa_cid 端末識別子 cookie) を解決する。既存値があればそれを使い、
+ * 無ければ採番して Set-Cookie ヘッダ値を返す (HttpOnly/Secure/SameSite=Lax、1 年)。**教員経路は user_id
+ * 単一キーのため本 cookie を使わない**。route が呼んで student identity の `cookieId` を組み立てる。
+ */
+export function resolveStudentQaCookie(request: Request): {
+  cookieId: string;
+  setCookieHeader: string | null;
+} {
+  const existing = readCookie(request.headers.get("cookie"), QA_COOKIE);
+  if (existing) {
+    return { cookieId: existing, setCookieHeader: null };
+  }
+  const cookieId = randomUUID();
+  return {
+    cookieId,
+    setCookieHeader: `${QA_COOKIE}=${cookieId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=${QA_COOKIE_MAX_AGE}`,
+  };
+}
+
+/** {@link respondWithChatStream} の引数。トークン解決・認証・cookie 採番は route の責務。 */
+export type ChatStreamArgs = {
+  /** RLS tx を張る context (生徒=schoolId のみ / 教員=userId+schoolId+role、ADR-019)。 */
+  tenantContext: TenantContext;
+  /** 永続化/grounding の school_id (string 保証、`tenantContext.schoolId` と一致させる)。 */
+  schoolId: string;
+  /** 認証アイデンティティ (生徒 magic_link ⊻ 教員 user_id, #370)。 */
+  identity: ChatIdentity;
+  /** 生徒の kt_qa_cid 新規採番時に付与する Set-Cookie 値 (なければ null)。 */
+  setCookieHeader?: string | null;
+};
+
+/**
+ * 解決済み identity 1 件分の質問を処理し、SSE (`text/event-stream`) Response を返す (生徒・教員共通)。
  *
- * @param resolved トークン解決済みの {@link ResolvedMagicLink} (route が URL/cookie から確立)
- * @param request  元の `Request` (ボディ・cookie・Accept-Language を読む)
+ * @param args    認証・RLS context・identity (route が確立、上記 {@link ChatStreamArgs})
+ * @param request 元の `Request` (ボディ・Accept-Language を読む)
  */
 export async function respondWithChatStream(
-  resolved: ResolvedMagicLink,
+  args: ChatStreamArgs,
   request: Request,
 ): Promise<Response> {
   // 1) ボディ検証。JSON 不正・question 非文字列は 200 を開く前に 400 で弾く。
@@ -111,16 +142,8 @@ export async function respondWithChatStream(
     return jsonError(400, "invalid_json");
   }
 
-  // 2) 端末識別子 cookie (レート制限の第二キー)。無ければ採番して Set-Cookie する。
-  let cookieId = readCookie(request.headers.get("cookie"), QA_COOKIE);
-  let issueCookie = false;
-  if (!cookieId) {
-    cookieId = randomUUID();
-    issueCookie = true;
-  }
-
-  // 2.5) 拒否文言ロケール (ADR-028 §2)。匿名生徒は profile が無いので Accept-Language の第一言語を
-  //      best-effort で採用 (未対応は ja フォールバック)。in_scope 回答の言語は Gemini が質問に追従する。
+  // 2) 拒否文言ロケール (ADR-028 §2)。profile が無い経路では Accept-Language の第一言語を best-effort で
+  //    採用 (未対応は ja フォールバック)。in_scope 回答の言語は Gemini が質問に追従する。
   const locale = normalizeLocale(request.headers.get("accept-language")?.split(",")[0]);
 
   // 3) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
@@ -133,16 +156,13 @@ export async function respondWithChatStream(
       const send = (event: string, data: unknown) =>
         controller.enqueue(encoder.encode(sseFrame(event, data)));
       try {
-        await withTenantContext(getDb(), { schoolId: resolved.schoolId }, async (tx) => {
+        await withTenantContext(getDb(), args.tenantContext, async (tx) => {
           const result = await executeChat({
             tx,
-            schoolId: resolved.schoolId,
-            classId: resolved.classId,
-            magicLinkId: resolved.id,
-            // cookieId は手順 2 で必ず確定済 (null 不可)。
-            cookieId: cookieId as string,
+            schoolId: args.schoolId,
+            identity: args.identity,
             rawQuestion: question,
-            // 匿名生徒・氏名ロスター無し。質問の電話/メールは chat-service の maskPII が除去 (ルール4)。
+            // 氏名ロスター無し。質問の電話/メールは chat-service の maskPII が除去 (ルール4)。
             piiEntries: [],
             contextProvider,
             modelClient,
@@ -186,11 +206,8 @@ export async function respondWithChatStream(
     "cache-control": "no-store",
     "x-accel-buffering": "no",
   });
-  if (issueCookie) {
-    headers.append(
-      "set-cookie",
-      `${QA_COOKIE}=${cookieId}; HttpOnly; SameSite=Lax; Secure; Path=/; Max-Age=${QA_COOKIE_MAX_AGE}`,
-    );
+  if (args.setCookieHeader) {
+    headers.append("set-cookie", args.setCookieHeader);
   }
   return new Response(stream, { status: 200, headers });
 }

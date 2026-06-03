@@ -114,6 +114,64 @@ export async function findOrCreateSession(
 }
 
 /**
+ * 同一 user (認証済み教員) の active な (closed_at IS NULL) セッションを 1 件返す。無ければ新規作成
+ * (F06 教員経路 #370)。
+ *
+ * 生徒経路の {@link findOrCreateSession} に対する **user_id キー版**。`ai_chat_sessions` の identity は
+ * `magic_link_id` (生徒) ⊻ `user_id` (教員) の XOR (CHECK `ck_ai_chat_sessions_identity`, #514 Slice A)
+ * なので、教員行は `user_id` のみ立て `magic_link_id`/`class_id` は null (教員はクラス非バインド)。
+ *
+ * - **`user_id` は呼び出し側 (route) が認証済みセッションから導出**して渡す契約 (confused-deputy 防止、
+ *   #514 Reviewer 指摘)。本層は外部入力を受けず、与えられた user_id でセッションを引く/作るのみ。
+ * - **監査 (ルール1)**: 教員は認証済みアクターなので `created_by = user_id` を立てる (生徒は匿名で
+ *   システム作成 = null だった)。漏洩時に「どの教員のセッションか」を created_by + user_id で辿れる。
+ * - **RLS (ルール2)**: `school_id` 条件を書かない。`user_id` での絞り込みは RLS 自校スコープ
+ *   (tenant_isolation) と併せて、自校の当該 user の active セッションに閉じる。呼び出しは
+ *   `withTenantContext({ schoolId })` 下である前提。
+ */
+export async function findOrCreateSessionForUser(
+  tx: TenantTx,
+  params: { schoolId: string; userId: string },
+): Promise<ChatSession> {
+  const [existing] = await tx
+    .select({
+      id: aiChatSessions.id,
+      schoolId: aiChatSessions.schoolId,
+      magicLinkId: aiChatSessions.magicLinkId,
+      userId: aiChatSessions.userId,
+      classId: aiChatSessions.classId,
+    })
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.userId, params.userId), isNull(aiChatSessions.closedAt)))
+    .orderBy(desc(aiChatSessions.lastMessageAt))
+    .limit(1);
+  if (existing) {
+    return existing;
+  }
+
+  const [created] = await tx
+    .insert(aiChatSessions)
+    .values({
+      schoolId: params.schoolId,
+      userId: params.userId,
+      // 教員は認証済みアクター: 監査追跡性のため created_by を立てる (ルール1)。
+      createdBy: params.userId,
+      // magic_link_id / class_id は教員経路では null (XOR CHECK + クラス非バインド)。
+    })
+    .returning({
+      id: aiChatSessions.id,
+      schoolId: aiChatSessions.schoolId,
+      magicLinkId: aiChatSessions.magicLinkId,
+      userId: aiChatSessions.userId,
+      classId: aiChatSessions.classId,
+    });
+  if (!created) {
+    throw new Error("ai_chat_sessions (教員) の INSERT に失敗しました (returning が空)");
+  }
+  return created;
+}
+
+/**
  * user (生徒) メッセージを ai_chat_messages に追記する。PII マスキング済前提 (ルール4)。
  * 同時に親セッションの message_count をインクリメントし、last_message_at を更新する。
  */

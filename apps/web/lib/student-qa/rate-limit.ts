@@ -22,6 +22,8 @@
  * `maxKeys` 以内（per-instance のメモリ枯渇を防ぐ。volume 自体の遮断は WAF / Cloud Armor が担う）。
  */
 
+import { FixedWindowRateLimiter } from "../guide/rate-limit";
+
 /** 1 分あたりの質問上限（magic_link / cookie それぞれ）。 */
 export const QA_QUESTION_LIMIT = 10;
 /** ウィンドウ幅（ミリ秒）。1 分固定ウィンドウ。 */
@@ -136,3 +138,19 @@ export class StudentQaRateLimiter {
  * リクエストで状態を共有する（per-instance、上記の限界どおり）。
  */
 export const studentQaRateLimiter = new StudentQaRateLimiter();
+
+/**
+ * 教員 Q&A 用レートリミッタ（F06 教員経路 #370）。
+ *
+ * 生徒は magic_link + cookie の二重キーだが、教員は **認証済み user_id 単一キー**でレート制限する
+ * （ADR-028 §「rate-limit キーは生徒(client_id/magic_link)と別(user_id)」、f06-chatbot-spec-confirmed）。
+ * 単一キーなので cross-gate のスロット漏れ問題が無く、汎用の {@link FixedWindowRateLimiter}
+ * （guide/rate-limit.ts、#436 のメモリ境界付き固定ウィンドウ）をそのまま再利用する（DRY）。
+ * 上限・窓・メモリ境界は生徒と同値（{@link QA_QUESTION_LIMIT}/分、{@link QA_MAX_KEYS} キー）。
+ * `key = user_id` で `tryAcquire(userId, nowMs)` が true/false を返す（per-instance、生徒と同じ限界）。
+ */
+export const teacherQaRateLimiter = new FixedWindowRateLimiter(
+  QA_QUESTION_LIMIT,
+  QA_QUESTION_WINDOW_MS,
+  QA_MAX_KEYS,
+);

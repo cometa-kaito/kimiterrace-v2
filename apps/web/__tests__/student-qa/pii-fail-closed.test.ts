@@ -102,9 +102,12 @@ function baseParams(overrides: Partial<ExecuteChatParams> = {}): ExecuteChatPara
   return {
     tx: {} as TenantTx,
     schoolId: SCHOOL_ID,
-    classId: CLASS_ID,
-    magicLinkId: MAGIC_LINK_ID,
-    cookieId: "cookie-abc",
+    identity: {
+      kind: "student",
+      magicLinkId: MAGIC_LINK_ID,
+      classId: CLASS_ID,
+      cookieId: "cookie-abc",
+    },
     // 学習/進路語を含まない in_scope 質問 (classifyScope を通過させ、fail-closed ブロックまで到達させる)。
     rawQuestion: "山田花子さんの体育祭の出欠は掲示にありますか？",
     piiEntries: [{ value: "山田花子", category: "STUDENT" }],

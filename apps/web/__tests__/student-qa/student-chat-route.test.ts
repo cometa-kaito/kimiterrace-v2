@@ -101,12 +101,11 @@ describe("POST: 正常系 SSE", () => {
     const arg = vi.mocked(executeChat).mock.calls[0]?.[0];
     expect(arg).toMatchObject({
       schoolId: "s-1",
-      classId: "c-1",
-      magicLinkId: "ml-1",
       rawQuestion: "体育祭は？",
       piiEntries: [],
+      identity: { kind: "student", classId: "c-1", magicLinkId: "ml-1" },
     });
-    expect(typeof arg?.cookieId).toBe("string");
+    expect(arg?.identity.kind === "student" && typeof arg.identity.cookieId).toBe("string");
   });
 
   it("kt_qa_cid cookie 無しなら採番して HttpOnly Set-Cookie する", async () => {
@@ -122,7 +121,8 @@ describe("POST: 正常系 SSE", () => {
     const res = await POST(makeRequest({ question: "やあ" }, { cookie: "kt_qa_cid=cid-existing" }));
     expect(res.headers.get("set-cookie")).toBeNull();
     await res.text();
-    expect(vi.mocked(executeChat).mock.calls[0]?.[0].cookieId).toBe("cid-existing");
+    const identity = vi.mocked(executeChat).mock.calls[0]?.[0].identity;
+    expect(identity?.kind === "student" && identity.cookieId).toBe("cid-existing");
   });
 });
 
