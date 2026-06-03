@@ -110,23 +110,27 @@ export async function GET(request: Request): Promise<NextResponse> {
     return auth.response;
   }
 
-  const classId = new URL(request.url).searchParams.get("classId");
+  const params = new URL(request.url).searchParams;
+  const classId = params.get("classId");
   if (!isUuid(classId)) {
     return NextResponse.json({ error: "invalid_class_id" }, { status: 400 });
   }
+  // 失効済も含めるか (F05 失効履歴の監査表示)。既定は有効リンクのみ。
+  const includeRevoked = params.get("includeRevoked") === "true";
 
   const links = await withTenantContext(
     getDb(),
     { userId: auth.uid, schoolId: auth.schoolId, role: auth.role },
-    (tx) => listClassMagicLinks(tx, classId),
+    (tx) => listClassMagicLinks(tx, classId, { includeRevoked }),
   );
 
-  // token は一切返さない (発行時のみ)。メタ情報のみ。
+  // token は一切返さない (発行時のみ)。メタ情報のみ。revokedAt で失効済を判別できる。
   return NextResponse.json({
     links: links.map((l) => ({
       id: l.id,
       classId: l.classId,
       expiresAt: l.expiresAt.toISOString(),
+      revokedAt: l.revokedAt?.toISOString() ?? null,
       createdAt: l.createdAt.toISOString(),
     })),
   });
