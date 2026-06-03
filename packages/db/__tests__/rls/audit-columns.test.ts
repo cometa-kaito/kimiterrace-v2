@@ -34,6 +34,7 @@ const AUDITED_TABLES = [
   "schools",
   "advertisers",
   "contracts",
+  "contract_contents",
   "communications",
   "system_admins",
   // 監査台帳本体 (append-only でも 4 カラムは必須)
