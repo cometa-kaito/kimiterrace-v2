@@ -138,3 +138,19 @@ variable "deletion_protection" {
   type        = bool
   default     = true
 }
+
+# ── アプリ DB ユーザー（google_sql_user.app）─────────────────────────────
+# パスワードは Secret Manager に「人間が」投入した値を data source で参照する（ルール5）。
+# Terraform はパスワードを生成・ハードコードしない。本変数には secret の ID（例 "staging-db-app-password"）を渡す。
+# 空文字（既定）なら DB ユーザーを作らない＝雛形・dev（docker-compose 代替）・prod 後方互換（count = 0・plan 空）。
+#
+# 2-phase apply（chicken-and-egg を回避）:
+#   ① secret コンテナだけ先に作る   : terraform apply -target=module.secret_manager
+#   ② 人間がパスワード値を投入       : gcloud secrets versions add <id> --data-file=- --project=...
+#   ③ full apply で本ユーザーを作成  : terraform apply（data source が ② の最新版を読む）
+# CI は fmt + validate(-backend=false) のみで data source を読まないため、② 未投入でも CI は緑。
+variable "app_db_password_secret_id" {
+  description = "アプリ DB ユーザー（app）のパスワードを保持する Secret Manager secret ID。空なら user を作らない。値は人間が投入（ルール5）。"
+  type        = string
+  default     = ""
+}
