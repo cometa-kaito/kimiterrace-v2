@@ -24,11 +24,20 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+
+  # apikeys / identitytoolkit など一部 API は user ADC 利用時に quota/billing project の明示が要る
+  # （未指定だと 403 "requires a quota project, which is not set by default"）。当該 project を
+  # billing/quota project として各リクエストに送る。state バケット等の既存リソースには影響なし。
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 provider "google-beta" {
   project = var.project_id
   region  = var.region
+
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 variable "project_id" {
