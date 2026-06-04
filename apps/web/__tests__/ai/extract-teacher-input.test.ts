@@ -53,6 +53,7 @@ function makeDeps(over: Partial<ExtractTeacherInputDeps> = {}): {
   const deps: ExtractTeacherInputDeps = {
     loadTranscript: vi.fn(async () => ({ transcript: "1限 数学、2限 英語" })),
     loadStaffPiiEntries: vi.fn(async () => []),
+    recordPiiOverride: vi.fn(async () => {}),
     runAndPersist: vi.fn(async () => structureResult()),
     // biome-ignore lint/suspicious/noExplicitAny: model は runAndPersist 注入で未使用
     model: {} as any,
@@ -227,5 +228,73 @@ describe("extractTeacherInput", () => {
     const res = await extractTeacherInput("input-1", "tag", deps);
     expect(res).toEqual({ ok: false, reason: "error" });
     expect(logger.error).toHaveBeenCalledWith({ inputId: "input-1" }, "AI 抽出に失敗");
+  });
+
+  // --- #289 ③ / ADR-030: PII soft-gate (敬称連接の高確信検出 → warn + override + 件数監査) ---
+
+  it("敬称連接を検出 & 未 override は pii_warning で送信せず surfaces を返す (#289 ③ / ADR-030)", async () => {
+    const runAndPersist = vi.fn(async () => structureResult());
+    const recordPiiOverride = vi.fn(async () => {});
+    const loadStaffPiiEntries = vi.fn(async () => []);
+    const { deps } = makeDeps({
+      loadTranscript: vi.fn(async () => ({ transcript: "田中さんが県大会で優勝しました。" })),
+      runAndPersist,
+      recordPiiOverride,
+      loadStaffPiiEntries,
+    });
+    const res = await extractTeacherInput("input-1", "announcement", deps);
+    expect(res).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中さん"] });
+    // 送信しない: roster ロード・件数監査・seam いずれにも到達しない (実 Vertex を呼ばない)。
+    expect(loadStaffPiiEntries).not.toHaveBeenCalled();
+    expect(recordPiiOverride).not.toHaveBeenCalled();
+    expect(runAndPersist).not.toHaveBeenCalled();
+  });
+
+  it("override (acknowledgePii=true) は送信前に件数のみ監査し、抽出を実行する (ADR-030 / NFR04)", async () => {
+    const runAndPersist = vi.fn(async () => structureResult());
+    const recordPiiOverride = vi.fn(async () => {});
+    const { deps } = makeDeps({
+      loadTranscript: vi.fn(async () => ({ transcript: "田中さんと佐藤さんが参加しました。" })),
+      runAndPersist,
+      recordPiiOverride,
+    });
+    const res = await extractTeacherInput("input-7", "announcement", deps, {
+      acknowledgePii: true,
+    });
+    expect(res).toMatchObject({ ok: true, status: "success" });
+    // 件数のみ (生氏名は渡さない、ルール4)。送信前監査ゆえ runAndPersist より先に呼ばれる。
+    expect(recordPiiOverride).toHaveBeenCalledWith({
+      inputId: "input-7",
+      kind: "announcement",
+      suspectedNameCount: 2,
+    });
+    expect(runAndPersist).toHaveBeenCalledTimes(1);
+  });
+
+  it("氏名らしき語句が無ければ soft-gate を素通りし、override 監査しない", async () => {
+    const recordPiiOverride = vi.fn(async () => {});
+    const runAndPersist = vi.fn(async () => structureResult());
+    // 既定 transcript "1限 数学、2限 英語" は敬称連接なし。
+    const { deps } = makeDeps({ recordPiiOverride, runAndPersist });
+    const res = await extractTeacherInput("input-1", "schedule", deps);
+    expect(res).toMatchObject({ ok: true });
+    expect(recordPiiOverride).not.toHaveBeenCalled();
+    expect(runAndPersist).toHaveBeenCalledTimes(1);
+  });
+
+  it("override 件数監査が失敗したら Vertex 送信しない (unaudited な override 送信を作らない fail-safe)", async () => {
+    const runAndPersist = vi.fn(async () => structureResult());
+    const { deps } = makeDeps({
+      loadTranscript: vi.fn(async () => ({ transcript: "田中さんが受賞しました。" })),
+      recordPiiOverride: vi.fn(async () => {
+        throw new Error("audit insert failed");
+      }),
+      runAndPersist,
+    });
+    const res = await extractTeacherInput("input-1", "announcement", deps, {
+      acknowledgePii: true,
+    });
+    expect(res).toEqual({ ok: false, reason: "error" });
+    expect(runAndPersist).not.toHaveBeenCalled();
   });
 });

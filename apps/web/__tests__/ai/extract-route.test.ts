@@ -46,7 +46,35 @@ describe("POST /api/teacher-inputs/:id/extract", () => {
     const res = await POST(req({ kind: "schedule" }), ctx);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, status: "success", confidenceScore: 0.8 });
-    expect(extractTeacherInput).toHaveBeenCalledWith("input-1", "schedule");
+    // deps は既定 (3 番目 undefined)、opts に acknowledgePii (本体未指定なので false)。
+    expect(extractTeacherInput).toHaveBeenCalledWith("input-1", "schedule", undefined, {
+      acknowledgePii: false,
+    });
+  });
+
+  it("acknowledgePii=true を本体から core の opts に渡す (ADR-030 override 再送)", async () => {
+    extractTeacherInput.mockResolvedValue({
+      ok: true,
+      status: "success",
+      confidenceScore: 0.5,
+    } satisfies ExtractTeacherInputResult);
+    await POST(req({ kind: "announcement", acknowledgePii: true }), ctx);
+    expect(extractTeacherInput).toHaveBeenCalledWith("input-1", "announcement", undefined, {
+      acknowledgePii: true,
+    });
+  });
+
+  it("pii_warning は 409 + suspectedSurfaces を返す (ADR-030 soft-gate warn)", async () => {
+    extractTeacherInput.mockResolvedValue({
+      ok: false,
+      reason: "pii_warning",
+      suspectedSurfaces: ["田中さん", "佐藤さん"],
+    } satisfies ExtractTeacherInputResult);
+    const res = await POST(req({ kind: "announcement" }), ctx);
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { ok: boolean; suspectedSurfaces: string[] };
+    expect(json.ok).toBe(false);
+    expect(json.suspectedSurfaces).toEqual(["田中さん", "佐藤さん"]);
   });
 
   it("不正な kind は 400、コアを呼ばない", async () => {
