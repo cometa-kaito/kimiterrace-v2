@@ -39,11 +39,10 @@ resource "google_sql_database_instance" "main" {
       ssl_mode = "ENCRYPTED_ONLY" # nosemgrep: gcp-sql-database-ssl-insecure-value-postgres-mysql
     }
 
-    # pgvector 拡張の有効化（ADR-007 RAG。掲示物 embedding を同一 DB で semantic search）。
-    database_flags {
-      name  = "cloudsql.enable_pgvector"
-      value = "on"
-    }
+    # pgvector（ADR-007 RAG）は Cloud SQL の instance flag では有効化しない:
+    # `cloudsql.enable_pgvector` は実在しない flag（apply 時 invalidFlagName 404）。
+    # vector 拡張は migration の `CREATE EXTENSION IF NOT EXISTS vector` で DB レベルに有効化する
+    # （Cloud SQL PG16 の標準サポート拡張。repo の seed/global-setup も同方式）。
 
     # 自動バックアップ + PITR。10 年保管・漏洩時/誤操作時の復旧要件（ADR-001）。
     # staging でも有効化し、リストア手順まで含めて検証する。
