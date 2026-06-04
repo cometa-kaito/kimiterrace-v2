@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDbClient } from "@kimiterrace/db";
+import { type TenantRole, createDbClient } from "@kimiterrace/db";
 import { collectMigrationFiles, runMigrationFile } from "@kimiterrace/db/migrate-files";
 
 /**
@@ -65,6 +65,12 @@ export const SEED = {
    */
   CLASS_ID: "00000000-0000-4000-8000-000000000003",
   /**
+   * SCHOOL1 の有効 magic link の id (`seed()` が入れる `...0004`)。クロステナント分離 e2e (#243) で
+   * SCHOOL2 教員が本 id に revoke/extend を投げても RLS で不可視 → 404 (越境拒否・漏洩なし) を検証する
+   * ために spec から参照する。SCHOOL1 配下なので SCHOOL2 context では見えない。
+   */
+  MAGIC_LINK_ID: "00000000-0000-4000-8000-000000000004",
+  /**
    * 完全 golden-path 専用のクラス / トークン / 初期連絡 (#48-O 第 4 増分の test 分離)。
    * golden-path は連絡を**破壊的に UPDATE** するため、`signage.spec.ts` が読む共有クラス
    * (`CLASS_ID` / `KNOWN_TOKEN`) を使うと `fullyParallel` 実行順次第で signage 正常系が落ちうる
@@ -91,6 +97,26 @@ export const SEED = {
   TEACHER_UID: "00000000-0000-4000-8000-000000000021",
   TEACHER_EMAIL: "teacher.e2e@example.com",
   TEACHER_PASSWORD: "e2e-teacher-password",
+  /**
+   * 認可マトリクス e2e (#243 トラック①/③) の追加ロール。`auth.setup.ts` が `AUTH_PRINCIPALS`
+   * を loop して各々を emulator に作成し、custom claim `{role, school_id}` を付与して
+   * storageState を書く (教員と同じ発行経路、test 用バックドアは作らない)。
+   *
+   * - **school_admin (SCHOOL1)**: SCHOOL1 の学校管理者。`/admin/school/members` (school_admin 専用) や
+   *   `/admin/system/*` (system_admin 専用) の境界を検証する。`users` 行を SCHOOL1 配下に seed する。
+   * - **system_admin**: 横断ロール。**`school_id` claim を持たない** (normalizeClaims が system_admin の
+   *   school_id null を許容)。`/admin/system/*` 許可 + `/admin/editor`・`/admin/contents`・自校面は 403 を
+   *   検証する。`users` には属さず `system_admins` allowlist に seed する (ADR-019 の system_admin 真実源)。
+   *
+   * email / password / UID はすべてテスト専用の明白値 (実 credential ではない、CLAUDE.md ルール5)。
+   * UID は localId = ID トークン sub = users.id / system_admins.identity_uid に一致させる (本番運用同型)。
+   */
+  SCHOOL_ADMIN_UID: "00000000-0000-4000-8000-000000000022",
+  SCHOOL_ADMIN_EMAIL: "schooladmin.e2e@example.com",
+  SCHOOL_ADMIN_PASSWORD: "e2e-school-admin-password",
+  SYSTEM_ADMIN_UID: "00000000-0000-4000-8000-000000000023",
+  SYSTEM_ADMIN_EMAIL: "systemadmin.e2e@example.com",
+  SYSTEM_ADMIN_PASSWORD: "e2e-system-admin-password",
 } as const;
 
 /**
@@ -103,14 +129,96 @@ export const SEED = {
 export const TEACHER_STORAGE_STATE = "e2e/.auth/teacher.json";
 
 /**
+ * 認可マトリクス e2e (#243 トラック①/③) の追加ロールの storageState 保存先。各 setup が書き、
+ * 各 spec が `storageState` で読む。`TEACHER_STORAGE_STATE` と同じく **定数のみ**ここに置く
+ * (副作用なし、spec が import しても setup test が混入しない)。`apps/web/e2e/.auth/` は .gitignore 済。
+ */
+export const SCHOOL_ADMIN_STORAGE_STATE = "e2e/.auth/school-admin.json";
+export const SYSTEM_ADMIN_STORAGE_STATE = "e2e/.auth/system-admin.json";
+export const SCHOOL2_TEACHER_STORAGE_STATE = "e2e/.auth/school2-teacher.json";
+
+/**
  * 2 校目の seed (#213: RLS テナント分離を e2e で実証する negative 用)。別 school / class / token。
  * webServer を kimiterrace_app (非 BYPASSRLS) 接続にした上で、SCHOOL2 の token では SCHOOL2 の
  * 連絡だけが描画され SCHOOL1 の連絡 (`SEED.NOTICE_TEXT`) は出ない (= RLS で越境不可) ことを確認する。
+ *
+ * **クロステナント分離 e2e (#243)**: SCHOOL2 の教員ログインを `auth.setup.ts` が発行し、SCHOOL2 教員が
+ * SCHOOL1 の class_id (`SEED.CLASS_ID`) でエディタ等を開いても RLS で 404/不可視になることを検証する。
+ * - `SCHOOL_ID` / `CLASS_ID`: `seedSchool2` が入れる SCHOOL2 の学校 / クラス (旧ハードコードを定数化)。
+ * - `TEACHER_*`: SCHOOL2 の教員ユーザー (`users` 行を SCHOOL2 配下に seed)。localId = UID = users.id。
  */
 export const SEED2 = {
   KNOWN_TOKEN: "e2e-known-token-school2",
   NOTICE_TEXT: "E2E-NOTICE-SCHOOL2-ONLY",
+  SCHOOL_ID: "00000000-0000-4000-8000-000000000011",
+  CLASS_ID: "00000000-0000-4000-8000-000000000013",
+  TEACHER_UID: "00000000-0000-4000-8000-000000000024",
+  TEACHER_EMAIL: "teacher2.e2e@example.com",
+  TEACHER_PASSWORD: "e2e-teacher2-password",
 } as const;
+
+/**
+ * `auth.setup.ts` が loop して storageState を発行する認証プリンシパル一覧 (#243)。
+ * 各要素は「emulator localId = uid・custom claim {role, school_id}・出力 storageState パス」を
+ * 宣言的にまとめたもの。**教員 (TEACHER) は既存の `auth.setup.ts` 経路を維持** (admin-auth.spec が依存)
+ * しつつ、school_admin / system_admin / SCHOOL2 teacher を同じ発行経路で追加する。
+ *
+ * `schoolId` は normalizeClaims が要求する custom claim。system_admin のみ **null** (school 非所属、
+ * normalizeClaims が許容)。それ以外は所属校 UUID を載せて RLS を当該校にスコープさせる。
+ * DB 行 (`users` / `system_admins`) は globalSetup の seed が用意する (FK / RLS 整合)。
+ */
+export type AuthPrincipal = {
+  /** setup test 名 (`authenticate <name>`)。 */
+  name: string;
+  /** emulator localId = ID トークン sub = users.id / system_admins.identity_uid。 */
+  uid: string;
+  email: string;
+  password: string;
+  role: TenantRole;
+  /** custom claim `school_id`。system_admin は null (school 非所属)。 */
+  schoolId: string | null;
+  /** 発行した __session を書き出す storageState パス。 */
+  storageState: string;
+};
+
+export const AUTH_PRINCIPALS: readonly AuthPrincipal[] = [
+  {
+    name: "teacher",
+    uid: SEED.TEACHER_UID,
+    email: SEED.TEACHER_EMAIL,
+    password: SEED.TEACHER_PASSWORD,
+    role: "teacher",
+    schoolId: SEED.SCHOOL_ID,
+    storageState: TEACHER_STORAGE_STATE,
+  },
+  {
+    name: "school_admin",
+    uid: SEED.SCHOOL_ADMIN_UID,
+    email: SEED.SCHOOL_ADMIN_EMAIL,
+    password: SEED.SCHOOL_ADMIN_PASSWORD,
+    role: "school_admin",
+    schoolId: SEED.SCHOOL_ID,
+    storageState: SCHOOL_ADMIN_STORAGE_STATE,
+  },
+  {
+    name: "system_admin",
+    uid: SEED.SYSTEM_ADMIN_UID,
+    email: SEED.SYSTEM_ADMIN_EMAIL,
+    password: SEED.SYSTEM_ADMIN_PASSWORD,
+    role: "system_admin",
+    schoolId: null,
+    storageState: SYSTEM_ADMIN_STORAGE_STATE,
+  },
+  {
+    name: "school2_teacher",
+    uid: SEED2.TEACHER_UID,
+    email: SEED2.TEACHER_EMAIL,
+    password: SEED2.TEACHER_PASSWORD,
+    role: "teacher",
+    schoolId: SEED2.SCHOOL_ID,
+    storageState: SCHOOL2_TEACHER_STORAGE_STATE,
+  },
+] as const;
 
 /**
  * アプリ (webServer) が e2e で接続する **非 BYPASSRLS** ロール (#213 / PR #210 Reviewer Medium-1)。
@@ -201,9 +309,9 @@ async function enableAppRoleLogin(sql: RawSql, url: string): Promise<void> {
  * クラス + 有効 magic link + 当日 daily_data (連絡のみ) を入れる。superuser 接続で直接 INSERT。
  */
 async function seedSchool2(sql: RawSql): Promise<void> {
-  const schoolId = "00000000-0000-4000-8000-000000000011";
+  const schoolId = SEED2.SCHOOL_ID;
   const gradeId = "00000000-0000-4000-8000-000000000012";
-  const classId = "00000000-0000-4000-8000-000000000013";
+  const classId = SEED2.CLASS_ID;
   const magicLinkId = "00000000-0000-4000-8000-000000000014";
   const dailyId = "00000000-0000-4000-8000-000000000015";
 
@@ -234,6 +342,14 @@ async function seedSchool2(sql: RawSql): Promise<void> {
   await sql.unsafe(
     `INSERT INTO daily_data (id, school_id, scope, class_id, date, notices)
      VALUES ('${dailyId}', '${schoolId}', 'class', '${classId}', '${today}', '${notices}'::jsonb)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  // クロステナント分離 e2e (#243) の SCHOOL2 教員。SCHOOL2 配下に置き、SCHOOL1 リソースが RLS で
+  // 不可視になることを negative 検証する。id = identity_uid = Auth localId = UID で揃える (本番同型)。
+  await sql.unsafe(
+    `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
+     VALUES ('${SEED2.TEACHER_UID}', '${schoolId}', '${SEED2.TEACHER_UID}',
+             'teacher', 'E2E 教員(2校目)', '${SEED2.TEACHER_EMAIL}', true)
      ON CONFLICT (id) DO NOTHING;`,
   );
 }
@@ -347,6 +463,26 @@ async function seed(sql: RawSql): Promise<void> {
     `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
      VALUES ('${SEED.TEACHER_UID}', '${schoolId}', '${SEED.TEACHER_UID}',
              'teacher', 'E2E 教員', '${SEED.TEACHER_EMAIL}', true)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+
+  // 認可マトリクス e2e (#243) の SCHOOL1 学校管理者。SCHOOL1 配下に置き、school_admin 専用面
+  // (/admin/school/members) 許可 + system_admin 専用面 403 を検証する。id = identity_uid = UID。
+  await sql.unsafe(
+    `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
+     VALUES ('${SEED.SCHOOL_ADMIN_UID}', '${schoolId}', '${SEED.SCHOOL_ADMIN_UID}',
+             'school_admin', 'E2E 学校管理者', '${SEED.SCHOOL_ADMIN_EMAIL}', true)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+
+  // 認可マトリクス e2e (#243) の system_admin。テナント外 (school_id 無し) のため `users` ではなく
+  // `system_admins` allowlist に置く (ADR-019 の system_admin 真実源、F11)。RLS の
+  // system_admin_full_access policy は GUC role のみで発火するため本行は認可成立の必須条件ではないが、
+  // 本番同型 (allowlist 在籍) で seed し、MFA 強制ゲート等が allowlist 参照しても整合する。
+  await sql.unsafe(
+    `INSERT INTO system_admins (id, identity_uid, display_name, email, is_active)
+     VALUES ('${SEED.SYSTEM_ADMIN_UID}', '${SEED.SYSTEM_ADMIN_UID}',
+             'E2E システム管理者', '${SEED.SYSTEM_ADMIN_EMAIL}', true)
      ON CONFLICT (id) DO NOTHING;`,
   );
 
