@@ -11,8 +11,9 @@ import { extractTeacherInput } from "../../../../../lib/ai/extract-teacher-input
  * 本 route は入力 (kind) 検証と {@link extractTeacherInput} の結果 → HTTP 写像のみ担う。
  *
  * 応答: 200 (成功/失敗いずれも監査済) / 400 (kind 不正) / 401 / 403 / 404 (transcript 無) /
+ * 409 (PII soft-gate warn: 氏名らしき語句検出・suspectedSurfaces 提示・acknowledgePii=true で override 再送) /
  * 429 (レート上限) / 422 (PII マスク漏れで中止) / 503 (AI 無効: #289 kill-switch) / 500。
- * 本文に PII / 内部詳細は出さない。
+ * 本文に PII / 内部詳細は出さない (suspectedSurfaces は warn 表示用の検出表層のみ)。
  */
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -32,9 +33,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   const { id } = await context.params;
 
   let kind: unknown;
+  let acknowledgePii = false;
   try {
-    const body = (await request.json()) as { kind?: unknown };
+    const body = (await request.json()) as { kind?: unknown; acknowledgePii?: unknown };
     kind = body.kind;
+    // PII soft-gate override (ADR-030)。厳密に true のみ override 扱い (既定 false = warn 優先)。
+    acknowledgePii = body.acknowledgePii === true;
   } catch {
     return NextResponse.json({ ok: false, error: "リクエスト形式が不正です。" }, { status: 400 });
   }
@@ -45,7 +49,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     );
   }
 
-  const result = await extractTeacherInput(id, kind);
+  // deps は既定 (defaultDeps) を使うため 3 番目は undefined、opts (4 番目) に acknowledgePii を渡す。
+  const result = await extractTeacherInput(id, kind, undefined, { acknowledgePii });
 
   if (result.ok) {
     return NextResponse.json(
@@ -73,6 +78,18 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
       return NextResponse.json(
         { ok: false, error: "個人情報の可能性がある語句を検出したため送信を中止しました。" },
         { status: 422 },
+      );
+    case "pii_warning":
+      // ADR-030 soft-gate: 氏名らしき高確信パターンを検出。教員 UI が suspectedSurfaces を提示し、
+      // 承知の上で acknowledgePii=true を付けて再送すると送信する (hard-block しない)。
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "個人情報（氏名の可能性）を検出しました。内容を確認の上、必要なら承知して実行してください。",
+          suspectedSurfaces: result.suspectedSurfaces,
+        },
+        { status: 409 },
       );
     default:
       return NextResponse.json(

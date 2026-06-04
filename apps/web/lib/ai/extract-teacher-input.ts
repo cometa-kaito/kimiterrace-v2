@@ -10,8 +10,9 @@ import {
   type SuggestedPublishScope,
   createPerSchoolRateLimiter,
   createVertexModelClient,
+  findSuspectedPersonalNames,
 } from "@kimiterrace/ai";
-import { getTeacherInput, listStaffDisplayNames } from "@kimiterrace/db";
+import { auditLog, getTeacherInput, listStaffDisplayNames } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
 import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
 import {
@@ -37,11 +38,14 @@ import {
  * `display_name`）を `piiEntries`（category=STAFF）として供給する**ようになった。これで自由記述に紛れた
  * 職員氏名は確定トークン化され、fail-closed ガードの監視対象にも入る。
  *
- * ただし **生徒 / 保護者氏名は依然 roster 不在**（本システムは生徒匿名設計）でマスクできない残存リスクが
- * ある。対象 kind は schedule / announcement / summary / tag の **行事・連絡文**で、フィードバック同様
- * 「生徒氏名は記入不要」の運用ガイドが効く前提。生徒/保護者氏名の扱い（記入抑止 UI / NER / kind 制約の
- * いずれか）の確定と、それを満たすまで実 Vertex 呼び出し（#154 item 3）を有効化しないゲート化は #289 の
- * 後続項目。生 transcript / 応答本文はログに出さない。
+ * **生徒 / 保護者氏名は依然 roster 不在**（本システムは生徒匿名設計）で確定マスクできない。これに対し
+ * **#289 ③ で ADR-030 の authoring soft-gate を本トリガにも適用**した: 送信前に transcript へ
+ * {@link findSuspectedPersonalNames}（敬称連接の高確信ヒューリスティック）を走らせ、検出かつ未 override なら
+ * **送信せず** `pii_warning` を返す（hard-block しない soft-gate）。教員が承知の上で override（`acknowledgePii`）
+ * した場合のみ、**送信前に件数のみを `audit_log` に記録**（ルール4・NFR04: 誰が PII 含有を承知で送信したかを立証、
+ * 監査不能なら送信しない）してから実行する。敬称無しの生氏名は依然残存リスク（Low、運用ガイド + コンテンツ
+ * ポリシーで補完、ADR-030）。実 Vertex 呼び出し全体は別途 `AI_ENABLED` kill-switch（#289 ①、route 境界）で
+ * gate される。生 transcript / 応答本文はログに出さない。
  */
 
 /** 抽出トリガの結果（route が HTTP に写像する判別共用体）。 */
@@ -54,6 +58,14 @@ export type ExtractTeacherInputResult =
       // 下書き作成 (createDraftFromInputAction) へ橋渡しして公開先・掲示期間の既定に反映する。
       suggestedPublishScope?: SuggestedPublishScope;
       suggestedPeriod?: SuggestedPeriod;
+    }
+  | {
+      // #289 ③ / ADR-030: 氏名らしき高確信パターン（敬称連接）を検出し、未 override で送信を保留した状態。
+      // hard-block しない soft-gate。route は 409 + suspectedSurfaces を返し、教員 UI が表層提示 + 明示
+      // override（acknowledgePii=true で再送）を促す。surfaces は warn 表示用で PII 本文は他に出さない。
+      ok: false;
+      reason: "pii_warning";
+      suspectedSurfaces: string[];
     }
   | {
       ok: false;
@@ -78,6 +90,15 @@ export interface ExtractTeacherInputDeps {
    * RLS context で職員氏名 roster を引き、確定トークン化に渡す（ルール4 / #289）。未認証は throw。
    */
   loadStaffPiiEntries: () => Promise<PiiEntry[]>;
+  /**
+   * PII soft-gate override（acknowledgePii）で送信した事実を `audit_log` に記録する（ADR-030 / NFR04）。
+   * **件数のみ**で生の疑わしい氏名は複製しない（ルール4）。送信**前**に呼ぶ契約（監査不能なら送信しない）。
+   */
+  recordPiiOverride: (params: {
+    inputId: string;
+    kind: ExtractionKind;
+    suspectedNameCount: number;
+  }) => Promise<void>;
   /** #267 seam。成功/失敗いずれも ai_extractions に監査し、rate/PII leak は throw で伝播。 */
   runAndPersist: (
     params: RunAndPersistParams,
@@ -122,10 +143,46 @@ async function defaultLoadStaffPiiEntries(): Promise<PiiEntry[]> {
   return names.map((value) => ({ value, category: "STAFF" as const }));
 }
 
+async function defaultRecordPiiOverride(params: {
+  inputId: string;
+  kind: ExtractionKind;
+  suspectedNameCount: number;
+}): Promise<void> {
+  // gate-first: 監査も role を弾いてから書く (ルール2)。actor はセッション由来 (外部入力を信用しない)。
+  const user = await getAuthorizedExtractionUser();
+  if (user.schoolId === null) {
+    // teacher / school_admin は必ず school 所属。null は壊れたセッション → deny (publish soft-gate と同方針)。
+    throw new ForbiddenError();
+  }
+  await withUserSession(user, (tx) =>
+    tx
+      .insert(auditLog)
+      .values({
+        actorUserId: user.uid,
+        schoolId: user.schoolId,
+        // 対象は教員入力。AI 抽出のための override 立証なので operation=update (publish override と同型)。
+        tableName: "teacher_input",
+        recordId: params.inputId,
+        operation: "update",
+        // ★ 件数のみ。生の疑わしい氏名は audit_log に焼き込まない (ルール4 / ADR-030)。
+        diff: {
+          aiExtractPiiOverride: true,
+          suspectedNameCount: params.suspectedNameCount,
+          kind: params.kind,
+        },
+        rowHash: "", // hash chain は audit_log の BEFORE INSERT トリガが計算 (rowHash:"" を渡す)。
+        createdBy: user.uid,
+        updatedBy: user.uid,
+      })
+      .then(() => undefined),
+  );
+}
+
 function defaultDeps(): ExtractTeacherInputDeps {
   return {
     loadTranscript: defaultLoadTranscript,
     loadStaffPiiEntries: defaultLoadStaffPiiEntries,
+    recordPiiOverride: defaultRecordPiiOverride,
     runAndPersist: runAndPersistExtraction,
     model: getExtractionModel(),
     rateLimiter: sharedRateLimiter,
@@ -143,6 +200,7 @@ export async function extractTeacherInput(
   inputId: string,
   kind: ExtractionKind,
   deps: ExtractTeacherInputDeps = defaultDeps(),
+  opts: { acknowledgePii?: boolean } = {},
 ): Promise<ExtractTeacherInputResult> {
   try {
     const loaded = await deps.loadTranscript(inputId);
@@ -150,6 +208,24 @@ export async function extractTeacherInput(
     if (transcript === null || transcript.trim().length === 0) {
       // 他校/不在、または文字起こし未確定 → 抽出対象なし。
       return { ok: false, reason: "no_transcript" };
+    }
+
+    // #289 ③ / ADR-030: 氏名らしき高確信パターン (敬称連接) を Vertex 送信前に soft-gate。検出 & 未 override は
+    // **送信せず** warn (pii_warning) を返す (hard-block しない: FP で正当な抽出を阻害しないため warn+override)。
+    // route が 409 + surfaces にし、教員 UI が表層提示 + 明示 override (acknowledgePii=true で再送) を促す。
+    const suspects = findSuspectedPersonalNames(transcript);
+    if (suspects.length > 0 && opts.acknowledgePii !== true) {
+      return {
+        ok: false,
+        reason: "pii_warning",
+        // 表層のみ (重複は畳む)。index/生本文等は返さない (warn UI ハイライト用、ルール4)。
+        suspectedSurfaces: Array.from(new Set(suspects.map((s) => s.surface))),
+      };
+    }
+    // override (承知の上で送信) は **送信前に** 件数監査する (NFR04: override を立証。監査が落ちたら送信しない
+    // = unaudited な override 送信を構造的に作らない fail-safe)。生の疑わしい氏名は記録しない (件数のみ)。
+    if (suspects.length > 0) {
+      await deps.recordPiiOverride({ inputId, kind, suspectedNameCount: suspects.length });
     }
 
     // 職員氏名 roster をマスキング供給 (#289)。transcript 確定後に引く (no_transcript 時は無駄引きしない)。
