@@ -50,7 +50,9 @@ const nextConfig: NextConfig = {
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           // MIME sniffing 抑止（XSS 補助面を塞ぐ）。
           { key: "X-Content-Type-Options", value: "nosniff" },
-          // クリックジャッキング対策。同一オリジン frame は許可（admin の signage-preview 等）。
+          // クリックジャッキング対策。cross-origin framing を拒否（実脅威はこれ）。現状 iframe 埋め込みは
+          // 無く（signage-preview / signage も直接 render）、将来の同一オリジン埋め込みに前方互換な既定として
+          // SAMEORIGIN（DENY と実脅威への防御は同等。同一オリジン framing は攻撃面でない）。
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           // Referrer 漏洩を最小化（クロスオリジンには origin のみ送出）。
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
