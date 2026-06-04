@@ -16,8 +16,15 @@ variable "enabled" {
   default     = false
 }
 
+# 認証は claims-based が既定（tenant 非使用）。tenant マルチテナント分離が要る場合だけ true。
+variable "create_tenant" {
+  description = "Identity Platform tenant を作るか。claims-based（既定）は false。"
+  type        = bool
+  default     = false
+}
+
 variable "tenant_display_name" {
-  description = "IDP tenant 表示名（学校マルチテナント単位）"
+  description = "IDP tenant 表示名（学校マルチテナント単位、create_tenant=true 時のみ）"
   type        = string
   default     = "kimiterrace-default"
 }
