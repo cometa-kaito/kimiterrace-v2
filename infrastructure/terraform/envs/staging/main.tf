@@ -51,6 +51,10 @@ variable "repository" {
 
 locals {
   env = "staging"
+  # アプリ DB ユーザー（app）のパスワードを保持する Secret Manager secret ID（ルール5）。
+  # 値（パスワード）は人間が `gcloud secrets versions add staging-db-app-password --data-file=-` で投入する。
+  # 同じ ID を secret_manager（コンテナ作成）と cloud_sql（data source で参照）の両方に渡す。
+  db_app_password_secret_id = "staging-db-app-password"
 }
 
 module "network" {
@@ -78,13 +82,28 @@ module "cloud_sql" {
   deletion_protection    = false                                 # staging も recreate 容易性優先（Issue #70）
   vpc_network_id         = module.network.network_id             # private IP を割り当てる VPC
   private_services_ready = module.network.private_services_ready # PSA peering 実在 signal（順序強制）
+
+  # アプリ DB ユーザー（app）のパスワード secret（secret_manager が作成・人間が値を投入）。
+  # 2-phase apply: ① -target=module.secret_manager で secret コンテナ作成 → ② 人間が値投入 → ③ full apply で user 作成。
+  # secret 値未投入の状態で full apply すると data source が読めず失敗するため、必ず ②→③ の順で進める。
+  app_db_password_secret_id = local.db_app_password_secret_id
 }
 
+# Secret Manager（ルール5）。staging はまずアプリ DB ユーザーのパスワード secret コンテナを作る。
+# Terraform はコンテナのみ作成し、値（パスワード）は人間が投入する:
+#   gcloud secrets versions add staging-db-app-password --data-file=- --project=signage-v2-staging
+# accessor SA は Cloud Run runtime SA 生成後（cloud_run enabled 化時）に配線する。現状の DB user 作成・
+# migration は人間 ADC / Cloud SQL proxy 経由で読むため accessor 不要。DATABASE_URL 等の secret は導入時に追加。
 module "secret_manager" {
   source     = "../../modules/secret_manager"
   project_id = var.project_id
   env        = local.env
-  enabled    = false
+  enabled    = true
+  secrets = {
+    (local.db_app_password_secret_id) = {
+      description = "Cloud SQL アプリ DB ユーザー（app）のパスワード。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+  }
 }
 
 module "identity_platform" {

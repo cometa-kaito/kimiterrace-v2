@@ -91,13 +91,36 @@ resource "google_sql_database" "app" {
   instance = google_sql_database_instance.main[0].name
 }
 
-# DB ユーザーは Secret Manager 経由でパスワード参照する想定。
-# TODO(Phase 開発): IAM 認証 (CLOUD_IAM_USER) に切替検討。
+# アプリ DB ユーザー（google_sql_user.app）。
+# パスワードは Secret Manager（var.app_db_password_secret_id）に「人間が」投入した値を data source で参照する
+# （ルール5: Terraform はパスワードを生成・ハードコードしない。値は human-injected。secret コンテナは
+#  secret_manager モジュールが作成する）。var.app_db_password_secret_id が空なら作らない（雛形・dev/prod 後方互換）。
+#
+# ⚠ パスワードは google_sql_user.password に入るため Terraform state（gs://signage-v2-tf-state）に保存される。
+#   state バケットは uniform bucket-level access + 限定 IAM（WIF SA / breakglass のみ）で保護する前提＝accepted tradeoff。
+#   パスワードレスの IAM database authentication（type = CLOUD_IAM_SERVICE_ACCOUNT）への移行は app 接続方式
+#   確定後のハードニング follow-up（README「スコープ外（Phase 後半）」・本モジュール元 TODO）。
+locals {
+  create_app_user = var.enabled && var.app_db_password_secret_id != ""
+}
+
+# 人間が投入した DB パスワードの最新版を参照（version = "latest"）。
+# 2-phase apply の ③ で読む。① の -target=module.secret_manager では本 data source はグラフから外れ読まれない。
+# ⚠ secret/project は静的ゆえ Terraform は plan 時に本 data source を読む。① と ② の間に full `terraform plan`/
+#   `apply` を実行すると version 不在で失敗する → 必ず ②（人間が値投入）→③ の順を守る（CI は plan しないので緑）。
+data "google_secret_manager_secret_version" "app_db_password" {
+  count = local.create_app_user ? 1 : 0
+
+  project = var.project_id
+  secret  = var.app_db_password_secret_id
+  version = "latest"
+}
+
 resource "google_sql_user" "app" {
-  count = 0 # TODO: enabled かつ secret 配備後に切替
+  count = local.create_app_user ? 1 : 0
 
   project  = var.project_id
-  instance = var.instance_name
+  instance = google_sql_database_instance.main[0].name # instance 作成後に user を作る（順序強制）
   name     = "app"
-  # password は Secret Manager から data source で参照
+  password = data.google_secret_manager_secret_version.app_db_password[0].secret_data
 }
