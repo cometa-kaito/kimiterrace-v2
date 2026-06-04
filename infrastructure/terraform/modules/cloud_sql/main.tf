@@ -101,7 +101,8 @@ resource "google_sql_database" "app" {
 #   パスワードレスの IAM database authentication（type = CLOUD_IAM_SERVICE_ACCOUNT）への移行は app 接続方式
 #   確定後のハードニング follow-up（README「スコープ外（Phase 後半）」・本モジュール元 TODO）。
 locals {
-  create_app_user = var.enabled && var.app_db_password_secret_id != ""
+  create_app_user      = var.enabled && var.app_db_password_secret_id != ""
+  create_migrator_user = var.enabled && var.migrator_db_password_secret_id != ""
 }
 
 # 人間が投入した DB パスワードの最新版を参照（version = "latest"）。
@@ -123,4 +124,24 @@ resource "google_sql_user" "app" {
   instance = google_sql_database_instance.main[0].name # instance 作成後に user を作る（順序強制）
   name     = "app"
   password = data.google_secret_manager_secret_version.app_db_password[0].secret_data
+}
+
+# migrator DB ユーザー（migration 実行用・テーブル所有者）。app と同じ data source 方式。
+# Cloud SQL の API 作成 user は cloudsqlsuperuser ゆえ CREATE EXTENSION / CREATE ROLE 可。
+# 2-phase apply: ① -target=module.secret_manager で secret コンテナ作成 → ② 人間が値投入 → ③ full apply で user 作成。
+data "google_secret_manager_secret_version" "migrator_db_password" {
+  count = local.create_migrator_user ? 1 : 0
+
+  project = var.project_id
+  secret  = var.migrator_db_password_secret_id
+  version = "latest"
+}
+
+resource "google_sql_user" "migrator" {
+  count = local.create_migrator_user ? 1 : 0
+
+  project  = var.project_id
+  instance = google_sql_database_instance.main[0].name # instance 作成後に user を作る（順序強制）
+  name     = "migrator"
+  password = data.google_secret_manager_secret_version.migrator_db_password[0].secret_data
 }

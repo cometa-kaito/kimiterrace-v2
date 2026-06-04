@@ -154,3 +154,14 @@ variable "app_db_password_secret_id" {
   type        = string
   default     = ""
 }
+
+# ── migrator DB ユーザー（google_sql_user.migrator）─────────────────────────
+# migration 実行用。Cloud SQL の API 作成 user は cloudsqlsuperuser ゆえ CREATE EXTENSION / CREATE ROLE 可。
+# **migrator がテーブルを所有** することで app（非所有者）に RLS が効く（app をテーブル所有にすると
+# owner-bypass で RLS 無効化＝ルール2 違反）。app と同じ data source 方式（値は人間投入・ルール5）。
+# 空文字（既定）なら作らない＝dev/prod 後方互換（count = 0・plan 空）。
+variable "migrator_db_password_secret_id" {
+  description = "migrator DB ユーザーのパスワードを保持する Secret Manager secret ID。空なら user を作らない。値は人間が投入（ルール5）。"
+  type        = string
+  default     = ""
+}
