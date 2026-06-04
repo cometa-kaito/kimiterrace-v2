@@ -81,7 +81,8 @@ locals {
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
-  web_image_tag = "5300a20"
+  # a6463f5: 全ルートにセキュリティレスポンスヘッダを付与（live DAST 検証で欠落検出）。
+  web_image_tag = "a6463f5"
 }
 
 module "network" {
