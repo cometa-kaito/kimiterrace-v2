@@ -62,6 +62,17 @@ COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/public ./apps/web/public
 
+# Issue #311: pdfjs-dist の standard_fonts を **cwd(=/app) から解決可能な位置**に明示同梱する。
+# serverExternalPackages: ["pdfjs-dist"] により Next は pdfjs を standalone にトレースせず、
+# next.config.ts の outputFileTracingIncludes も standalone の node_modules 構造（/app 直下に pdfjs-dist
+# が無い）では起動時 assert の解決位置に届かない。extractors.ts は process.cwd() anchor で
+# `pdfjs-dist/package.json` を解決し隣の standard_fonts を読むため、フォント実体ごと
+# /app/node_modules/pdfjs-dist に確実に配置する（instrumentation.ts の起動時 assert を通す）。
+# 6.x を pin（5.x も .pnpm 仮想ストアに併存しうる）。
+COPY --from=builder --chown=nextjs:nodejs /repo/node_modules/.pnpm/pdfjs-dist@6*/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
+# 同梱漏れ回帰を build 時に fail-fast 検知する（Cloud Build/CI でデプロイ前に落とす。Issue #311）。
+RUN test -f node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf
+
 USER nextjs
 
 EXPOSE 3000
