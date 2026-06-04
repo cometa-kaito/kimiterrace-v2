@@ -36,9 +36,97 @@ variable "tier" {
 }
 
 variable "vpc_network_id" {
-  description = "Private IP を割り当てる VPC network self_link"
+  description = "Private IP を割り当てる VPC network の id（network モジュールの network_id 出力を渡す）。"
   type        = string
   default     = ""
+}
+
+# Cloud SQL の private IP は VPC <-> Google サービス VPC の PSA peering の上に割り当てられる。
+# network モジュールの private_services_ready 出力（PSA peering 実在 signal）を渡し、
+# enable-time precondition で peering 不在のまま instance を作る事故を plan 時に fail-fast させる
+# （private IP only の instance は peering が無いと作成不能。count 静的依存 = plan 時既知）。
+variable "private_services_ready" {
+  description = <<-EOT
+    Cloud SQL private IP の土台となる PSA peering が provision 済みかを示す signal。
+    **network モジュールの private_services_ready 出力を渡す**。enabled = true（private IP only）の
+    とき true が必須（peering -> instance の順序を強制、ADR-001 / ADR-021 / ルール8）。
+  EOT
+  type        = bool
+  default     = false
+}
+
+# 可用性タイプ:
+#   - prod: REGIONAL（HA = 同期スタンバイで自動 failover、10 年保管要件 ADR-001）
+#   - staging / dev: ZONAL（HA 不要・コスト優先。モジュール comment どおり HA は prod のみ）
+# 後方互換のため default = ZONAL（staging が明示せず ZONAL になる）。prod だけ REGIONAL を明示。
+variable "availability_type" {
+  description = "Cloud SQL の可用性タイプ。prod のみ REGIONAL（HA）、staging/dev は ZONAL（既定）。"
+  type        = string
+  default     = "ZONAL"
+
+  validation {
+    condition     = contains(["ZONAL", "REGIONAL"], var.availability_type)
+    error_message = "availability_type は ZONAL か REGIONAL のいずれか。"
+  }
+}
+
+# ── バックアップ / PITR / メンテナンス ────────────────────────────────
+# 10 年保管・漏洩時の復旧要件（ADR-001）。staging でも本番同等にバックアップ + PITR を有効化する
+# （検証環境でリストア手順も含めて確認するため）。
+
+variable "backup_start_time" {
+  description = "自動バックアップ開始時刻（HH:MM、UTC）。既定 19:00 UTC = 04:00 JST（低負荷帯）。"
+  type        = string
+  default     = "19:00"
+
+  validation {
+    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.backup_start_time))
+    error_message = "backup_start_time は HH:MM（24h, UTC）。"
+  }
+}
+
+variable "backup_retained_count" {
+  description = "保持する自動バックアップ世代数（PITR の WAL 保持はこれに紐づく）。"
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.backup_retained_count >= 1
+    error_message = "backup_retained_count は 1 以上。"
+  }
+}
+
+variable "transaction_log_retention_days" {
+  description = "PITR 用トランザクションログ（WAL）の保持日数（1〜7）。"
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.transaction_log_retention_days >= 1 && var.transaction_log_retention_days <= 7
+    error_message = "transaction_log_retention_days は 1〜7。"
+  }
+}
+
+variable "maintenance_window_day" {
+  description = "メンテナンスウィンドウの曜日（1=月 〜 7=日）。既定 7 = 日曜。"
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.maintenance_window_day >= 1 && var.maintenance_window_day <= 7
+    error_message = "maintenance_window_day は 1〜7（1=月, 7=日）。"
+  }
+}
+
+variable "maintenance_window_hour" {
+  description = "メンテナンスウィンドウの開始時（0〜23、UTC）。既定 18 UTC = 03:00 JST。"
+  type        = number
+  default     = 18
+
+  validation {
+    condition     = var.maintenance_window_hour >= 0 && var.maintenance_window_hour <= 23
+    error_message = "maintenance_window_hour は 0〜23（UTC）。"
+  }
 }
 
 # Cloud SQL の deletion_protection は env ごとに切替たい:
