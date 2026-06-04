@@ -64,6 +64,11 @@ COPY --from=builder /app /app
 
 ENV NODE_ENV=production
 
+# 非 root で実行する (Semgrep dockerfile.security.missing-user / 最小権限・ルール5 の心構え)。
+# node:22-slim 同梱の uid 1000 `node` ユーザー。migrate-cli は SQL ファイルの read と DB 接続のみで
+# local への書込みが無いため、root 所有 (COPY 既定) の world-readable ツリーを read できれば足りる。
+USER node
+
 # package.json の "migrate:apply": "node dist/migrate-cli.js" と同じ起動。
 # DATABASE_URL が無ければ migrate-cli が "DATABASE_URL required" を出して exit 1。
 CMD ["node", "dist/migrate-cli.js"]
