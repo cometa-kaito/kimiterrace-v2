@@ -37,6 +37,31 @@ const nextConfig: NextConfig = {
     // ワイルドカードで吸収する。`[id]` は glob のキャラクタクラス扱いになるため route キーは `/api/**` で広く取る。
     "/api/**": ["./node_modules/**/pdfjs-dist/standard_fonts/**"],
   },
+
+  // 全ルートに多層防御のセキュリティレスポンスヘッダを付与する（live staging DAST 検証で全欠落を検出）。
+  // 公立校生徒データを扱うため defense-in-depth を最小コストで足す。Cloud Run は HTTPS-only。
+  // CSP は Firebase Auth / Next の inline を壊しうるため本 PR では入れず、report-only からの段階導入を別 follow-up。
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          // HTTPS 固定をブラウザに指示（ダウングレード / SSL strip 防止）。Cloud Run は HTTPS のみ。
+          { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+          // MIME sniffing 抑止（XSS 補助面を塞ぐ）。
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // クリックジャッキング対策。cross-origin framing を拒否（実脅威はこれ）。現状 iframe 埋め込みは
+          // 無く（signage-preview / signage も直接 render）、将来の同一オリジン埋め込みに前方互換な既定として
+          // SAMEORIGIN（DENY と実脅威への防御は同等。同一オリジン framing は攻撃面でない）。
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          // Referrer 漏洩を最小化（クロスオリジンには origin のみ送出）。
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // 不要なブラウザ機能を無効化（本 app は camera / microphone / geolocation を使わない）。
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
