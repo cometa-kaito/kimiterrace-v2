@@ -26,8 +26,13 @@ resource "google_sql_database_instance" "main" {
     ip_configuration {
       ipv4_enabled    = false
       private_network = var.vpc_network_id
-      # 転送時暗号化を強制（provider v6: 非 SSL 接続を拒否）。生徒 PII の転送経路を保護（ルール5 / NFR03）。
-      ssl_mode = "ENCRYPTED_ONLY"
+      # 転送時暗号化を強制（provider v6: 非 SSL/平文接続を拒否）。生徒 PII の転送経路を保護（ルール5 / NFR03）。
+      # Semgrep(gcp-sql-database-ssl-insecure-value...) は mTLS(TRUSTED_CLIENT_CERTIFICATE_REQUIRED) を要求するが、
+      # ENCRYPTED_ONLY は TLS を必須化済（暗号化は強制）。mTLS は NFR03/ADR で mandate されておらず、
+      # かつクライアント証明書基盤が未整備（Cloud Run 未配線）ゆえ今 mandate すると接続不能になる。
+      # private-IP-only(in-VPC) + TLS 強制で現フェーズ要件を充足。mTLS は app 接続方式確定時のハードニング候補
+      # （README「スコープ外（Phase 後半）」）。security Reviewer(PR #578) が安全と判定済 → 根拠付き抑制。
+      ssl_mode = "ENCRYPTED_ONLY" # nosemgrep: gcp-sql-database-ssl-insecure-value-postgres-mysql
     }
 
     # pgvector 拡張の有効化（ADR-007 RAG。掲示物 embedding を同一 DB で semantic search）。
