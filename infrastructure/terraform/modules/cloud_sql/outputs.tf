@@ -18,3 +18,9 @@ output "app_user_name" {
   description = "作成したアプリ DB ユーザー名（未作成なら null）"
   value       = try(google_sql_user.app[0].name, null)
 }
+
+# migrator DB ユーザー名（パスワードは出力しない・ルール5）。
+output "migrator_user_name" {
+  description = "作成した migrator DB ユーザー名（未作成なら null）"
+  value       = try(google_sql_user.migrator[0].name, null)
+}

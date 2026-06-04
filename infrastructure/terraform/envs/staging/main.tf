@@ -55,6 +55,16 @@ locals {
   # 値（パスワード）は人間が `gcloud secrets versions add staging-db-app-password --data-file=-` で投入する。
   # 同じ ID を secret_manager（コンテナ作成）と cloud_sql（data source で参照）の両方に渡す。
   db_app_password_secret_id = "staging-db-app-password"
+
+  # migration（M3）用の secret ID（ルール5・値は人間投入）。
+  # - migrator のパスワード（raw）: cloud_sql の google_sql_user.migrator が data source で読む。
+  # - migrator の DSN（full）: migration Cloud Run Job が DATABASE_URL env として Secret Manager から注入。
+  # 人間は 1 コマンドで同一 pw から両方を投入する（後述 runbook / 引き継ぎ参照）。
+  db_migrator_password_secret_id = "staging-db-migrator-password"
+  db_url_migrator_secret_id      = "staging-db-url-migrator"
+
+  # migration Job が使うイメージタグ（M2 build/push 済。再ビルド時はここを更新）。
+  migrate_image_tag = "fefe8b0"
 }
 
 module "network" {
@@ -87,6 +97,9 @@ module "cloud_sql" {
   # 2-phase apply: ① -target=module.secret_manager で secret コンテナ作成 → ② 人間が値投入 → ③ full apply で user 作成。
   # secret 値未投入の状態で full apply すると data source が読めず失敗するため、必ず ②→③ の順で進める。
   app_db_password_secret_id = local.db_app_password_secret_id
+
+  # migrator DB ユーザー（migration 実行・テーブル所有）のパスワード secret（同じ 2-phase apply）。
+  migrator_db_password_secret_id = local.db_migrator_password_secret_id
 }
 
 # Secret Manager（ルール5）。staging はまずアプリ DB ユーザーのパスワード secret コンテナを作る。
@@ -103,6 +116,12 @@ module "secret_manager" {
     (local.db_app_password_secret_id) = {
       description = "Cloud SQL アプリ DB ユーザー（app）のパスワード。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
+    (local.db_migrator_password_secret_id) = {
+      description = "Cloud SQL migrator DB ユーザー（migration 実行・テーブル所有）のパスワード（raw）。値は人間が投入（ルール5）。"
+    }
+    (local.db_url_migrator_secret_id) = {
+      description = "migrator の DATABASE_URL（DSN）。migration Cloud Run Job が DATABASE_URL env で注入。値は人間が投入（ルール5）。"
+    }
   }
 }
 
@@ -115,6 +134,24 @@ module "artifact_registry" {
   env           = local.env
   enabled       = true
   repository_id = "kimiterrace"
+}
+
+# DB migration Cloud Run Job（M3, #243）。private-IP-only な Cloud SQL へ migration を適用する on-demand Job。
+# 実行: `gcloud run jobs execute kimiterrace-migrate --region asia-northeast1 --project signage-v2-staging`。
+# image = AR の migrate:<tag>（M2 build/push 済）。DATABASE_URL = migrator DSN secret。VPC connector で private IP 到達。
+# migrator user / DSN secret は人間の値投入（ルール5）が前提ゆえ、secret 未投入のうちは Job 実行が失敗する
+# （リソース作成は通るが run で DATABASE_URL secret version 不在になる）→ 値投入後に execute する。
+module "cloud_run_job_migrate" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  database_url_secret_id = local.db_url_migrator_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  grant_app_role_member  = "app" # migration 後 GRANT kimiterrace_app TO app（app login が SET ROLE できるように）
+  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
 }
 
 module "identity_platform" {
