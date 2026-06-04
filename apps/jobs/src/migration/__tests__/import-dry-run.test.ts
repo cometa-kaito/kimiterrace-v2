@@ -1,4 +1,4 @@
-import { createDbClient } from "@kimiterrace/db";
+import { createDbClient, departments, schools } from "@kimiterrace/db";
 import type { TransactionSql } from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { v2Id } from "../ids.js";
@@ -370,5 +370,77 @@ describeOrSkip("MIG: 合成移行 dry-run (実 PG)", () => {
     });
     // Row は Record (= Promise でない) に制約済なので begin の UnwrapPromiseArray は Row[] と等価。
     return rows as Row[];
+  }
+});
+
+/**
+ * MIG-005: クラッシュ後 resume (部分投入状態からの再開) — docs/testing/tracks/05 §3-A。
+ *
+ * `importRows` は単一 tx で all-or-nothing ゆえ、ジョブ自身が「部分 commit」を残すことはない。
+ * resume の現実的な起点は「旧バージョン / 別経路で親の一部が既に commit 済」であり、そこへ同一
+ * エクスポートを再投入したとき `onConflictDoNothing` (決定論 id) で**残りだけ入り既存は重複しない**
+ * ことを検証する (冪等性 MIG-004 が full→full、本ケースは partial→full)。
+ *
+ * 第1 describe とは別 describe = 同一ファイル内で**逐次**実行され、各自 beforeAll で truncate する
+ * ため共有 DB を奪い合わない (別ファイル化すると fileParallelism 競合になるので 1 ファイルに同居)。
+ */
+describeOrSkip("MIG-005: 部分投入後の resume (冪等再開)", () => {
+  // biome-ignore lint/style/noNonNullAssertion: describe.skip 時は実行されない
+  const { sql, db } = createDbClient(url!);
+  const rows = transformExport(syntheticV1Export);
+  const exp = countV1(syntheticV1Export).total;
+
+  beforeAll(async () => {
+    await sql.unsafe("ALTER TABLE audit_log DISABLE TRIGGER audit_log_no_truncate;");
+    await sql.unsafe("ALTER TABLE audit_log DISABLE TRIGGER audit_log_hash_chain;");
+    try {
+      await sql.unsafe(TRUNCATE_SQL);
+    } finally {
+      await sql.unsafe("ALTER TABLE audit_log ENABLE TRIGGER audit_log_no_truncate;");
+      await sql.unsafe("ALTER TABLE audit_log ENABLE TRIGGER audit_log_hash_chain;");
+    }
+    // 部分投入: 親 2 階層 (schools + departments) のみ先に commit して「途中まで入った状態」を作る。
+    await db.insert(schools).values(rows.schools).onConflictDoNothing();
+    await db.insert(departments).values(rows.departments).onConflictDoNothing();
+  });
+
+  afterAll(async () => {
+    await sql.end({ timeout: 5 });
+  });
+
+  it("部分状態 (親のみ) から full import で残りが入り、既挿入は重複しない", async () => {
+    // vacuous 回避: 本当に「親だけ入り子はゼロ」の部分状態から始まることを実値で固定
+    const partial = await counts();
+    expect(partial.schools).toBe(exp.schools);
+    expect(partial.departments).toBe(exp.departments);
+    expect(partial.grades).toBe(0);
+    expect(partial.classes).toBe(0);
+    expect(partial.ads).toBe(0);
+    expect(partial.dailyData).toBe(0);
+    expect(partial.schoolConfigs).toBe(0);
+
+    // resume = 同一エクスポートで full import
+    const summary = await importRows(db, rows);
+
+    // 残りが入り全テーブル完成、かつ親 (schools/departments) は重複していない (差分ゼロ)
+    expect(await counts()).toEqual(exp);
+    // ImportSummary は試行件数 (onConflictDoNothing で実挿入ゼロの親も試行に含まれる)
+    expect(summary.schools).toBe(exp.schools);
+    expect(summary.departments).toBe(exp.departments);
+    expect(summary.grades).toBe(exp.grades);
+  });
+
+  async function counts(): Promise<EntityCounts> {
+    const [row] = await sql<EntityCounts[]>`
+      SELECT
+        (SELECT count(*) FROM schools)::int        AS schools,
+        (SELECT count(*) FROM departments)::int    AS departments,
+        (SELECT count(*) FROM grades)::int         AS grades,
+        (SELECT count(*) FROM classes)::int        AS classes,
+        (SELECT count(*) FROM school_configs)::int AS "schoolConfigs",
+        (SELECT count(*) FROM daily_data)::int     AS "dailyData",
+        (SELECT count(*) FROM ads)::int            AS ads
+    `;
+    return def(row);
   }
 });
