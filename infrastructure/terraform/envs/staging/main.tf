@@ -74,6 +74,13 @@ locals {
 
   # migration Job が使うイメージタグ（M2 build/push 済。再ビルド時はここを更新）。
   migrate_image_tag = "fefe8b0"
+
+  # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
+  # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
+  db_url_app_secret_id = "staging-db-url-app"
+
+  # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
+  web_image_tag = "fcb8733"
 }
 
 module "network" {
@@ -131,6 +138,9 @@ module "secret_manager" {
     (local.db_url_migrator_secret_id) = {
       description = "migrator の DATABASE_URL（DSN）。migration Cloud Run Job が DATABASE_URL env で注入。値は人間が投入（ルール5）。"
     }
+    (local.db_url_app_secret_id) = {
+      description = "app の DATABASE_URL（DSN）。Cloud Run web service が DATABASE_URL env で注入。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
   }
 }
 
@@ -173,12 +183,27 @@ module "identity_platform" {
   # create_tenant = false（既定・claims-based）/ mfa_state = DISABLED（既定・staging 初期）
 }
 
+# Cloud Run web service（B5 / app デプロイ。ADR-002 / ADR-008）。apps/web を公開する。
+# image = AR の web:<tag>（B5 build/push 済・実 Firebase config 込み）。DATABASE_URL = app DSN secret。
+# VPC connector で Cloud SQL private IP に到達（Vertex / Identity Platform は既定 egress）。runtime SA に
+# Vertex user + Identity Platform admin + DSN secret accessor を付与。app が自前認証ゆえ未認証 invoker
+# （allUsers）を許可。2-phase apply:
+#   ① apply -target=module.secret_manager で staging-db-url-app コンテナ作成
+#   ② 人間が app DSN 投入（postgresql://app:<pw>@10.60.0.3:5432/kimiterrace?sslmode=require）
+#   ③ full apply で service 作成。
+# secret 値未投入で apply すると runtime で DATABASE_URL secret version 不在になるため、②→③ の順で進める。
 module "cloud_run" {
-  source     = "../../modules/cloud_run"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false
+  source                 = "../../modules/cloud_run"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  vertex_location        = var.region
+  memory                 = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
+  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
@@ -298,4 +323,10 @@ output "wif_deploy_sa_email" {
 output "wif_plan_sa_email" {
   description = "Pass to GitHub Actions vars as WIF_SA_PLAN."
   value       = module.workload_identity_federation.plan_sa_email
+}
+
+# Cloud Run web service の URL（B5）。smoke: `<uri>/login` を curl（200・HTML）。
+output "cloud_run_service_uri" {
+  description = "Cloud Run web service の URL（未生成なら null）。smoke 用。"
+  value       = module.cloud_run.service_uri
 }
