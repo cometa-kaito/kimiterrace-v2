@@ -4,13 +4,14 @@
 #   - SAML/OIDC provider 設定（県教委アカウント連携用）
 # 雛形段階は count = 0。
 
+# 認証は claims-based（school_id を custom claims で分離）＝**tenant 非使用が既定**（clientApp.ts も
+# tenant を参照しない）。県教委 SAML/OIDC 連携等で tenant 分離が要る場合だけ create_tenant = true。
 resource "google_identity_platform_tenant" "school" {
-  count = var.enabled ? 1 : 0
+  count = var.enabled && var.create_tenant ? 1 : 0
 
   project               = var.project_id
   display_name          = var.tenant_display_name
   allow_password_signup = false
-  # TODO: enable_email_link_signin
 }
 
 # F11 / ADR-031: MFA capability（多要素認証）はプロジェクトレベルの Identity Platform 設定に置く。
@@ -24,8 +25,38 @@ resource "google_identity_platform_config" "default" {
 
   project = var.project_id
 
+  # 職員（教員/管理者）は email/password ログイン（ADR-003 / F11）。生徒は magic link（アプリ層・IdP 非経由）。
+  sign_in {
+    allow_duplicate_emails = false
+    email {
+      enabled           = true
+      password_required = true
+    }
+  }
+
   mfa {
     state             = var.mfa_state
     enabled_providers = var.mfa_enabled_providers
+  }
+}
+
+# Identity Platform web SDK の apiKey（クライアント公開値）。Firebase Auth JS SDK が
+# identitytoolkit（サインイン）+ securetoken（トークン更新）を叩くため両 API を target に許可する。
+# **公開値＝secret ではない**（NEXT_PUBLIC_ で client bundle に載る。保護はドメイン制限 + バックエンド検証）。
+# browser referrer 制限（allowed_referrers に Cloud Run URL）は B5 でドメイン確定後にハードニング（follow-up）。
+resource "google_apikeys_key" "web" {
+  count = var.enabled ? 1 : 0
+
+  project      = var.project_id
+  name         = "kimiterrace-web-${var.env}"
+  display_name = "Identity Platform web SDK key (${var.env})"
+
+  restrictions {
+    api_targets {
+      service = "identitytoolkit.googleapis.com"
+    }
+    api_targets {
+      service = "securetoken.googleapis.com"
+    }
   }
 }

@@ -154,11 +154,14 @@ module "cloud_run_job_migrate" {
   deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
 }
 
+# Identity Platform（ADR-003）。職員 email/password サインイン + claims-based（tenant 非使用）
+# + web SDK apiKey。web config（apiKey/authDomain/projectId）は output で app build arg に渡す。
 module "identity_platform" {
   source     = "../../modules/identity_platform"
   project_id = var.project_id
   env        = local.env
-  enabled    = false
+  enabled    = true
+  # create_tenant = false（既定・claims-based）/ mfa_state = DISABLED（既定・staging 初期）
 }
 
 module "cloud_run" {
@@ -253,6 +256,24 @@ module "workload_identity_federation" {
 output "image_repo_url" {
   description = "コンテナイメージ push 先 prefix（docker tag/push に使う）。例: <prefix>/migrate:<sha>"
   value       = module.artifact_registry.image_repo_url
+}
+
+# app build 用 Firebase web config（NEXT_PUBLIC_*・公開値）。`terraform output -raw firebase_api_key` 等で取得し
+# app image build の --build-arg に渡す（NEXT_PUBLIC は build 時 inline）。
+output "firebase_api_key" {
+  description = "NEXT_PUBLIC_FIREBASE_API_KEY（公開値だが provider sensitive 扱い）"
+  value       = module.identity_platform.web_api_key
+  sensitive   = true
+}
+
+output "firebase_auth_domain" {
+  description = "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
+  value       = module.identity_platform.auth_domain
+}
+
+output "firebase_project_id" {
+  description = "NEXT_PUBLIC_FIREBASE_PROJECT_ID"
+  value       = module.identity_platform.project_id
 }
 
 output "wif_provider_name" {
