@@ -80,7 +80,8 @@ locals {
   db_url_app_secret_id = "staging-db-url-app"
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "fcb8733"
+  # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
+  web_image_tag = "5300a20"
 }
 
 module "network" {
