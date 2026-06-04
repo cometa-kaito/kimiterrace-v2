@@ -95,6 +95,7 @@
         "**/apps/jobs/src/reports/report-job.ts",
         "**/apps/jobs/src/weather/weather-job.ts",
         "**/apps/jobs/src/tv-liveness/tv-liveness-job.ts",
+        "**/packages/db/src/migrate-cli.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",

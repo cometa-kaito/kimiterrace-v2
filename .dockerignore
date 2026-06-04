@@ -1,0 +1,44 @@
+# Cloud Build / docker build へアップロードする context を絞る。
+# (migrate.Dockerfile は context ルートを丸ごと COPY するため、ここで除外しないと
+#  巨大な node_modules / state ファイル等が転送され遅く・危険になる。)
+
+# 依存・ビルド成果物 (builder 内で install/build し直すので不要)
+node_modules
+**/node_modules
+**/dist
+.turbo
+**/.turbo
+
+# VCS / Claude ツール作業ディレクトリ
+.git
+.gitignore
+.claude
+
+# Next.js
+.next
+**/.next
+
+# Terraform state / 作業ディレクトリ (秘密が混ざりうるので絶対に context へ入れない)
+.terraform
+**/.terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# テスト・カバレッジ成果物
+coverage
+**/coverage
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+
+# ローカル env / secret (ルール5: .env はコミットも転送もしない)
+.env
+.env.*
+!.env.example
+
+# OS / エディタのゴミ
+.DS_Store
+*.log
