@@ -296,15 +296,17 @@ describeOrSkip("MIG: 合成移行 dry-run (実 PG)", () => {
       SELECT count(*)::int AS n FROM ads WHERE grade_id = ${v2Id.grade("S1", "G2")}
     `;
     expect(def(g2Ads).n).toBe(0);
-    // 全 4 scope の ads がそろう (どの階層の広告も脱落していない)
-    const adScopes = (
-      await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM ads ORDER BY scope`
-    ).map((r) => r.scope);
+    // 全 4 scope の ads がそろう (どの階層の広告も脱落していない)。
+    // 注: scope は pgEnum (hierarchyScope)。SQL `ORDER BY scope` は **enum 定義順**
+    // (school/grade/class/department) で並ぶため、決定論比較は JS 側で文字列ソートする。
+    const adScopes = (await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM ads`)
+      .map((r) => r.scope)
+      .sort();
     expect(adScopes).toEqual(["class", "department", "grade", "school"]);
     // daily_data は school/grade/class scope (department は V1 に daily 無し = 設計どおり)
-    const dailyScopes = (
-      await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM daily_data ORDER BY scope`
-    ).map((r) => r.scope);
+    const dailyScopes = (await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM daily_data`)
+      .map((r) => r.scope)
+      .sort();
     expect(dailyScopes).toEqual(["class", "grade", "school"]);
   });
 
