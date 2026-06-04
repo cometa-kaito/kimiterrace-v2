@@ -28,6 +28,12 @@ variable "network_name" {
   default     = "kimiterrace-vpc"
 }
 
+variable "psa_range_address" {
+  description = "PSA 予約レンジ（Cloud SQL Private IP 用）の開始 IP。null = GCP 自動割当。connector_cidr と重複しない固定値を推奨（PR #493 Low の enable-time 対応）。"
+  type        = string
+  default     = null
+}
+
 # ── Serverless VPC Access connector ──────────────────────────────────
 
 variable "connector_name" {
