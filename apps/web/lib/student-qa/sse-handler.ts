@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAiEnabled } from "@/lib/ai/ai-enabled";
 import { getDb } from "@/lib/db";
 import { type ChatIdentity, executeChat } from "@/lib/student-qa/chat-service";
 import { createRagContentProvider } from "@/lib/student-qa/context-provider";
@@ -30,6 +31,10 @@ import { type TenantContext, withTenantContext } from "@kimiterrace/db";
  *   ため、200 開始後の **SSE `error` フレーム**で通知する。無効トークン (410) / 未認証 (401/403) は route の責務。
  * - **PII (ルール4)**: 氏名ロスターは渡さない (`piiEntries` 空) ため、質問/コンテキストの電話・メールは
  *   `maskPII` の検出 (既定 ON) が chat-service 内で除去する。本コアは生 PII を組み立てない。
+ * - **AI kill-switch (#289, ルール4 / ADR-030)**: AI 無効時 (`AI_ENABLED !== "true"`) は実 Vertex
+ *   (Gemini 生成 / embedding) を呼ぶ前に **503 `ai_disabled`** を返す。本コアは生徒 (`/api/student/chat`) と
+ *   教員 (`/api/teacher/chat`) の両 chat route が通る単一 choke point なので、ここで塞げば全 chat 入口を
+ *   網羅する (route 個別ゲートの追加漏れを防ぐ)。
  *
  * 関連: ADR-005/006 (Vertex/Vercel AI SDK), ADR-016 (magic link), ADR-019 (RLS), ADR-028 (回答ポリシー)。
  */
@@ -129,6 +134,13 @@ export async function respondWithChatStream(
   args: ChatStreamArgs,
   request: Request,
 ): Promise<Response> {
+  // 0) #289 kill-switch: AI 無効時は実 Vertex (Gemini / embedding) を呼ぶ前に 503 で塞ぐ。
+  //    生徒・教員 両 chat route の単一 choke point ＝ここで塞げば全 chat 入口を網羅する
+  //    (既定 OFF, ルール4 / ADR-030)。
+  if (!isAiEnabled()) {
+    return jsonError(503, "ai_disabled");
+  }
+
   // 1) ボディ検証。JSON 不正・question 非文字列は 200 を開く前に 400 で弾く。
   let question: string;
   try {

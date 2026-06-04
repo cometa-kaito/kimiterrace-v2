@@ -9,6 +9,7 @@ import {
 } from "@kimiterrace/ai";
 import { auditLog } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
+import { isAiEnabled } from "../ai/ai-enabled";
 import { PUBLISHER_ROLES } from "../contents/publish-core";
 import { withSession } from "../db";
 import { currentJstYearMonth } from "../reports/month";
@@ -52,7 +53,7 @@ import { type GenerateEffectCommentDeps, defaultDeps, maskStats } from "./effect
 /** action の判別共用体の結果 (呼び出し側 UI が表示に写像)。 */
 export type GenerateEffectCommentResult =
   | { ok: true; month: string; comment: string }
-  | { ok: false; reason: "pii_leak" | "error" };
+  | { ok: false; reason: "pii_leak" | "error" | "ai_disabled" };
 
 const effectCommentLogger = createLogger("effect-comment");
 
@@ -78,6 +79,14 @@ function getEffectCommentModel(): ModelClient {
 export async function generateEffectComment(
   deps: GenerateEffectCommentDeps = defaultDeps(getEffectCommentModel()),
 ): Promise<GenerateEffectCommentResult> {
+  // #289 kill-switch: AI 無効時は実 Vertex を呼ぶ前に disabled 結果を返す (既定 OFF, ルール4 / ADR-030)。
+  // gate は body 冒頭に置く: model getter 側に置くと default-param 評価 (deps の既定値) で try 外 throw に
+  // なり 500 化 + 既存テスト破壊のため。既定引数の getEffectCommentModel() は lazy construct (Vertex 未呼出)
+  // ゆえ評価されても無害で、本 return が deps.model.generate より前に短絡する。
+  if (!isAiEnabled()) {
+    return { ok: false, reason: "ai_disabled" };
+  }
+
   const { year, month } = currentJstYearMonth();
   try {
     // RLS context tx + role 第一層ガード (PUBLISHER_ROLES)。tx 内で集計 → マスク → 監査を束ねる。

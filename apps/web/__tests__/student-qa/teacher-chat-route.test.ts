@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 依存をすべて mock し、route + sse-handler の 認証/HTTP/SSE 配線のみを決定論的に検証する
 // (実 DB/Vertex/IdP 不使用、ADR-012)。認証は getCurrentUser を mock する。
@@ -50,8 +50,20 @@ beforeEach(() => {
   vi.mocked(getCurrentUser).mockResolvedValue(TEACHER as any);
   vi.mocked(executeChat).mockResolvedValue(streamResult(["はい", "、保護者会は6/20です"]));
 });
+afterEach(() => {
+  vi.unstubAllEnvs(); // #289: AI_ENABLED の stub を後続テストへ漏らさない (setup の "true" へ復元)。
+});
 
 describe("POST /api/teacher/chat: 認証 + role gate (200 を開く前)", () => {
+  it("AI 無効 (AI_ENABLED!=true) は 503 ai_disabled で塞ぎ、executeChat を呼ばない (#289 kill-switch)", async () => {
+    // 認可済み教員でも、共通 seam (respondWithChatStream) の gate が実 Vertex 前に短絡する。
+    vi.stubEnv("AI_ENABLED", "false");
+    const res = await POST(makeRequest({ question: "保護者会は？" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "ai_disabled" });
+    expect(executeChat).not.toHaveBeenCalled();
+  });
+
   it("未認証 (getCurrentUser=null) は 401 unauthenticated、executeChat を呼ばない", async () => {
     vi.mocked(getCurrentUser).mockResolvedValue(null);
     const res = await POST(makeRequest({ question: "やあ" }));

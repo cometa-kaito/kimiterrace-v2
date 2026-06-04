@@ -69,7 +69,7 @@ export function EffectCommentPanel() {
   );
 }
 
-/** action の判別共用体の結果を表示に写像する (ok=コメント / pii_leak・error=安全な定型文)。 */
+/** action の判別共用体の結果を表示に写像する (ok=コメント / pii_leak・ai_disabled・error=安全な定型文)。 */
 function ResultView({ result }: { result: GenerateEffectCommentResult }) {
   if (result.ok) {
     return (
@@ -81,6 +81,10 @@ function ResultView({ result }: { result: GenerateEffectCommentResult }) {
   }
   if (result.reason === "pii_leak") {
     return <p style={errorStyle}>個人情報を検出したため生成を中止しました。</p>;
+  }
+  // #289 kill-switch: AI 無効時はその旨を正直に表示する (一般的な失敗と混同させない)。
+  if (result.reason === "ai_disabled") {
+    return <p style={errorStyle}>AI 機能は現在無効です。</p>;
   }
   return <p style={errorStyle}>生成に失敗しました。時間をおいて再度お試しください。</p>;
 }

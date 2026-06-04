@@ -126,6 +126,13 @@ resource "google_cloud_run_v2_service" "web" {
         value = var.vertex_location
       }
 
+      # 実 Vertex 呼び出しの kill-switch（#289、ルール4 / ADR-030）。app は AI_ENABLED === "true" の時だけ
+      # F03 抽出 / F06 Q&A チャット / F08 効果コメントの Vertex を通す。既定 false で AI OFF（fail-safe）。
+      env {
+        name  = "AI_ENABLED"
+        value = tostring(var.ai_enabled)
+      }
+
       resources {
         limits = {
           cpu    = var.cpu

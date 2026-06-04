@@ -21,9 +21,21 @@ function req(body: unknown): Request {
 }
 const ctx = { params: Promise.resolve({ id: "input-1" }) };
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs(); // #289: AI_ENABLED の stub を後続テストへ漏らさない (setup の "true" へ復元)。
+});
 
 describe("POST /api/teacher-inputs/:id/extract", () => {
+  it("AI 無効 (AI_ENABLED!=true) は 503、コアを呼ばない (#289 kill-switch)", async () => {
+    vi.stubEnv("AI_ENABLED", "false");
+    // 妥当な kind でも gate (POST 冒頭) が kind 検証より前に短絡する。
+    const res = await POST(req({ kind: "schedule" }), ctx);
+    expect(res.status).toBe(503);
+    expect((await res.json()).ok).toBe(false);
+    expect(extractTeacherInput).not.toHaveBeenCalled();
+  });
+
   it("成功は 200 + status / confidenceScore、kind と id をコアに渡す", async () => {
     extractTeacherInput.mockResolvedValue({
       ok: true,
