@@ -64,6 +64,9 @@ importers:
       pdfjs-dist:
         specifier: ^6.0.227
         version: 6.0.227
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

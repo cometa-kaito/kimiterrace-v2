@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "dependsOn": ["^build", "@kimiterrace/db#test"],
+      "outputs": ["coverage/**"],
+      "env": ["DATABASE_URL"],
+      "passThroughEnv": ["DATABASE_URL", "KIMITERRACE_TEST_DB_OK", "JOBS_PG_TESTS_SKIP"]
+    }
+  }
+}
