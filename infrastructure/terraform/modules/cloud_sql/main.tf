@@ -18,6 +18,10 @@ resource "google_sql_database_instance" "main" {
   settings {
     tier = var.tier
 
+    # db-custom-* / db-f1-micro 等の tier は ENTERPRISE edition 専用。
+    # POSTGRES_16 は API 既定が ENTERPRISE_PLUS（db-perf-optimized-* 要・割高）ゆえ明示。
+    edition = "ENTERPRISE"
+
     # 可用性: prod のみ REGIONAL(HA)、staging/dev は ZONAL（既定）。
     availability_type = var.availability_type
 
