@@ -14,29 +14,18 @@ import { applyMigrations } from "../src/migrate-runner";
 
 // ---- 記録用 fake postgres-js client -------------------------------------------------
 
-/** tagged-template 呼び出しを「strings を ${} で繋いだ」読める文字列に復元する。 */
-function renderTagged(strings: TemplateStringsArray, values: readonly unknown[]): string {
-  let out = strings[0] ?? "";
-  for (let i = 0; i < values.length; i++) {
-    out += `\${${String(values[i])}}${strings[i + 1] ?? ""}`;
-  }
-  return out;
-}
-
-interface FakeClient {
-  // tagged-template 呼び出し
-  (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown>;
-  unsafe(query: string): Promise<unknown>;
-  begin<T>(cb: (tx: FakeTx) => Promise<T>): Promise<T>;
-}
-
 interface FakeTx {
-  (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown>;
-  unsafe(query: string): Promise<unknown>;
+  unsafe(query: string, params?: readonly unknown[]): Promise<unknown>;
+}
+
+interface FakeClient extends FakeTx {
+  begin<T>(cb: (tx: FakeTx) => Promise<T>): Promise<T>;
 }
 
 /**
  * 発行された全 SQL を `statements` 配列へ順に記録する fake client を作る。
+ * runner は INSERT を `unsafe(sql, [params])` の位置パラメータで流すので、params があれば
+ * クエリ末尾に JSON で連結して記録する (既存アサーションが key を `includes` で拾えるように)。
  * `appliedFilenames` は `SELECT filename FROM _schema_migrations` の戻り値を擬似する
  * (= 既適用集合)。それ以外の `.unsafe` は空配列を返す。
  */
@@ -46,36 +35,29 @@ function makeFakeClient(appliedFilenames: string[] = []): {
 } {
   const statements: string[] = [];
 
-  const unsafe = (query: string): Promise<unknown> => {
-    statements.push(query);
+  const record = (query: string, params?: readonly unknown[]): void => {
+    statements.push(params && params.length > 0 ? `${query} ${JSON.stringify(params)}` : query);
+  };
+
+  const unsafe = (query: string, params?: readonly unknown[]): Promise<unknown> => {
+    record(query, params);
     if (query.includes("SELECT filename FROM _schema_migrations")) {
       return Promise.resolve(appliedFilenames.map((filename) => ({ filename })));
     }
     return Promise.resolve([]);
   };
 
-  const tagged = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> => {
-    statements.push(renderTagged(strings, values));
-    return Promise.resolve([]);
-  };
-
   const begin = async <T>(cb: (tx: FakeTx) => Promise<T>): Promise<T> => {
-    const tx = Object.assign(
-      (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> => {
-        statements.push(renderTagged(strings, values));
+    const tx: FakeTx = {
+      unsafe: (query: string, params?: readonly unknown[]): Promise<unknown> => {
+        record(query, params);
         return Promise.resolve([]);
       },
-      {
-        unsafe: (query: string): Promise<unknown> => {
-          statements.push(query);
-          return Promise.resolve([]);
-        },
-      },
-    ) as FakeTx;
+    };
     return await cb(tx);
   };
 
-  const client = Object.assign(tagged, { unsafe, begin }) as FakeClient;
+  const client: FakeClient = { unsafe, begin };
   return { client, statements };
 }
 

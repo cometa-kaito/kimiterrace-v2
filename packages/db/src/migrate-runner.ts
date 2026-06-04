@@ -27,30 +27,29 @@ import { collectMigrationFiles, runMigrationFile } from "./migrate-files.js";
  * `sql\`...\`` (テンプレートリテラル) として呼べる。ここでは `_schema_migrations` への
  * INSERT を bind パラメータ付きで安全に発行するためだけに使う。
  */
-type TaggedTemplate = (
-  strings: TemplateStringsArray,
-  ...values: readonly unknown[]
-) => PromiseLike<unknown>;
-
 /**
- * runner が必要とするトランザクション client。
- * - `runMigrationFile` が叩く `.unsafe(query)`
- * - `_schema_migrations` への INSERT を出す tagged-template 呼び出し
+ * runner が必要とするトランザクション client。`runMigrationFile` と
+ * `_schema_migrations` への INSERT が叩く `.unsafe(query, params?)` のみ。
  */
-export type MigrationTx = TaggedTemplate & {
-  unsafe(query: string): PromiseLike<unknown>;
+export type MigrationTx = {
+  unsafe(query: string, params?: readonly unknown[]): PromiseLike<unknown>;
 };
 
 /**
  * runner が必要とする最小の postgres-js client。
  *
- * `postgres(url)` が返す client はこれを (より広い型として) 満たす。`postgres` の完全な
- * 型を import せず最小 interface に絞ることで、この module 自体は driver 非依存に保つ
- * (`migrate-files.ts` の方針と同じ)。
+ * callable (tagged-template) を要求せず `.unsafe(query, params?)` と `.begin` のみに絞る。
+ * これにより `postgres(url)` が返す `Sql` が **cast 無し**で本 interface を満たす
+ * (ルール3: `as unknown as` 回避。tagged-template の戻り値 union には private `then` を持つ
+ *  `Helper` が含まれ `PromiseLike` に代入できないため、callable を要求すると cast が要る)。
+ * INSERT はタグ付きテンプレートでなく `unsafe(sql, [params])` の位置パラメータでバインドする。
+ * (`migrate-files.ts` と同じ「driver 非依存の最小 interface」方針。)
  */
-export type MigrationSqlClient = TaggedTemplate & {
-  unsafe(query: string): PromiseLike<unknown>;
-  begin<T>(cb: (tx: MigrationTx) => Promise<T>): Promise<T>;
+export type MigrationSqlClient = {
+  unsafe(query: string, params?: readonly unknown[]): PromiseLike<unknown>;
+  // 返り値は呼び出し側で破棄する (副作用のための begin)。postgres-js の
+  // `begin(): Promise<UnwrapPromiseArray<T>>` をそのまま受け入れられるよう Promise<unknown> に緩める。
+  begin<T>(cb: (tx: MigrationTx) => Promise<T>): Promise<unknown>;
 };
 
 export interface ApplyMigrationsOptions {
@@ -86,7 +85,7 @@ function migrationKey(root: string, file: string): string {
  * `root` (= `@kimiterrace/db` パッケージルート、drizzle/ と migrations/ を含む) 配下の
  * 全マイグレーションを、未適用分だけ冪等に適用する。
  *
- * @param sql  postgres-js client (`.unsafe` / `.begin` / tagged-template を持つ)。RLS を
+ * @param sql  postgres-js client (`.unsafe(query, params?)` / `.begin` を持つ)。RLS を
  *             バイパスできる migrator (cloudsqlsuperuser) で接続したもの。`CREATE EXTENSION`
  *             や DDL を流すため特権が要る。
  * @param root drizzle/ と migrations/ を含むパッケージルート。
@@ -133,12 +132,12 @@ export async function applyMigrations(
       // 「SQL 適用済み・記録未済」の窓が理論上ありうるが、その retry は CONCURRENTLY を
       // IF NOT EXISTS 付きで書く前提で安全に再実行できる。
       await runMigrationFile(sql, file);
-      await sql`INSERT INTO _schema_migrations (filename) VALUES (${key})`;
+      await sql.unsafe("INSERT INTO _schema_migrations (filename) VALUES ($1)", [key]);
     } else {
       // 通常: SQL 適用と記録を 1 トランザクションで原子化 (resume on retry の要)。
       await sql.begin(async (tx) => {
         await runMigrationFile(tx, file);
-        await tx`INSERT INTO _schema_migrations (filename) VALUES (${key})`;
+        await tx.unsafe("INSERT INTO _schema_migrations (filename) VALUES ($1)", [key]);
       });
     }
     log(`applied ${key}`);

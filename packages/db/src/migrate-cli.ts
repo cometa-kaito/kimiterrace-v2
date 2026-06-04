@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-import { applyMigrations, type MigrationSqlClient } from "./migrate-runner.js";
+import { applyMigrations } from "./migrate-runner.js";
 
 /**
  * 本番 migration runner の実行可能エントリ。Cloud Run Job が `node dist/migrate-cli.js`
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
 
   let exitCode = 0;
   try {
-    await applyMigrations(sql as unknown as MigrationSqlClient, packageRoot, {
+    await applyMigrations(sql, packageRoot, {
       grantAppRoleMember: process.env.MIGRATE_GRANT_APP_ROLE_MEMBER || undefined,
     });
     console.log("migration complete");
