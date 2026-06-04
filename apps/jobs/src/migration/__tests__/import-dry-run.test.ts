@@ -245,6 +245,89 @@ describeOrSkip("MIG: 合成移行 dry-run (実 PG)", () => {
     expect(allAds.length).toBe(expected.total.ads);
   });
 
+  // ---- MIG-007: 移行マーカー監査 ----
+  it("MIG-007: 学校ごとの移行マーカーが system 移行として監査記録される", async () => {
+    const markers = await sql<
+      {
+        record_id: string | null;
+        operation: string;
+        diff: Record<string, unknown>;
+        actor_user_id: string | null;
+        created_by: string | null;
+        updated_by: string | null;
+        row_hash: string;
+      }[]
+    >`
+      SELECT record_id, operation, diff, actor_user_id, created_by, updated_by, row_hash
+      FROM audit_log WHERE table_name = 'schools' ORDER BY record_id
+    `;
+    // 学校数ぶんのマーカー (余剰なし)
+    expect(markers.length).toBe(expected.total.schools);
+    for (const m of markers) {
+      expect(m.operation).toBe("insert");
+      expect(m.actor_user_id).toBeNull(); // システム移行 = actor なし
+      expect(m.created_by).toBeNull(); // ルール1: システム作成は created_by/updated_by null
+      expect(m.updated_by).toBeNull();
+      expect(m.diff).toMatchObject({ migration: "firestore-to-pg", source: "v1-firestore" });
+      // トリガが client placeholder "" を上書きして 64 hex を計算済 (MIG-007 の核)
+      expect(m.row_hash).toMatch(/^[0-9a-f]{64}$/);
+    }
+    // record_id が両校をカバー (学校ごと 1 マーカー)
+    expect(markers.map((m) => m.record_id).sort()).toEqual([s1, s2].sort());
+    // 2 マーカーの row_hash は別 (payload に record_id を含むため非自明に計算されている)
+    expect(new Set(markers.map((m) => m.row_hash)).size).toBe(markers.length);
+  });
+
+  // ---- MIG-008: scope 網羅 + 移行スコープ完全性 ----
+  it("MIG-008(a): 全 scope の子データが欠損しない (hasClasses=false / 空配列 含む)", async () => {
+    // hasClasses=false 学年 (G2) 自体が移行され、その daily_data も落ちない
+    const [g2] = await sql<{ has_classes: boolean }[]>`
+      SELECT has_classes FROM grades WHERE id = ${v2Id.grade("S1", "G2")}
+    `;
+    expect(def(g2).has_classes).toBe(false);
+    const g2Daily = await sql<{ assignments: unknown }[]>`
+      SELECT assignments FROM daily_data
+      WHERE grade_id = ${v2Id.grade("S1", "G2")} AND scope = 'grade'
+    `;
+    expect(g2Daily.length).toBe(1);
+    expect(def(g2Daily[0]).assignments).toEqual(["特別研究レポート提出"]);
+    // 空配列 ads=[] の学年 → ads 0 件 (silent drop でなく「子が無い」が正しく反映)
+    const [g2Ads] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM ads WHERE grade_id = ${v2Id.grade("S1", "G2")}
+    `;
+    expect(def(g2Ads).n).toBe(0);
+    // 全 4 scope の ads がそろう (どの階層の広告も脱落していない)。
+    // 注: scope は pgEnum (hierarchyScope)。SQL `ORDER BY scope` は **enum 定義順**
+    // (school/grade/class/department) で並ぶため、決定論比較は JS 側で文字列ソートする。
+    const adScopes = (await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM ads`)
+      .map((r) => r.scope)
+      .sort();
+    expect(adScopes).toEqual(["class", "department", "grade", "school"]);
+    // daily_data は school/grade/class scope (department は V1 に daily 無し = 設計どおり)
+    const dailyScopes = (await sql<{ scope: string }[]>`SELECT DISTINCT scope FROM daily_data`)
+      .map((r) => r.scope)
+      .sort();
+    expect(dailyScopes).toEqual(["class", "grade", "school"]);
+  });
+
+  it("MIG-008(b): 移行対象テーブル集合が v1-v2-mapping.md と整合 (対象外漏れ検出)", () => {
+    // transform が書き込む V2 テーブル = 移行対象。docs/architecture/v1-v2-mapping.md の
+    // 「Firestore コレクション → PostgreSQL テーブル対応」のうち移行対象 7 テーブルと一致する。
+    // feedback は V1 root コレクションだが V2 では guide 画面の新規機能であり移行ジョブ対象外
+    // (track05 §8「移行スコープの完全性」の設計判断)。ここを pin することで対象テーブルの増減を
+    // mapping/設計の再突合なしに通さない (行レベル突合では拾えない「対象外コレクション漏れ」の二重化)。
+    const migratedTables = Object.keys(transformExport(syntheticV1Export)).sort();
+    expect(migratedTables).toEqual([
+      "ads",
+      "classes",
+      "dailyData",
+      "departments",
+      "grades",
+      "schoolConfigs",
+      "schools",
+    ]);
+  });
+
   // ---- helpers ----
 
   async function tableCounts(): Promise<EntityCounts> {
