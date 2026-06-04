@@ -134,7 +134,7 @@ module "report_storage" {
   project_id             = var.project_id
   env                    = local.env
   enabled                = false # TODO(Phase 開発)
-  writer_service_account = coalesce(module.cloud_run_job_reports.runtime_service_account_email, "")
+  writer_service_account = module.cloud_run_job_reports.runtime_service_account_email != null ? module.cloud_run_job_reports.runtime_service_account_email : ""
 }
 
 # F09 月次レポート生成 Cloud Run Job + Scheduler（#430, #45）。
