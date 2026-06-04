@@ -21,6 +21,7 @@
     "@types/node": "^25.9.1",
     "@types/pdfkit": "^0.17.6",
     "pdfjs-dist": "^6.0.227",
+    "postgres": "^3.4.5",
     "typescript": "^6.0.3",
     "vitest": "^3.2.4"
   }
