@@ -26,6 +26,7 @@
     "lint": "biome check src __tests__",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "migrate:apply": "node dist/migrate-cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf .turbo dist"
