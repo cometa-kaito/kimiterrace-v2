@@ -50,8 +50,15 @@ type PageCase = {
   label: string;
   path: string;
   allow: readonly RoleKey[];
-  /** 許可ロールで到達したときに満たすべき URL (省略時は path にそのまま留まる)。 */
-  allowUrl?: RegExp;
+  /**
+   * 許可ロールで到達したときに満たすべき URL の正規表現 (**必須**)。各ケースが明示的に宣言する。
+   * 以前は optional にし expectPageOutcome で `new RegExp(c.path)` へ動的フォールバックしていたが、
+   * PAGE_CASES は全件 allowUrl を持つため当該フォールバックは到達不能 (dead branch) であり、
+   * 非リテラル `new RegExp(...)` が Semgrep detect-non-literal-regexp の誤検知を生んでいた。
+   * 必須化してフォールバックを除去すると、挙動を変えずに検知を解消しつつ「各保護ページは到達後 URL を
+   * 明示する」意図を型で強制できる。
+   */
+  allowUrl: RegExp;
 };
 
 const PAGE_CASES: readonly PageCase[] = [
@@ -106,7 +113,8 @@ async function expectPageOutcome(page: Page, c: PageCase, role: RoleKey): Promis
   await page.goto(c.path);
   if (c.allow.includes(role)) {
     // 許可: redirect 後 URL が allowUrl を満たす (requireRole を通過し目的ページに到達)。
-    await expect(page).toHaveURL(c.allowUrl ?? new RegExp(c.path.replace(/[/]/g, "\\/")));
+    // allowUrl は PageCase で必須なので、動的 RegExp フォールバックは不要 (検知回避 + 意図明確化)。
+    await expect(page).toHaveURL(c.allowUrl);
     // /forbidden / /login に飛んでいないことも明示 (allowUrl が緩いケースの保険)。
     await expect(page).not.toHaveURL(/\/forbidden$/);
     await expect(page).not.toHaveURL(/\/login(\?|$)/);
