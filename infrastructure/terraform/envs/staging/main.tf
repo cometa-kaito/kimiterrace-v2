@@ -106,6 +106,17 @@ module "secret_manager" {
   }
 }
 
+# Artifact Registry（Docker）— migration Cloud Run Job + Cloud Run app(B5) の image 置き場（ルール8 / ADR-002）。
+# イメージは `<region>-docker.pkg.dev/<project>/kimiterrace/<image>:<tag>` で push する（output image_repo_url 参照）。
+module "artifact_registry" {
+  source        = "../../modules/artifact_registry"
+  project_id    = var.project_id
+  region        = var.region
+  env           = local.env
+  enabled       = true
+  repository_id = "kimiterrace"
+}
+
 module "identity_platform" {
   source     = "../../modules/identity_platform"
   project_id = var.project_id
@@ -200,6 +211,11 @@ module "workload_identity_federation" {
   project_id = var.project_id
   repository = var.repository
   env_name   = local.env
+}
+
+output "image_repo_url" {
+  description = "コンテナイメージ push 先 prefix（docker tag/push に使う）。例: <prefix>/migrate:<sha>"
+  value       = module.artifact_registry.image_repo_url
 }
 
 output "wif_provider_name" {
