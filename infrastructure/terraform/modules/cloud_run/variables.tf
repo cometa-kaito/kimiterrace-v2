@@ -62,6 +62,16 @@ variable "vertex_location" {
   default     = "asia-northeast1"
 }
 
+variable "ai_enabled" {
+  description = <<-EOT
+    実 Vertex AI 呼び出しのアプリ側 kill-switch（#289、ルール4 / ADR-030）。app の env `AI_ENABLED` に写す。
+    true の時だけ F03 抽出 / F06 Q&A チャット / F08 効果コメントが実 Vertex を呼ぶ。**既定 false**
+    （fail-safe = AI OFF）。PII マスキング設計と aiplatform API 有効化の検証が済むまで AI を on にしない。
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "container_port" {
   description = "コンテナがリッスンするポート。apps/web/Dockerfile は 3000 をハードコード（Next standalone）。"
   type        = number

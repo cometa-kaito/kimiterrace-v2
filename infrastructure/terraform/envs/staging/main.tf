@@ -204,8 +204,11 @@ module "cloud_run" {
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   vertex_location        = var.region
-  memory                 = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
-  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
+  # #289 kill-switch: 実 Vertex はまだ on にしない。PII soft-gate (PR-3) + aiplatform API 有効化 (PR-2) の
+  # 検証が済んでから ai_enabled = true に切り替え、image 再 deploy で AI を有効化する (既定 false = AI OFF)。
+  ai_enabled          = false
+  memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
+  deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。

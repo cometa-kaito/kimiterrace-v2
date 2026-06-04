@@ -127,9 +127,25 @@ afterEach(() => {
   mocks.currentUser.value = null;
   mocks.auditRows.length = 0;
   mocks.logError.mockClear();
+  vi.unstubAllEnvs(); // #289: AI_ENABLED の stub を後続テストへ漏らさない (setup の "true" へ復元)。
 });
 
 describe("generateEffectComment", () => {
+  it("AI 無効 (AI_ENABLED!=true) は disabled を返し、集計/Vertex/監査に到達しない (#289 kill-switch)", async () => {
+    vi.stubEnv("AI_ENABLED", "false");
+    mocks.currentUser.value = TEACHER; // 認可済みでも body 冒頭の gate が先に短絡する。
+    const { model, calls } = makeModel("到達しないはず");
+    const loadStats = vi.fn(async () => statsFixture());
+
+    const result = await generateEffectComment({ loadStats, model });
+
+    expect(result).toEqual({ ok: false, reason: "ai_disabled" });
+    // body 冒頭で短絡: 集計・Vertex 生成・監査いずれにも到達しない (実 Vertex を 1 度も呼ばない)。
+    expect(loadStats).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+    expect(mocks.auditRows).toHaveLength(0);
+  });
+
   it("成功: コメントを返し、audit_log に LLM 呼び出しを 1 行記録する (ルール4/1)", async () => {
     mocks.currentUser.value = TEACHER;
     const { model, calls } = makeModel("今月は閲覧が前月比で増加しました。");

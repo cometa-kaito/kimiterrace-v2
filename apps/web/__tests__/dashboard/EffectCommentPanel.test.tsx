@@ -67,6 +67,14 @@ describe("EffectCommentPanel (#44 AI 効果コメント UI)", () => {
     await screen.findByText("生成に失敗しました。時間をおいて再度お試しください。");
   });
 
+  it("{ok:false, reason:'ai_disabled'} で AI 無効の文言を表示する (#289 kill-switch)", async () => {
+    generateMock.mockResolvedValue({ ok: false, reason: "ai_disabled" });
+    render(<EffectCommentPanel />);
+    clickGenerate();
+    await screen.findByText("AI 機能は現在無効です。");
+    expect(document.querySelector("blockquote")).toBeNull();
+  });
+
   it("生成中はボタンを disabled + pending 文言にする", async () => {
     // resolve を保留して pending 状態を観測し、その後 resolve して回復を確認する。
     let resolveFn: (v: { ok: false; reason: "error" }) => void = () => {};

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 依存をすべて mock し、route + sse-handler の HTTP/SSE 配線のみを決定論的に検証する
 // (実 DB/Vertex 不使用、ADR-012)。認証は cookie 再解決 (resolveStudentSession) を mock する。
@@ -54,8 +54,19 @@ beforeEach(() => {
   vi.mocked(resolveStudentSession).mockResolvedValue(RESOLVED);
   vi.mocked(executeChat).mockResolvedValue(streamResult({ chunks: ["こん", "にちは"] }));
 });
+afterEach(() => {
+  vi.unstubAllEnvs(); // #289: AI_ENABLED の stub を後続テストへ漏らさない (setup の "true" へ復元)。
+});
 
 describe("POST /api/student/chat: 認証 (cookie 再解決) + 事前検証 (200 を開く前)", () => {
+  it("AI 無効 (AI_ENABLED!=true) は 503 ai_disabled で塞ぎ、executeChat を呼ばない (#289 kill-switch)", async () => {
+    vi.stubEnv("AI_ENABLED", "false");
+    const res = await POST(makeRequest({ question: "体育祭は？" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "ai_disabled" });
+    expect(executeChat).not.toHaveBeenCalled();
+  });
+
   it("cookie 無効/失効/未設定 (resolveStudentSession=null) は 410 Gone (credential を反射しない)", async () => {
     vi.mocked(resolveStudentSession).mockResolvedValue(null);
     const res = await POST(makeRequest({ question: "やあ" }));
