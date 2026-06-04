@@ -194,6 +194,18 @@ module "identity_platform" {
 #   ② 人間が app DSN 投入（postgresql://app:<pw>@10.60.0.3:5432/kimiterrace?sslmode=require）
 #   ③ full apply で service 作成。
 # secret 値未投入で apply すると runtime で DATABASE_URL secret version 不在になるため、②→③ の順で進める。
+# Vertex AI API（#289 PR-2）。実 Vertex 呼び出し（F03 抽出 / F06 Q&A / F08 効果コメント）の前提。
+# 既存の bootstrap 済 API 群は gcloud で Terraform 外管理のため、本リソースは **当該 API のみ** を Terraform
+# 管理下に置く（残り API の import 整合性は follow-up・ルール8）。disable_on_destroy=false: destroy（コスト停止）
+# 時も API を無効化しない（無効化は破壊的・enable は無料）。本 enable は実 Vertex 利用の前提を満たすだけで、
+# 実際の呼び出しは app の AI_ENABLED kill-switch（PR #592）で別途 gate される（既定 OFF）。
+resource "google_project_service" "aiplatform" {
+  project                    = var.project_id
+  service                    = "aiplatform.googleapis.com"
+  disable_on_destroy         = false
+  disable_dependent_services = false
+}
+
 module "cloud_run" {
   source                 = "../../modules/cloud_run"
   project_id             = var.project_id
