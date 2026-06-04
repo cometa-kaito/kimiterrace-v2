@@ -106,6 +106,8 @@ locals {
 
 # 人間が投入した DB パスワードの最新版を参照（version = "latest"）。
 # 2-phase apply の ③ で読む。① の -target=module.secret_manager では本 data source はグラフから外れ読まれない。
+# ⚠ secret/project は静的ゆえ Terraform は plan 時に本 data source を読む。① と ② の間に full `terraform plan`/
+#   `apply` を実行すると version 不在で失敗する → 必ず ②（人間が値投入）→③ の順を守る（CI は plan しないので緑）。
 data "google_secret_manager_secret_version" "app_db_password" {
   count = local.create_app_user ? 1 : 0
 
