@@ -35,6 +35,7 @@ resource "google_compute_global_address" "private_service_range" {
   name          = "${var.network_name}-psa-range"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
+  address       = var.psa_range_address # null = GCP 自動割当 / 固定時は connector_cidr と非重複（PR #493）
   prefix_length = 16
   network       = google_compute_network.main[0].id
 }

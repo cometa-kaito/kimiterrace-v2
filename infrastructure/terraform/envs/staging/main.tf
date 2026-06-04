@@ -54,11 +54,12 @@ locals {
 }
 
 module "network" {
-  source     = "../../modules/network"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false
+  source            = "../../modules/network"
+  project_id        = var.project_id
+  region            = var.region
+  env               = local.env
+  enabled           = true
+  psa_range_address = "10.60.0.0" # connector_cidr 10.8.0.0/28 と非重複（PR #493 enable-time 対応）
 }
 
 module "cloud_sql" {
