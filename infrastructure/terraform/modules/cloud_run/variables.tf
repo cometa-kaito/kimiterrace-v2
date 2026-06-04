@@ -19,7 +19,7 @@ variable "env" {
 }
 
 variable "enabled" {
-  description = "実体生成スイッチ。雛形段階は false。"
+  description = "実体生成スイッチ。雛形段階は false（リソースを作らない）。"
   type        = bool
   default     = false
 }
@@ -31,7 +31,94 @@ variable "service_name" {
 }
 
 variable "image" {
-  description = "Container image (例: asia-northeast1-docker.pkg.dev/.../web:tag)"
+  description = "Container image（例: asia-northeast1-docker.pkg.dev/<project>/kimiterrace/web:<tag>）。空なら enabled=true で fail-fast。"
   type        = string
-  default     = "asia-northeast1-docker.pkg.dev/PLACEHOLDER/web:latest"
+  default     = ""
+}
+
+variable "database_url_secret_id" {
+  description = <<-EOT
+    DATABASE_URL を保持する Secret Manager secret の ID（ルール5）。
+    値は **app login user**（テーブル非所有 → SET LOCAL ROLE kimiterrace_app で RLS 実効）の DSN。
+    空文字なら env / accessor を配線しない（雛形）。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "vpc_connector" {
+  description = <<-EOT
+    Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。
+    内部 egress（PRIVATE_RANGES_ONLY）のみ。Vertex / Identity Platform 等の Google API は既定 egress で
+    到達するため Cloud NAT は不要。空文字なら VPC egress を付けない（雛形）。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "vertex_location" {
+  description = "Vertex AI のロケーション（app の VERTEX_LOCATION env）。NFR07 データ越境ゼロ: asia-northeast1。"
+  type        = string
+  default     = "asia-northeast1"
+}
+
+variable "container_port" {
+  description = "コンテナがリッスンするポート。apps/web/Dockerfile は 3000 をハードコード（Next standalone）。"
+  type        = number
+  default     = 3000
+}
+
+variable "min_instances" {
+  description = "最小インスタンス数。0 = scale-to-zero（アイドル課金なし）。"
+  type        = number
+  default     = 0
+}
+
+variable "max_instances" {
+  description = "最大インスタンス数。"
+  type        = number
+  default     = 2
+}
+
+variable "cpu" {
+  description = "コンテナ CPU リミット。"
+  type        = string
+  default     = "1"
+}
+
+variable "memory" {
+  description = "コンテナメモリリミット。Next.js SSR + AI SDK の余裕を見て env 側で調整可。"
+  type        = string
+  default     = "512Mi"
+}
+
+variable "allow_unauthenticated" {
+  description = <<-EOT
+    true で allUsers に roles/run.invoker を付与（未認証到達を許可）。app が自前で認証・認可するため
+    既定 true。組織ポリシー（domain restricted sharing）で allUsers が禁止されている場合は false にし、
+    別経路（IAP 等）を検討する。
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "grant_vertex_user" {
+  description = "true で runtime SA に roles/aiplatform.user を付与（Vertex AI Gemini 呼び出し、ルール4）。"
+  type        = bool
+  default     = true
+}
+
+variable "grant_identity_platform_admin" {
+  description = <<-EOT
+    true で runtime SA に roles/identitytoolkit.admin を付与。firebase-admin の verifyIdToken(checkRevoked)
+    と F11 アカウント管理（create/update/revoke）が Identity Toolkit Admin API を叩くため、認証を使う限り必須。
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "deletion_protection" {
+  description = "Cloud Run service の削除保護。prod は true 推奨、staging/dev は recreate 容易性のため false（Issue #70）。"
+  type        = bool
+  default     = true
 }
