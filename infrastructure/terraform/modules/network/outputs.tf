@@ -25,3 +25,14 @@ output "egress_ready" {
   EOT
   value       = length(google_compute_router_nat.egress) > 0
 }
+
+output "private_services_ready" {
+  description = <<-EOT
+    Cloud SQL private IP の土台となる PSA peering（google_service_networking_connection）が
+    本モジュールで provision 済みかを示す signal。peering が無いと private_network 指定の Cloud SQL
+    instance は private IP を割り当てられず作成できないため、cloud_sql モジュールの enable-time
+    precondition（private_services_ready）に渡し、peering -> instance の順序を強制する（count 静的依存
+    = plan 時既知）。enabled = false（雛形）では peering を作らないので false（ADR-001 / ADR-021）。
+  EOT
+  value       = length(google_service_networking_connection.psa) > 0
+}

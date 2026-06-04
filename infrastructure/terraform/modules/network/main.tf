@@ -10,7 +10,6 @@
 # enabled = true 化時に vpcaccess.googleapis.com / compute.googleapis.com の有効化が前提（Phase 開発）。
 #
 # TODO(Phase 開発, 本モジュールの egress 以外の残作業):
-#   - google_service_networking_connection（Cloud SQL private IP の PSA peering、下の予約レンジを使用）
 #   - firewall ルール（IAP 経由 SSH のみ等）
 #   - 注: Cloud Run の VPC egress は **Serverless VPC Access connector** 方式を採る（下記）。
 #     direct VPC egress（subnet + network_interfaces）は不採用（既存 job モジュールが connector を参照）。
@@ -38,6 +37,20 @@ resource "google_compute_global_address" "private_service_range" {
   address       = var.psa_range_address # null = GCP 自動割当 / 固定時は connector_cidr と非重複（PR #493）
   prefix_length = 16
   network       = google_compute_network.main[0].id
+}
+
+# ── Private Services Access (PSA) peering ────────────────────────────
+# Cloud SQL の private IP は VPC <-> Google サービス VPC 間の PSA peering の上で割り当てられる。
+# 上の予約レンジ（private_service_range）を servicenetworking に提供し、peering を確立する。
+# これが無いと Cloud SQL instance に private_network を指定しても private IP が割り当てられない
+# （= public IP 無し instance は作成不能）。よって cloud_sql instance は本 peering の後に作る必要がある
+# （env 側で private_services_ready 出力を cloud_sql の precondition / depends_on に配線、ADR-001 / ADR-021）。
+resource "google_service_networking_connection" "psa" {
+  count = var.enabled ? 1 : 0
+
+  network                 = google_compute_network.main[0].id
+  service                 = "servicenetworking.googleapis.com"
+  reserved_peering_ranges = [google_compute_global_address.private_service_range[0].name]
 }
 
 # ── Serverless VPC Access connector ──────────────────────────────────

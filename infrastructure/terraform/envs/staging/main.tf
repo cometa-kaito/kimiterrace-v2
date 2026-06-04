@@ -62,14 +62,22 @@ module "network" {
   psa_range_address = "10.60.0.0" # connector_cidr 10.8.0.0/28 と非重複（PR #493 enable-time 対応）
 }
 
+# Cloud SQL for PostgreSQL 16 + pgvector（ADR-001 / ADR-007）。
+# staging は private IP only + SSL 強制 + pgvector + 自動バックアップ/PITR + ZONAL（HA は prod のみ）。
+# private IP は network の PSA peering 上に割り当てられるため、network_id と private_services_ready を配線し
+# peering -> instance の順序を強制する（private_services_ready が false なら plan 時 fail-fast）。
+# DB ユーザー（google_sql_user.app）は Secret Manager 配備後に別ステップで有効化（現状 module 側 count=0）。
 module "cloud_sql" {
-  source              = "../../modules/cloud_sql"
-  project_id          = var.project_id
-  region              = var.region
-  env                 = local.env
-  enabled             = false
-  tier                = "db-custom-1-3840"
-  deletion_protection = false # staging も recreate 容易性優先（Issue #70）
+  source                 = "../../modules/cloud_sql"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  tier                   = "db-custom-1-3840"
+  availability_type      = "ZONAL"                               # staging は HA 不要（prod のみ REGIONAL）
+  deletion_protection    = false                                 # staging も recreate 容易性優先（Issue #70）
+  vpc_network_id         = module.network.network_id             # private IP を割り当てる VPC
+  private_services_ready = module.network.private_services_ready # PSA peering 実在 signal（順序強制）
 }
 
 module "secret_manager" {
