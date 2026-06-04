@@ -22,6 +22,8 @@ import { describe, expect, it } from "vitest";
  * 単独言及などは鍵ではないので対象にしない:
  *   1. GCP SA JSON 鍵の type マーカー（"type" フィールドが SA 値を取る形）
  *   2. PEM 形式の秘密鍵ヘッダ行（RSA / EC / OPENSSH / 無印すべて）
+ *   3. 秘密鍵 / keystore のファイル拡張子（.p12/.pfx/.pem/.key/.p8/.pkcs12/.keystore/.jks）
+ *      — binary コンテナは content regex に掛からないため拡張子（=ファイル名）で検出する
  *
  * 検知パターンは fragment 結合で組み立て、本ファイル自身がシグネチャ文字列を含まないようにする
  * （= 自スキャンでも gitleaks でも本ファイルを誤検知しない）。さらに basename で自己除外もする
@@ -45,6 +47,11 @@ const SIGNATURES: Signature[] = [
   { name: "GCP SA JSON key (type marker)", re: SA_TYPE_RE },
   { name: "PEM private-key header", re: PEM_RE },
 ];
+
+// (3) 秘密鍵 / keystore コンテナのファイル拡張子。binary（.p12/.pfx 等）は content regex に
+//     掛からないため拡張子（末尾アンカー）で検出する。公開鍵 / 証明書（.pub/.crt/.cer）は
+//     秘密情報ではないので対象に含めない。
+const KEY_FILE_EXT_RE = /\.(p12|pfx|pem|key|p8|pkcs12|keystore|jks)$/i;
 
 /**
  * 監査対象外（正当な occurrence）の allowlist。リポジトリ相対パスの完全一致。
@@ -88,6 +95,11 @@ describe("E-03 / SEC-026: サービスアカウント鍵 / 秘密鍵の混入監
     for (const rel of files) {
       if (rel.endsWith(SELF_BASENAME)) continue; // 自己除外（保険）
       if (ALLOWLIST.has(rel)) continue;
+      // (3) 拡張子で秘密鍵 / keystore ファイルを検出（中身を読む前に確定。binary も捕捉）。
+      if (KEY_FILE_EXT_RE.test(rel)) {
+        violations.push(`${rel} :: private-key / keystore file extension`);
+        continue;
+      }
       const abs = join(root, rel);
       let size: number;
       try {
@@ -120,5 +132,33 @@ describe("E-03 / SEC-026: サービスアカウント鍵 / 秘密鍵の混入監
     expect(SA_TYPE_RE.test('resource "google_service_account" "ci" {}')).toBe(false);
     expect(SA_TYPE_RE.test('"serviceAccount:ci@proj.iam.gserviceaccount.com"')).toBe(false);
     expect(PEM_RE.test("BEGIN PUBLIC KEY")).toBe(false);
+  });
+
+  it("拡張子ベースの秘密鍵 / keystore 検出器が機能する (正負の対比)", () => {
+    for (const p of [
+      "infra/sa.p12",
+      "certs/server.pfx",
+      "a/b.pem",
+      "x.key",
+      "k.jks",
+      "c.keystore",
+      "p.p8",
+      "z.pkcs12",
+    ]) {
+      expect(KEY_FILE_EXT_RE.test(p), `${p} を鍵ファイルとして検出できない`).toBe(true);
+    }
+    // 末尾アンカー: 部分一致・別拡張子・公開鍵/証明書は誤検出しない。
+    for (const p of [
+      "src/keyboard.ts",
+      "docs/monkey.md",
+      "a.keyx",
+      "b.pem.txt",
+      "note.key.md",
+      "ca.crt",
+      "id_rsa.pub",
+      "cert.cer",
+    ]) {
+      expect(KEY_FILE_EXT_RE.test(p), `${p} を誤検出している`).toBe(false);
+    }
   });
 });
