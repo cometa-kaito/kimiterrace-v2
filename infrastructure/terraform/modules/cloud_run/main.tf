@@ -169,6 +169,16 @@ resource "google_cloud_run_v2_service" "web" {
 
   # enabled = true なのに image / DSN secret / connector が欠けると runtime で確実に失敗する → plan で fail-fast。
   lifecycle {
+    # provider hashicorp/google 6.x が API から読み戻す **service レベル**の scaling ブロック
+    # （google_cloud_run_v2_service.scaling = ServiceScaling: scaling_mode / manual_instance_count /
+    # min_instance_count）を無視する。これは下の template.scaling（min/max を実際に管理する revision レベル
+    # autoscaling）とは別物で、本サービスは service レベル scaling を一切設定しない。API は当該ブロックを
+    # 既定値（manual_instance_count=0 / min_instance_count=0 / scaling_mode=null）で必ず materialize するが
+    # config が省略するため、provider は毎回 `0 -> null` の in-place 除去を plan する（恒久 drift・実体は no-op）。
+    # ignore_changes で当該ブロックのみ無視し、次の applier が無関係な drift を巻き込まないようにする
+    # （管理対象の template.scaling は無視対象外なので min/max の管理はそのまま効く）。
+    ignore_changes = [scaling]
+
     precondition {
       condition     = !var.enabled || var.image != ""
       error_message = "enabled = true のとき image は必須です（build/push 済の web イメージ、apps/web/Dockerfile）。"
