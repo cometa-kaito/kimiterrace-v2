@@ -32,31 +32,29 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理 + 掲示物 Q&A + 二要素認証 (#48-C 導線、F02 入力、F04 公開ハブ、F08 効果、F09 レポート、F13 センサー、F06 チャット、F11 MFA)", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A + 二要素認証 (#48-C 導線、F02 入力、F04 公開ハブ、F06 チャット、F11 MFA)。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
       "/admin/teacher-input",
       "/admin/contents",
-      "/admin/dashboard",
-      "/admin/reports",
-      "/admin/sensors",
       "/admin/chat",
       "/admin/account/mfa",
     ]);
   });
 
-  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + ダッシュボード + 月次レポート + センサー管理", () => {
+  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
     expect(hrefs).toContain("/admin/school/members");
     expect(hrefs).toContain("/admin/editor");
     expect(hrefs).toContain("/admin/teacher-input");
     expect(hrefs).toContain("/admin/contents");
-    expect(hrefs).toContain("/admin/dashboard");
-    expect(hrefs).toContain("/admin/reports");
-    expect(hrefs).toContain("/admin/sensors");
     expect(hrefs).toContain("/admin/chat");
+    // 監視系は学校側から撤去 (運営 = system_admin 専用)。
+    expect(hrefs).not.toContain("/admin/dashboard");
+    expect(hrefs).not.toContain("/admin/reports");
+    expect(hrefs).not.toContain("/admin/sensors");
   });
 
   it("掲示物 Q&A (/admin/chat) は publisher (school_admin/teacher) のみ、system_admin には出さない (F06 #370、死リンク防止)", () => {
@@ -95,19 +93,20 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/contents");
   });
 
-  it("ダッシュボード (/admin/dashboard) も publisher 専用 (F08 第1スライスは自校ビュー、system_admin は後続の cross-tenant 画面)", () => {
-    // /admin/dashboard は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止。
+  it("ダッシュボード (/admin/dashboard) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /admin/system/dashboard を使う)", () => {
+    // 自校ビュー /admin/dashboard は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの
+    // nav からは撤去。system_admin は自校 /admin/dashboard ではなく全校版 /admin/system/dashboard を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/dashboard");
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/dashboard");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/dashboard");
   });
 
-  it("月次レポート (/admin/reports) も publisher 専用 (F09 第1スライスは自校の教員向けビュー、system_admin は対象外)", () => {
-    // /admin/reports は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止。
-    // 自校スコープの月次サマリーで、system_admin 向け cross-tenant レポートは後続スライス。
+  it("月次レポート (/admin/reports) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /admin/system/reports を使う)", () => {
+    // 自校ビュー /admin/reports は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
+    // からは撤去。system_admin は自校 /admin/reports ではなく全校版 /admin/system/reports を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/reports");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/reports");
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/reports");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/reports");
   });
 
   it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック + 二要素認証（自校エディタは出さない）", () => {
@@ -124,12 +123,12 @@ describe("navItemsForRole", () => {
     expect(hrefs).not.toContain("/admin/editor");
   });
 
-  it("センサー管理 (/admin/sensors) は publisher (school_admin/teacher) のみに出す (F13 #391 / #486、system_admin は PUBLISHER_ROLES で 403 のため死リンク防止)", () => {
-    // /admin/sensors は requireRole(PUBLISHER_ROLES=school_admin/teacher) で system_admin を 403 に
-    // するため、nav からも system_admin には出さない (死リンク防止)。全校横断ビューは別ルート /admin/system/sensors。
+  it("センサー管理 (/admin/sensors) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /admin/system/sensors を使う)", () => {
+    // 自校ビュー /admin/sensors は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
+    // からは撤去。system_admin は自校 /admin/sensors ではなく全校版 /admin/system/sensors を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/sensors");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/sensors");
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/sensors");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/sensors");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/sensors");
   });
 
   it("センサー管理（全校） (/admin/system/sensors) は system_admin 専用 (F13 全校横断、自校 /admin/sensors とは別ルート)", () => {
