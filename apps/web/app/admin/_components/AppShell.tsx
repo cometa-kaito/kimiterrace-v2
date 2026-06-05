@@ -5,9 +5,12 @@ import { Sidebar } from "./Sidebar";
 import { SignOutButton } from "./SignOutButton";
 
 /**
- * 管理エリア共通シェル (#48-C)。ヘッダ + role 別サイドナビ + メイン領域。
+ * 管理エリア共通シェル (#48-C)。ブランドヘッダ + role 別サイドナビ + メイン領域。
  * **Server Component** — 認証済み `user` を受け取り、nav を `navItemsForRole` で解決する
  * (role 判定はサーバー、クライアントには確定済みの nav 項目だけ渡す)。
+ *
+ * レスポンシブ: 幅の出し分け・モバイルのサイドバー折りたたみはメディアクエリが要るため
+ * `globals.css` の `.admin-*` クラスで制御する（インライン style では書けない）。
  */
 export function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
   const items = navItemsForRole(user.role);
@@ -15,15 +18,18 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
   return (
     <div style={rootStyle}>
       <header style={headerStyle}>
-        <span style={brandStyle}>キミテラス v2</span>
+        {/* ブランドのワードマーク（キミテラス）。 */}
+        <img src="/brand/logo-wordmark.png" alt="キミテラス" style={brandLogoStyle} />
         <span style={roleBadgeStyle}>{ROLE_LABEL[user.role]}</span>
         <div style={{ marginLeft: "auto" }}>
           <SignOutButton />
         </div>
       </header>
-      <div style={bodyStyle}>
+      <div className="admin-body" style={bodyStyle}>
         <Sidebar items={items} />
-        <main style={mainStyle}>{children}</main>
+        <main className="admin-main" style={mainStyle}>
+          {children}
+        </main>
       </div>
     </div>
   );
@@ -48,21 +54,25 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "0.75rem",
-  padding: "0.75rem 1.25rem",
-  borderBottom: "1px solid #e5e7eb",
-  background: "#1f2937",
-  color: "#fff",
+  padding: "0.6rem 1.25rem",
+  borderBottom: "1px solid var(--brand-border)",
+  background: "#fff",
 };
 
-const brandStyle: React.CSSProperties = { fontWeight: 700, fontSize: "1.05rem" };
+const brandLogoStyle: React.CSSProperties = { height: "1.7rem", width: "auto", display: "block" };
 
 const roleBadgeStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  padding: "0.15rem 0.5rem",
+  fontSize: "0.78rem",
+  fontWeight: 600,
+  padding: "0.15rem 0.6rem",
   borderRadius: "999px",
-  background: "rgba(255,255,255,0.15)",
+  background: "var(--brand-bg-soft)",
+  border: "1px solid var(--brand-border)",
+  color: "var(--brand-muted)",
 };
 
 const bodyStyle: React.CSSProperties = { display: "flex", flex: 1 };
 
-const mainStyle: React.CSSProperties = { flex: 1, padding: "1.5rem", minWidth: 0 };
+// padding はメディアクエリで可変にするため `.admin-main`（globals.css）側で持つ
+// （インライン padding を置くとモバイルの media-query 上書きが効かなくなるため）。
+const mainStyle: React.CSSProperties = { flex: 1, minWidth: 0 };

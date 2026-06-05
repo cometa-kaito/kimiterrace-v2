@@ -51,7 +51,8 @@ test.describe("認証済み教員の管理エリア到達 /admin", () => {
       await page.goto("/admin");
       // middleware が __session 無しを /login?next=... に弾く (認可ゲートの negative)。
       await expect(page).toHaveURL(/\/login(\?|$)/);
-      await expect(page.getByRole("heading", { name: "キミテラス ログイン" })).toBeVisible();
+      // ログイン画面の見出し（ブランド刷新でロゴ画像 + 「ログイン」見出しに変更）。
+      await expect(page.getByRole("heading", { name: "ログイン" })).toBeVisible();
     });
   });
 });
