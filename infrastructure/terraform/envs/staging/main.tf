@@ -82,7 +82,9 @@ locals {
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
   # a6463f5: 全ルートにセキュリティレスポンスヘッダを付与（live DAST 検証で欠落検出）。
-  web_image_tag = "a6463f5"
+  # 96769b2: #289 ① kill-switch（AI_ENABLED 既定 OFF・全 Vertex 入口を gate）+ ③ F03 PII soft-gate 同梱。
+  #          実 Vertex 有効化の前段として、この gated image を **API 有効化より前に** deploy する（#592/#595）。
+  web_image_tag = "96769b2"
 }
 
 module "network" {
