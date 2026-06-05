@@ -22,6 +22,8 @@ type Selectable = Pick<PostgresJsDatabase, "select">;
  *      （`audit_log_insert` policy, migrations/0002）ため、書込みも system_admin context で行う。
  *
  * 監査（ルール1）/ PII 非格納（ルール4: payload は device/検知メタのみ、個人識別情報なし）/ 冪等（再送 dedup）。
+ * 冪等は app 層の事前 SELECT（高速パス）＋ 部分 UNIQUE index `ux_events_presence_dedup` への
+ * `ON CONFLICT DO NOTHING`（並行再送 TOCTOU の砦）の二段で担保する（#567）。
  *
  * @param db       非 BYPASSRLS の Drizzle クライアント（本番 `getDb()`）。
  * @param input    正規化済みの presence 入力（`deviceMac` は大文字・区切り無し）。
@@ -77,7 +79,9 @@ export async function recordPresenceEvent(
           ? sql`to_timestamp(${input.timeOfSampleMs}::double precision / 1000)`
           : null;
 
-      // 2. 冪等: SwitchBot 再送の二重計上を防ぐ。タイムスタンプがある場合のみ (device_mac, occurred_at) で dedup。
+      // 2. 冪等の高速パス（逐次再送）: タイムスタンプがある場合のみ (device_mac, occurred_at) で事前 SELECT
+      //    し、既存なら INSERT を試みず duplicate を返す。これは直列化の砦ではなく、よくある逐次再送を
+      //    安価に弾くための先回り。**並行再送（TOCTOU）の真の砦は下の ON CONFLICT**（#567）。
       if (occurredAtSql != null) {
         const dup = await tx
           .select({ id: events.id })
@@ -95,6 +99,12 @@ export async function recordPresenceEvent(
 
       // 3. events に presence を書込。PII 非格納（device/検知メタのみ、ルール4）。events に class_id 列は
       //    無いため class_id は payload へ（F08 ヒートマップのクラス別集計用、school 内 id で PII ではない）。
+      //    **ON CONFLICT DO NOTHING で原子化**（#567）: 部分 UNIQUE index `ux_events_presence_dedup`
+      //    (school_id, payload->>'device_mac', occurred_at) WHERE type='presence' を競合キーにする。
+      //    上の事前 SELECT を 2 つの並行再送が同時に素通りしても、DB の UNIQUE が INSERT を直列化し、
+      //    先着のみ成功・後着は DO NOTHING（0 行返却）で duplicate になる（phantom race を DB レベルで封鎖）。
+      //    null-ts（#437 で受信時刻 now() に倒す検知）は occurred_at が毎回異なり衝突しないため、従来どおり
+      //    別行で記録される（検知を捨てない #437 設計を保持。行数膨張は IP レート制限が律速）。
       const inserted = await tx
         .insert(events)
         .values({
@@ -110,11 +120,19 @@ export async function recordPresenceEvent(
             class_id: resolved.classId,
           },
         })
+        // target 無しの ON CONFLICT DO NOTHING（テーブルの任意の一意制約に対して発火）。events の一意
+        // 制約は「id の PK（gen_random_uuid ゆえ実質衝突しない）」と「部分 UNIQUE index
+        // ux_events_presence_dedup（type='presence' 限定）」のみ。本経路は常に type='presence' を入れる
+        // ため、ここで実際に発火しうる競合は presence dedup index だけ＝この index を狙うのと等価。
+        // （drizzle 0.45 の onConflict target は式 index を型で受けられないため target 無し形を使う。
+        //  events に将来別の一意制約を足す場合は本前提を見直すこと。）
+        .onConflictDoNothing()
         .returning({ id: events.id });
       const eventId = inserted[0]?.id;
       if (eventId === undefined) {
-        // INSERT ... RETURNING は必ず 1 行返すため通常起きない。防御的に loud fail させる。
-        throw new Error("recordPresenceEvent: events INSERT が行を返しませんでした");
+        // ON CONFLICT DO NOTHING が発火 = 並行再送で別 tx が先着し UNIQUE と衝突 → 0 行。
+        // これは二重計上を DB が防いだ正常系なので duplicate を返す（app 層 SELECT を素通りした TOCTOU）。
+        return { status: "duplicate", schoolId: resolved.schoolId };
       }
 
       // 4. 監査（ルール1）: actor=null（システム）。row_hash はトリガが計算（"" を上書き）。
