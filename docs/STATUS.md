@@ -30,7 +30,18 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
-- 2026-06-05: **🔻 引き継ぎ（最新・次セッション最優先）— ✅ #289 ④ 完遂（実 Vertex ON + app 層 認証 E2E 成功）→ ★ 次 = #289 close 判断 + 他 staging-gated 検証トラック（#243）**:
+- 2026-06-05: **🔻 引き継ぎ（最新）— ✅ 実機UIテスト発の改善一式を staging 反映完了（教員ロールで Chrome 巡回 → 発見した不具合/UX を全修正 → 再デプロイ → 実機で動作確認）**:
+  - **きっかけ**: ユーザーが staging を Chrome で実際に操作。①音声入力が `Permissions-Policy: microphone=()` で黙ってブロック（[#605](https://github.com/cometa-kaito/kimiterrace-v2/pull/605) `microphone=(self)` + [#606] image bump で先行修正・deploy 済）。続いて UI 巡回で複数の不具合/UX 問題を発見。
+  - **方針確定（重要・記憶化済 [[project_school_dx_no_teacher_burden]]）**: 根本方針＝**校務DX＝先生の工数を増やさない**。「自校運営を見る」監視系（月次レポート/センサー管理/効果ダッシュボード）は学校側に不要＝**system_admin（運営）専用**。学校側UIは最小入力に徹する。
+  - **修正4 PR（全て fresh Reviewer APPROVE + CI緑 + 自律 merge、main `548a212`）**:
+    - [#611](https://github.com/cometa-kaito/kimiterrace-v2/pull/611) MFA 登録ページが「セッション未確認」を緑色（成功色）で出し再ログイン導線無しで詰む → 警告色 + `/login?next=` 導線。
+    - [#612](https://github.com/cometa-kaito/kimiterrace-v2/pull/612) ブランド適用（favicon `app/icon.png` + `public/brand/` ロゴ + `globals.css` カラートークン）/ ログイン画面刷新（素フォーム→ロゴ+カード+グラデボタン）/ レスポンシブ（サイドバーをモバイルでハンバーガー化・className+メディアクエリ）/ **ログイン後の行き止まり修正**（next 既定 `/`→`/admin`、`/` は scaffold placeholder だった）/ **open-redirect 防止**（next を同一オリジン相対のみ許可）。
+    - [#615](https://github.com/cometa-kaito/kimiterrace-v2/pull/615) 教員入力の送信後が宙ぶらり → 既存 `/admin/teacher-input/history` への導線（送信後メッセージ + 見出し横リンク）。
+    - [#614](https://github.com/cometa-kaito/kimiterrace-v2/pull/614) 監視系（ダッシュボード/月次レポート/センサー管理）を teacher/school_admin の nav から撤去 + ページ/API ガードを `SYSTEM_ADMIN_ROLES` に厳格化（URL直打ちも403）/ エディタ空状態が教員を `/admin/school`(403) に誘導する行き止まりを role 別文言で解消。Reviewer が「system_admin 専用化したダッシュボードに残った `EffectCommentPanel` が PUBLISHER_ROLES gate で throw」を検出 → パネル撤去で修正。
+  - **✅ 再デプロイ + 実機確認**: image `web:548a212`（全修正込み）を Cloud Build → [#617](https://github.com/cometa-kaito/kimiterrace-v2/pull/617) で `web_image_tag` bump → `-target=module.cloud_run` apply → revision **`kimiterrace-web-00007-srg`** live。**Chrome で教員ログインし実機確認**: 新ログイン画面（ブランド）/ ログイン後 `/admin/editor` 着地 / 教員ナビが「エディタ・音声入力・コンテンツ・掲示物Q&A・二要素認証」のみ（監視系消滅）/ `/admin/reports` 直打ち→403 / エディタ空状態の新文言 / 入力履歴導線 / favicon ＝**全て live で動作確認済**。`AI_ENABLED=true`・custom_domain 不変・in-place（0 destroy）。
+  - **staging テスト教員アカウント（UI検証用・再利用可）**: `e2e-teacher@kimiterrace-e2e.invalid` / pw `Kimiterrace-E2E-2026`（IdP localId=users.id=`e2e51111-0000-4000-8000-000000000002`・claims `{role:teacher, school_id:e2e51111-...0001}`・学校「E2Eテスト高校」）。合成データのみ・将来の Chrome UI 検証はこれでログイン可。
+  - **follow-up（非ブロッカー）**: favicon が 226KB（最適化余地）/ ダッシュボードの効果ダッシュボードは school 専用機能ゆえ全校横断版を `/admin/system/dashboard` に集約（school-scoped 版は system_admin で空表示）/ MFA の client SDK currentUser 喪失自体の復元機構（別 issue 候補）/ 「入力履歴」の nav 掲載は別 PR（③は導線のみ）。
+- 2026-06-05: **（履歴）✅ #289 ④ 完遂（実 Vertex ON + app 層 認証 E2E 成功）→ ★ 次 = #289 close 判断 + 他 staging-gated 検証トラック（#243）**:
   - **✅ app 層 認証 E2E（実 staging・実 Vertex）成功** — task #5 完了:
     - **seed harness 構築**: private-IP DB は VPC 内からしか届かないため、**on-demand seed Cloud Run Job `kimiterrace-seed`**（[#600](https://github.com/cometa-kaito/kimiterrace-v2/pull/600)・migrate Job モジュールを `command` 上書きで再利用・migrator DSN・VPC connector）を作り、test 校/教員(uid 整合)/teacher_input を seed。
     - **実 staging で 2 つの落とし穴を踏んで修正**（[#602](https://github.com/cometa-kaito/kimiterrace-v2/pull/602)）: ① `schema/index.js` barrel import が pgvector 経由で `@kimiterrace/ai` に推移依存 → migrate イメージで ERR_MODULE_NOT_FOUND ② staging migrator は**非 BYPASSRLS + FORCE RLS** ゆえ生 INSERT が RLS WITH CHECK で弾かれる。**生 SQL 化（schema 非依存）+ tx 内 `set_config('app.current_user_role','system_admin')`（system_admin_full_access policy）** で解消。→ memory [[feedback_stale_package_dist_local_test_red]] 系・新規 RLS seed パターン。
