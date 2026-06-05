@@ -251,11 +251,13 @@ module "cloud_run" {
   ai_enabled          = true
   memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
-  # カスタムドメイン。既定 "" = <hash>.run.app のみ（このPRは no-op で land）。
-  # 活性化（flip）の前提: apex school-signage.net を Search Console で所有権検証 → ここを
-  # "staging.school-signage.net" に変更して apply → output custom_domain_dns_records の CNAME を
-  # Vercel DNS に登録（ai_enabled と同じ gated→flip 運用）。v1 の app.school-signage.net は無傷。
-  custom_domain = ""
+  # カスタムドメイン（#601 で land した gated 機構を flip で活性化）。apex school-signage.net は
+  # 2026-06-05 に Search Console で所有権検証済（確認方法=DNS TXT・apex に google-site-verification）。
+  # apply で google_cloud_run_domain_mapping が作成され、output custom_domain_dns_records の CNAME
+  # （staging → ghs.googlehosted.com）を Vercel DNS に登録 → マネージド TLS 自動発行。
+  # v1 の app.school-signage.net は無傷（本番 cutover 時に同一 FQDN を流用しフィルタ再申請ゼロ）。
+  # 校内 Wi-Fi 許可リスト外（校外・合成データでの検証用途）。
+  custom_domain = "staging.school-signage.net"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
