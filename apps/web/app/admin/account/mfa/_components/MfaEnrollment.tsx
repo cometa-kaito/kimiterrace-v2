@@ -7,6 +7,7 @@ import {
   TotpMultiFactorGenerator,
   multiFactor,
 } from "firebase/auth";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { getClientAuth } from "../../../../../lib/auth/clientApp";
@@ -164,11 +165,21 @@ export function MfaEnrollment() {
     }
   }
 
+  // client SDK の currentUser が復元できない状態 (cookie session のみで遷移してきた / ブラウザ再読込で
+  // SDK の in-memory ユーザーが失われた等)。requireRole は cookie session で通っているのでページ自体は表示
+  // できるが、MFA 登録は IdP client SDK の現在ユーザー (+ 直近の再認証) を正規経路として要求する (ADR-003 /
+  // ADR-031)。ここでセキュリティ強度は下げず、再ログイン導線を明示して詰まりを防ぐ (案内であって deny ではない)。
   if (enrolled === null) {
     return (
-      <p style={noticeStyle}>
-        セッションを確認できませんでした。一度ログインし直すと、この画面で二要素認証を登録できます。
-      </p>
+      <section style={warningCardStyle}>
+        <p style={warningTextStyle}>
+          二要素認証の登録には、もう一度ログインして認証を確認する必要があります。
+          下のボタンからログインし直すと、この画面で続けて登録できます。
+        </p>
+        <Link href="/login?next=/admin/account/mfa" style={loginLinkBtnStyle}>
+          ログインし直す
+        </Link>
+      </section>
     );
   }
 
@@ -293,4 +304,24 @@ const noticeStyle: React.CSSProperties = {
   display: "block",
   color: "#166534",
   marginTop: "0.75rem",
+};
+// currentUser を復元できない時の再ログイン案内。内容 (問題報告 + 行動依頼) に合わせ成功色 (緑) でなく
+// 案内/警告色 (amber) を使う。緑だと「成功」に読めて意味が逆になる。
+const warningCardStyle: React.CSSProperties = {
+  border: "1px solid #fcd34d",
+  background: "#fffbeb",
+  borderRadius: "8px",
+  padding: "1rem",
+};
+const warningTextStyle: React.CSSProperties = {
+  color: "#92400e",
+  margin: "0 0 0.75rem",
+};
+const loginLinkBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "0.4rem 1rem",
+  background: "#1d4ed8",
+  color: "#fff",
+  borderRadius: "6px",
+  textDecoration: "none",
 };
