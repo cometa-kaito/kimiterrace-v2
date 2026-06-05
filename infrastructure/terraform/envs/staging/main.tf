@@ -218,9 +218,10 @@ module "cloud_run" {
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   vertex_location        = var.region
-  # #289 kill-switch: 実 Vertex はまだ on にしない。PII soft-gate (PR-3) + aiplatform API 有効化 (PR-2) の
-  # 検証が済んでから ai_enabled = true に切り替え、image 再 deploy で AI を有効化する (既定 false = AI OFF)。
-  ai_enabled          = false
+  # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
+  # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
+  # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。
+  ai_enabled          = true
   memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
