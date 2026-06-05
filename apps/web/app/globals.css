@@ -6,7 +6,9 @@
  *   ブランドのカラートークンをここに集約する（インライン style とも共存可能）。
  * - レスポンシブ（特に管理シェルのサイドバー）はメディアクエリでないと書けないため、
  *   shell / login の可変レイアウトは className 経由で本ファイルに置く。
- * - ブランドカラー: オレンジ #e0823c → ブルー #6fa8c7 のグラデーション（ロゴと一致）。
+ * - ブランドカラー基調: オレンジ #e0823c / ブルー #6fa8c7（ロゴと一致）。
+ * - **デザイン原則: UI にグラデーションカラーは使わない（ソリッドのみ）。** アクセントは
+ *   --brand-primary（深いオレンジ #c2410c, WCAG AA）を単色で使う。グラデーションはロゴ画像内のみ。
  */
 
 :root {
@@ -188,13 +190,28 @@ body {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--brand-border);
+    /* 浮遊メニューのアンカー兼スタッキング基準。開いたナビを本文の上へ重ねる。 */
+    position: relative;
+    z-index: 50;
   }
   .admin-hamburger {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
   }
-  /* モバイルではハンバーガーで開閉。閉じている間は隠す。 */
+  /* モバイルではハンバーガーで開閉する。開いたメニューは本文を押し下げず（レイアウトを動かさず）、
+     絶対配置でハンバーガー直下に浮かせて本文の上に重ねる（オーバーレイ）。閉じている間は隠す。 */
+  .admin-nav {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-bottom: 1px solid var(--brand-border);
+    box-shadow: 0 10px 24px rgba(31, 41, 55, 0.16);
+    max-height: 70vh;
+    overflow-y: auto;
+  }
   .admin-nav[data-open="false"] {
     display: none;
   }
