@@ -32,11 +32,25 @@ resource "google_identity_platform_config" "default" {
       enabled           = true
       password_required = true
     }
+
+    # 電話番号サインインは不使用（職員=email/password、生徒=magic link）。API は phone_number ブロックを
+    # 既定（enabled=false）で必ず返すため、config で明示しないと provider が毎回その除去（false -> null）を
+    # plan する（恒久 drift）。意図（電話認証 OFF）を明示しつつ drift を解消する。
+    phone_number {
+      enabled = false
+    }
   }
 
   mfa {
     state             = var.mfa_state
     enabled_providers = var.mfa_enabled_providers
+  }
+
+  # マルチテナント分離は不使用（claims-based が既定。create_tenant=true 時のみ tenant を作る）。
+  # API は multi_tenant ブロックを既定（allow_tenants=false）で必ず返すため、config で明示しないと provider が
+  # 毎回その除去（false -> null）を plan する（恒久 drift）。意図（tenant 分離 OFF）を明示しつつ drift を解消する。
+  multi_tenant {
+    allow_tenants = false
   }
 }
 
