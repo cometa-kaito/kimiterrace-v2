@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
 import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
+import Link from "next/link";
 import { FileUploadForm } from "./_components/FileUploadForm";
 import { TeacherInputComposer } from "./_components/TeacherInputComposer";
 
@@ -20,7 +21,16 @@ export default async function TeacherInputPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>音声 / チャット入力</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem" }}>
+        <h1 style={{ fontSize: "1.4rem", margin: "0 0 0.25rem" }}>音声 / チャット入力</h1>
+        {/* 入力履歴への導線（ナビ未掲載のため発見性を確保。送信後の状況確認の受け皿）。 */}
+        <Link
+          href="/admin/teacher-input/history"
+          style={{ marginLeft: "auto", fontSize: "0.9rem", color: "#2563eb" }}
+        >
+          入力履歴を見る →
+        </Link>
+      </div>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         「明日 10 時から体育館で説明会」のように話しかける、または入力すると、AI
         が日時・場所・対象・本文を整理して
