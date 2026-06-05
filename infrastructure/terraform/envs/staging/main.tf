@@ -83,8 +83,10 @@ locals {
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
   # a6463f5: 全ルートにセキュリティレスポンスヘッダを付与（live DAST 検証で欠落検出）。
   # 96769b2: #289 ① kill-switch（AI_ENABLED 既定 OFF・全 Vertex 入口を gate）+ ③ F03 PII soft-gate 同梱。
-  #          実 Vertex 有効化の前段として、この gated image を **API 有効化より前に** deploy する（#592/#595）。
-  web_image_tag = "96769b2"
+  #          実 Vertex 有効化の前段として、この gated image を **API 有効化より前に** deploy（#592/#595）。
+  # 6f504d3: #289 ④ retired モデルピン修正（gemini-1.5-pro-002→gemini-2.5-flash、#598）。実 Vertex を
+  #          現行モデルで稼働させるための再 deploy（AI_ENABLED=true 維持）。実 Vertex 結合 test で裏取り済。
+  web_image_tag = "6f504d3"
 }
 
 module "network" {
