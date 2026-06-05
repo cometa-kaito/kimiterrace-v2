@@ -195,3 +195,30 @@ resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# カスタムドメインマッピング（var.custom_domain != "" のときのみ）。設計 = Cloud Run の
+# カスタムドメインを直接マッピングし、外部から見える FQDN を 1 ドメイン配下に統合する
+# （docs/discovery/wifi-filter-method.md §23-26 / 制約 C01・県教委 Wi-Fi の FQDN 許可リスト維持）。
+#
+# 前提: apex（school-signage.net）が Search Console で所有権検証済みであること（未検証だと apply が
+# Google API エラーで失敗・他リソースは無傷）。apply 後 status.resource_records（CNAME → ghs.googlehosted.com）
+# を output 経由で取得し Vercel DNS に登録 → マネージド TLS 証明書が自動発行される。
+#
+# 注: google_cloud_run_domain_mapping は Cloud Run（Knative）API のドメインマッピング。staging の単一
+# サブドメイン公開には十分。本番 cutover では Cloud Armor 前提の Global External LB 経路へ昇格しうる
+# （別途・人間ゲート）。
+resource "google_cloud_run_domain_mapping" "web" {
+  count = var.enabled && var.custom_domain != "" ? 1 : 0
+
+  project  = var.project_id
+  location = var.region
+  name     = var.custom_domain
+
+  metadata {
+    namespace = var.project_id
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.web[0].name
+  }
+}

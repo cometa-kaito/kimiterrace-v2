@@ -132,3 +132,24 @@ variable "deletion_protection" {
   type        = bool
   default     = true
 }
+
+variable "custom_domain" {
+  description = <<-EOT
+    Cloud Run service にマッピングするカスタムドメイン FQDN（例 staging.school-signage.net）。
+    空文字なら自動生成の <hash>.run.app のみ（マッピングを作らない）。
+
+    **前提（apply 前に必須）**: 当該ドメインの apex（school-signage.net）が Google Search Console で
+    **所有権検証済み**であること。未検証のまま apply するとドメインマッピング作成が Google API エラーで
+    失敗する（インフラは壊れないが当該リソースのみ未作成）。検証は apex に対する 1 回限りで、サブドメインは
+    検証済み apex の配下として継承される。DNS は Vercel（ns1/ns2.vercel-dns.com）管理。
+
+    apply 後、`status.resource_records`（CNAME → ghs.googlehosted.com 等）を output から取得し Vercel DNS に
+    登録 → マネージド TLS 証明書が自動発行される。
+
+    設計: 県教委 Wi-Fi は FQDN(SNI) 許可リスト方式で `app.school-signage.net` を許可済（docs/discovery/
+    wifi-filter-method.md, 制約 C01）。staging 用の別サブドメインは校内 Wi-Fi 許可リスト外（校外・合成データ
+    での検証は可）。本番切替（cutover）では同一 FQDN `app.school-signage.net` を流用しフィルタ再申請ゼロ。
+  EOT
+  type        = string
+  default     = ""
+}

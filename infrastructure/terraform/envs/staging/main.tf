@@ -226,6 +226,11 @@ module "cloud_run" {
   ai_enabled          = true
   memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
+  # カスタムドメイン。既定 "" = <hash>.run.app のみ（このPRは no-op で land）。
+  # 活性化（flip）の前提: apex school-signage.net を Search Console で所有権検証 → ここを
+  # "staging.school-signage.net" に変更して apply → output custom_domain_dns_records の CNAME を
+  # Vercel DNS に登録（ai_enabled と同じ gated→flip 運用）。v1 の app.school-signage.net は無傷。
+  custom_domain = ""
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
@@ -351,4 +356,14 @@ output "wif_plan_sa_email" {
 output "cloud_run_service_uri" {
   description = "Cloud Run web service の URL（未生成なら null）。smoke 用。"
   value       = module.cloud_run.service_uri
+}
+
+output "custom_domain" {
+  description = "マッピング済みカスタムドメイン（未設定なら null）。"
+  value       = module.cloud_run.custom_domain
+}
+
+output "custom_domain_dns_records" {
+  description = "カスタムドメインが要求する DNS レコード。apply 後 Vercel DNS に登録する（未設定なら空）。"
+  value       = module.cloud_run.custom_domain_dns_records
 }
