@@ -23,7 +23,8 @@ const describeOrSkip = url ? describe : describe.skip;
  *  (9) 月範囲外 (0/13) は RangeError、
  * (10) **active_in_month スコープ** (#555): 件数の対象は status='active' かつ契約期間が対象月窓と重なる
  *      契約のみ。draft/paused/terminated や期間外 (前月終了 / 翌月開始) の契約に紐づく当月 event は計上せず、
- *      該当広告主も 0 件で 1 行残る (網羅性不変)。契約開始の翌月境界 (excluded) / 当月境界 (included) も pin。
+ *      該当広告主も 0 件で 1 行残る (網羅性不変)。半開区間 [started_at, ended_at) × [monthStart, nextMonthStart)
+ *      の overlap 境界 (開始=翌月頭 excluded / 当月頭 included、終了=当月頭 excluded(gt) / 当月途中 included) も pin。
  *
  * fixture は 2 校 (schoolA / schoolB) + system_admin。広告主・契約・出稿コンテンツ・event は各テストで
  * seed する。時刻は make_timestamptz で DB 側に絶対 JST 時刻を組み now() 非依存にする ([[pg-date-bind-enum-insert]] と
@@ -512,6 +513,56 @@ describeOrSkip("F09 getMonthlyAdvertiserReport (広告主別 月次集計、RLS 
       {
         advertiserId: advAtNextStart,
         companyName: "翌月頭開始社",
+        views: 0,
+        taps: 0,
+        asks: 0,
+        total: 0,
+      },
+    ]);
+  });
+
+  it("active_in_month 境界: 契約終了が当月境界ちょうど (3/1 00:00 JST) は対象外、当月途中終了は対象 (半開区間 [started,ended) の重なり)", async () => {
+    const advEndsAtMonthStart = await seedAdvertiser("当月頭終了社");
+    const advEndsMidMonth = await seedAdvertiser("当月途中終了社");
+    // 1/1 開始・終了 = 当月 1 日 00:00 JST ちょうど → ended_at == monthStart で [started, ended) は対象月窓と
+    // 重ならない (overlap 0) → 対象外。ended 側を gte にすると誤って計上される境界 (この test が gt を pin)。
+    const conEndStart = await seedContract(advEndsAtMonthStart, {
+      status: "active",
+      started: { y: Y, mo: 1, d: 1 },
+      ended: { y: Y, mo: M, d: 1 },
+    });
+    // 1/1 開始・終了 = 当月 15 日 → 対象月窓と重なる → 対象 (正の対比)。
+    const conEndMid = await seedContract(advEndsMidMonth, {
+      status: "active",
+      started: { y: Y, mo: 1, d: 1 },
+      ended: { y: Y, mo: M, d: 15 },
+    });
+    const contentStart = await seedContent(fx.schoolA, "当月頭終了の掲示");
+    const contentMid = await seedContent(fx.schoolA, "当月途中終了の掲示");
+    await linkContractContent(conEndStart, contentStart);
+    await linkContractContent(conEndMid, contentMid);
+    // event は両者とも当月頭 (3/1 09:00) に置く (計上可否は契約の active_in_month のみで決まる)。
+    await seedEventAt(fx.schoolA, contentStart, "tap", { y: Y, mo: M, d: 1, h: 9, mi: 0 });
+    await seedEventAt(fx.schoolA, contentMid, "tap", { y: Y, mo: M, d: 1, h: 9, mi: 0 });
+
+    const rows = await withTenantContext(
+      db,
+      sysCtx(),
+      (tx) => getMonthlyAdvertiserReport(tx, { year: Y, month: M }),
+      APP,
+    );
+    expect(rows[0]).toEqual({
+      advertiserId: advEndsMidMonth,
+      companyName: "当月途中終了社",
+      views: 0,
+      taps: 1,
+      asks: 0,
+      total: 1,
+    });
+    expect(rows.slice(1)).toEqual([
+      {
+        advertiserId: advEndsAtMonthStart,
+        companyName: "当月頭終了社",
         views: 0,
         taps: 0,
         asks: 0,

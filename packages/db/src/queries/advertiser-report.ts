@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { type InferSelectModel, and, eq, gt, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { advertisers } from "../schema/advertisers.js";
 import { contents } from "../schema/contents.js";
@@ -141,9 +141,12 @@ export async function getMonthlyAdvertiserReport(
   // 広告主スコープを「対象月にアクティブな契約 (active_in_month)」に限定する条件
   // (monthly-report.md シーケンス図 `c.active_in_month($target_month)`、PR #554 Reviewer Medium-1 / #555)。
   // status='active' かつ契約期間 [started_at, ended_at) が対象月窓 [monthStart, nextMonthStart) と
-  // 重なる契約のみを広告主帰属の対象にする:
+  // 重なる契約のみを広告主帰属の対象にする。両区間とも半開なので overlap 判定は
+  // `started_at < nextMonthStart AND ended_at > monthStart` (a_start < b_end ∧ a_end > b_start):
   //   - started_at < nextMonthStart      … 対象月が終わる前に開始している (翌月以降に始まる契約は対象外)
-  //   - ended_at IS NULL OR >= monthStart … まだ継続中、または対象月が始まる以降に終了 (前月以前に終了した契約は対象外)
+  //   - ended_at IS NULL OR > monthStart … まだ継続中、または対象月が始まった後に終了 (前月以前に終了した
+  //     契約は対象外)。ended_at は exclusive 端なので `> monthStart` (strict)。ended_at == monthStart は
+  //     重なり 0 で対象外 (started_at == nextMonthStart の上端 strict と対称、半開区間の一貫した扱い)。
   // draft (未発効) / paused (停止) / terminated (終了) の契約や、対象月と重ならない期間の契約に紐づく
   // 当月 event は計上しない。これを contracts の LEFT JOIN の ON 節に載せることで、対象月にアクティブな契約を
   // 持たない広告主も 1 行 (0 件) のまま一覧に残す (網羅性は不変、件数だけアクティブ契約由来に絞る)。
@@ -151,7 +154,7 @@ export async function getMonthlyAdvertiserReport(
     eq(contracts.advertiserId, advertisers.id),
     eq(contracts.status, "active"),
     lt(contracts.startedAt, nextMonthStart),
-    or(isNull(contracts.endedAt), gte(contracts.endedAt, monthStart)),
+    or(isNull(contracts.endedAt), gt(contracts.endedAt, monthStart)),
   );
 
   // event 単位で重複排除した type 別件数 (contract_contents/contracts 経由の fan-out を吸収)。
