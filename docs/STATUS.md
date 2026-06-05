@@ -30,7 +30,20 @@ GCP プロジェクト: signage-v2-prod (asia-northeast1, 課金有効)
 
 ## 直近の完了
 
-- 2026-06-05: **🔻 引き継ぎ（最新）— ✅ 実機UIテスト発の改善一式を staging 反映完了（教員ロールで Chrome 巡回 → 発見した不具合/UX を全修正 → 再デプロイ → 実機で動作確認）**:
+- 2026-06-06: **🔻 引き継ぎ（最新・次セッション最優先）— ★ 多ロール UI テスト継続中 → 改善点を全修正 → 最終再デプロイ（#618 ソリッドカラー込み）**:
+  - **★ 次にやること**: ユーザー依頼「各ロールのテストアカウントを作って Chrome で UI を触り（ボタンの意味を解釈→押下結果を予想→実挙動との差分を確認）改善点を全修正」。**teacher 巡回は前タスクで完了**。**school_admin / system_admin の巡回が未着手**（アカウント発行済・下記）。任意で student（匿名 magic-link 閲覧）。→ 見つけた改善は **全て PR→fresh Reviewer→自律 merge** → 最後に **1回だけ再デプロイ**。
+  - **テストアカウント（staging IdP・全て pw `Kimiterrace-E2E-2026`・合成データのみ・再利用可）**:
+    - teacher: `e2e-teacher@kimiterrace-e2e.invalid`（uid `e2e51111-0000-4000-8000-000000000002`・**DB users 行あり→読み書き両方OK**）
+    - school_admin: `e2e-schooladmin@kimiterrace-e2e.invalid`（uid `...0004`・**claims のみ・users 行なし→読みOK / 書込 happy-path は created_by FK 失敗**。学校管理/教職員の書込を試すなら users 行 seed が要る）
+    - system_admin: `e2e-sysadmin@kimiterrace-e2e.invalid`（uid `...0005`・claims のみ・school_id なし・**書込も OK**＝コードが system_admin は created_by=null にするため FK 不要）
+    - 学校: 「E2Eテスト高校」`e2e51111-0000-4000-8000-000000000001`。ホーム遷移: teacher→/admin/editor, school_admin→/admin/school, system_admin→/admin/system/schools。
+  - **デプロイ状態（重要）**: **live = image `web:548a212`（revision `kimiterrace-web-00007-srg`・前タスクの UI フィックス済・ボタンはまだグラデ版）**。main HEAD = **`be2804c`**（= [#618](https://github.com/cometa-kaito/kimiterrace-v2/pull/618) UI グラデ→ソリッド `#c2410c` 反映済・merged）。**image `web:be2804c` は Cloud Build + AR push 済だが未デプロイ**（`web_image_tag` は `548a212` のまま）。→ **最終再デプロイで be2804c 以降を反映**。
+  - **最終再デプロイ手順**: ① 新規修正があれば最新 main から image build（`gcloud builds submit . --project=signage-v2-staging --config=<tmp yaml> --service-account=projects/signage-v2-staging/serviceAccounts/33826309713-compute@developer.gserviceaccount.com`、yaml は `docker build -f apps/web/Dockerfile -t <repo>/web:<sha> .` + `--build-arg GIT_COMMIT/NEXT_PUBLIC_FIREBASE_API_KEY(=terraform output -raw firebase_api_key)/AUTH_DOMAIN=signage-v2-staging.firebaseapp.com/PROJECT_ID=signage-v2-staging` + `images:` + `options.logging=CLOUD_LOGGING_ONLY`、repo=`asia-northeast1-docker.pkg.dev/signage-v2-staging/kimiterrace`）。② `infrastructure/terraform/envs/staging/main.tf` の `local.web_image_tag` を新 sha に bump → PR → fresh Reviewer → CI → 自律 merge。③ `terraform -chdir="infrastructure/terraform/envs/staging" apply -target=module.cloud_run -input=false -auto-approve`（ADC・トークン設定しない）。④ 実機確認（curl ヘッダ + Chrome）。**新規修正が無ければ** be2804c を deploy（tag を `548a212`→`be2804c` に bump して②③）。
+  - **Chrome 自動化の罠（実踏）**: `computer type` / `form_input` / Enter は **React 制御入力で不安定**（login は成功する時と入力が state に乗らず `required` で submit がブロックされ進まない時がある／teacher-input textarea・chat 入力は不発で POST が飛ばない）。**navigation + read_page（アクセシビリティツリー）+ screenshot は安定**。挙動テストは「URL 直打ち遷移 + guard(403)確認 + read_page + 予想↔実挙動」を主軸にし、フォーム送信の happy-path はツール制約として割り切る（人間の実入力なら動く・実 Vertex SSE は curl で裏取り済み）。ログインが進まない時は read_page で fresh ref 取り直し + 再試行、または stale ref に注意。アカウント切替はログアウト→再ログイン（新ログインで `__session` 上書き）。
+  - **設計の最上位軸（記憶化済 [[project_school_dx_no_teacher_burden]]）**: 校務DX＝先生に新たな工数を発生させない。監視/閲覧系は運営(system_admin)専用、学校側UIは最小入力。UI 判断は常にこの軸で。
+  - **このセッションで完了済（参考）**: #605/#606（音声入力 `microphone=(self)`）, #611（MFA 詰まり）, #612（ブランド/ログイン刷新/レスポンシブ/ログイン後遷移/open-redirect）, #614（④監視撤去+エディタ403）, #615（③送信後導線）, #618（グラデ→ソリッド・未deploy）。前タスクの teacher 実機確認で全て live 動作確認済（be2804c のソリッドのみ未反映）。
+  - **follow-up（非ブロッカー）**: favicon 226KB 最適化 / MFA の client SDK currentUser 喪失の復元機構（別issue候補）/ 「入力履歴」の nav 掲載（③は導線のみ）/ school_admin 書込 happy-path テスト用に users 行 seed（seed-staging-cli.ts 拡張 or 受容）/ student/signage 巡回はクラス+magic-link 発行が前提（E2E校はクラス0）。
+- 2026-06-05: **（履歴）✅ 実機UIテスト発の改善一式を staging 反映完了（教員ロールで Chrome 巡回 → 発見した不具合/UX を全修正 → 再デプロイ → 実機で動作確認）**:
   - **きっかけ**: ユーザーが staging を Chrome で実際に操作。①音声入力が `Permissions-Policy: microphone=()` で黙ってブロック（[#605](https://github.com/cometa-kaito/kimiterrace-v2/pull/605) `microphone=(self)` + [#606] image bump で先行修正・deploy 済）。続いて UI 巡回で複数の不具合/UX 問題を発見。
   - **方針確定（重要・記憶化済 [[project_school_dx_no_teacher_burden]]）**: 根本方針＝**校務DX＝先生の工数を増やさない**。「自校運営を見る」監視系（月次レポート/センサー管理/効果ダッシュボード）は学校側に不要＝**system_admin（運営）専用**。学校側UIは最小入力に徹する。
   - **修正4 PR（全て fresh Reviewer APPROVE + CI緑 + 自律 merge、main `548a212`）**:
