@@ -84,6 +84,18 @@ variable "embed_batch_size" {
   default     = 32
 }
 
+variable "ai_enabled" {
+  description = <<-EOT
+    実 Vertex AI 呼び出しのアプリ側 kill-switch（#289 / #593、ルール4 / ADR-030）。Job の env `AI_ENABLED` に写す。
+    true の時だけ embedding バッチが実 Vertex（gemini-embedding-001）を呼ぶ。**既定 false**（fail-safe = AI OFF）。
+    cloud_run（web）モジュールの同名変数と同方針。enabled=true で Job を活性化しても、本フラグが false の間は
+    バッチが Vertex を一切叩かず no-op で抜ける（多層防御）。PII マスキング設計 + aiplatform API 有効化の
+    検証が済むまで AI を on にしない。
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "cpu" {
   description = "コンテナ CPU リミット"
   type        = string

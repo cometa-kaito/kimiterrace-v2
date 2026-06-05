@@ -1,4 +1,9 @@
-import { type EmbeddingClient, type PiiEntry, createVertexEmbeddingClient } from "@kimiterrace/ai";
+import {
+  type EmbeddingClient,
+  type PiiEntry,
+  createVertexEmbeddingClient,
+  isAiEnabled,
+} from "@kimiterrace/ai";
 import {
   createDbClient,
   listSchools,
@@ -41,6 +46,11 @@ export type EmbeddingBatchSummary = {
   /** 全校合算の fail-closed skip 件数。非 0 は roster 欠落 / 新 PII 書式の兆候で要調査（ルール4）。 */
   blockedUnmaskedPii: number;
   perSchool: SchoolEmbeddingResult[];
+  /**
+   * AI kill-switch（`AI_ENABLED`）が無効で、Vertex も DB も一切触らず skip した場合に true（#593、ルール4）。
+   * 既定（AI 有効で実行）は undefined。entrypoint はこのフラグで「AI 無効 skip」を構造化ログに分けて残す。
+   */
+  aiDisabled?: boolean;
 };
 
 /** `embedAllSchools` の依存（実 PG / Vertex をフェイクに差し替えて単体検証するための注入点）。 */
@@ -105,14 +115,51 @@ export type RunEmbeddingBatchConfig = {
 };
 
 /**
+ * `runEmbeddingBatch` の差し替え可能依存（kill-switch / DB / Vertex を単体検証で観測する注入点、#593）。
+ * 既定はすべて実体。AI 無効時に DB / Vertex の生成すら起きないことを spy で検証するために注入する。
+ */
+export type RunEmbeddingBatchDeps = {
+  /** AI kill-switch 判定（既定は `@kimiterrace/ai` の {@link isAiEnabled} = `AI_ENABLED === "true"`）。 */
+  isEnabled?: () => boolean;
+  /** DB クライアント生成（既定は `createDbClient`）。**AI 無効時は呼ばれない**。 */
+  makeDb?: typeof createDbClient;
+  /** Vertex embedding クライアント生成（既定は `createVertexEmbeddingClient`）。**AI 無効時は呼ばれない**。 */
+  makeClient?: typeof createVertexEmbeddingClient;
+};
+
+/**
  * 実 PG + Vertex で全校バッチを実行する。接続は本関数が開き、終了時に必ず閉じる。
  * env 読取・プロセス終了コードは entrypoint (`embed-job.ts`) が担う（`migration/import.ts` と同じ分離）。
+ *
+ * ## AI kill-switch（#289 / #593、ルール4 / ADR-030）
+ * 実行の **最初** に AI_ENABLED kill-switch を見て、無効なら DB 接続も Vertex クライアント生成も行わず、
+ * `aiDisabled: true` の all-zero summary を返す。embedding バッチは別デプロイ単位（Cloud Run Job）で、
+ * web の入口（PR #592）とは独立に Vertex を呼ぶため、Job 側にも同じ kill-switch を配線して
+ * 「Job を有効化したら AI が制御無しで on になる窓」を塞ぐ。aiplatform API が有効でも `AI_ENABLED !== "true"`
+ * の間は Vertex を一切叩かせない多層防御。バッチは冪等なので、有効化後の再実行で未処理分を回収できる。
  */
 export async function runEmbeddingBatch(
   config: RunEmbeddingBatchConfig,
+  deps: RunEmbeddingBatchDeps = {},
 ): Promise<EmbeddingBatchSummary> {
-  const { sql, db } = createDbClient(config.databaseUrl);
-  const client = createVertexEmbeddingClient({
+  const isEnabled = deps.isEnabled ?? isAiEnabled;
+  // kill-switch（既定 OFF）: AI 無効なら DB も Vertex も一切触れず、aiDisabled の all-zero を返す。
+  // この判定を関数冒頭に置くことで、makeDb / makeClient は無効時に評価されない（spy で証明）。
+  if (!isEnabled()) {
+    return {
+      schools: 0,
+      scanned: 0,
+      embedded: 0,
+      skippedEmptyText: 0,
+      blockedUnmaskedPii: 0,
+      perSchool: [],
+      aiDisabled: true,
+    };
+  }
+  const makeDb = deps.makeDb ?? createDbClient;
+  const makeClient = deps.makeClient ?? createVertexEmbeddingClient;
+  const { sql, db } = makeDb(config.databaseUrl);
+  const client = makeClient({
     project: config.project,
     location: config.location,
     modelId: config.modelId,

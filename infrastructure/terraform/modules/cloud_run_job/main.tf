@@ -103,6 +103,13 @@ resource "google_cloud_run_v2_job" "embedding" {
           name  = "EMBED_BATCH_SIZE"
           value = tostring(var.embed_batch_size)
         }
+        # 実 Vertex 呼び出しの kill-switch（#289 / #593、ルール4 / ADR-030）。runEmbeddingBatch は
+        # AI_ENABLED === "true" の時だけ実 Vertex を呼ぶ。既定 false で AI OFF（fail-safe）。Job を
+        # enabled=true で活性化しても、本フラグが false の間はバッチが Vertex を一切叩かず no-op で抜ける。
+        env {
+          name  = "AI_ENABLED"
+          value = tostring(var.ai_enabled)
+        }
         # DATABASE_URL は **Secret Manager から注入**（ルール5、ハードコード禁止）。
         # 値は kimiterrace_app ロール（非 BYPASSRLS）の DSN（ルール2）。
         dynamic "env" {
