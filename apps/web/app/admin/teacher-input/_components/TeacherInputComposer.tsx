@@ -1,6 +1,7 @@
 "use client";
 
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -154,7 +155,15 @@ export function TeacherInputComposer() {
         <output
           style={{ display: "block", color: "#15803d", fontSize: "0.9rem", marginTop: "0.6rem" }}
         >
-          入力を受け付けました。AI が内容を整理します。
+          入力を受け付けました。AI が内容を整理しています。{" "}
+          {/* 送信後に状況を追える導線（旧: 確認メッセージのみで宙ぶらり）。履歴で AI 整理の進捗を確認できる。 */}
+          <Link
+            href="/admin/teacher-input/history"
+            style={{ color: "#2563eb", textDecoration: "underline" }}
+          >
+            入力履歴で状況を確認できます
+          </Link>
+          。
         </output>
       ) : null}
       {submit.kind === "error" ? (
