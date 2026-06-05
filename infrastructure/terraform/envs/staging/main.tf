@@ -92,7 +92,9 @@ locals {
   #          実 Vertex 有効化の前段として、この gated image を **API 有効化より前に** deploy（#592/#595）。
   # 6f504d3: #289 ④ retired モデルピン修正（gemini-1.5-pro-002→gemini-2.5-flash、#598）。実 Vertex を
   #          現行モデルで稼働させるための再 deploy（AI_ENABLED=true 維持）。実 Vertex 結合 test で裏取り済。
-  web_image_tag = "6f504d3"
+  # 37a19de: #605 Permissions-Policy を microphone=(self) に修正（F02 教員音声入力のブロック回帰を解消）。
+  #          ヘッダは next build 時に焼かれるため、修正反映には再 build/deploy が必須（本タグ bump）。
+  web_image_tag = "37a19de"
 }
 
 module "network" {
