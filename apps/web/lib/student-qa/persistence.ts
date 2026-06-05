@@ -36,7 +36,7 @@ export type AssistantMessageParams = {
   sessionId: string;
   /** PII マスキング済の本文 (ルール4)。 */
   maskedText: string;
-  /** Vertex 応答の model_version (例: "gemini-1.5-pro-002")。監査の追跡性。 */
+  /** Vertex 応答の model_version (例: "gemini-2.5-flash")。監査の追跡性。 */
   modelVersion: string;
   /** RAG 引用元 (空配列なら "[]")。本スライスでは context として渡した content の id 列を入れる。 */
   evidence: readonly ChatEvidenceItem[];

@@ -82,7 +82,7 @@ describe("createVertexChatStreamClient", () => {
 
     const r = client.stream({ system: "s", user: "u" });
     await drain(r.textStream);
-    expect((await r.done).modelVersion).toBe("gemini-1.5-pro-002");
+    expect((await r.done).modelVersion).toBe("gemini-2.5-flash");
   });
 
   it("usage.outputTokens 欠落時は tokenCount=0 にフォールバックする", async () => {

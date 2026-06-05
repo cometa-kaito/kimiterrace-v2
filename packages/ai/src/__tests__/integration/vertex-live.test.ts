@@ -69,7 +69,7 @@ describeOrSkip("Vertex AI Gemini live integration (#154 item 3)", () => {
       expect(res.usage.promptTokens).toBeGreaterThan(0);
       expect(res.usage.completionTokens).toBeGreaterThan(0);
       // ADR-017 のピン (既定 modelId) がそのまま modelVersion として返ること。
-      expect(res.modelVersion).toBe("gemini-1.5-pro-002");
+      expect(res.modelVersion).toBe("gemini-2.5-flash");
     },
     LIVE_TIMEOUT_MS,
   );
@@ -95,7 +95,7 @@ describeOrSkip("Vertex AI Gemini live integration (#154 item 3)", () => {
       expect(result.kind).toBe("summary");
       // SHA-256 hex = 64 桁 lowercase。
       expect(result.rawInputHash).toMatch(/^[0-9a-f]{64}$/);
-      expect(result.modelVersion).toBe("gemini-1.5-pro-002");
+      expect(result.modelVersion).toBe("gemini-2.5-flash");
       expect(result.attempts).toBeGreaterThanOrEqual(1);
       expect(result.usage.totalTokens).toBeGreaterThan(0);
 

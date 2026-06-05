@@ -133,8 +133,8 @@ describe("createVertexModelClient（Vertex アダプタ契約）", () => {
       user: "u",
     });
     expect(defaultRes.text).toBe('{"ok":true}');
-    // 既定は ADR-017 の Gemini Pro ピン。
-    expect(defaultRes.modelVersion).toBe("gemini-1.5-pro-002");
+    // 既定は DEFAULT_MODEL_ID（#289 ④ で gemini-2.5-flash に更新、旧 1.5 Pro retired）。
+    expect(defaultRes.modelVersion).toBe("gemini-2.5-flash");
 
     const explicitRes = await createVertexModelClient({
       ...DUMMY_CONFIG,

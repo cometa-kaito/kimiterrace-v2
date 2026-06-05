@@ -164,12 +164,12 @@ describe("createVertexEffectCommentClient（Vertex アダプタ契約）", () =>
     expect(res.usage).toEqual({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
   });
 
-  it("既定 modelId は ADR-017 の Gemini Pro ピン、明示指定も反映する", async () => {
+  it("既定 modelId は #289 ④ の gemini-2.5-flash ピン、明示指定も反映する", async () => {
     const def = await createVertexEffectCommentClient(DUMMY_CONFIG).generate({
       system: "s",
       user: "u",
     });
-    expect(def.modelVersion).toBe("gemini-1.5-pro-002");
+    expect(def.modelVersion).toBe("gemini-2.5-flash");
 
     const explicit = await createVertexEffectCommentClient({
       ...DUMMY_CONFIG,

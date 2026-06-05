@@ -9,7 +9,7 @@ import { streamText } from "ai";
  * と同じ依存逆転を踏襲しつつ、**逐次ストリーミング** (`streamText`) を返す点が異なる。生徒チャットは
  * 体感速度のため token を逐次表示する (SSE) ので一括 `generateText` ではなくストリームを使う。
  *
- * - モデルは ADR-017 の Gemini Pro をバージョンピン (既定 `gemini-1.5-pro-002`)。project / location
+ * - モデルは ADR-017 のバージョンピン (既定 `gemini-2.5-flash`、#289 ④ で旧 1.5 Pro retired により更新)。project / location
  *   はハードコードせず注入 (リージョンは asia-northeast1 固定運用、NFR07 データ越境ゼロ)。
  * - 認証は ADC / Workload Identity (CLAUDE.md ルール5、JSON キーファイル禁止)。`@ai-sdk/google-vertex`
  *   が google-auth-library 経由で ADC を解決する。
@@ -24,7 +24,7 @@ export interface VertexChatStreamConfig {
   project: string;
   /** リージョン。F06 も asia-northeast1 固定運用。 */
   location: string;
-  /** バージョンピンしたモデル ID。既定は ADR-017 の Gemini Pro。 */
+  /** バージョンピンしたモデル ID。既定は {@link DEFAULT_MODEL_ID}（ADR-017 / #289 ④）。 */
   modelId?: string;
 }
 
@@ -44,8 +44,8 @@ export interface VertexChatStreamClient {
   stream(req: { system: string; user: string }): ChatStreamResult;
 }
 
-/** 既定モデル。F03/F08 と揃える (ADR-017 Gemini Pro ピン)。 */
-const DEFAULT_MODEL_ID = "gemini-1.5-pro-002";
+/** 既定モデル。F03/F08 と揃える (ADR-017 / #289 ④: 旧 1.5 Pro retired → Flash tier に更新)。 */
+const DEFAULT_MODEL_ID = "gemini-2.5-flash";
 
 /**
  * Vertex Gemini の SSE ストリーミングクライアントを生成する。本番は Cloud Run の Workload Identity

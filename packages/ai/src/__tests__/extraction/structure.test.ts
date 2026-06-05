@@ -15,7 +15,7 @@ function fakeModel(responses: string[]): ModelClient & { requests: ModelRequest[
       requests.push(req);
       const text = responses[Math.min(i, responses.length - 1)] ?? "";
       i += 1;
-      return { text, usage: USAGE, modelVersion: "gemini-1.5-pro-002" };
+      return { text, usage: USAGE, modelVersion: "gemini-2.5-flash" };
     },
   };
 }
@@ -45,7 +45,7 @@ describe("structureContent", () => {
       data: { title: "田中太郎が欠席" },
     });
     expect(res.usage).toEqual(USAGE);
-    expect(res.modelVersion).toBe("gemini-1.5-pro-002");
+    expect(res.modelVersion).toBe("gemini-2.5-flash");
     expect(res.rawInputHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
