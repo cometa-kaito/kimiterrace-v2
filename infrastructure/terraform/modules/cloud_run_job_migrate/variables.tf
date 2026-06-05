@@ -34,6 +34,16 @@ variable "image" {
   default     = ""
 }
 
+variable "command" {
+  description = <<-EOT
+    コンテナ entrypoint の上書き（list(string)）。空 list なら image の CMD（migrate-cli）をそのまま使う。
+    同一 migrate イメージから別エントリを起動する用途に使う（#289 ④: seed Job は
+    `["node","dist/seed-staging-cli.js"]` を指定して staging テストフィクスチャを投入する）。
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "database_url_secret_id" {
   description = <<-EOT
     DATABASE_URL を保持する Secret Manager secret の ID（ルール5）。

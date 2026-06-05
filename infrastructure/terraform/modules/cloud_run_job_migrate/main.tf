@@ -54,8 +54,10 @@ resource "google_cloud_run_v2_job" "migrate" {
       timeout         = var.task_timeout
 
       containers {
-        # image の CMD = ["node","dist/migrate-cli.js"]（migrate.Dockerfile）。command/args は上書きしない。
-        image = var.image
+        # image の CMD = ["node","dist/migrate-cli.js"]（migrate.Dockerfile）。既定は上書きしない。
+        # var.command を指定すると entrypoint を上書きする（#289 ④ seed Job が seed-staging-cli を起動）。
+        image   = var.image
+        command = length(var.command) > 0 ? var.command : null
 
         # DATABASE_URL = migrator DSN（Secret Manager から注入、ルール5・ハードコード禁止）。
         dynamic "env" {
