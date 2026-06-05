@@ -17,6 +17,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+// next/link は内部で next/navigation context を参照するため、上の mock 下では素の anchor に置換する
+// (href 検証だけできれば十分。再ログイン導線の有無が検証対象)。
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock("@/lib/mfa/enrollment-actions", () => ({ recordMfaEnrollmentAudit: vi.fn() }));
 vi.mock("firebase/auth", () => ({
   multiFactor: vi.fn(),
@@ -152,5 +165,29 @@ describe("MfaEnrollment 監査失敗 UX (#544 Reviewer Low-2)", () => {
 
     expect(await screen.findByText(/解除に失敗しました/)).toBeInTheDocument();
     expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * currentUser を client SDK から復元できない状態 (cookie session のみで遷移 / 再読込で in-memory ユーザー
+ * 喪失) の UX 回帰。requireRole は cookie session で通るためページは表示されるが、MFA 登録は IdP client SDK
+ * の現在ユーザー (+ 再認証) を要する。この時ユーザーが詰まらないこと:
+ * - 再ログイン導線 (`/login?next=/admin/account/mfa`) が必ず存在する (リンク/ボタンが無いと詰む)。
+ * - 文言が問題報告 + 行動依頼 (案内であって「成功」ではない)。
+ */
+describe("MfaEnrollment currentUser 未復元時の再ログイン導線 (詰み防止)", () => {
+  it("currentUser が無い時は再ログイン導線 (/login?next=/admin/account/mfa) を表示する", () => {
+    // currentUser=null。enroll/unenroll の mock は不要 (登録 UI まで到達しない)。
+    getClientAuthMock.mockReturnValue({
+      currentUser: null,
+    } as unknown as ReturnType<typeof getClientAuth>);
+    render(<MfaEnrollment />);
+
+    // 行き先付き再ログインリンクが存在する (詰み防止の不変条件)。
+    const loginLink = screen.getByRole("link", { name: /ログインし直す/ });
+    expect(loginLink).toHaveAttribute("href", "/login?next=/admin/account/mfa");
+
+    // 「登録」操作 UI はこの状態では出さない (登録には currentUser が必要)。
+    expect(screen.queryByRole("button", { name: "二要素認証を登録" })).not.toBeInTheDocument();
   });
 });
