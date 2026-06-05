@@ -1,8 +1,8 @@
 import { requireRole } from "@/lib/auth/guard";
-import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
-import { maskDeviceMac, presentSensorStatus } from "@/lib/sensors/status-presentation";
 import { SENSOR_WRITE_ROLES } from "@/lib/sensors/mutations-core";
+import { maskDeviceMac, presentSensorStatus } from "@/lib/sensors/status-presentation";
+import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/db";
 
 /**
@@ -17,11 +17,13 @@ import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/
  * (`listSensorDeviceStatuses`)、UI は色 + テキスト両方で示す。新規登録 / 編集 / 撤去（mutation）と
  * **system_admin の全校横断ビュー**は引き続き後続スライスに残す（#485 と同じ defer 方針）。
  *
- * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え `requireRole(PUBLISHER_ROLES)`
- * （school_admin / teacher）。#485 で merge 済みのアクセス境界を**変えない**（teacher を締め出さない）。
- * データの school 境界は `withSession` が張る RLS context が DB レベルで強制する（`sensor_devices` の
- * `tenant_isolation`、CLAUDE.md ルール2）。クエリは `school_id` 条件を書かず RLS に委譲する。
- * system_admin 全校ビューは別ルート（後続スライス）に切り出すため、本ページの guard には含めない。
+ * **認可（校務DX原則: 監視系は運営専用）**: センサー管理は「自校の運営を見る／設定する」運用系で、先生・
+ * 校長の校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
+ * `requireRole(SYSTEM_ADMIN_ROLES)`（system_admin のみ）に締める。teacher / school_admin は nav から
+ * 撤去済み + ここで 403（`/forbidden`）。全校横断のセンサー状態ビューは `/admin/system/sensors` で運営に
+ * 提供する。データの school 境界は `withSession` が張る RLS context が DB レベルで強制する（`sensor_devices`
+ * の `tenant_isolation` / `system_admin_full_access`、CLAUDE.md ルール2）。クエリは `school_id` 条件を
+ * 書かず RLS に委譲する。
  *
  * **公開透明性（ADR-020）**: 来場検知は PIR センサーでカメラ非使用。ダッシュボードと同じく「カメラ不使用」
  * バッジを常時表示する。
@@ -30,12 +32,12 @@ import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/
  * 依存せず日本語ラベルで提示する（`presentSensorStatus` の label を併記、色のみに依存しない）。
  */
 export default async function SensorsPage() {
-  const user = await requireRole(PUBLISHER_ROLES);
+  const user = await requireRole(SYSTEM_ADMIN_ROLES);
   const sensors = await withSession((tx) => listSensorDeviceStatuses(tx));
 
-  // 登録/編集 (mutation) は school_admin のみ (teacher は read 専用)。link/列も role で出し分ける
-  // (#391 mutation スライス、SENSOR_WRITE_ROLES と整合。teacher に出しても Server Action が 403 で弾くが
-  // 死リンクを見せない)。
+  // 登録/編集 (mutation) は SENSOR_WRITE_ROLES (自校 school_admin、school_id 必須) のみ。本ページは
+  // system_admin 限定に締めたため、system_admin は SENSOR_WRITE_ROLES に含まれず canWrite=false となり、
+  // 学校スコープ前提の登録/編集リンクは出さない (死リンクを見せない、Server Action 側も 403)。
   const canWrite = (SENSOR_WRITE_ROLES as readonly string[]).includes(user.role);
 
   const activeCount = sensors.filter((s) => s.decommissionedAt == null).length;
@@ -111,8 +113,8 @@ export default async function SensorsPage() {
         日以内なら「静観」（休日・長期休暇等）、7
         日以上検知が無ければ「応答なし」（電池切れ・通信断の
         疑い）、一度も検知が無ければ「未検知」。検知回数は人感センサーの動き検知回数で、個人を識別する
-        情報は含みません。新規登録・編集・撤去操作と system_admin
-        の全校横断ビューは後続スライスで提供します。
+        情報は含みません。全校横断のセンサー状態ビューは「センサー管理（全校）」（/admin/system/sensors）
+        で提供します。
       </p>
     </section>
   );

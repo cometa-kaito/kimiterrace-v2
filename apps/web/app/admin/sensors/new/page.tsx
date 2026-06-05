@@ -1,21 +1,22 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
-import { SENSOR_WRITE_ROLES } from "@/lib/sensors/mutations-core";
+import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { listSchoolClassesForSensorForm } from "@kimiterrace/db";
 import { SensorForm } from "../_components/SensorForm";
 
 /**
  * F13 (#391, ADR-020): 来場検知センサーの **新規登録**フォームページ `/admin/sensors/new`。**Server Component**。
  *
- * #485/#486 が defer した mutation スライスの register 側。認可は **school_admin のみ**
- * (`SENSOR_WRITE_ROLES`、teacher は read 専用なので 403 → /forbidden)。一覧 `/admin/sensors`
- * (read は PUBLISHER_ROLES) よりロールを絞る (操作系の認可第一層、ルール2 多層防御)。
+ * **認可（校務DX原則: 監視系は運営専用）**: センサー管理は学校側の校務を楽にする機能ではないため、
+ * 一覧 (`/admin/sensors`) と同じく本ページも `requireRole(SYSTEM_ADMIN_ROLES)`（system_admin のみ）に
+ * 締める。teacher / school_admin は nav から撤去済み + ここで 403 → /forbidden。
  *
- * クラス選択肢は `withSession` の自校 RLS context で取得する (`classes` の tenant_isolation が他校を弾く)。
- * 登録の実体は Server Action (`createSensorDeviceAction`) + RLS の WITH CHECK + device_mac グローバル一意。
+ * クラス選択肢は `withSession` の RLS context で取得する (`classes` の tenant_isolation /
+ * system_admin_full_access)。登録の実体は Server Action (`createSensorDeviceAction`) で、こちらは school_id
+ * を持つ自校 actor を要する設計のため system_admin は実登録できない（運営は当面 read 中心。実害は無い）。
  */
 export default async function NewSensorPage() {
-  await requireRole(SENSOR_WRITE_ROLES);
+  await requireRole(SYSTEM_ADMIN_ROLES);
   const classes = await withSession((tx) => listSchoolClassesForSensorForm(tx));
 
   return (

@@ -40,9 +40,11 @@ vi.mock("@/lib/db", () => ({
   ForbiddenError,
 }));
 
-// publish-core は @kimiterrace/db の error クラス連鎖を引くため、定数だけに差し替える。
-vi.mock("@/lib/contents/publish-core", () => ({
-  PUBLISHER_ROLES: ["school_admin", "teacher"] as const,
+// 校務DX原則で月次レポートは運営専用に締めた → route は SYSTEM_ADMIN_ROLES を使う。
+// 実定数 (@/lib/system-admin/roles) は @kimiterrace/db の型のみ import で軽量だが、テストの
+// 自己完結性のため定数を差し替える (他テストの publish-core モックと同方針)。
+vi.mock("@/lib/system-admin/roles", () => ({
+  SYSTEM_ADMIN_ROLES: ["system_admin"] as const,
 }));
 
 // ---- モック: @kimiterrace/db 集計関数 ---------------------------------------
@@ -75,13 +77,14 @@ function get(ym?: string): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   authed = true;
-  currentRole = "teacher";
+  // 校務DX原則で月次レポートは運営 (system_admin) 専用。許可ロールを既定にする。
+  currentRole = "system_admin";
   getMonthlySchoolSummary.mockResolvedValue(SAMPLE);
   getMonthlyAdReach.mockResolvedValue(AD_SAMPLE);
 });
 
 describe("GET /api/reports/monthly", () => {
-  it("teacher は 200 + text/csv ヘッダ + 添付ファイル名", async () => {
+  it("system_admin は 200 + text/csv ヘッダ + 添付ファイル名", async () => {
     const res = await GET(get("2026-03"));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/csv; charset=utf-8");
@@ -138,15 +141,22 @@ describe("GET /api/reports/monthly", () => {
     expect(getMonthlySchoolSummary).not.toHaveBeenCalled();
   });
 
-  it("非 publisher ロール (student) は 403 で集計未到達", async () => {
+  it("非運営ロール (student) は 403 で集計未到達", async () => {
     currentRole = "student";
     const res = await GET(get("2026-03"));
     expect(res.status).toBe(403);
     expect(getMonthlySchoolSummary).not.toHaveBeenCalled();
   });
 
-  it("system_admin も 403 (自校スコープのビュー、cross-tenant は別スライス)", async () => {
-    currentRole = "system_admin";
+  it("teacher は 403 (校務DX原則で監視系は運営専用、学校側には出さない)", async () => {
+    currentRole = "teacher";
+    const res = await GET(get("2026-03"));
+    expect(res.status).toBe(403);
+    expect(getMonthlySchoolSummary).not.toHaveBeenCalled();
+  });
+
+  it("school_admin も 403 (校務DX原則で監視系は運営専用、学校側には出さない)", async () => {
+    currentRole = "school_admin";
     const res = await GET(get("2026-03"));
     expect(res.status).toBe(403);
     expect(getMonthlySchoolSummary).not.toHaveBeenCalled();

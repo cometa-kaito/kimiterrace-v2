@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
-import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
+import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import {
   currentJstYearMonth,
   formatYearMonth,
@@ -19,10 +19,15 @@ import { getMonthlyAdReach, getMonthlySchoolSummary } from "@kimiterrace/db";
  * サマリー (view/tap/ask 総数・稼働日数・コンテンツ別ランキング) を 1 枚で見せる (F09 受け入れ条件
  * 「学校別レポート: 教員向け、サイネージ全体の活動サマリー」)。
  *
- * **認可 (#166 / ダッシュボードと整合)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、
- * 本ページは `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。自校スコープの
- * ビューであり、system_admin 向けの cross-tenant レポート / PDF ダウンロード・`monthly_reports` 履歴・
- * Cloud Storage 保存は後続スライスで用意する。
+ * **認可 (校務DX原則: 監視系は運営専用)**: 月次レポートは「自校の運営を見る」閲覧系で、先生・校長の
+ * 校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
+ * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に締める。teacher / school_admin は nav から
+ * 撤去済み + ここで 403 (`/forbidden`)。全校横断の月次レポート履歴 / PDF ダウンロードは
+ * `/admin/system/reports` で運営に提供する。
+ *
+ * 注: 本ページの集計 (`getMonthlySchoolSummary` 等) は school_id スコープ前提だが、system_admin は
+ * school_id を持たず通常 nav からは到達しない (撤去済)。URL 直打ちの system_admin に対しては RLS の
+ * `system_admin_full_access` policy 下で集計が走り (空表示で落ちはしない)、実害は無い。
  *
  * **広告別 到達数 (#322 / ADR-025)**: 学校別サマリーの「延べ表示数 (engagement)」とは別に、広告ごとの
  * **到達数 (reach)** を `getMonthlyAdReach` (`(client_id, ad_id, JST 分)` で集計時 minute-dedup) で当月分
@@ -41,7 +46,7 @@ export default async function MonthlyReportPage({
 }: {
   searchParams: Promise<{ ym?: string }>;
 }) {
-  await requireRole(PUBLISHER_ROLES);
+  await requireRole(SYSTEM_ADMIN_ROLES);
 
   const current = currentJstYearMonth();
   // ?ym=YYYY-MM を検証。不正・未指定・未来月は現在の JST 暦月に丸める (未来はデータ不在のため)。
@@ -50,12 +55,12 @@ export default async function MonthlyReportPage({
 
   const summary = await withSession(
     (tx) => getMonthlySchoolSummary(tx, { year: target.year, month: target.month }),
-    { allowedRoles: PUBLISHER_ROLES },
+    { allowedRoles: SYSTEM_ADMIN_ROLES },
   );
   // 広告別 到達数 (reach、minute-dedup)。延べ表示数 (engagement) とは別指標 (#322 / ADR-025)。
   const adReach = await withSession(
     (tx) => getMonthlyAdReach(tx, { year: target.year, month: target.month }),
-    { allowedRoles: PUBLISHER_ROLES },
+    { allowedRoles: SYSTEM_ADMIN_ROLES },
   );
 
   const prev = shiftMonth(target, -1);

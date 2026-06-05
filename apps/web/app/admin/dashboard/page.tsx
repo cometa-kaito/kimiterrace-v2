@@ -1,7 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
-import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
-import { EffectCommentPanel } from "./_components/EffectCommentPanel";
+import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import {
   densifyPresenceHeatmap,
   densifyPresenceHourly,
@@ -29,24 +28,31 @@ import {
  *
  * F07 (#43) が `events` に記録した行動ログ (view/tap) を、自校スコープで集計表示する。
  *
- * **認可 (#166 と整合)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
- * `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。F08 仕様の「ダッシュボード
- * (school_admin / teacher 閲覧、school_id スコープ)」に対応する自校ビューで、system_admin 向けの
- * cross-tenant ビューは別スライス (専用画面) で用意する。コンテンツ一覧 (#166) と同じ方針で
- * system_admin はここでは早期 403 (`/forbidden`) に倒し、自校用画面に横断データを混ぜない。
+ * **認可 (校務DX原則: 監視系は運営専用)**: 効果ダッシュボードは「自校の運営を見る」閲覧系で、先生・
+ * 校長の校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
+ * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に締める。teacher / school_admin は nav から
+ * 撤去済み + ここで 403 (`/forbidden`)。全校横断の効果ダッシュボードは `/admin/system/dashboard` で
+ * 運営に提供する。
+ *
+ * 注: 本ページの集計は school_id スコープ前提だが、system_admin は school_id を持たず通常 nav からは
+ * 到達しない (撤去済)。URL 直打ちの system_admin に対しては RLS の `system_admin_full_access` policy
+ * 下で集計が走り (空表示で落ちはしない)、実害は無い。
  *
  * `withSession` で RLS context を張り集計する (school 境界は RLS が DB レベルで強制、CLAUDE.md
  * ルール2)。サマリ + content 別ランキング + **日次の推移** (JST 暦日、第2スライス) を表示。
  * 重い描画ライブラリ (Recharts/Visx) は導入せず、時系列は **CSS バーの軽量 SSR** で描く (依存追加を
- * 避ける)。**AI 効果コメント** (slice 3) は本ページが描画する Client island
- * (`<EffectCommentPanel />`) で、生成は課金 + 監査記録のためボタン起動 (本 Server Component は
- * action を load 時に呼ばない)。
+ * 避ける)。
+ *
+ * 注: **AI 効果コメント (`<EffectCommentPanel />`) は本ページから撤去した**。当該 Server Action
+ * `generateEffectComment` は `PUBLISHER_ROLES` (school_admin / teacher) を要し school_id 必須のため、
+ * system_admin 専用化した本ページでは未捕捉の ForbiddenError になる + system_admin は school_id を
+ * 持たず空集計で意味が無い。全校横断の効果可視化は `/admin/system/dashboard` で運営に提供する。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きで提示し、色のみに依存しない。
  * ランキングは `<table>` + `<th scope>`、時系列バーも各行に件数テキストを併記して読み上げ可能にする。
  */
 export default async function DashboardPage() {
-  await requireRole(PUBLISHER_ROLES);
+  await requireRole(SYSTEM_ADMIN_ROLES);
   // 同一 RLS context (1 tx) で全クエリを実行する。
   const { stats, daily, hourly, presence, dailyPresence, presenceHeatmap } = await withSession(
     async (tx) => ({
@@ -131,8 +137,8 @@ export default async function DashboardPage() {
       <h2 style={sectionTitleStyle}>在室ヒートマップ (15 分 × 平日/休日)</h2>
       <PresenceHeatmap heatmap={presenceHeatmap} />
 
-      {/* F08 slice 3: AI 効果コメント (Client island)。生成は課金 + 監査のためボタン起動。 */}
-      <EffectCommentPanel />
+      {/* AI 効果コメント (EffectCommentPanel) は school 専用機能のため system_admin 専用化に伴い撤去
+          (docstring 参照)。全校横断の効果可視化は /admin/system/dashboard で運営に提供する。 */}
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>

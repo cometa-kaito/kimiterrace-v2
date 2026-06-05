@@ -198,12 +198,13 @@ const API_CASES: readonly ApiCase[] = [
     allow: ["school_admin", "teacher"],
     denyStatus: 403,
   },
-  // GET /api/reports/monthly = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403。
+  // GET /api/reports/monthly = SYSTEM_ADMIN_ROLES (system_admin のみ)。校務DX原則で月次レポートは
+  // 運営専用に締めたため、teacher / school_admin は 403。画面 /admin/reports と整合。
   {
-    label: "GET /api/reports/monthly (PUBLISHER_ROLES; system_admin 403)",
+    label: "GET /api/reports/monthly (SYSTEM_ADMIN_ROLES; teacher/school_admin 403)",
     method: "GET",
     path: "/api/reports/monthly",
-    allow: ["school_admin", "teacher"],
+    allow: ["system_admin"],
     denyStatus: 403,
   },
 ];
