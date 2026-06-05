@@ -5,7 +5,7 @@ import type { ModelClient, ModelRequest, ModelResponse } from "./client.js";
 /**
  * Vertex AI Gemini アダプタ（ADR-005 Vertex AI / ADR-006 Vercel AI SDK / ADR-017）。
  *
- * - モデルは Gemini Pro 固定・バージョンピン（ADR-017 決定1、`gemini-1.5-pro-002`）。
+ * - モデルはバージョンピン（ADR-017 決定1。`gemini-2.5-flash`、#289 ④ で旧 1.5 Pro retired により更新）。
  * - 認証は ADC / Workload Identity（CLAUDE.md ルール5、JSON キーファイル禁止）。
  *   `@ai-sdk/google-vertex` は google-auth-library 経由で ADC を解決するため、本番 Cloud Run では
  *   Workload Identity がそのまま効き、ローカルは `gcloud auth application-default login` で賄える。
@@ -37,11 +37,14 @@ export interface VertexModelConfig {
   project: string;
   /** リージョン。F03 は asia-northeast1 固定運用。 */
   location: string;
-  /** バージョンピンしたモデル ID。既定は ADR-017 の Gemini Pro。 */
+  /** バージョンピンしたモデル ID。既定は {@link DEFAULT_MODEL_ID}（ADR-017 / #289 ④）。 */
   modelId?: string;
 }
 
-const DEFAULT_MODEL_ID = "gemini-1.5-pro-002";
+// #289 ④: 旧 `gemini-1.5-pro-002` は Vertex から retired (実呼び出しで 404) のためバージョンピン更新。
+// ユーザー判断 (2026-06-05) で掲示物 Q&A / 構造化抽出 / 効果コメントの用途に Flash tier (低コスト・
+// 低レイテンシ) を採用 (ADR-017 の Pro tier から更新)。embedding は gemini-embedding-001 のまま現行。
+const DEFAULT_MODEL_ID = "gemini-2.5-flash";
 
 export function createVertexModelClient(config: VertexModelConfig): ModelClient {
   const vertex = createVertex({ project: config.project, location: config.location });

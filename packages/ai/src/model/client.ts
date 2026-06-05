@@ -26,7 +26,7 @@ export interface ModelResponse {
   /** JSON モードで生成された生テキスト（未パース）。 */
   text: string;
   usage: ModelUsage;
-  /** 例: "gemini-1.5-pro-002"。監査の `model_version` 列に記録する。 */
+  /** 例: "gemini-2.5-flash"。監査の `model_version` 列に記録する。 */
   modelVersion: string;
 }
 

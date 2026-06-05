@@ -22,12 +22,12 @@ export interface EffectCommentModelConfig {
   project: string;
   /** リージョン。F08 も asia-northeast1 固定運用（NFR07 データ越境ゼロ）。 */
   location: string;
-  /** バージョンピンしたモデル ID。既定は ADR-017 の Gemini Pro。 */
+  /** バージョンピンしたモデル ID。既定は {@link DEFAULT_MODEL_ID}（ADR-017 / #289 ④）。 */
   modelId?: string;
 }
 
-/** 既定モデル。F03 と揃える（ADR-017 Gemini Pro ピン）。月次・低頻度バッチのため Pro で可。 */
-const DEFAULT_MODEL_ID = "gemini-1.5-pro-002";
+/** 既定モデル。F03/F06 と揃える（ADR-017 / #289 ④: 旧 1.5 Pro retired → Flash tier に更新）。 */
+const DEFAULT_MODEL_ID = "gemini-2.5-flash";
 
 /**
  * テキストモード（非 JSON）の Vertex Gemini アダプタ。`createVertexModelClient`（vertex.ts）と異なり
