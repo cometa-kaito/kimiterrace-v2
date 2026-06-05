@@ -75,6 +75,10 @@ locals {
   # migration Job が使うイメージタグ（M2 build/push 済。再ビルド時はここを更新）。
   migrate_image_tag = "fefe8b0"
 
+  # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
+  # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
+  seed_image_tag = "seed-e2e"
+
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
   db_url_app_secret_id = "staging-db-url-app"
@@ -177,6 +181,25 @@ module "cloud_run_job_migrate" {
   vpc_connector          = module.network.vpc_connector_id
   grant_app_role_member  = "app" # migration 後 GRANT kimiterrace_app TO app（app login が SET ROLE できるように）
   deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
+}
+
+# #289 ④: app 層 E2E 用 staging テストフィクスチャ seed Job（on-demand）。
+# migrate と同じモジュール/イメージを **command 上書き** で再利用し、`dist/seed-staging-cli.js` を起動する。
+# migrator DSN（BYPASSRLS）で 1 校 + 1 教員 + 1 teacher_input を投入（冪等）。実行は
+# `gcloud run jobs execute kimiterrace-seed --region asia-northeast1 --project signage-v2-staging`。
+# IdP アカウント作成 + login + F03/F06 実呼び出しはローカルから行う（本 Job は DB seed のみ）。
+module "cloud_run_job_seed" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-seed"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_image_tag}"
+  command                = ["node", "dist/seed-staging-cli.js"] # migrate-cli でなく seed-cli を起動
+  database_url_secret_id = local.db_url_migrator_secret_id      # migrator DSN（BYPASSRLS で cross-tenant seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
 }
 
 # Identity Platform（ADR-003）。職員 email/password サインイン + claims-based（tenant 非使用）
