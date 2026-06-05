@@ -17,20 +17,26 @@ const describeOrSkip = url ? describe : describe.skip;
  *   1. 逐次 N 連送（同 MAC + 同 occurred_at）→ 2 回目以降 duplicate、events は 1 件のみ（正の対比）。
  *   2. detection_state だけ変えた再送 → dedup は (MAC, occurred_at) キーなので duplicate のまま。
  *      攻撃者が検知状態を反転して計上を水増しすることはできない（dedup キーの堅牢性）。
- *   3. timeOfSampleMs=null の再送 → dedup ブロックを丸ごとスキップ（L81）するため二重計上される。
- *      = 既知ギャップ（#567）。null-ts 経路は dedup されないことを characterization として固定する。
+ *   3. **並行再送（TOCTOU）**を同時発火 → events は 1 件のみ（#567 の本丸を決定的に固定）。
+ *   4. timeOfSampleMs=null の再送 → 受信時刻 now() で別行記録（#437 の意図的設計、dedup 対象外）。
  *
- * ## 範囲正直: 並行再送（TOCTOU）はここでは「監査として明示」に留める（#567）
+ * ## #567 修正: 並行再送 TOCTOU を DB の部分 UNIQUE index で直列化
  *
- * app 層 dedup は SELECT→INSERT であり行ロックでも UNIQUE 制約でもない。`events` には presence
- * dedup キーの UNIQUE インデックスが存在しない（`events.ts` の index は非 unique）。よって
- * **同時刻の 2 つの同一再送が両方 dedup SELECT で 0 行を観測 → 両方 INSERT** し二重計上する
- * （READ COMMITTED の phantom race）。これは本テストでは**決定的に再現できない**（実 PG の
- * 並行スケジューリング依存で flaky になる）ため、敵対断言ではなく **#567 の監査項目**として明示し、
- * 修正（presence 用 partial UNIQUE index + `ON CONFLICT DO NOTHING`）は schema-token レーンに委ねる。
- * 本テストが固定するのは「逐次 dedup は機能する／detection_state で破れない／null-ts は素通り」の
- * 決定的な 3 点であり、並行ギャップは #567 で追跡する。#567 修正後は test 3 の断言（二重計上）を
- * 「1 件」へ更新すること。
+ * app 層 dedup（事前 SELECT→INSERT）は行ロックでも UNIQUE でもないため、**同時刻の 2 つの同一再送が
+ * 両方 SELECT で 0 行を観測 → 両方 INSERT** する phantom race（READ COMMITTED）が起きうる。#567 で
+ * `events` に部分 UNIQUE index `ux_events_presence_dedup` (school_id, payload->>'device_mac',
+ * occurred_at) WHERE type='presence' を追加し、`recordPresenceEvent` の INSERT を `ON CONFLICT DO
+ * NOTHING` で原子化した。これにより 2 つの並行再送が SELECT を素通りしても DB が INSERT を直列化し、
+ * 先着のみ recorded・後着は duplicate になる。**勝者非依存の不変条件（events=1 件）**で断言するため、
+ * 並行スケジューリングに依存せず決定的（[[feedback_realpg_concurrency_test_deterministic]] と同方針）。
+ *
+ * ## null-ts は #437 の意図的トレードオフ（dedup 対象外、ここでは仕様として固定）
+ *
+ * `timeOfSampleMs=null` は「タイムスタンプ未送」だけでなく、**#437 Low-1 の時刻注入緩和**で sane window
+ * 外の時刻を受信時刻に倒した検知でもある（occurred_at 汚染を無力化しつつ「検知は捨てない」）。これらは
+ * occurred_at=now() で毎回別値になり本 UNIQUE index では衝突しない＝ #437 設計どおり別行で記録される
+ * （行数膨張は IP レート制限が律速）。#567 の「null は reject せよ」案は **#437 の検知保持を退行**させる
+ * ため採らない（authoritative な ADR-020/#437 が issue 提案に優先、[[feedback_verify_design_against_adr_before_build]]）。
  *
  * 実 PG（kimiterrace_app + RLS）が要るため DATABASE_URL 未設定ではスキップ（CI Test job で実走）。
  */
@@ -94,11 +100,30 @@ describeOrSkip("T-02 / SEC-008: presence 再送リプレイの冪等性 (recordP
     expect(await countPresenceAs(fx.schoolA)).toBe(1);
   });
 
-  it("【既知ギャップ #567】timeOfSampleMs=null の再送は dedup されず二重計上される", async () => {
-    // sensor-presence.ts L81: dedup は occurred_at が非 null のときのみ。null-ts は dedup を
-    // スキップするため、同一 MAC の null-ts 連送が二重計上される。本断言は現状（脆弱）の
-    // characterization。#567（presence 用 partial UNIQUE index + null-ts の取り扱い明示）解決後は
-    // toBe(1) へ更新すること。
+  it("並行再送（TOCTOU）: 同一 timestamped 再送を同時発火しても events は 1 件（ON CONFLICT が直列化、#567）", async () => {
+    // #567 の本丸。2 つの同一再送を Promise.all で同時発火する。各 recordPresenceEvent は別 tx
+    // （pool の別接続）で走り、両者が app 層の事前 SELECT で 0 行を観測しても、部分 UNIQUE index
+    // ux_events_presence_dedup が INSERT を直列化する（READ COMMITTED の phantom race を封鎖）。
+    const input = {
+      deviceMac: "AABBCCDDEE01",
+      detectionState: "DETECTED",
+      timeOfSampleMs: T,
+      eventVersion: null,
+    };
+    const [a, b] = await Promise.all([
+      recordPresenceEvent(db, input, APP),
+      recordPresenceEvent(db, input, APP),
+    ]);
+    // 勝者非依存の不変条件: ちょうど 1 件 recorded・1 件 duplicate、events は 1 行のみ（timing 非依存）。
+    // 修正前は両方 SELECT 0 行 → 両方 INSERT で 2 件になりえた（TOCTOU 二重計上）。
+    expect([a.status, b.status].sort()).toEqual(["duplicate", "recorded"]);
+    expect(await countPresenceAs(fx.schoolA)).toBe(1);
+  });
+
+  it("timeOfSampleMs=null は #437 設計どおり受信時刻 now() で別行記録される（dedup 対象外）", async () => {
+    // null-ts は「未送」だけでなく #437 Low-1 で sane window 外の時刻を受信時刻に倒した検知でもある。
+    // occurred_at=now()（tx ごとに別値）で本 UNIQUE index に衝突せず別行で記録される＝ #437 の
+    // 「検知を捨てず受信時刻で記録・行数膨張は IP レート制限が律速」設計の固定（#567 で reject しない）。
     const input = {
       deviceMac: "AABBCCDDEE01",
       detectionState: "DETECTED",
@@ -108,7 +133,7 @@ describeOrSkip("T-02 / SEC-008: presence 再送リプレイの冪等性 (recordP
     const r1 = await recordPresenceEvent(db, input, APP);
     const r2 = await recordPresenceEvent(db, input, APP);
     expect(r1.status).toBe("recorded");
-    expect(r2.status).toBe("recorded"); // dedup されない（null-ts 経路）
+    expect(r2.status).toBe("recorded"); // null-ts は dedup 対象外（#437 設計）
     expect(await countPresenceAs(fx.schoolA)).toBe(2);
   });
 });
