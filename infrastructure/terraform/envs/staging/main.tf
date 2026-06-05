@@ -94,7 +94,10 @@ locals {
   #          現行モデルで稼働させるための再 deploy（AI_ENABLED=true 維持）。実 Vertex 結合 test で裏取り済。
   # 37a19de: #605 Permissions-Policy を microphone=(self) に修正（F02 教員音声入力のブロック回帰を解消）。
   #          ヘッダは next build 時に焼かれるため、修正反映には再 build/deploy が必須（本タグ bump）。
-  web_image_tag = "37a19de"
+  # 548a212: 実機UIテストで見つかった一連の改善をまとめて反映 — #611 MFA詰まり / #612 ブランド適用・
+  #          ログイン刷新・レスポンシブ・ログイン後遷移修正・open-redirect 防止 / #615 送信後UX導線 /
+  #          #614 監視系の学校側撤去・エディタ403行き止まり修正。UI/認可変更ゆえ再 build/deploy で反映。
+  web_image_tag = "548a212"
 }
 
 module "network" {
