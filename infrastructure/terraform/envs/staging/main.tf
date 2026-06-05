@@ -97,7 +97,10 @@ locals {
   # 548a212: 実機UIテストで見つかった一連の改善をまとめて反映 — #611 MFA詰まり / #612 ブランド適用・
   #          ログイン刷新・レスポンシブ・ログイン後遷移修正・open-redirect 防止 / #615 送信後UX導線 /
   #          #614 監視系の学校側撤去・エディタ403行き止まり修正。UI/認可変更ゆえ再 build/deploy で反映。
-  web_image_tag = "548a212"
+  # 6e62f09: 多ロール(school_admin/system_admin)UI巡回の改善一式 — #618 グラデ→ソリッド / #620 日本語
+  #          エラー/404境界 / #621 ログアウト可視化・広告主nav配線・教員i18n・体裁 / #622 モバイル浮遊
+  #          メニュー・no-gradient原則。UI/CSS変更ゆえ再 build/deploy で反映。
+  web_image_tag = "6e62f09"
 }
 
 module "network" {
