@@ -16,7 +16,10 @@
   --brand-muted: #6b7280;
   --brand-border: #e5e7eb;
   --brand-bg-soft: #f7f8fa;
-  --brand-gradient: linear-gradient(135deg, #e0823c 0%, #cf8a63 45%, #6fa8c7 100%);
+  /* UI のアクセント色はソリッド（グラデーションはロゴ画像のみに使う方針・ユーザー指定 2026-06-05）。
+     ロゴ基調のオレンジを白文字で可読なコントラスト（WCAG AA）に落とした深いオレンジを採用。 */
+  --brand-primary: #c2410c;
+  --brand-primary-hover: #9a3412;
 }
 
 *,
@@ -53,14 +56,14 @@ body {
   font-size: 1rem;
   font-weight: 600;
   color: #fff;
-  background: var(--brand-gradient);
+  background: var(--brand-primary);
   cursor: pointer;
   transition:
-    filter 0.15s ease,
+    background 0.15s ease,
     opacity 0.15s ease;
 }
 .brand-btn:hover:not(:disabled) {
-  filter: brightness(1.05);
+  background: var(--brand-primary-hover);
 }
 .brand-btn:disabled {
   opacity: 0.55;
@@ -158,7 +161,7 @@ body {
   background: rgba(31, 41, 55, 0.05);
 }
 .admin-nav a[aria-current="page"] {
-  background: var(--brand-gradient);
+  background: var(--brand-primary);
   color: #fff;
   font-weight: 600;
 }
