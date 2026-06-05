@@ -173,6 +173,10 @@ body {
   font-size: 0.95rem;
   cursor: pointer;
 }
+/* メイン領域の余白は基底をここで持つ（モバイルで media-query が上書きするため）。 */
+.admin-main {
+  padding: 1.5rem;
+}
 @media (max-width: 768px) {
   .admin-body {
     flex-direction: column;

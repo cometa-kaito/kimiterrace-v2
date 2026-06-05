@@ -73,4 +73,6 @@ const roleBadgeStyle: React.CSSProperties = {
 
 const bodyStyle: React.CSSProperties = { display: "flex", flex: 1 };
 
-const mainStyle: React.CSSProperties = { flex: 1, padding: "1.5rem", minWidth: 0 };
+// padding はメディアクエリで可変にするため `.admin-main`（globals.css）側で持つ
+// （インライン padding を置くとモバイルの media-query 上書きが効かなくなるため）。
+const mainStyle: React.CSSProperties = { flex: 1, minWidth: 0 };

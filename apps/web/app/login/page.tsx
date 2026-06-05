@@ -28,7 +28,10 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // 既定は /admin（ロール別ホームへサーバーが振り分ける）。`/` は行き止まりだったため使わない。
-  const next = searchParams.get("next") || "/admin";
+  // オープンリダイレクト防止: 同一オリジンの相対パス（先頭 "/" かつ "//"・"/\" でない）のみ許可し、
+  // それ以外（外部 URL・protocol-relative 等）は /admin にフォールバックする。
+  const rawNext = searchParams.get("next");
+  const next = rawNext && /^\/(?![/\\])/.test(rawNext) ? rawNext : "/admin";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
