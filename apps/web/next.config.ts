@@ -5,6 +5,50 @@ import type { NextConfig } from "next";
 const monorepoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 /**
+ * Content-Security-Policy（**Report-Only から段階導入**、#591 / Part of #243）。
+ *
+ * enforced CSP を盲目的に入れると Firebase Auth / Next の inline を壊しうるため、まず
+ * `Content-Security-Policy-Report-Only` で配信する。**Report-Only は非ブロッキング**で、違反は
+ * ブラウザ devtools console に報告されるだけで実機能を壊さない。live staging で auth フロー・各機能・
+ * SSE（/api/student/chat）・signage を踏み、報告された違反を洗い出してから enforce（`Content-Security-Policy`）
+ * へ昇格する（違反ゼロ確認は本 PR の範囲外＝ staging 観測の follow-up）。
+ *
+ * 各 directive の根拠:
+ * - `default-src 'self'`: 既定は自オリジンのみ。
+ * - `base-uri 'self'` / `object-src 'none'` / `frame-ancestors 'self'` / `form-action 'self'`:
+ *   即時に締められる高価値 directive（base tag 注入 / プラグイン / クリックジャッキング / フォーム乗っ取り防止）。
+ *   frame-ancestors は X-Frame-Options SAMEORIGIN の近代版で整合。
+ * - `connect-src`: ブラウザの fetch/XHR/WebSocket 先を自オリジン + **Firebase Auth（Identity Platform）**の
+ *   identitytoolkit / securetoken / www.googleapis.com に限定（lib/auth/clientApp.ts の firebase/auth SDK
+ *   が叩く先、ADR-003）。これがデータ持ち出し面の本丸。Sentry browser SDK / GCS 直アクセス等が観測されたら
+ *   staging 踏みで追加する。
+ * - `img-src 'self' data: blob:` / `font-src 'self' data:`: 自オリジン + inline。外部画像（GCS 等）は
+ *   Report-Only で違反として可視化し、enforce 前に必要分だけ許可する。
+ * - `script-src` / `style-src` に `'unsafe-inline'`: Next.js（App Router / SSR）はハイドレーション用の
+ *   inline script / style を注入する。Report-Only 段階では inline を許可して**他の違反（connect 先・外部資産）に
+ *   集中**し、enforce 前に nonce / hash / 'strict-dynamic' へ締める（#591 の enforce-prep。`'unsafe-eval'` は
+ *   付けない＝必要なら staging 観測で判断）。
+ *
+ * 文字列は build 時にレスポンスヘッダへ焼き込まれる（再 build / redeploy で反映、live curl で検証）。
+ * テスト容易性のため named export し、`__tests__` から directive を pin する（default export = Next 設定本体）。
+ */
+const CSP_REPORT_ONLY_DIRECTIVES = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline'",
+  "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com",
+] as const;
+
+/** Report-Only CSP のヘッダ値（directive を `; ` で連結）。#591。 */
+export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.join("; ");
+
+/**
  * Next.js 設定。
  *
  * - `output: "standalone"` は Cloud Run 用の最小ランタイムを生成する。
@@ -40,7 +84,7 @@ const nextConfig: NextConfig = {
 
   // 全ルートに多層防御のセキュリティレスポンスヘッダを付与する（live staging DAST 検証で全欠落を検出）。
   // 公立校生徒データを扱うため defense-in-depth を最小コストで足す。Cloud Run は HTTPS-only。
-  // CSP は Firebase Auth / Next の inline を壊しうるため本 PR では入れず、report-only からの段階導入を別 follow-up。
+  // CSP は enforce すると Firebase Auth / Next の inline を壊しうるため、まず Report-Only で段階導入する（#591）。
   async headers() {
     return [
       {
@@ -62,6 +106,13 @@ const nextConfig: NextConfig = {
           // 「許可されていない」エラーになるため `microphone=(self)` で自オリジンのみ許可する。
           // camera / geolocation は未使用なので `()` で全面禁止のまま（多層防御 / 最小権限）。
           { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+          // CSP は **Report-Only**（非ブロッキング）で段階導入する（#591）。違反は devtools console に
+          // 報告されるのみで実機能を壊さない。staging 観測で違反ゼロを確認後 `Content-Security-Policy`
+          // （enforce）へ昇格する。
+          {
+            key: "Content-Security-Policy-Report-Only",
+            value: CONTENT_SECURITY_POLICY_REPORT_ONLY,
+          },
         ],
       },
     ];
