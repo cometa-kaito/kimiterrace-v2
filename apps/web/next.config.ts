@@ -56,8 +56,12 @@ const nextConfig: NextConfig = {
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           // Referrer 漏洩を最小化（クロスオリジンには origin のみ送出）。
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          // 不要なブラウザ機能を無効化（本 app は camera / microphone / geolocation を使わない）。
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // 不要なブラウザ機能を無効化しつつ、使う機能だけ自オリジンに許可する（最小権限）。
+          // microphone は F02 教員音声入力（Web Speech API、`lib/teacher-input/use-speech-to-text.ts`）が
+          // 使う → `microphone=()`（全面禁止）だとブラウザが許可プロンプトを出す前にポリシーで遮断し、
+          // 「許可されていない」エラーになるため `microphone=(self)` で自オリジンのみ許可する。
+          // camera / geolocation は未使用なので `()` で全面禁止のまま（多層防御 / 最小権限）。
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
         ],
       },
     ];
