@@ -22,8 +22,11 @@ const monorepoRoot = fileURLToPath(new URL("../../", import.meta.url));
  *   identitytoolkit / securetoken / www.googleapis.com に限定（lib/auth/clientApp.ts の firebase/auth SDK
  *   が叩く先、ADR-003）。これがデータ持ち出し面の本丸。Sentry browser SDK / GCS 直アクセス等が観測されたら
  *   staging 踏みで追加する。
- * - `img-src 'self' data: blob:` / `font-src 'self' data:`: 自オリジン + inline。外部画像（GCS 等）は
- *   Report-Only で違反として可視化し、enforce 前に必要分だけ許可する。
+ * - `img-src` / `media-src` / `font-src`: 自オリジン + inline(data:/blob:)。**signage の広告は外部 CDN の
+ *   画像/動画**（`SignageClient` の `ad.mediaUrl` を `<img>`/`<video>` で表示）を読む。外部 CDN の画像・動画・
+ *   GCS 等は Report-Only で違反として可視化し、enforce 前に必要な CDN オリジンだけ許可する。`media-src` を
+ *   **明示**するのは、無いと `<video>` が `default-src 'self'` に落ちて違反種別が紛れ enforce 時に見落とす
+ *   ため（Reviewer 指摘）。
  * - `script-src` / `style-src` に `'unsafe-inline'`: Next.js（App Router / SSR）はハイドレーション用の
  *   inline script / style を注入する。Report-Only 段階では inline を許可して**他の違反（connect 先・外部資産）に
  *   集中**し、enforce 前に nonce / hash / 'strict-dynamic' へ締める（#591 の enforce-prep。`'unsafe-eval'` は
@@ -39,6 +42,7 @@ const CSP_REPORT_ONLY_DIRECTIVES = [
   "frame-ancestors 'self'",
   "form-action 'self'",
   "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self' 'unsafe-inline'",

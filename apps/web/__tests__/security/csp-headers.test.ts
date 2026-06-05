@@ -32,6 +32,13 @@ describe("CSP Report-Only ヘッダ (#591)", () => {
     expect(p).toContain("form-action 'self'");
   });
 
+  it("media-src を明示する（signage 広告の <video> が default-src に落ちて enforce 時に見落とされるのを防ぐ）", () => {
+    // signage の広告は外部 CDN の画像/動画（SignageClient の ad.mediaUrl）を表示する。media-src を明示して
+    // おかないと <video> が default-src 'self' に falls back し、enforce 移行時に動画が黙って壊れる（Reviewer 指摘）。
+    const directives = CONTENT_SECURITY_POLICY_REPORT_ONLY.split("; ");
+    expect(directives.find((d) => d.startsWith("media-src"))).toContain("'self'");
+  });
+
   it("connect-src は自オリジン + Firebase Auth(Identity Platform) に限定し、ワイルドカードを使わない", () => {
     const connect = CONTENT_SECURITY_POLICY_REPORT_ONLY.split("; ").find((d) =>
       d.startsWith("connect-src"),
