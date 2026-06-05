@@ -27,7 +27,7 @@ function fill(email = "teacher@example.com", displayName = "山田先生") {
 }
 
 describe("StaffCreateForm (#508 発行フォーム)", () => {
-  it("発行できるのは teacher のみと明示する (role 境界の可視化)", () => {
+  it("発行できるのは教員のみと明示する (role 境界の可視化)", () => {
     render(<StaffCreateForm />);
     expect(screen.getByText(/発行できるのは/)).toBeInTheDocument();
   });

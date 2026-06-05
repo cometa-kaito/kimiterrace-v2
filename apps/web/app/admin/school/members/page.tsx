@@ -50,7 +50,7 @@ export default async function SchoolMembersPage() {
           稼働 {activeCount} / 全 {members.length} 名
         </span>
         <Link href="/admin/school/members/new" style={newLinkStyle}>
-          ＋ teacher を発行
+          ＋ 教員を発行
         </Link>
       </header>
       <p style={subtitleStyle}>

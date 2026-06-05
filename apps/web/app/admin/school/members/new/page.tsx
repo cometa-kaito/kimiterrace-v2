@@ -20,7 +20,7 @@ export default async function NewStaffPage() {
       <Link href="/admin/school/members" style={backLinkStyle}>
         ← 教職員一覧
       </Link>
-      <h1 style={titleStyle}>teacher アカウントの発行</h1>
+      <h1 style={titleStyle}>教員アカウントの発行</h1>
       <StaffCreateForm />
     </section>
   );

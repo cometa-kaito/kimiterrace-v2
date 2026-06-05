@@ -109,11 +109,12 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック + 二要素認証（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック + 二要素認証（自校エディタは出さない）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
       "/admin/system/users",
+      "/admin/system/advertisers",
       "/admin/system/dashboard",
       "/admin/system/sensors",
       "/admin/system/reports",
@@ -147,6 +148,20 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/system/users");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/system/users");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/users");
+  });
+
+  it("広告主 (/admin/system/advertisers) は system_admin 専用 (F10 #46 CRM、cross-tenant、収益中核)", () => {
+    // 広告主マスタ/契約/コミュニケーションは requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にする。
+    // 実装・テスト済なのに nav 配線が漏れて URL 直打ちでしか到達できなかったため導線を追加 (死リンクなし)。
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain(
+      "/admin/system/advertisers",
+    );
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain(
+      "/admin/system/advertisers",
+    );
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain(
+      "/admin/system/advertisers",
+    );
   });
 
   it("全校ダッシュボード (/admin/system/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /admin/dashboard とは別ルート)", () => {
