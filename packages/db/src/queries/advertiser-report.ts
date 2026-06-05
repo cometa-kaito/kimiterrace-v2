@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { type InferSelectModel, and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { advertisers } from "../schema/advertisers.js";
 import { contents } from "../schema/contents.js";
@@ -22,6 +22,14 @@ import { events } from "../schema/events.js";
  * event」になる。`ads` テーブル (表示メディア) は CRM の advertiser アカウントとは**別概念**で
  * advertiser_id を持たないため、本集計は `contract_contents` 経由のコンテンツ紐付けを唯一の
  * 広告主帰属とする (data-model.md / ADR-018)。
+ *
+ * ## 広告主スコープ = 対象月にアクティブな契約のみ (active_in_month、#555)
+ * authoritative な `monthly-report.md` シーケンス図は広告主スコープを `c.active_in_month($target_month)`
+ * に限定する。したがって件数の対象になるのは **`status='active'` かつ契約期間が対象月窓と重なる**契約に
+ * 紐づくコンテンツの event だけ。`draft`(未発効) / `paused`(停止) / `terminated`(終了) の契約や、対象月
+ * より前に終了した / 翌月以降に始まる契約に紐づく当月 event は計上しない (例: 先月終了した契約の掲示物が
+ * 当月もサイネージに残って view を稼いでも、その広告主に過大計上しない)。この絞り込みは contracts の
+ * LEFT JOIN の ON 節に載せるため、対象月にアクティブな契約を持たない広告主も 1 行 (0 件) で一覧に残る。
  *
  * ## 重複計上の回避 (count distinct event)
  * 1 コンテンツが同一広告主の**複数契約**に紐づく / 1 広告主が複数契約を持つ場合、素朴な
@@ -87,9 +95,10 @@ const REPORTED_EVENT_TYPES = ["view", "tap", "ask"] as const;
 /**
  * 広告主アカウント単位の月次反応サマリーを **JST 暦月**で集計する (RLS で system_admin スコープ)。
  *
- * 広告主ごとに 1 行を返し、その広告主が契約 (`contracts`) ⟶ `contract_contents` ⟶ `contents` で
- * 出稿したコンテンツに対する当月の view/tap/ask 件数を `count(distinct events.id)` で出す。当月に
- * 反応が 1 件も無い広告主も**会社名と 0 件で 1 行**返す (広告主一覧として欠落させない。LEFT JOIN)。
+ * 広告主ごとに 1 行を返し、その広告主が**対象月にアクティブな契約** (`contracts`、active_in_month) ⟶
+ * `contract_contents` ⟶ `contents` で出稿したコンテンツに対する当月の view/tap/ask 件数を
+ * `count(distinct events.id)` で出す (#555)。対象月にアクティブな契約が無い / 当月反応が 1 件も無い広告主も
+ * **会社名と 0 件で 1 行**返す (広告主一覧として欠落させない。LEFT JOIN)。
  *
  * 並びは合計反応数 (total) 降順、同数は会社名昇順 → advertiserId 昇順で決定的に並べる。
  *
@@ -129,6 +138,22 @@ export async function getMonthlyAdvertiserReport(
     inArray(events.type, [...REPORTED_EVENT_TYPES]),
   );
 
+  // 広告主スコープを「対象月にアクティブな契約 (active_in_month)」に限定する条件
+  // (monthly-report.md シーケンス図 `c.active_in_month($target_month)`、PR #554 Reviewer Medium-1 / #555)。
+  // status='active' かつ契約期間 [started_at, ended_at) が対象月窓 [monthStart, nextMonthStart) と
+  // 重なる契約のみを広告主帰属の対象にする:
+  //   - started_at < nextMonthStart      … 対象月が終わる前に開始している (翌月以降に始まる契約は対象外)
+  //   - ended_at IS NULL OR >= monthStart … まだ継続中、または対象月が始まる以降に終了 (前月以前に終了した契約は対象外)
+  // draft (未発効) / paused (停止) / terminated (終了) の契約や、対象月と重ならない期間の契約に紐づく
+  // 当月 event は計上しない。これを contracts の LEFT JOIN の ON 節に載せることで、対象月にアクティブな契約を
+  // 持たない広告主も 1 行 (0 件) のまま一覧に残す (網羅性は不変、件数だけアクティブ契約由来に絞る)。
+  const contractActiveInMonth = and(
+    eq(contracts.advertiserId, advertisers.id),
+    eq(contracts.status, "active"),
+    lt(contracts.startedAt, nextMonthStart),
+    or(isNull(contracts.endedAt), gte(contracts.endedAt, monthStart)),
+  );
+
   // event 単位で重複排除した type 別件数 (contract_contents/contracts 経由の fan-out を吸収)。
   const distinctOfType = (type: (typeof REPORTED_EVENT_TYPES)[number]) =>
     sql<number>`count(distinct ${events.id}) filter (where ${events.type} = ${type})`.mapWith(
@@ -152,7 +177,7 @@ export async function getMonthlyAdvertiserReport(
     .from(advertisers)
     // 広告主 → 契約 → 出稿コンテンツ → event の連鎖。すべて LEFT JOIN で、契約/出稿/反応が無い広告主も
     // 1 行 (0 件) 残す。RLS により CRM 表は system_admin のみ可視、events/contents も同 context で全校可視。
-    .leftJoin(contracts, eq(contracts.advertiserId, advertisers.id))
+    .leftJoin(contracts, contractActiveInMonth)
     .leftJoin(contractContents, eq(contractContents.contractId, contracts.id))
     .leftJoin(contents, eq(contents.id, contractContents.contentId))
     .leftJoin(events, eventInScope)

@@ -20,7 +20,10 @@ const describeOrSkip = url ? describe : describe.skip;
  *  (6) 反応 0 の広告主も会社名 + 0 件で 1 行残る (LEFT JOIN)、
  *  (7) ask は content_id を持つ event のみ帰属・content_id 無しの一般 ask は誤帰属しない、
  *  (8) 並びは total 降順 → 会社名昇順 → advertiserId 昇順で決定的、
- *  (9) 月範囲外 (0/13) は RangeError。
+ *  (9) 月範囲外 (0/13) は RangeError、
+ * (10) **active_in_month スコープ** (#555): 件数の対象は status='active' かつ契約期間が対象月窓と重なる
+ *      契約のみ。draft/paused/terminated や期間外 (前月終了 / 翌月開始) の契約に紐づく当月 event は計上せず、
+ *      該当広告主も 0 件で 1 行残る (網羅性不変)。契約開始の翌月境界 (excluded) / 当月境界 (included) も pin。
  *
  * fixture は 2 校 (schoolA / schoolB) + system_admin。広告主・契約・出稿コンテンツ・event は各テストで
  * seed する。時刻は make_timestamptz で DB 側に絶対 JST 時刻を組み now() 非依存にする ([[pg-date-bind-enum-insert]] と
@@ -48,11 +51,32 @@ describeOrSkip("F09 getMonthlyAdvertiserReport (広告主別 月次集計、RLS 
     return row.id;
   }
 
-  /** 広告主に契約を 1 件作って契約 id を返す。 */
-  async function seedContract(advertiserId: string): Promise<string> {
+  /** {y,mo,d} を JST 00:00 の timestamptz SQL 片にする (Date を bind せず DB 側で絶対時刻を組む)。 */
+  const jstTs = (t: { y: number; mo: number; d: number }) =>
+    raw`make_timestamptz(${t.y}::int, ${t.mo}::int, ${t.d}::int, 0, 0, 0, 'Asia/Tokyo')`;
+
+  /**
+   * 広告主に契約を 1 件作って契約 id を返す。
+   *
+   * 既定は「対象月 (Y/M) にアクティブな契約」: `status='active'`・started_at = Y/01/01 JST (当月より前)・
+   * ended_at = NULL (継続中)。これにより active_in_month フィルタ (#555) 導入後も既存テストの契約が
+   * 当月にアクティブと判定される。status / 契約期間を上書きして、draft/paused/terminated や期間外
+   * (前月終了 / 翌月開始) の契約も作れる。
+   */
+  async function seedContract(
+    advertiserId: string,
+    opts: {
+      status?: "draft" | "active" | "paused" | "terminated";
+      started?: { y: number; mo: number; d: number };
+      ended?: { y: number; mo: number; d: number } | null;
+    } = {},
+  ): Promise<string> {
+    const status = opts.status ?? "active";
+    const started = opts.started ?? { y: Y, mo: 1, d: 1 };
+    const endedExpr = opts.ended ? jstTs(opts.ended) : raw`NULL`;
     const [row] = await raw<{ id: string }[]>`
-      INSERT INTO contracts (advertiser_id, status, started_at, monthly_fee_jpy)
-      VALUES (${advertiserId}, 'active', now(), 50000)
+      INSERT INTO contracts (advertiser_id, status, started_at, ended_at, monthly_fee_jpy)
+      VALUES (${advertiserId}, ${status}, ${jstTs(started)}, ${endedExpr}, 50000)
       RETURNING id
     `;
     return row.id;
@@ -347,6 +371,153 @@ describeOrSkip("F09 getMonthlyAdvertiserReport (広告主別 月次集計、RLS 
       APP,
     );
     expect(rows.map((r) => r.companyName)).toEqual(["アルファ社", "ゼータ社"]);
+  });
+
+  it("active_in_month: draft/paused/terminated 契約の event は計上せず active のみ計上 (該当広告主も 0 件で 1 行残る)", async () => {
+    // 各 status の契約を持つ広告主を用意し、すべて当月にコンテンツ event を 1 件投入する。
+    // active 以外 (draft/paused/terminated) は active_in_month でないため、当月 event があっても計上されない。
+    const advActive = await seedAdvertiser("アクティブ社");
+    const advDraft = await seedAdvertiser("下書き社");
+    const advPaused = await seedAdvertiser("停止社");
+    const advTerminated = await seedAdvertiser("終了社");
+    const cases = [
+      [advActive, "active", "アクティブ掲示"],
+      [advDraft, "draft", "下書き掲示"],
+      [advPaused, "paused", "停止掲示"],
+      [advTerminated, "terminated", "終了掲示"],
+    ] as const;
+    for (const [adv, status, title] of cases) {
+      const con = await seedContract(adv, { status });
+      const content = await seedContent(fx.schoolA, title);
+      await linkContractContent(con, content);
+      await seedEventAt(fx.schoolA, content, "tap", { y: Y, mo: M, d: 10, h: 9, mi: 0 });
+    }
+
+    const rows = await withTenantContext(
+      db,
+      sysCtx(),
+      (tx) => getMonthlyAdvertiserReport(tx, { year: Y, month: M }),
+      APP,
+    );
+    // active 社のみ tap 1 (total 降順で先頭に確定)。非空虚の正の対比 = 同じ seed 経路でも active なら計上される。
+    expect(rows[0]).toEqual({
+      advertiserId: advActive,
+      companyName: "アクティブ社",
+      views: 0,
+      taps: 1,
+      asks: 0,
+      total: 1,
+    });
+    // 残り 3 社は 0 件だが LEFT JOIN で 1 行ずつ残る (一覧の網羅性は不変)。会社名 collation 順に依存しないよう集合で検証。
+    const rest = rows.slice(1);
+    expect(rest).toHaveLength(3);
+    expect(new Set(rest.map((r) => r.advertiserId))).toEqual(
+      new Set([advDraft, advPaused, advTerminated]),
+    );
+    expect(rest.every((r) => r.views === 0 && r.taps === 0 && r.asks === 0 && r.total === 0)).toBe(
+      true,
+    );
+  });
+
+  it("active_in_month: 契約期間が対象月窓と重ならない (前月終了 / 翌月開始) 契約の event は計上しない", async () => {
+    const advEndedBefore = await seedAdvertiser("先月終了社");
+    const advStartsAfter = await seedAdvertiser("来月開始社");
+    const advOngoing = await seedAdvertiser("継続中社");
+    // 先月終了: 1/1 開始・2/28 終了 (対象月 3 月より前に終了) → 当月 event は計上外。
+    const conEnded = await seedContract(advEndedBefore, {
+      status: "active",
+      started: { y: Y, mo: 1, d: 1 },
+      ended: { y: Y, mo: 2, d: 28 },
+    });
+    // 来月開始: 4/5 開始 (対象月 3 月より後に開始) → 計上外。
+    const conAfter = await seedContract(advStartsAfter, {
+      status: "active",
+      started: { y: Y, mo: 4, d: 5 },
+    });
+    // 継続中: 1/1 開始・終了なし → 対象月にアクティブ → 計上。
+    const conOngoing = await seedContract(advOngoing, {
+      status: "active",
+      started: { y: Y, mo: 1, d: 1 },
+    });
+    const contentEnded = await seedContent(fx.schoolA, "先月終了の掲示");
+    const contentAfter = await seedContent(fx.schoolA, "来月開始の掲示");
+    const contentOngoing = await seedContent(fx.schoolA, "継続中の掲示");
+    await linkContractContent(conEnded, contentEnded);
+    await linkContractContent(conAfter, contentAfter);
+    await linkContractContent(conOngoing, contentOngoing);
+    // 3 社とも当月 (3/15) に view を 1 件ずつ。
+    await seedEventAt(fx.schoolA, contentEnded, "view", { y: Y, mo: M, d: 15, h: 9, mi: 0 });
+    await seedEventAt(fx.schoolA, contentAfter, "view", { y: Y, mo: M, d: 15, h: 9, mi: 0 });
+    await seedEventAt(fx.schoolA, contentOngoing, "view", { y: Y, mo: M, d: 15, h: 9, mi: 0 });
+
+    const rows = await withTenantContext(
+      db,
+      sysCtx(),
+      (tx) => getMonthlyAdvertiserReport(tx, { year: Y, month: M }),
+      APP,
+    );
+    // 継続中社のみ view 1。期間外 2 社は 0 件で 1 行ずつ残る。
+    expect(rows[0]).toEqual({
+      advertiserId: advOngoing,
+      companyName: "継続中社",
+      views: 1,
+      taps: 0,
+      asks: 0,
+      total: 1,
+    });
+    const rest = rows.slice(1);
+    expect(rest).toHaveLength(2);
+    expect(new Set(rest.map((r) => r.advertiserId))).toEqual(
+      new Set([advEndedBefore, advStartsAfter]),
+    );
+    expect(rest.every((r) => r.total === 0)).toBe(true);
+  });
+
+  it("active_in_month 境界: 契約開始が翌月境界ちょうど (4/1 00:00 JST) は対象外、当月境界ちょうど (3/1 00:00 JST) は対象", async () => {
+    const advAtNextStart = await seedAdvertiser("翌月頭開始社");
+    const advAtMonthStart = await seedAdvertiser("当月頭開始社");
+    // 開始 = 翌月 1 日 00:00 JST ちょうど → started_at < nextMonthStart が偽 → 対象外 (半開区間の上端)。
+    const conNext = await seedContract(advAtNextStart, {
+      status: "active",
+      started: { y: Y, mo: 4, d: 1 },
+    });
+    // 開始 = 当月 1 日 00:00 JST ちょうど・継続中 → 対象。
+    const conNow = await seedContract(advAtMonthStart, {
+      status: "active",
+      started: { y: Y, mo: M, d: 1 },
+    });
+    const contentNext = await seedContent(fx.schoolA, "翌月頭開始の掲示");
+    const contentNow = await seedContent(fx.schoolA, "当月頭開始の掲示");
+    await linkContractContent(conNext, contentNext);
+    await linkContractContent(conNow, contentNow);
+    // どちらも当月 (3/2) に tap。
+    await seedEventAt(fx.schoolA, contentNext, "tap", { y: Y, mo: M, d: 2, h: 9, mi: 0 });
+    await seedEventAt(fx.schoolA, contentNow, "tap", { y: Y, mo: M, d: 2, h: 9, mi: 0 });
+
+    const rows = await withTenantContext(
+      db,
+      sysCtx(),
+      (tx) => getMonthlyAdvertiserReport(tx, { year: Y, month: M }),
+      APP,
+    );
+    expect(rows[0]).toEqual({
+      advertiserId: advAtMonthStart,
+      companyName: "当月頭開始社",
+      views: 0,
+      taps: 1,
+      asks: 0,
+      total: 1,
+    });
+    expect(rows.slice(1)).toEqual([
+      {
+        advertiserId: advAtNextStart,
+        companyName: "翌月頭開始社",
+        views: 0,
+        taps: 0,
+        asks: 0,
+        total: 0,
+      },
+    ]);
   });
 
   it("月が範囲外 (0 / 13) は RangeError で弾く (UI 入力検証)", async () => {
