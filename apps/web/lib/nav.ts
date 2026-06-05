@@ -40,6 +40,10 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用)。自校ビュー /admin/school/members
     // (school_admin 専用) とは別ルート。ロール変更/無効化の操作系の土台 (ADR-026)。
     { label: "教職員管理", href: "/admin/system/users" },
+    // F10 (#46): 広告主 CRM (system_admin 専用、cross-tenant)。広告主マスタ/契約/コミュニケーションと
+    // 月次レポートの集計対象。ページ群は requireRole(SYSTEM_ADMIN_ROLES) 済で実装・テスト済だが nav 配線
+    // が漏れており URL 直打ちでしか到達できなかった (収益中核機能が UI から不可視) ため導線を追加する。
+    { label: "広告主", href: "/admin/system/advertisers" },
     // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。校務DX原則で
     // 自校ビュー (/admin/dashboard) も system_admin 限定に締めたため、ダッシュボードは運営専用に一本化。
     { label: "全校ダッシュボード", href: "/admin/system/dashboard" },

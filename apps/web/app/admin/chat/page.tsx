@@ -19,14 +19,9 @@ export default async function TeacherChatPage() {
   await requireRole(PUBLISHER_ROLES);
 
   return (
-    <main
-      style={{
-        fontFamily: "system-ui, sans-serif",
-        maxWidth: "40rem",
-        margin: "1rem auto",
-        padding: "0 1rem",
-      }}
-    >
+    // 読みやすさのため幅は 40rem に抑えるが、左揃え (margin:auto の中央寄せをやめる) にして他の
+    // 管理ページと体裁を揃える。fontFamily は body の日本語フォントスタックを継承する (上書きしない)。
+    <main style={{ maxWidth: "40rem" }}>
       <h1>掲示物について質問する</h1>
       <p>
         自校の公開中の掲示物に関する質問に AI が回答します。学習・進路の相談には対応していません。

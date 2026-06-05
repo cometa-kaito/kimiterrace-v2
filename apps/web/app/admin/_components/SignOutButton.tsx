@@ -30,10 +30,13 @@ export function SignOutButton() {
   );
 }
 
+// ヘッダ背景は白 (AppShell headerStyle.background = "#fff")。以前は白文字 + 半透明白枠だったため、
+// ブランド刷新でヘッダが白くなった後は "白地に白" で実質不可視になっていた (全ロール・全画面で
+// ログアウトが見つからない回帰)。白地で可読な二次ボタン (濃色文字 + 可視枠) にする。
 const signoutStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "#fff",
-  border: "1px solid rgba(255,255,255,0.4)",
+  background: "#fff",
+  color: "#374151",
+  border: "1px solid #d1d5db",
   borderRadius: "6px",
   padding: "0.3rem 0.75rem",
   cursor: "pointer",

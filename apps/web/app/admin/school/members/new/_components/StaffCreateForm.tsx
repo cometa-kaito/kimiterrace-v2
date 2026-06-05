@@ -50,8 +50,7 @@ export function StaffCreateForm() {
     return (
       <div style={{ display: "grid", gap: "1rem" }}>
         <output style={successStyle}>
-          teacher
-          アカウントを発行しました。下記の「初回パスワード設定リンク」を本人へ共有してください
+          教員アカウントを発行しました。下記の「初回パスワード設定リンク」を本人へ共有してください
           （リンクからパスワードを設定するとログインできます）。
         </output>
         <label style={labelStyle}>
@@ -86,8 +85,8 @@ export function StaffCreateForm() {
       </label>
 
       <p style={noteStyle}>
-        発行できるのは <strong>teacher</strong>{" "}
-        アカウントのみです。発行後に表示される初回設定リンクを 本人へ共有してください。
+        発行できるのは<strong>教員</strong>
+        アカウントのみです。発行後に表示される初回設定リンクを本人へ共有してください。
       </p>
 
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>

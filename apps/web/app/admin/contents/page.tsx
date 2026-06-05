@@ -28,7 +28,14 @@ export default async function ContentsListPage() {
     <section>
       <h1 style={titleStyle}>コンテンツ</h1>
       {items.length === 0 ? (
-        <p style={emptyStyle}>まだコンテンツがありません。</p>
+        // エディタの空状態と同様、行き止まりにせず作成導線を示す（PUBLISHER_ROLES はどちらも到達可）。
+        <p style={emptyStyle}>
+          まだコンテンツがありません。
+          <Link href="/admin/teacher-input" style={emptyLinkStyle}>
+            音声 / チャット入力
+          </Link>
+          やエディタから作成できます。
+        </p>
       ) : (
         <ul style={listStyle}>
           {items.map((item) => (
@@ -55,6 +62,7 @@ const titleStyle: React.CSSProperties = {
   marginBottom: "1rem",
 };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
+const emptyLinkStyle: React.CSSProperties = { color: "#2563eb", textDecoration: "underline" };
 const listStyle: React.CSSProperties = {
   listStyle: "none",
   margin: 0,
