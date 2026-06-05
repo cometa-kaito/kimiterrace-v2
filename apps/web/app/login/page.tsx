@@ -5,11 +5,14 @@ import { type FormEvent, Suspense, useState } from "react";
 import { getClientAuth } from "../../lib/auth/clientApp";
 
 /**
- * 最小ログイン画面 (ADR-003)。
+ * ログイン画面 (ADR-003)。
  *
- * **本 PR は機構優先 (#48-B)**。凝った UI / バリデーション / MFA フローは #48-C に委ねる。
- * ここは「Identity Platform client SDK でサインイン → ID トークンを /api/auth/session へ POST
- * → session cookie 確立 → next へ遷移」という認証の*配線*を最小限で示すだけ。
+ * Identity Platform client SDK でサインイン → ID トークンを /api/auth/session へ POST
+ * → session cookie 確立 → next へ遷移、という認証の配線。
+ *
+ * **遷移先 next の既定は `/admin`**（ロール別ホームへサーバー側でリダイレクトされる）。
+ * 旧既定 `/` は scaffold placeholder（行き止まり）だったため、ログイン後にユーザーが
+ * 作業画面へ入れなかった回帰を解消する（教員 → /admin/editor 等）。
  *
  * `useSearchParams` を使う子は Suspense 境界で包む (Next.js のビルド要件)。
  */
@@ -24,7 +27,8 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/";
+  // 既定は /admin（ロール別ホームへサーバーが振り分ける）。`/` は行き止まりだったため使わない。
+  const next = searchParams.get("next") || "/admin";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,36 +60,45 @@ function LoginForm() {
   }
 
   return (
-    <main style={{ maxWidth: 360, margin: "10vh auto", fontFamily: "system-ui" }}>
-      <h1>キミテラス ログイン</h1>
-      <form onSubmit={onSubmit}>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          メールアドレス
-          <input
-            type="email"
-            autoComplete="username"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          パスワード
-          <input
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{ display: "block", width: "100%" }}
-          />
-        </label>
-        <button type="submit" disabled={submitting}>
-          {submitting ? "ログイン中..." : "ログイン"}
-        </button>
-      </form>
-      {error ? <p style={{ color: "crimson" }}>{error}</p> : null}
+    <main className="login-screen">
+      <div className="login-card">
+        {/* ブランドロゴ（アイコン + キミテラス）。装飾目的のため alt は簡潔に。 */}
+        <img className="login-logo" src="/brand/logo-full.png" alt="キミテラス" />
+        <h1 className="login-title">ログイン</h1>
+        <form onSubmit={onSubmit}>
+          <label className="login-field">
+            メールアドレス
+            <input
+              className="login-input"
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <label className="login-field">
+            パスワード
+            <input
+              className="login-input"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            className="brand-btn"
+            style={{ width: "100%", marginTop: "0.5rem" }}
+            disabled={submitting}
+          >
+            {submitting ? "ログイン中..." : "ログイン"}
+          </button>
+        </form>
+        {error ? <p className="login-error">{error}</p> : null}
+      </div>
     </main>
   );
 }

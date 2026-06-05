@@ -1,0 +1,197 @@
+/*
+ * グローバルスタイル（ブランド適用 + ベースリセット + レスポンシブ）。
+ *
+ * 方針:
+ * - これまで各ページがブラウザ既定の素のスタイルだったため、最低限のリセットと
+ *   ブランドのカラートークンをここに集約する（インライン style とも共存可能）。
+ * - レスポンシブ（特に管理シェルのサイドバー）はメディアクエリでないと書けないため、
+ *   shell / login の可変レイアウトは className 経由で本ファイルに置く。
+ * - ブランドカラー: オレンジ #e0823c → ブルー #6fa8c7 のグラデーション（ロゴと一致）。
+ */
+
+:root {
+  --brand-orange: #e0823c;
+  --brand-blue: #6fa8c7;
+  --brand-ink: #1f2937;
+  --brand-muted: #6b7280;
+  --brand-border: #e5e7eb;
+  --brand-bg-soft: #f7f8fa;
+  --brand-gradient: linear-gradient(135deg, #e0823c 0%, #cf8a63 45%, #6fa8c7 100%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    Meiryo, sans-serif;
+  color: var(--brand-ink);
+  background: #fff;
+  -webkit-text-size-adjust: 100%;
+  line-height: 1.6;
+}
+
+/* ---- 汎用ブランドボタン ---- */
+.brand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: none;
+  border-radius: 0.6rem;
+  padding: 0.7rem 1.2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand-gradient);
+  cursor: pointer;
+  transition:
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+.brand-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.brand-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ---- ログイン画面 ---- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--brand-bg-soft);
+}
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: #fff;
+  border: 1px solid var(--brand-border);
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px rgba(31, 41, 55, 0.08);
+  padding: 2rem 1.75rem;
+}
+.login-logo {
+  display: block;
+  width: 132px;
+  height: auto;
+  margin: 0 auto 1.25rem;
+}
+.login-title {
+  text-align: center;
+  font-size: 1.15rem;
+  margin: 0 0 1.5rem;
+  color: var(--brand-ink);
+}
+.login-field {
+  display: block;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--brand-muted);
+}
+.login-input {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  font-size: 1rem;
+  color: var(--brand-ink);
+  border: 1px solid var(--brand-border);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+.login-input:focus {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+  border-color: var(--brand-blue);
+}
+.login-error {
+  margin: 0.75rem 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+/* ---- 管理シェル（レスポンシブ） ----
+ * デスクトップ: 左 220px 固定サイドバー。モバイル(<=768px): 縦積み + ハンバーガー開閉。
+ * 寸法・表示切替はメディアクエリで効かせる必要があるため className に置く（インライン style だと
+ * メディアクエリで上書きできない）。 */
+.admin-sidebar-wrap {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--brand-border);
+  background: var(--brand-bg-soft);
+}
+.admin-nav {
+  padding: 0.75rem 0.5rem;
+}
+.admin-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.admin-nav a {
+  display: block;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  color: #374151;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+.admin-nav a:hover {
+  background: rgba(31, 41, 55, 0.05);
+}
+.admin-nav a[aria-current="page"] {
+  background: var(--brand-gradient);
+  color: #fff;
+  font-weight: 600;
+}
+.admin-hamburger {
+  display: none;
+  margin: 0.6rem 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--brand-border);
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--brand-ink);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+@media (max-width: 768px) {
+  .admin-body {
+    flex-direction: column;
+  }
+  .admin-sidebar-wrap {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--brand-border);
+  }
+  .admin-hamburger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  /* モバイルではハンバーガーで開閉。閉じている間は隠す。 */
+  .admin-nav[data-open="false"] {
+    display: none;
+  }
+  .admin-main {
+    padding: 1rem;
+  }
+}
