@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EmbeddingClient } from "@kimiterrace/ai";
 import type { EmbeddingBatchPort, PendingVersion } from "../embed-content.js";
-import { embedAllSchools } from "../run.js";
+import { embedAllSchools, runEmbeddingBatch } from "../run.js";
 
 /**
  * F06 (#398): `embedAllSchools`（全校横断オーケストレーション）をフェイク依存で単体検証する。
@@ -106,5 +106,85 @@ describe("embedAllSchools", () => {
       blockedUnmaskedPii: 0,
       perSchool: [],
     });
+  });
+});
+
+/**
+ * F06 (#593): embedding バッチの AI_ENABLED kill-switch（ルール4 / ADR-030）。
+ *
+ * Job は web の入口（PR #592）とは別デプロイ単位で実 Vertex を呼ぶため、`runEmbeddingBatch` 冒頭に
+ * 同じ kill-switch を配線した。ここでは「AI 無効時に **DB クライアントも Vertex クライアントも生成せず**
+ * （= 実 Vertex を一切呼ばず）`aiDisabled` を返す」ことを、生成ファクトリの spy で検証する。
+ * 実 PG / 実 Vertex は使わない（無効経路は接続前に short-circuit するため不要、有効経路は実 PG E2E で別途）。
+ */
+describe("runEmbeddingBatch AI kill-switch (#593)", () => {
+  const BATCH_CONFIG = {
+    databaseUrl: "postgres://app:secret@localhost:5432/k",
+    project: "kimiterrace-staging",
+    location: "asia-northeast1",
+  };
+
+  it("AI 無効時は DB / Vertex クライアントを一切生成せず aiDisabled の all-zero を返す", async () => {
+    // 呼ばれたら即 throw する spy。無効経路では一度も呼ばれないことを assert する（接続前 short-circuit）。
+    const makeDb = vi.fn(() => {
+      throw new Error("makeDb must not be called when AI is disabled");
+    });
+    const makeClient = vi.fn(() => {
+      throw new Error("makeClient must not be called when AI is disabled");
+    });
+
+    const summary = await runEmbeddingBatch(BATCH_CONFIG, {
+      isEnabled: () => false,
+      makeDb,
+      makeClient,
+    });
+
+    expect(makeDb).not.toHaveBeenCalled();
+    expect(makeClient).not.toHaveBeenCalled();
+    expect(summary).toEqual({
+      schools: 0,
+      scanned: 0,
+      embedded: 0,
+      skippedEmptyText: 0,
+      blockedUnmaskedPii: 0,
+      perSchool: [],
+      aiDisabled: true,
+    });
+  });
+
+  it("AI 有効時は gate を通過し DB 結線へ進む（非空虚の正の対比）", async () => {
+    // gate を通過したことの証跡として makeDb で sentinel を投げ、それが伝播することと makeDb 呼出を確認。
+    // （makeDb が先に呼ばれるので makeClient は未到達。無効テストと同じ spy 経路で gate の効きを対比する。）
+    const makeDb = vi.fn(() => {
+      throw new Error("DB_WIRED");
+    });
+    const makeClient = vi.fn(() => {
+      throw new Error("makeClient must not be reached (makeDb threw first)");
+    });
+
+    await expect(
+      runEmbeddingBatch(BATCH_CONFIG, { isEnabled: () => true, makeDb, makeClient }),
+    ).rejects.toThrow("DB_WIRED");
+    expect(makeDb).toHaveBeenCalledTimes(1);
+    expect(makeClient).not.toHaveBeenCalled();
+  });
+
+  it("既定（isEnabled 未注入）は process.env.AI_ENABLED を見る（'true' 以外は無効）", async () => {
+    const makeDb = vi.fn(() => {
+      throw new Error("makeDb must not be called when AI_ENABLED !== 'true'");
+    });
+    const prev = process.env.AI_ENABLED;
+    try {
+      process.env.AI_ENABLED = "false";
+      const summary = await runEmbeddingBatch(BATCH_CONFIG, { makeDb });
+      expect(makeDb).not.toHaveBeenCalled();
+      expect(summary.aiDisabled).toBe(true);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.AI_ENABLED;
+      } else {
+        process.env.AI_ENABLED = prev;
+      }
+    }
   });
 });

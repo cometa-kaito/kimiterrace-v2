@@ -49,6 +49,13 @@ async function main(): Promise<void> {
   };
 
   const summary = await runEmbeddingBatch(config);
+  // AI kill-switch（AI_ENABLED）が無効で Vertex を一切呼ばず skip した場合は、その旨を明示ログして正常終了
+  // する（#593、ルール4 / ADR-030）。Job が（Scheduler 等で）起動されても AI 無効中は no-op で抜ける。
+  // バッチは冪等なので、AI 有効化後の次回起動で未処理分を回収できる。
+  if (summary.aiDisabled) {
+    console.warn(JSON.stringify({ event: "embedding.batch.ai_disabled" }));
+    return;
+  }
   // 件数サマリのみ info ログに（Cloud Logging の構造化ログ）。secret / PII は出さない。
   console.info(JSON.stringify({ event: "embedding.batch.done", summary }));
   // fail-closed ゲートが PII 残存で version を skip した場合は WARN を立て、Cloud Logging の

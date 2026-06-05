@@ -1,5 +1,9 @@
 // F03 AI 構造化パッケージの公開 API。
 
+// 実 Vertex の kill-switch（AI_ENABLED 既定 OFF、ルール4 / ADR-030、#289 / #593）。
+// apps/web・apps/jobs の両 Vertex 入口がこれを参照する単一ソース。
+export { isAiEnabled, assertAiEnabled, AiDisabledError } from "./ai-enabled.js";
+
 // PII マスキング（CLAUDE.md ルール4）
 export { maskPII, unmaskPII, unmaskDeep, findUnmaskedPii } from "./pii/mask.js";
 export type { MaskResult, MaskOptions, PiiCategory, PiiEntry } from "./pii/types.js";

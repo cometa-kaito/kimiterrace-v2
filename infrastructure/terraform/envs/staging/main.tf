@@ -263,12 +263,17 @@ module "cloud_run" {
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
+# AI kill-switch は二重ゲート: ① enabled=false で Job 実体未生成、② ai_enabled=false で（Job 活性化後も）
+# バッチが実 Vertex を呼ばない（#593、ルール4 / ADR-030、web cloud_run と同方針）。enabled=true へ flip する
+# 際は image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定し、PII マスキング設計 +
+# aiplatform API 有効化の検証が済んでから ai_enabled=true に上げる（停止/巻き戻しは ai_enabled=false で即 OFF）。
 module "cloud_run_job" {
   source              = "../../modules/cloud_run_job"
   project_id          = var.project_id
   region              = var.region
   env                 = local.env
   enabled             = false
+  ai_enabled          = false # 実 Vertex kill-switch（既定 OFF）。検証完了後に true へ flip（#593）。
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
 
