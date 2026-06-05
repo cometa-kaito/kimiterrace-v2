@@ -1,7 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
 import { densifyHourly, formatHour, hasHourlyData } from "@/lib/dashboard/hourly";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
-import { EffectCommentPanel } from "./_components/EffectCommentPanel";
 import {
   densifyPresenceHeatmap,
   densifyPresenceHourly,
@@ -42,9 +41,12 @@ import {
  * `withSession` で RLS context を張り集計する (school 境界は RLS が DB レベルで強制、CLAUDE.md
  * ルール2)。サマリ + content 別ランキング + **日次の推移** (JST 暦日、第2スライス) を表示。
  * 重い描画ライブラリ (Recharts/Visx) は導入せず、時系列は **CSS バーの軽量 SSR** で描く (依存追加を
- * 避ける)。**AI 効果コメント** (slice 3) は本ページが描画する Client island
- * (`<EffectCommentPanel />`) で、生成は課金 + 監査記録のためボタン起動 (本 Server Component は
- * action を load 時に呼ばない)。
+ * 避ける)。
+ *
+ * 注: **AI 効果コメント (`<EffectCommentPanel />`) は本ページから撤去した**。当該 Server Action
+ * `generateEffectComment` は `PUBLISHER_ROLES` (school_admin / teacher) を要し school_id 必須のため、
+ * system_admin 専用化した本ページでは未捕捉の ForbiddenError になる + system_admin は school_id を
+ * 持たず空集計で意味が無い。全校横断の効果可視化は `/admin/system/dashboard` で運営に提供する。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きで提示し、色のみに依存しない。
  * ランキングは `<table>` + `<th scope>`、時系列バーも各行に件数テキストを併記して読み上げ可能にする。
@@ -135,8 +137,8 @@ export default async function DashboardPage() {
       <h2 style={sectionTitleStyle}>在室ヒートマップ (15 分 × 平日/休日)</h2>
       <PresenceHeatmap heatmap={presenceHeatmap} />
 
-      {/* F08 slice 3: AI 効果コメント (Client island)。生成は課金 + 監査のためボタン起動。 */}
-      <EffectCommentPanel />
+      {/* AI 効果コメント (EffectCommentPanel) は school 専用機能のため system_admin 専用化に伴い撤去
+          (docstring 参照)。全校横断の効果可視化は /admin/system/dashboard で運営に提供する。 */}
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>

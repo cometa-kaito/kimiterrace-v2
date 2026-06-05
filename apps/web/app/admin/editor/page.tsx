@@ -9,8 +9,9 @@ import Link from "next/link";
  * Notice / Assignment セクション (#48-I) も同じクラス別エディタに後続で追加される想定。
  *
  * **空状態の導線はロール別 (校務DX原則: 教員に新たな工数を発生させない)**: クラスが 0 件のとき、
- * 従来は全ロールに「学校管理」(`/admin/school`) リンクを出していたが、`/admin/school` は school_admin
- * 専用 (`requireRole(["school_admin"])`) のため、teacher がクリックすると 403 (`/forbidden`) に倒れる
+ * 従来は全ロールに「学校管理」(`/admin/school`) リンクを出していたが、`/admin/school` は
+ * `SCHOOL_HIERARCHY_ROLES` (school_admin / system_admin) 専用で **teacher は含まれない**ため、teacher が
+ * クリックすると 403 (`/forbidden`) に倒れる
  * 行き止まりだった。クラス設定は学校管理者の仕事であり教員の校務ではないため、teacher にはアクセス
  * できない導線を出さず「管理者が追加すると表示される」案内に留める。
  */
