@@ -105,7 +105,11 @@ locals {
   #          ※ main HEAD ではなく #626 の squash commit を指す。直後の #627（@kimiterrace/ui を
   #          transpilePackages 追加）が production Docker build（pnpm --filter web... build + Turbopack）を
   #          @kimiterrace/ai の `./model/*.js` 96 件 Module-not-found で壊すため、修正までデプロイから除外。
-  web_image_tag = "f6f4ae6"
+  # 1bc1666: 上記 #627 の build 破壊は stale dist 起因のローカル偽陽性で、クリーン Cloud Build では再現せず
+  #          （web:1bc1666 ビルド成功・AR push 済）。さらに no-traffic canary で /signage（@kimiterrace/db→ai
+  #          推移 import を runtime で叩く公開経路）と /api/health がいずれも 200 で runtime も健全と確認。
+  #          よって #627 / #628(F15 TV登録UI) / #629(学校管理者・教員 発行UI) を含む 1bc1666 を deploy する。
+  web_image_tag = "1bc1666"
 }
 
 module "network" {
