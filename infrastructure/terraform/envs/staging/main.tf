@@ -135,8 +135,10 @@ locals {
   # f150e03: #660 エディタ対象選択を階層ツリー化＋各画面に「戻る」追加（段A-1）。575e39c を内包＋#660。
   #          web:f150e03 を Cloud Build 済・AR push 済。
   # 5752b31: #664 サイネージ(pattern1) 天気をヘッダー日付の隣へ移動・情報量を絞る + 「予定」見出し省略。
-  #          f150e03 を内包＋#664（= 現 main HEAD・全機能込み）。web:5752b31 を Cloud Build 済・AR push 済。
-  web_image_tag = "5752b31"
+  #          f150e03 を内包＋#664。web:5752b31 を Cloud Build 済・AR push 済。
+  # afaaae3: #666 MFA を UI（サイドナビ）から撤去（機能・コードは残置）。5752b31 を内包＋#666（= 現 main
+  #          HEAD・全機能込み）。web:afaaae3 を Cloud Build 済・AR push 済。
+  web_image_tag = "afaaae3"
 }
 
 module "network" {
