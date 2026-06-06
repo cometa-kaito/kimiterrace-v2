@@ -48,12 +48,25 @@ RUN pnpm --filter @kimiterrace/db build
 
 # 部分ビルド / ソースアップロード欠落の回帰を **build 時に fail-fast** 検知する
 # (jobs.Dockerfile の weather-job test・apps/web の standard_fonts test と同規律)。
-# このイメージから起動する Cloud Run Job のエントリ (migrate-cli = CMD、seed-* = command 上書き) が
+# このイメージから起動する Cloud Run Job のエントリ (migrate-cli = CMD、seed-*-cli = command 上書き) が
 # 1 つでも emit されていなければ image を作らせない (不完全 image をデプロイして runtime で
 # MODULE_NOT_FOUND になるのを防ぐ。実害: kimiterrace-seed-ginan-ads の Cannot find module)。
-RUN test -f /app/packages/db/dist/migrate-cli.js \
- && test -f /app/packages/db/dist/seed-staging-cli.js \
- && test -f /app/packages/db/dist/seed-ginan-sensors-cli.js
+#
+# 個別ファイル名のハードコードは **新 CLI 追加時に追従漏れ** する (実際 seed-ginan-ads-cli は
+# 並行 merge で後から増え、当初の固定リストから漏れた)。ゆえに src/*-cli.ts を起点に
+# 対応する dist/*.js の存在を **網羅検査** し、将来の CLI 追加も自動でカバーする (drift-proof)。
+RUN set -eu; \
+    found=0; \
+    for src in /app/packages/db/src/*-cli.ts; do \
+      found=1; \
+      js="/app/packages/db/dist/$(basename "$src" .ts).js"; \
+      if [ ! -f "$js" ]; then \
+        echo "FATAL: 部分ビルド検出 — $src に対応する $js が emit されていません" >&2; \
+        exit 1; \
+      fi; \
+      echo "OK: $js"; \
+    done; \
+    [ "$found" -eq 1 ] || { echo "FATAL: src/*-cli.ts が 0 件 (アップロード欠落の疑い)" >&2; exit 1; }
 
 # ---- runtime: 最小限の起動環境 -------------------------------------------------------
 FROM node:22-slim AS runtime
