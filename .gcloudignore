@@ -1,0 +1,77 @@
+# .gcloudignore — `gcloud builds submit` がアップロードする build context を絞る。
+#
+# なぜ「コミットされた」このファイルが要るか:
+#   このファイルが**存在すると** gcloud は `.gitignore` フォールバックを一切使わず、ここだけを見る。
+#   運用者がビルドのたびに ad-hoc な `.gcloudignore` を手書きしていたため、`**/dist` は除外するのに
+#   `*.tsbuildinfo` を書き忘れる事故が起きた:
+#     dist 除外 + tsbuildinfo 残留 → COPY . . で builder に古い incremental 状態だけ入る
+#     → tsc が「出力は最新」と誤判断して emit を skip → dist が空/部分のまま image 化
+#     → runtime で MODULE_NOT_FOUND (実害: kimiterrace-seed-ginan-ads / weather-job)。
+#   恒久対策として正しい除外をリポジトリに固定し、手書きを廃止する。
+#   (.dockerignore = COPY . . の層 / .gcloudignore = アップロードの層 の二層で同じものを除外する。)
+#
+# 注意: ここに**ソースを足さない**こと。apps/web・apps/jobs・packages/* の src は全アップロード対象
+#   (web image build は apps/web ソースを必要とする)。除外してよいのは「builder 内で生成し直す成果物」
+#   と「context に入れてはいけない state/secret」だけ。
+
+# --- VCS / ツール作業ディレクトリ ---
+.git
+.gitignore
+.gcloudignore
+.claude
+
+# --- 依存・ビルド成果物 (builder 内で install/build し直すので不要) ---
+node_modules
+**/node_modules
+.pnpm-store
+dist
+**/dist
+build
+**/build
+out
+**/out
+.turbo
+**/.turbo
+
+# --- TypeScript incremental state (dist と必ず対で除外。残すと部分 emit の原因。本ファイル冒頭の説明参照) ---
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# --- Next.js (builder 内で再生成) ---
+.next
+**/.next
+
+# --- Terraform state / 作業ディレクトリ (秘密が混ざりうるので絶対に context へ入れない) ---
+.terraform
+**/.terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# --- ローカル env / secret / 鍵 (ルール5: .env・SA キーはコミットも転送もしない) ---
+.env
+.env.*
+!.env.example
+.envrc
+.envrc.local
+gcp-key*.json
+service-account*.json
+
+# --- テスト・カバレッジ成果物 ---
+coverage
+**/coverage
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+.playwright
+
+# --- OS / エディタのゴミ ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.swp
+*.swo
