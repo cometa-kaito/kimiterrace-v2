@@ -6,6 +6,7 @@ import {
   readQuietRanges,
 } from "@/lib/school-admin/quiet-hours-core";
 import { findVisibleClass, getClassConfigValue } from "@kimiterrace/db";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QuietHoursManager } from "./_components/QuietHoursManager";
 
@@ -41,7 +42,12 @@ export default async function ClassQuietHoursPage({
 
   return (
     <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>{data.className} の静粛時間</h1>
+      <Link href={`/admin/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+        ← {data.className} の編集へ戻る
+      </Link>
+      <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
+        {data.className} の静粛時間
+      </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         サイネージを静音 /
         非表示にする時間帯を設定します。設定した時間帯はサイネージ表示に反映されます。
