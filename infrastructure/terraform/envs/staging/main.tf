@@ -264,7 +264,7 @@ module "cloud_run_job_seed" {
 # cloud_run_job_seed と同モジュール/イメージを **command 上書き** で再利用し `dist/seed-ginan-sensors-cli.js` を
 # 起動する。migrator DSN で system_admin context を張って冪等 INSERT（実 MAC は LP 本番 tv_devices 由来）。
 # 実行: `gcloud run jobs execute kimiterrace-seed-ginan --region asia-northeast1 --project signage-v2-staging`。
-# 前提: schools に「岐阜県立岐南工業高校」+ departments=電子工学科 / 1〜3年 grades・classes が既存（無ければ
+# 前提: schools に「岐阜県立岐南工業高等学校」+ departments=電子工学科 / 1〜3年 grades・classes が既存（無ければ
 # seed が fail-loud で中断し DB を変更しない）。再実行は ON CONFLICT(device_mac) DO NOTHING で安全。
 module "cloud_run_job_seed_ginan" {
   source                 = "../../modules/cloud_run_job_migrate"
