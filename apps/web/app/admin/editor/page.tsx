@@ -13,7 +13,9 @@ import Link from "next/link";
  * **空状態はロール別 (校務DX原則)**: クラス 0 件のとき、school_admin には学校管理への導線を、teacher には
  * 「管理者が追加すると表示される」案内に留める（teacher は /admin/school で 403 になるため死リンクを出さない）。
  *
- * 注: 「学校全体 / 学科全体 / 学年全体」のまとめ編集（scope 対応）は後続スライスで本ツリーに追加する。
+ * **scope まとめ編集（段A-2）**: 先頭に「学校全体」、各学科見出しに「学科全体」、各学年見出しに「学年全体」の
+ * 編集リンクを出す。ここで保存した内容は、より具体的なクラス個別入力が無いクラスのサイネージに共通表示される
+ * （精度優先 class > grade > department > school、`effective-daily-data.ts`）。
  */
 export default async function EditorIndexPage() {
   const user = await requireRole(EDITOR_ROLES);
@@ -26,6 +28,12 @@ export default async function EditorIndexPage() {
   return (
     <div style={{ maxWidth: "720px" }}>
       <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>エディタ — 編集する対象を選ぶ</h1>
+
+      <p style={{ margin: "0 0 1rem" }}>
+        <Link href="/admin/editor/scope/school" style={scopeLinkStyle}>
+          学校全体を編集
+        </Link>
+      </p>
 
       {totalClasses === 0 ? (
         user.role === "school_admin" ? (
@@ -44,7 +52,12 @@ export default async function EditorIndexPage() {
             <>
               {departments.map((d) => (
                 <section key={d.id} style={deptCardStyle}>
-                  <h2 style={deptTitleStyle}>{d.name}</h2>
+                  <div style={headerRowStyle}>
+                    <h2 style={deptTitleStyle}>{d.name}</h2>
+                    <Link href={`/admin/editor/scope/department/${d.id}`} style={scopeLinkStyle}>
+                      学科全体を編集
+                    </Link>
+                  </div>
                   <GradeGroups grades={gradesOf(d.id)} />
                 </section>
               ))}
@@ -75,7 +88,12 @@ function GradeGroups({ grades }: { grades: GradeView[] }) {
     <div style={{ display: "grid", gap: "0.6rem" }}>
       {grades.map((g) => (
         <div key={g.id}>
-          <h3 style={gradeTitleStyle}>{g.name}</h3>
+          <div style={headerRowStyle}>
+            <h3 style={gradeTitleStyle}>{g.name}</h3>
+            <Link href={`/admin/editor/scope/grade/${g.id}`} style={scopeLinkStyle}>
+              学年全体を編集
+            </Link>
+          </div>
           {g.classes.length === 0 ? (
             <p style={mutedSmallStyle}>クラスがありません（学校管理で追加）。</p>
           ) : (
@@ -103,11 +121,24 @@ const deptCardStyle: React.CSSProperties = {
   borderRadius: "10px",
   padding: "1rem",
 };
-const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: "0 0 0.6rem" };
+const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
 const gradeTitleStyle: React.CSSProperties = {
   fontSize: "0.95rem",
   color: "#374151",
-  margin: "0 0 0.35rem",
+  margin: 0,
+};
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  justifyContent: "space-between",
+  gap: "0.75rem",
+  marginBottom: "0.5rem",
+};
+const scopeLinkStyle: React.CSSProperties = {
+  fontSize: "0.8rem",
+  color: "#2563eb",
+  textDecoration: "none",
+  whiteSpace: "nowrap",
 };
 const classListStyle: React.CSSProperties = {
   listStyle: "none",

@@ -1,7 +1,9 @@
 "use client";
 
-import { setClassAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
+import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
+import type { EditorTarget } from "@/lib/editor/schedule-core";
+import { targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
@@ -12,23 +14,29 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { toEditorTarget } from "./target";
 
 /**
- * 提出物 (課題) エディタ (#48-I)。**Client Component** — 件の追加/削除/編集を行い、保存時に
- * `setClassAssignmentsAction` を呼ぶ。検証・認可・監査・RLS は Server Action 側が担保するので、
- * ここは入力収集と結果表示に徹する (ScheduleEditor.tsx と同型、保存後は `router.refresh()`)。
+ * 提出物 (課題) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
+ * 行い、保存時に `setAssignmentsAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・
+ * RLS は Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
+ *
+ * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
  */
 type Row = { deadline: string; subject: string; task: string };
 
 export function AssignmentEditor({
   classId,
+  target: targetProp,
   date,
   initialItems,
 }: {
-  classId: string;
+  classId?: string;
+  target?: EditorTarget;
   date: string;
   initialItems: AssignmentItem[];
 }) {
+  const target = toEditorTarget(targetProp, classId);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
@@ -54,7 +62,7 @@ export function AssignmentEditor({
       task: r.task,
     }));
     startTransition(async () => {
-      const res = await setClassAssignmentsAction(classId, date, items);
+      const res = await setAssignmentsAction(target.scope, targetId(target), date, items);
       if (res.ok) {
         setMsg({ ok: true, text: "保存しました。" });
         router.refresh();

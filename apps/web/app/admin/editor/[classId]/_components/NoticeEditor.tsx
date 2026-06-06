@@ -1,27 +1,35 @@
 "use client";
 
-import { setClassNoticesAction } from "@/lib/editor/notice-assignment-actions";
+import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
+import type { EditorTarget } from "@/lib/editor/schedule-core";
+import { targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { inputStyle, primaryBtnStyle, removeBtnStyle, secondaryBtnStyle } from "./editor-styles";
+import { toEditorTarget } from "./target";
 
 /**
- * 連絡 (お知らせ) エディタ (#48-I)。**Client Component** — 件の追加/削除/編集を行い、保存時に
- * `setClassNoticesAction` を呼ぶ。検証・認可・監査・RLS は Server Action 側が担保するので、
- * ここは入力収集と結果表示に徹する (ScheduleEditor.tsx と同型、保存後は `router.refresh()`)。
+ * 連絡 (お知らせ) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
+ * 行い、保存時に `setNoticesAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・RLS は
+ * Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
+ *
+ * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
  */
 type Row = { text: string; isHighlight: boolean };
 
 export function NoticeEditor({
   classId,
+  target: targetProp,
   date,
   initialItems,
 }: {
-  classId: string;
+  classId?: string;
+  target?: EditorTarget;
   date: string;
   initialItems: NoticeItem[];
 }) {
+  const target = toEditorTarget(targetProp, classId);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
@@ -45,7 +53,7 @@ export function NoticeEditor({
       ...(r.isHighlight ? { isHighlight: true } : {}),
     }));
     startTransition(async () => {
-      const res = await setClassNoticesAction(classId, date, items);
+      const res = await setNoticesAction(target.scope, targetId(target), date, items);
       if (res.ok) {
         setMsg({ ok: true, text: "保存しました。" });
         router.refresh();
