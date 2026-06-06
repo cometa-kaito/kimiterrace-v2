@@ -29,8 +29,11 @@ export function StatusBadge({
   children,
 }: {
   tone?: BadgeTone;
-  /** 先頭に置く装飾グリフ（例: "●" / "⚠"）。意味はテキスト側が担うため省略可。 */
-  icon?: string;
+  /**
+   * 先頭に置く装飾アイコン（グリフ文字列 "●"/"⚠" でも `<svg>` 等の要素でも可）。`aria-hidden` で
+   * 隠すため意味はテキスト側が担う。前方互換のため string でなく ReactNode で受ける。
+   */
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const t = TONE[tone];

@@ -9,13 +9,22 @@ describe("StatusBadge", () => {
     expect(screen.getByText("稼働中")).toBeInTheDocument();
   });
 
-  it("tone に応じた前景色を適用する", () => {
+  it("tone に応じた前景色・背景色・枠線を適用する（bg/fg/border の3点とも配線確認）", () => {
     const { container } = render(<StatusBadge tone="danger">無効</StatusBadge>);
-    const badge = container.querySelector("span");
+    const badge = container.querySelector("span") as HTMLElement;
     expect(badge).not.toBeNull();
     // rgb 正規化される前景色が danger トーンの値であること（色そのものでなくテキストが意味だが、
-    // tone 配線が壊れていないことを pin する）。
-    expect((badge as HTMLElement).style.color).toBe("rgb(185, 28, 28)"); // #b91c1c
+    // tone 配線が壊れていないことを pin する）。border も含め 3 値すべてを検証する。
+    expect(badge.style.color).toBe("rgb(185, 28, 28)"); // fg #b91c1c
+    expect(badge.style.background).toBe("rgb(254, 242, 242)"); // bg #fef2f2
+    expect(badge.style.border).toBe("1px solid rgb(254, 202, 202)"); // border #fecaca
+  });
+
+  it("success / info トーンも個別に正しい前景色を出す（全 tone の取り違え回帰防止）", () => {
+    const { container: ok } = render(<StatusBadge tone="success">稼働中</StatusBadge>);
+    expect((ok.querySelector("span") as HTMLElement).style.color).toBe("rgb(4, 120, 87)"); // #047857
+    const { container: info } = render(<StatusBadge tone="info">情報</StatusBadge>);
+    expect((info.querySelector("span") as HTMLElement).style.color).toBe("rgb(29, 78, 216)"); // #1d4ed8
   });
 
   it("アイコンは装飾（aria-hidden）でテキストを置き換えない", () => {
