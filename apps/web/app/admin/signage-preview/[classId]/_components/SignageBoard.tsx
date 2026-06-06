@@ -69,7 +69,7 @@ function Section({
       <h2 style={sectionTitleStyle}>
         {title}
         {section.source && section.source !== "class" ? (
-          <span style={badgeStyle}>{section.source === "school" ? "学校共通" : "学年共通"}</span>
+          <span style={badgeStyle}>{SOURCE_BADGE_LABEL[section.source]}</span>
         ) : null}
       </h2>
       {section.items.length === 0 ? (
@@ -91,6 +91,13 @@ function Section({
     </section>
   );
 }
+
+/** 採用元 scope → サイネージ継承バッジ文言。class は出さないので含めない (段A-2 で学科共通を追加)。 */
+const SOURCE_BADGE_LABEL: Record<"school" | "department" | "grade", string> = {
+  school: "学校共通",
+  department: "学科共通",
+  grade: "学年共通",
+};
 
 const rootStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "1rem" };
 const dateHeaderStyle: React.CSSProperties = {

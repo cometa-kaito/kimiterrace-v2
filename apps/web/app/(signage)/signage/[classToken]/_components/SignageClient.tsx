@@ -448,15 +448,20 @@ function AssignmentTable({ section, today }: { section: MergedSection; today: st
   );
 }
 
-/** セクション採用元バッジ（学校共通 / 学年共通）。class 由来・未設定は出さない。 */
+/** セクション採用元バッジ（学校共通 / 学科共通 / 学年共通）。class 由来・未設定は出さない。 */
 function SourceBadge({ source }: { source: MergedSection["source"] }) {
   if (!source || source === "class") {
     return null;
   }
-  return (
-    <span className={styles.sourceBadge}>{source === "school" ? "学校共通" : "学年共通"}</span>
-  );
+  return <span className={styles.sourceBadge}>{SOURCE_BADGE_LABEL[source]}</span>;
 }
+
+/** 採用元 scope → サイネージ継承バッジ文言。class は出さないので含めない。 */
+const SOURCE_BADGE_LABEL: Record<"school" | "department" | "grade", string> = {
+  school: "学校共通",
+  department: "学科共通",
+  grade: "学年共通",
+};
 
 /**
  * F14 (#128 / ADR-021): 天気を **ヘッダーの日付の隣に小さく** 出す（2026-06-07 ユーザー: 情報量を絞る）。

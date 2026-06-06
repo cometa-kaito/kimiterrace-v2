@@ -1,7 +1,8 @@
 "use client";
 
-import { setClassScheduleAction } from "@/lib/editor/schedule-actions";
-import type { ScheduleItem } from "@/lib/editor/schedule-core";
+import { setScheduleAction } from "@/lib/editor/schedule-actions";
+import type { EditorTarget, ScheduleItem } from "@/lib/editor/schedule-core";
+import { editorBasePath, targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
@@ -12,23 +13,30 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { toEditorTarget } from "./target";
 
 /**
- * 時間割エディタ (#48-H)。**Client Component** — 行の追加/削除/編集を行い、保存時に
- * `setClassScheduleAction` を呼ぶ。検証・認可・監査・RLS は Server Action 側が担保するので、
- * ここは入力収集と結果表示に徹する (保存後は `router.refresh()` で再取得)。
+ * 時間割エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
+ * 保存時に `setScheduleAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・RLS は
+ * Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
+ *
+ * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる
+ * (既存 `[classId]` 画面を壊さない)。
  */
 type Row = { period: number; subject: string; note: string };
 
 export function ScheduleEditor({
   classId,
+  target: targetProp,
   date,
   initialItems,
 }: {
-  classId: string;
+  classId?: string;
+  target?: EditorTarget;
   date: string;
   initialItems: ScheduleItem[];
 }) {
+  const target = toEditorTarget(targetProp, classId);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
@@ -48,7 +56,7 @@ export function ScheduleEditor({
   }
 
   function changeDate(next: string) {
-    router.push(`/admin/editor/${classId}?date=${next}`);
+    router.push(`${editorBasePath(target)}?date=${next}`);
   }
 
   function save() {
@@ -58,7 +66,7 @@ export function ScheduleEditor({
       ...(r.note.trim() ? { note: r.note } : {}),
     }));
     startTransition(async () => {
-      const res = await setClassScheduleAction(classId, date, items);
+      const res = await setScheduleAction(target.scope, targetId(target), date, items);
       if (res.ok) {
         setMsg({ ok: true, text: "保存しました。" });
         router.refresh();
