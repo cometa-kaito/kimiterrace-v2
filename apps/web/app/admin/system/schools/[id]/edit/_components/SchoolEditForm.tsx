@@ -91,8 +91,10 @@ export function SchoolEditForm({ school }: { school: SchoolView }) {
       ) : null}
 
       <FormField label="学校名" required error={fieldErrors.name}>
+        {/* required は AT に必須状態を露出する。form の noValidate でネイティブバブルは出ない。 */}
         <input
           name="name"
+          required
           defaultValue={school.name}
           maxLength={200}
           style={inputStyle}
@@ -103,6 +105,7 @@ export function SchoolEditForm({ school }: { school: SchoolView }) {
       <FormField label="都道府県" required error={fieldErrors.prefecture}>
         <input
           name="prefecture"
+          required
           defaultValue={school.prefecture}
           maxLength={32}
           style={inputStyle}

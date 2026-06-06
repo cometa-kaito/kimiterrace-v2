@@ -79,12 +79,21 @@ export function SchoolCreateForm() {
       ) : null}
 
       <FormField label="学校名" required error={fieldErrors.name}>
-        <input name="name" maxLength={200} style={inputStyle} onChange={() => clearError("name")} />
+        {/* required は AT に必須状態を露出する。form の noValidate でネイティブバブルは出ない
+            （可視エラーは JS 検証が単一で担う）。 */}
+        <input
+          name="name"
+          required
+          maxLength={200}
+          style={inputStyle}
+          onChange={() => clearError("name")}
+        />
       </FormField>
 
       <FormField label="都道府県" required error={fieldErrors.prefecture}>
         <input
           name="prefecture"
+          required
           maxLength={32}
           style={inputStyle}
           onChange={() => clearError("prefecture")}
