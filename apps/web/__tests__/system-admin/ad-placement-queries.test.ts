@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { listSchoolClassesForAdPlacement } from "../../lib/system-admin/ad-placement-queries";
 
 /**
- * F10 / #46: 運営の広告掲載导线用クラス一覧クエリの**マッピング**検証。Drizzle チェーンは fake tx で
+ * F10 / #46: 運営の広告掲載導線用クラス一覧クエリの**マッピング**検証。Drizzle チェーンは fake tx で
  * 差し替え、select→from→leftJoin→where→orderBy の結果行を返す。検証対象は「gradeName null →
  * 『（学年未割当）』フォールバック」と行の射影 (テナント境界・SQL 自体は RLS / 実 PG の責務)。
  */

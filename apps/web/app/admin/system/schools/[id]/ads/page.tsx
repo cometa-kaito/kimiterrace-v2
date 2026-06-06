@@ -9,11 +9,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 /**
- * F10 / #46: **system_admin（運営）の広告掲載导线** (`/admin/system/schools/{id}/ads`)。**Server Component**。
+ * F10 / #46: **system_admin（運営）の広告掲載導線** (`/admin/system/schools/{id}/ads`)。**Server Component**。
  *
- * 運営が広告（広告主の素材）を表示する**クラスを選ぶ**ための一覧。各クラスの「広告管理」へ导き、
+ * 運営が広告（広告主の素材）を表示する**クラスを選ぶ**ための一覧。各クラスの「広告管理」へ導き、
  * そこで入稿（メディアURL）/ タップリンク / 表示秒数 を設定する（クラス別広告管理ページは ADS_ROLES =
- * school_admin / system_admin で system_admin も操作可。これまで運営側に到達导线が無かったのを補う）。
+ * school_admin / system_admin で system_admin も操作可。これまで運営側に到達導線が無かったのを補う）。
  *
  * **認可**: `requireRole(SYSTEM_ADMIN_ROLES)`。**可視範囲は RLS（system_admin=全校）**、不可視/不存在/不正 id
  * は 404。クラス一覧は `listSchoolClassesForAdPlacement`（対象校で絞る、テナント境界は RLS）。

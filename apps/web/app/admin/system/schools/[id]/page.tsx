@@ -49,7 +49,7 @@ export default async function SystemSchoolDetailPage({
       <header style={headerStyle}>
         <h1 style={titleStyle}>{school.name}</h1>
         <div style={headerActionsStyle}>
-          {/* 広告掲載导线 (#46): 運営がこの学校のクラスを選び、クラス別広告管理で素材/リンク/秒数を設定する。 */}
+          {/* 広告掲載導線 (#46): 運営がこの学校のクラスを選び、クラス別広告管理で素材/リンク/秒数を設定する。 */}
           <Link href={`/admin/system/schools/${school.id}/ads`} style={editLinkStyle}>
             広告掲載
           </Link>

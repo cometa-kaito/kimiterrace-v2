@@ -2,11 +2,11 @@ import { type TenantTx, classes, grades } from "@kimiterrace/db";
 import { asc, desc, eq } from "drizzle-orm";
 
 /**
- * F10 / #46: **system_admin（運営）の広告掲載导線**用に、指定校のクラス一覧を取得する。
+ * F10 / #46: **system_admin（運営）の広告掲載導線**用に、指定校のクラス一覧を取得する。
  *
  * 運営が広告主の素材を各クラスのサイネージへ掲載できるよう、`/admin/system/schools/{id}/ads` から
  * クラスを選んで `/admin/editor/{classId}/ads`（クラス別広告管理、ADS_ROLES = school_admin/system_admin）
- * へ导く。
+ * へ導く。
  *
  * **テナント境界は RLS が担保（ルール2）**: 本関数は **system_admin の RLS コンテキスト
  * (system_admin_full_access policy) 下で呼ぶ前提**。`where(school_id = schoolId)` は越境防止ではなく

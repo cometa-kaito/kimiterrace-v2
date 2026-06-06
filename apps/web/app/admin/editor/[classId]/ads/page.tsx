@@ -38,7 +38,7 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
     notFound();
   }
 
-  // 戻り导线は role 別: system_admin はエディタ (EDITOR_ROLES=teacher/school_admin) に 403 になるため
+  // 戻り導線は role 別: system_admin はエディタ (EDITOR_ROLES=teacher/school_admin) に 403 になるため
   // 学校一覧へ戻す。school_admin はこのクラスの編集へ戻る。
   const backHref =
     user.role === "system_admin" ? "/admin/system/schools" : `/admin/editor/${classId}`;
