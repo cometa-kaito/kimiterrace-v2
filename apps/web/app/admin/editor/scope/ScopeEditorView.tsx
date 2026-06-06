@@ -1,4 +1,5 @@
 import { AssignmentEditor } from "@/app/admin/editor/[classId]/_components/AssignmentEditor";
+import { EditorBoard } from "@/app/admin/editor/[classId]/_components/EditorBoard";
 import { NoticeEditor } from "@/app/admin/editor/[classId]/_components/NoticeEditor";
 import { ScheduleEditor } from "@/app/admin/editor/[classId]/_components/ScheduleEditor";
 import { requireRole } from "@/lib/auth/guard";
@@ -40,30 +41,25 @@ export async function ScopeEditorView({
   }
 
   return (
-    <div style={{ display: "grid", gap: "2rem" }}>
-      <section>
-        <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-          ← 編集対象の選択へ戻る
-        </Link>
-        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
-        <p style={mutedStyle}>
-          この内容は配下の全クラスのサイネージに共通で表示されます
-          (クラス個別の入力があればそちらが優先)。
-        </p>
-        <h2 style={sectionHeadingStyle}>時間割</h2>
-        <ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />
-      </section>
-
-      <section>
-        <h2 style={sectionHeadingStyle}>連絡</h2>
-        <NoticeEditor target={target} date={data.date} initialItems={data.notices} />
-      </section>
-
-      <section>
-        <h2 style={sectionHeadingStyle}>提出物</h2>
+    <EditorBoard
+      header={
+        <header style={{ marginBottom: "1rem" }}>
+          <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+            ← 編集対象の選択へ戻る
+          </Link>
+          <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
+          <p style={mutedStyle}>
+            この内容は配下の全クラスのサイネージに共通で表示されます
+            (クラス個別の入力があればそちらが優先)。
+          </p>
+        </header>
+      }
+      schedule={<ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />}
+      notices={<NoticeEditor target={target} date={data.date} initialItems={data.notices} />}
+      assignments={
         <AssignmentEditor target={target} date={data.date} initialItems={data.assignments} />
-      </section>
-    </div>
+      }
+    />
   );
 }
 
@@ -71,10 +67,4 @@ const mutedStyle: React.CSSProperties = {
   color: "#6b7280",
   fontSize: "0.85rem",
   margin: "0 0 0.5rem",
-};
-const sectionHeadingStyle: React.CSSProperties = {
-  fontSize: "1.1rem",
-  margin: "0 0 0.5rem",
-  paddingBottom: "0.25rem",
-  borderBottom: "1px solid #e5e7eb",
 };

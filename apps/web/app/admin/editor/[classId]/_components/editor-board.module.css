@@ -1,0 +1,121 @@
+/**
+ * editor-board.module.css — 掲示エディタの「サイネージ盤面風」レイアウト（段B）。
+ *
+ * ユーザー要望 (2026-06-07):「PC ではサイネージ画面のレイアウトで表示し、そこから作成できる。
+ * レスポンシブで、スマホなどはシンプルに分かり易く設定できる」。
+ *
+ * 方針:
+ *   PC（広い画面）= サイネージ盤面に寄せたグリッド。
+ *     上段（横幅いっぱい）= 時間割（盤面の予定枠に対応）
+ *     左下 = 連絡 / 右下 = 提出物（盤面の連絡・提出物枠に対応）
+ *     右側 = 広告・天気のプレビュー枠（read-only。盤面では右 30% に広告が出る位置）
+ *   スマホ（~768px 以下）= 1 列の縦積みフォーム。各セクションを順に編集する素直な並び。
+ *
+ * メディアクエリはインライン style では書けないため CSS Module に置く（globals.css の .admin-* と同方針）。
+ * サイネージ表示専用 component（signage.module.css）は読み取り専用で参考にしただけで、本ファイルは独立。
+ */
+
+/* ===================== レイアウト本体（PC: 盤面風グリッド） ===================== */
+.board {
+  display: grid;
+  /* 左 = 編集セクション群（盤面のコンテンツ 70% に対応）/ 右 = プレビュー（広告 30% に対応）。 */
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* 編集セクション側を盤面の「予定上段 / 連絡＋提出物下段」と同じ 2 段構成にする。 */
+.sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "schedule schedule"
+    "notices  assignments";
+  gap: 1rem;
+  min-width: 0;
+}
+.scheduleCell {
+  grid-area: schedule;
+  min-width: 0;
+}
+.noticesCell {
+  grid-area: notices;
+  min-width: 0;
+}
+.assignmentsCell {
+  grid-area: assignments;
+  min-width: 0;
+}
+
+/* ===================== セクションカード（盤面のカードに寄せた枠） ===================== */
+.card {
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 1rem;
+  background: #fff;
+  min-width: 0;
+}
+.cardTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--brand-border, #e5e7eb);
+  color: var(--brand-ink, #1f2937);
+}
+
+/* ===================== プレビュー枠（広告・天気: read-only） ===================== */
+.preview {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.previewPanel {
+  border: 1px dashed var(--brand-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 1rem;
+  background: var(--brand-bg-soft, #f7f8fa);
+  color: var(--brand-muted, #6b7280);
+}
+.previewTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+  color: var(--brand-ink, #1f2937);
+}
+.previewNote {
+  font-size: 0.8rem;
+  margin: 0;
+  line-height: 1.5;
+}
+/* 広告枠のプレビュー: 盤面の暗色広告ゾーンを縮小再現（read-only の説明用）。 */
+.adPreviewBox {
+  margin-top: 0.6rem;
+  height: 120px;
+  border-radius: 8px;
+  background: #111827;
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 0 0.75rem;
+}
+
+/* ===================== レスポンシブ（スマホ ~768px 以下: 縦積みフォーム） ===================== */
+@media (max-width: 768px) {
+  .board {
+    grid-template-columns: 1fr;
+  }
+  .sections {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "schedule"
+      "notices"
+      "assignments";
+  }
+  .card {
+    padding: 0.85rem;
+  }
+}
