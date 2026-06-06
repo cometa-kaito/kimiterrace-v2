@@ -82,6 +82,11 @@ locals {
   # seed-signage1: F12 サイネージ実機確認用に class + クラス用 magic-link + 当日 daily_data を追加 seed する版。
   seed_image_tag = "seed-signage1"
 
+  # F13 (#391, ADR-020): 岐南工業 電子工学科1〜3年の設置済 SwitchBot を sensor_devices に登録する seed Job の
+  # イメージタグ。migrate イメージに seed-ginan-sensors-cli を含む版（同一 Dockerfile・command 上書きで
+  # `dist/seed-ginan-sensors-cli.js` を起動）。5765ea2 = PR #670 merge 後の main から build した版。
+  seed_ginan_image_tag = "5765ea2"
+
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
@@ -251,6 +256,26 @@ module "cloud_run_job_seed" {
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_image_tag}"
   command                = ["node", "dist/seed-staging-cli.js"] # migrate-cli でなく seed-cli を起動
   database_url_secret_id = local.db_url_migrator_secret_id      # migrator DSN（BYPASSRLS で cross-tenant seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
+}
+
+# F13 (#391, ADR-020): 岐南工業 電子工学科1〜3年 設置済 SwitchBot を sensor_devices に登録する on-demand seed Job。
+# cloud_run_job_seed と同モジュール/イメージを **command 上書き** で再利用し `dist/seed-ginan-sensors-cli.js` を
+# 起動する。migrator DSN で system_admin context を張って冪等 INSERT（実 MAC は LP 本番 tv_devices 由来）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan --region asia-northeast1 --project signage-v2-staging`。
+# 前提: schools に「岐阜県立岐南工業高校」+ departments=電子工学科 / 1〜3年 grades・classes が既存（無ければ
+# seed が fail-loud で中断し DB を変更しない）。再実行は ON CONFLICT(device_mac) DO NOTHING で安全。
+module "cloud_run_job_seed_ginan" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-seed-ginan"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_image_tag}"
+  command                = ["node", "dist/seed-ginan-sensors-cli.js"] # 岐南センサー seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id            # migrator DSN（system_admin context で seed）
   vpc_connector          = module.network.vpc_connector_id
   deletion_protection    = false
 }
