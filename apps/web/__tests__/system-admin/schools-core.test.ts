@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { HIERARCHY_MODES, isUuid, validateSchoolUpdate } from "../../lib/system-admin/schools-core";
+import {
+  HIERARCHY_MODES,
+  collectSchoolFieldErrors,
+  hasSchoolFieldErrors,
+  isUuid,
+  validateSchoolUpdate,
+} from "../../lib/system-admin/schools-core";
 
 /**
  * #48-L (#123): 学校編集の入力検証 (pure) を固定する。Server Action / RLS に到達する前の
@@ -82,5 +88,45 @@ describe("validateSchoolUpdate", () => {
     expect(validateSchoolUpdate({ ...valid, hierarchyMode: undefined })).toMatchObject({
       ok: false,
     });
+  });
+});
+
+describe("collectSchoolFieldErrors (FormField 用の項目別検証)", () => {
+  it("正常系: エラー無しは空オブジェクト", () => {
+    expect(
+      collectSchoolFieldErrors({ name: "岐南工業高校", prefecture: "岐阜県", code: "G001" }),
+    ).toEqual({});
+    // code は任意: 空文字/未指定でもエラーにしない。
+    expect(collectSchoolFieldErrors({ name: "A", prefecture: "B", code: "" })).toEqual({});
+    expect(collectSchoolFieldErrors({ name: "A", prefecture: "B" })).toEqual({});
+  });
+
+  it("空の学校名は name エラー (trim 後 0 文字も)", () => {
+    expect(collectSchoolFieldErrors({ name: "   ", prefecture: "岐阜県" }).name).toMatch(/学校名/);
+  });
+
+  it("空の都道府県は prefecture エラー", () => {
+    expect(collectSchoolFieldErrors({ name: "A", prefecture: "" }).prefecture).toMatch(/都道府県/);
+  });
+
+  it("200 文字超の学校名 / 32 文字超の都道府県・code はそれぞれエラー", () => {
+    const errors = collectSchoolFieldErrors({
+      name: "あ".repeat(201),
+      prefecture: "い".repeat(33),
+      code: "x".repeat(33),
+    });
+    expect(errors.name).toBeTruthy();
+    expect(errors.prefecture).toBeTruthy();
+    expect(errors.code).toBeTruthy();
+  });
+
+  it("複数項目が空なら複数キーが立つ", () => {
+    const errors = collectSchoolFieldErrors({ name: "", prefecture: "" });
+    expect(Object.keys(errors).sort()).toEqual(["name", "prefecture"]);
+  });
+
+  it("hasSchoolFieldErrors はエラー有無を判定する", () => {
+    expect(hasSchoolFieldErrors({})).toBe(false);
+    expect(hasSchoolFieldErrors({ name: "x" })).toBe(true);
   });
 });

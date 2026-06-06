@@ -166,3 +166,35 @@ export function validateSchoolUpdate(raw: {
   }
   return { ok: true, value: { id: raw.id, name, prefecture, code, hierarchyMode } };
 }
+
+/** 学校フォームの**項目別**エラー (FormField のインライン表示用)。エラーの無い項目はキーごと欠落させる。 */
+export type SchoolFieldErrors = { name?: string; prefecture?: string; code?: string };
+
+/**
+ * クライアント側の項目別検証 (FormField のインライン表示用)。`validateSchoolCreate`/`Update` と**同じ規則**を
+ * 項目別メッセージに分解する (検証規則の単一ソースは normalizeRequired/Optional)。送信前に呼び、エラーが
+ * 1 件でもあれば送信を止めて項目の下に表示する。**Server Action の検証が authoritative**で、本関数はその前段の
+ * UX。階層モードは select 既定ありで UI から不正値が来ないため対象外。
+ */
+export function collectSchoolFieldErrors(raw: {
+  name?: unknown;
+  prefecture?: unknown;
+  code?: unknown;
+}): SchoolFieldErrors {
+  const errors: SchoolFieldErrors = {};
+  if (!normalizeRequired(raw.name, NAME_MAX)) {
+    errors.name = `学校名は 1〜${NAME_MAX} 文字で入力してください。`;
+  }
+  if (!normalizeRequired(raw.prefecture, PREF_MAX)) {
+    errors.prefecture = `都道府県は 1〜${PREF_MAX} 文字で入力してください。`;
+  }
+  if (normalizeOptional(raw.code, CODE_MAX) === undefined) {
+    errors.code = `学校コードは ${CODE_MAX} 文字以内で入力してください。`;
+  }
+  return errors;
+}
+
+/** 項目別エラーが 1 件でもあるか。 */
+export function hasSchoolFieldErrors(errors: SchoolFieldErrors): boolean {
+  return Object.keys(errors).length > 0;
+}
