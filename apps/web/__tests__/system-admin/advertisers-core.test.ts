@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ADVERTISER_STATUS_LABEL,
   ADVERTISER_STATUS_ORDER,
+  collectAdvertiserFieldErrors,
+  hasAdvertiserFieldErrors,
   isActiveForStatus,
   isAdvertiserStatus,
   validateAdvertiserCreate,
@@ -123,5 +125,51 @@ describe("advertiser status helpers", () => {
       ["active", "paused", "prospect"].sort(),
     );
     expect([...ADVERTISER_STATUS_ORDER]).toEqual(["prospect", "active", "paused"]);
+  });
+});
+
+describe("collectAdvertiserFieldErrors (FormField 用の項目別検証)", () => {
+  it("会社名のみで成立: エラー無しは空オブジェクト (任意項目の空はエラーにしない)", () => {
+    expect(collectAdvertiserFieldErrors({ companyName: "アクメ商事" })).toEqual({});
+    expect(
+      collectAdvertiserFieldErrors({ companyName: "X", industry: "", contactEmail: "" }),
+    ).toEqual({});
+  });
+
+  it("会社名が空なら companyName エラー", () => {
+    expect(collectAdvertiserFieldErrors({ companyName: "   " }).companyName).toMatch(/会社名/);
+  });
+
+  it("メールは形式違反と長さ超過を区別してエラーにする", () => {
+    expect(
+      collectAdvertiserFieldErrors({ companyName: "X", contactEmail: "not-an-email" }).contactEmail,
+    ).toMatch(/形式/);
+    expect(
+      collectAdvertiserFieldErrors({ companyName: "X", contactEmail: `${"a".repeat(320)}@b.co` })
+        .contactEmail,
+    ).toMatch(/320 文字以内/);
+    // 正しい形式はエラー無し。
+    expect(
+      collectAdvertiserFieldErrors({ companyName: "X", contactEmail: "a@b.co" }).contactEmail,
+    ).toBeUndefined();
+  });
+
+  it("任意項目の最大長超過はそれぞれエラーになる", () => {
+    const errors = collectAdvertiserFieldErrors({
+      companyName: "X",
+      industry: "い".repeat(101),
+      contactPhone: "9".repeat(51),
+      address: "あ".repeat(1001),
+      notes: "ん".repeat(2001),
+    });
+    expect(errors.industry).toBeTruthy();
+    expect(errors.contactPhone).toBeTruthy();
+    expect(errors.address).toBeTruthy();
+    expect(errors.notes).toBeTruthy();
+  });
+
+  it("hasAdvertiserFieldErrors はエラー有無を判定する", () => {
+    expect(hasAdvertiserFieldErrors({})).toBe(false);
+    expect(hasAdvertiserFieldErrors({ companyName: "x" })).toBe(true);
   });
 });

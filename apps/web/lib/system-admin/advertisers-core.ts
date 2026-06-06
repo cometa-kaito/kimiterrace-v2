@@ -166,3 +166,57 @@ export function validateAdvertiserCreate(raw: {
     value: { companyName, industry, contactEmail, contactPhone, address, notes, status },
   };
 }
+
+/** 広告主フォームの**項目別**エラー (FormField のインライン表示用)。エラーの無い項目はキーごと欠落させる。 */
+export type AdvertiserFieldErrors = {
+  companyName?: string;
+  industry?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  address?: string;
+  notes?: string;
+};
+
+/**
+ * クライアント側の項目別検証 (FormField のインライン表示用)。`validateAdvertiserCreate` と**同じ規則**
+ * (required/optional/EMAIL_RE/各 MAX) を項目別メッセージに分解する (検証規則の単一ソース)。送信前に呼び、
+ * エラーが 1 件でもあれば送信を止めて項目の下に表示する。**Server Action の検証が authoritative**で、本関数は
+ * その前段の UX。status は select 既定ありで UI から不正値が来ないため対象外。create/update 共通。
+ */
+export function collectAdvertiserFieldErrors(raw: {
+  companyName?: unknown;
+  industry?: unknown;
+  contactEmail?: unknown;
+  contactPhone?: unknown;
+  address?: unknown;
+  notes?: unknown;
+}): AdvertiserFieldErrors {
+  const errors: AdvertiserFieldErrors = {};
+  if (!required(raw.companyName, COMPANY_MAX)) {
+    errors.companyName = `会社名は 1〜${COMPANY_MAX} 文字で入力してください。`;
+  }
+  if (optional(raw.industry, INDUSTRY_MAX) === undefined) {
+    errors.industry = `業種は ${INDUSTRY_MAX} 文字以内で入力してください。`;
+  }
+  const email = optional(raw.contactEmail, EMAIL_MAX);
+  if (email === undefined) {
+    errors.contactEmail = `メールアドレスは ${EMAIL_MAX} 文字以内で入力してください。`;
+  } else if (email !== null && !EMAIL_RE.test(email)) {
+    errors.contactEmail = "メールアドレスの形式が正しくありません。";
+  }
+  if (optional(raw.contactPhone, PHONE_MAX) === undefined) {
+    errors.contactPhone = `電話番号は ${PHONE_MAX} 文字以内で入力してください。`;
+  }
+  if (optional(raw.address, ADDRESS_MAX) === undefined) {
+    errors.address = `住所は ${ADDRESS_MAX} 文字以内で入力してください。`;
+  }
+  if (optional(raw.notes, NOTES_MAX) === undefined) {
+    errors.notes = `備考は ${NOTES_MAX} 文字以内で入力してください。`;
+  }
+  return errors;
+}
+
+/** 項目別エラーが 1 件でもあるか。 */
+export function hasAdvertiserFieldErrors(errors: AdvertiserFieldErrors): boolean {
+  return Object.keys(errors).length > 0;
+}
