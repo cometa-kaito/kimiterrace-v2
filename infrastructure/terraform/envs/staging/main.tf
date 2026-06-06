@@ -79,7 +79,8 @@ locals {
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
   # seed-e2e2: seed-cli を生 SQL 化（barrel import 由来の @kimiterrace/ai 推移依存を除去）した再ビルド版。
   # seed-e2e3: FORCE RLS 下で system_admin context を張って seed する版（migrator は非 BYPASSRLS）。
-  seed_image_tag = "seed-e2e3"
+  # seed-signage1: F12 サイネージ実機確認用に class + クラス用 magic-link + 当日 daily_data を追加 seed する版。
+  seed_image_tag = "seed-signage1"
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
