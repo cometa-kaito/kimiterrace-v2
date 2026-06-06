@@ -82,6 +82,10 @@ locals {
   # seed-signage1: F12 サイネージ実機確認用に class + クラス用 magic-link + 当日 daily_data を追加 seed する版。
   seed_image_tag = "seed-signage1"
 
+  # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
+  # bd1c9fb: apps/jobs に build + jobs.Dockerfile を追加した初版（weather-job を含む）。
+  jobs_image_tag = "bd1c9fb"
+
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
   db_url_app_secret_id = "staging-db-url-app"
@@ -303,18 +307,24 @@ module "cloud_run_job" {
   deletion_protection = false # staging は recreate 容易性優先（Issue #70）
 }
 
-# F14 天気取得 Cloud Run Job + Scheduler + egress（#128, ADR-021）。雛形段階は enabled = false。
-# enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定。
-# 外部 egress(JMA) は本 Job 経路のみ（閉域原則）。external_egress_ready で network の Cloud NAT 実在を強制
-# （NAT 無しで enabled=true にすると plan が fail-fast）。Sentry を使うなら sentry_dsn_secret_id を設定（ADR-013）。
+# F14 天気取得 Cloud Run Job + Scheduler + egress（#128, ADR-021）。staging で有効化（サイネージ天気を実描画）。
+# image = jobs:<tag>（jobs.Dockerfile build/push 済）。container_args で weather-job を起動。DATABASE_URL は
+# 既存 app DSN secret（kimiterrace_app、書込みは run.ts が system_admin context）。vpc_connector で Cloud SQL
+# private IP 到達 + 外部 egress(JMA) を VPC 経由に集約し Cloud NAT で出す（閉域原則・出口1経路）。
+# external_egress_ready=network.egress_ready（NAT 実在＝true）で plan 時 fail-fast を満たす。Scheduler は
+# モジュール既定で毎時起動（鮮度 6h 内に再取得、F14 §2）。Sentry は未設定（sentry_dsn_secret_id 空）。
 module "cloud_run_job_weather" {
-  source                = "../../modules/cloud_run_job_weather"
-  project_id            = var.project_id
-  region                = var.region
-  env                   = local.env
-  enabled               = false
-  deletion_protection   = false                       # staging は recreate 容易性優先（Issue #70）
-  external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+  source                 = "../../modules/cloud_run_job_weather"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/weather/weather-job.js"] # ビルド済み weather-job（WORKDIR=/app/apps/jobs）
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
 }
 
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。
