@@ -126,7 +126,10 @@ locals {
   #          web:7495bc0 を Cloud Build 済・AR push 済。なお #627 は build を恒常ブロックしない（#632 訂正済）。
   # ce55060: #648 学校管理の階層をツリー（枝分かれ）UI化 + 教員セッション 5→14 日。7495bc0 を内包＋#648。
   #          web:ce55060 を Cloud Build 済・AR push 済。
-  web_image_tag = "ce55060"
+  # b9d37f0: 段3 FormField 採用を反映 — #650 広告主 新規登録 / #652 教員発行 のフォームに項目別インライン
+  #          検証（検証規則を core の単一ソースに統合）。ce55060(#646 学校フォーム/#648 含む) を内包＋#650/#652。
+  #          UI 変更ゆえ再 build/deploy で反映（web:b9d37f0 を Cloud Build 済・AR push 済、main HEAD）。
+  web_image_tag = "b9d37f0"
 }
 
 module "network" {
