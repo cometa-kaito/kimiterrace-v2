@@ -8,6 +8,12 @@ node_modules
 **/dist
 .turbo
 **/.turbo
+# TypeScript incremental state。**dist を除外しているのに tsbuildinfo を残すと**、
+# COPY . . で builder に古い incremental 状態だけが入り、tsc が「出力は最新」と誤判断して
+# emit を skip → dist が空/部分のまま image 化され runtime で MODULE_NOT_FOUND になる
+# (実害: kimiterrace-seed-* / weather-job)。dist と必ず対で除外する。
+*.tsbuildinfo
+**/*.tsbuildinfo
 
 # VCS / Claude ツール作業ディレクトリ
 .git

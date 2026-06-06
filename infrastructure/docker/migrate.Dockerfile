@@ -42,7 +42,18 @@ COPY . .
 RUN pnpm install --frozen-lockfile --filter @kimiterrace/db...
 
 # tsc -p tsconfig.build.json → packages/db/dist/ を生成 (migrate-cli.js / migrate-runner.js 等)。
+# packages/db の tsconfig.build.json は incremental:false ＝ 古い .tsbuildinfo が context に紛れても
+# 決定的にフルビルドする (部分 emit を排除。jobs.Dockerfile #657 と同規律)。
 RUN pnpm --filter @kimiterrace/db build
+
+# 部分ビルド / ソースアップロード欠落の回帰を **build 時に fail-fast** 検知する
+# (jobs.Dockerfile の weather-job test・apps/web の standard_fonts test と同規律)。
+# このイメージから起動する Cloud Run Job のエントリ (migrate-cli = CMD、seed-* = command 上書き) が
+# 1 つでも emit されていなければ image を作らせない (不完全 image をデプロイして runtime で
+# MODULE_NOT_FOUND になるのを防ぐ。実害: kimiterrace-seed-ginan-ads の Cannot find module)。
+RUN test -f /app/packages/db/dist/migrate-cli.js \
+ && test -f /app/packages/db/dist/seed-staging-cli.js \
+ && test -f /app/packages/db/dist/seed-ginan-sensors-cli.js
 
 # ---- runtime: 最小限の起動環境 -------------------------------------------------------
 FROM node:22-slim AS runtime
