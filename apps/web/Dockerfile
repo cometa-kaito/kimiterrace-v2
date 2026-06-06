@@ -73,6 +73,15 @@ COPY --from=builder --chown=nextjs:nodejs /repo/node_modules/.pnpm/pdfjs-dist@6*
 # 同梱漏れ回帰を build 時に fail-fast 検知する（Cloud Build/CI でデプロイ前に落とす。Issue #311）。
 RUN test -f node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf
 
+# 注: @kimiterrace/db の dist には migrate/jobs image のような `test -f` fail-fast を**あえて置かない**
+# （defense-in-depth の対象外と判断。feedback_cloudbuild_tsbuildinfo_partial_emit）。理由 2 点:
+#  ① db は next.config.ts の transpilePackages に含まれ Next の build グラフへ**バンドル**される
+#     （dist/*.js を standalone へ物理コピーする serverExternalPackages 経路ではない）。ゆえに
+#     .next/standalone に packages/db/dist/*.js は存在せず、そこへの `test -f` は健全 build でも偽陽性になる。
+#  ② バンドルゆえ db の部分/空 emit は web の import グラフから到達可能な箇所で `next build` を即
+#     "Module not found" として**赤くする**。migrate/jobs の「node dist/x.js が runtime で MODULE_NOT_FOUND」
+#     というサイレント失敗モードを web は構造的に持たず、build 時 loud failure で既に保護されている。
+
 USER nextjs
 
 EXPOSE 3000

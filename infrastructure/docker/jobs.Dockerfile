@@ -44,9 +44,23 @@ RUN pnpm install --frozen-lockfile --filter @kimiterrace/jobs...
 RUN pnpm --filter @kimiterrace/jobs... build
 
 # 部分ビルド / ソースアップロード欠落の回帰を **build 時に fail-fast** 検知する
-# （migrate.Dockerfile の standard_fonts test と同規律）。weather-job が emit されていなければ image を
-#  作らせない（不完全 image をデプロイして runtime で MODULE_NOT_FOUND になるのを防ぐ）。
+# （apps/web/Dockerfile の standard_fonts test・migrate.Dockerfile の *-cli.ts 網羅ループと同規律）。
+# weather-job が emit されていなければ image を作らせない（不完全 image をデプロイして runtime で
+# MODULE_NOT_FOUND になるのを防ぐ）。
 RUN test -f /app/apps/jobs/dist/weather/weather-job.js
+
+# 推移依存 @kimiterrace/db の dist も検証する（defense-in-depth、feedback_cloudbuild_tsbuildinfo_partial_emit）。
+# jobs runtime は `@kimiterrace/db` の `.` バレル（= dist/index.js。これが dist/schema/index.js と
+# dist/queries/*.js を再エクスポートする）を解決するため、db 側の部分 emit でも runtime で MODULE_NOT_FOUND に
+# なりうる。jobs は db CLI を起動しない（CLI は migrate image の関心事）ので migrate.Dockerfile の *-cli.ts
+# ループでなく、runtime 解決の起点 2 点を検証する＝ barrel エントリ + 別ディレクトリの schema/index.js
+# （後者は部分 emit で最も欠落しやすい subtree の代表）。node:22-slim の /bin/sh は dash ゆえ
+# set -eu / [ ] / >&2 / exit 1 で書く。
+RUN set -eu; \
+    for js in /app/packages/db/dist/index.js /app/packages/db/dist/schema/index.js; do \
+      [ -f "$js" ] || { echo "FATAL: 部分ビルド検出 — @kimiterrace/db の $js が emit されていません" >&2; exit 1; }; \
+      echo "OK: $js"; \
+    done
 
 # ---- runtime: 最小限の起動環境 -------------------------------------------------------
 FROM node:22-slim AS runtime
