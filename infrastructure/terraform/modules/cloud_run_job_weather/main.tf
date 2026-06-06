@@ -178,8 +178,10 @@ resource "google_cloud_run_v2_job" "weather" {
 resource "google_service_account" "scheduler" {
   count = var.enabled ? 1 : 0
 
-  project      = var.project_id
-  account_id   = "${var.job_name}-sched"
+  project = var.project_id
+  # SA account_id は 6〜30 文字制限。既定 job_name "kimiterrace-weather-fetch"(25) + "-sched"(6) = 31 で
+  # 超過するため接尾辞を "-sch"(4 → 計29) に縮める（runtime SA は "-sa" で 28、こちらは制限内）。
+  account_id   = "${var.job_name}-sch"
   display_name = "F14 weather-fetch scheduler SA (${var.env})"
   description  = "Cloud Scheduler が天気取得 Job を起動するための SA（run.invoker のみ）。"
 }
