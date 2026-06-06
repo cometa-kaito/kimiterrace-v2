@@ -20,9 +20,9 @@ describe("ConfirmDialog", () => {
         onCancel={noop}
       />,
     );
-    const dialog = screen.getByRole("alertdialog");
+    // 見出しが aria-labelledby でダイアログの名前に結ばれている（accessible name = title）。
+    const dialog = screen.getByRole("alertdialog", { name: "公開しますか？" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(screen.getByText("公開しますか？")).toBeInTheDocument();
     expect(screen.getByText("全生徒の画面に表示されます。")).toBeInTheDocument();
   });
 
