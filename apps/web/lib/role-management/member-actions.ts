@@ -24,11 +24,7 @@ import {
 } from "../system-admin/schools-core";
 import { type RoleActor, canDisableAccount } from "./policy";
 import { MEMBER_ADMIN_ROLES } from "./roles";
-
-/** メールアドレスの最小検証 (形式 + 長さ)。`users.email` は varchar(320)。 */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_EMAIL = 320;
-const MAX_DISPLAY_NAME = 100;
+import { validateStaffCreate } from "./staff-create-core";
 
 /**
  * F11 (#47 / #324, ADR-026): 自校教職員のアカウント **無効化 / 再有効化** Server Action。
@@ -195,15 +191,13 @@ export async function createStaffAction(raw: {
   email?: unknown;
   displayName?: unknown;
 }): Promise<ActionResult<{ id: string; setupLink: string }>> {
-  // 入力検証 (IdP / DB 到達前に弾く)。
-  const email = typeof raw.email === "string" ? raw.email.trim() : "";
-  const displayName = typeof raw.displayName === "string" ? raw.displayName.trim() : "";
-  if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
-    return invalid("メールアドレスの形式が不正です。");
+  // 入力検証 (IdP / DB 到達前に弾く)。規則・メッセージは staff-create-core が単一ソース
+  // (client フォームの項目別検証 collectStaffCreateFieldErrors と同一)。
+  const validated = validateStaffCreate(raw);
+  if (!validated.ok) {
+    return invalid(validated.message);
   }
-  if (displayName.length === 0 || displayName.length > MAX_DISPLAY_NAME) {
-    return invalid("表示名を入力してください (100 文字以内)。");
-  }
+  const { email, displayName } = validated.value;
 
   // 認可: school_admin のみ。未認証→/login, 権限不足→/forbidden の redirect 副作用はここで起きる。
   const actor = await requireRole(MEMBER_ADMIN_ROLES);
