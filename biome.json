@@ -97,6 +97,7 @@
         "**/apps/jobs/src/tv-liveness/tv-liveness-job.ts",
         "**/packages/db/src/migrate-cli.ts",
         "**/packages/db/src/seed-staging-cli.ts",
+        "**/packages/db/src/seed-ginan-sensors-cli.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",
