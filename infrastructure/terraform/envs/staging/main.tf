@@ -101,7 +101,9 @@ locals {
   # 6e62f09: 多ロール(school_admin/system_admin)UI巡回の改善一式 — #618 グラデ→ソリッド / #620 日本語
   #          エラー/404境界 / #621 ログアウト可視化・広告主nav配線・教員i18n・体裁 / #622 モバイル浮遊
   #          メニュー・no-gradient原則。UI/CSS変更ゆえ再 build/deploy で反映。
-  web_image_tag = "6e62f09"
+  # 585bddb: #626 サイネージ盤面を v1 マットトーンデザインに移植（CSS Module 化）+ #627 共通UI
+  #          プリミティブ基盤 @kimiterrace/ui 新設（student/page・next.config 配線）。UI 変更ゆえ再 deploy。
+  web_image_tag = "585bddb"
 }
 
 module "network" {
