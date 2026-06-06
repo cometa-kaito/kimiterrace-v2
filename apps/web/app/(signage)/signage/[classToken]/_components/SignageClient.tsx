@@ -21,12 +21,17 @@ import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignageInvalid } from "./SignageInvalid";
+import styles from "./signage.module.css";
 
 /**
  * サイネージ再生制御 Client Island (#48-E2 / F12)。#48-E1 の静的描画に対し、本コンポーネントが
  * (a) 広告を 1 件ずつ duration 秒で巡回し、(b) 5-10 秒ポーリングで最新データへ自動更新する。
  * V1 Firestore `onSnapshot` の置換 (ADR-022 pull 型)。データ取得は data Route Handler 経由
  * (サーバーで token→RLS 解決)。本クライアントに DB アクセスは持ち込まない。
+ *
+ * **見た目は v1（旧キミテラス）の「マットトーン」盤面を移植** (`signage.module.css`): 暗色ヘッダー帯 +
+ * コンテンツ 70 : 広告 30 + 白カード（点線罫線）+ 同画像ぼかし背景の暗色広告ゾーン。再生・ポーリング・
+ * テレメトリ・天気・Service Worker の挙動は #48 系の実装をそのまま保持し、本変更は表示層のみ。
  */
 export function SignageClient({
   classToken,
@@ -38,6 +43,10 @@ export function SignageClient({
   const [data, setData] = useState<SignagePayload>(initial);
   const [invalid, setInvalid] = useState(false);
   const [adIndex, setAdIndex] = useState(0);
+  // 盤面のヘッダー帯に出す実時計 (v1 の time 表示の移植)。SSR と初回クライアント描画を一致させるため
+  // null 始まりにし、マウント後に effect で埋める (ハイドレーション不一致回避)。盤面日付 (data.date) は
+  // サーバ確定値なので別途整形する (?date 上書き時はその日付を出す)。
+  const [now, setNow] = useState<Date | null>(null);
 
   const ads = data.ads;
   const adCount = ads.length;
@@ -85,6 +94,14 @@ export function SignageClient({
       clearTimeout(timer);
     };
   }, [poll, invalid]);
+
+  // --- ヘッダー実時計。1 秒ごとに更新 (v1 の useClock 相当)。表示は HH:MM だが秒で更新して分境界の
+  //     遅延を無くす。マウント後のみ動く (SSR は時計を出さない)。 ---
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // --- 広告ローテーション (現在広告の duration で次へ。件数変動時は index を丸める) ---
   const safeIndex = clampIndex(adIndex, adCount);
@@ -179,47 +196,77 @@ export function SignageClient({
   const ad = adCount > 0 ? ads[safeIndex] : null;
   // linkUrl が http(s) 絶対 URL の時だけクリック遷移にする (javascript:/data: 等は弾く = 安全側、ルール)。
   const adLink = ad ? safeHttpUrl(ad.linkUrl) : null;
+  const hasMedia = ad != null;
+
+  const { dateText, dayText } = formatBoardDate(data.date);
+  const time = now ? formatClock(now) : "";
 
   return (
-    <div style={rootStyle}>
-      <main style={contentStyle}>
-        <header style={dateHeaderStyle}>{data.date}</header>
-        {/* F14 (#128 / ADR-021): 自校地域の天気。weather=null (地域未解決/キャッシュ無し/取得失敗) なら
-            枠ごと出さない (fail-soft、画面は壊さない)。端末は外部 API を叩かず本ペイロードを読むだけ。 */}
-        {data.weather ? <WeatherWidget weather={data.weather} /> : null}
-        <div style={gridStyle}>
-          <Section title="時間割" kind="schedules" section={data.daily.schedules} />
-          <Section title="連絡" kind="notices" section={data.daily.notices} />
-          <Section title="課題" kind="assignments" section={data.daily.assignments} />
-          <Section title="静粛時間" kind="quietHours" section={data.daily.quietHours} />
-        </div>
-      </main>
+    <div className={styles.signageRoot}>
+      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日バッジ + 実時計 + ブランディング (v1 SignageHeader 移植) */}
+      <header className={styles.adHeader}>
+        <span className={styles.dateText}>{dateText}</span>
+        <span className={styles.dayBadge}>{dayText}</span>
+        {time ? <span className={styles.timeText}>{time}</span> : null}
+        <span className={styles.headerBranding}>キミテラス by Rebounder</span>
+      </header>
 
-      <aside aria-label="広告" style={adPaneStyle}>
-        {ad ? (
-          <figure style={adFigureStyle} key={ad.adId}>
-            {adLink ? (
-              // linkUrl 付き広告はタップで遷移可能 (インタラクティブ端末)。新規タブ + reverse
-              // tabnabbing 防止 (noopener noreferrer)。タップで tap イベントを送る (遷移は阻害しない)。
-              <a
-                href={adLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={adLinkStyle}
-                aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
-                onClick={() => handleAdTap(ad.adId, safeIndex)}
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          {/* F14 (#128 / ADR-021): 自校地域の天気。weather=null (地域未解決/キャッシュ無し/取得失敗) なら
+              枠ごと出さない (fail-soft、画面は壊さない)。端末は外部 API を叩かず本ペイロードを読むだけ。 */}
+          {data.weather ? <WeatherWidget weather={data.weather} /> : null}
+          <div className={styles.contentGrid}>
+            <Section title="時間割" kind="schedules" section={data.daily.schedules} fullWidth />
+            <Section title="連絡" kind="notices" section={data.daily.notices} />
+            <Section title="課題" kind="assignments" section={data.daily.assignments} />
+            <Section title="静粛時間" kind="quietHours" section={data.daily.quietHours} fullWidth />
+          </div>
+        </main>
+
+        <aside
+          aria-label="広告"
+          className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
+        >
+          <div className={styles.adContainer}>
+            {/* 余白（紺）を同じ広告画像のぼかしで埋める (v1 adBackdrop)。ad 変更で key を変えて差し替え。 */}
+            {ad ? <AdBackdrop key={`bd-${ad.adId}`} ad={ad} /> : null}
+            <div className={styles.adForeground}>
+              {ad ? (
+                adLink ? (
+                  // linkUrl 付き広告はタップで遷移可能 (インタラクティブ端末)。新規タブ + reverse
+                  // tabnabbing 防止 (noopener noreferrer)。タップで tap イベントを送る (遷移は阻害しない)。
+                  <a
+                    href={adLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.adLink}
+                    aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
+                    onClick={() => handleAdTap(ad.adId, safeIndex)}
+                  >
+                    <AdMedia key={ad.adId} ad={ad} />
+                  </a>
+                ) : (
+                  <AdMedia key={ad.adId} ad={ad} />
+                )
+              ) : (
+                <p className={styles.adEmpty}>　</p>
+              )}
+            </div>
+            {ad?.caption ? (
+              // caption のフォントスケールは CSS 変数で渡す (v1 と同じく `clamp()` 内で乗算)。
+              // React.CSSProperties は `--*` カスタムプロパティ key を型に持たないためオブジェクトごと cast する。
+              <div
+                className={styles.adCaption}
+                style={{ "--ad-caption-scale": String(ad.captionFontScale) } as React.CSSProperties}
               >
-                <AdMedia ad={ad} />
-              </a>
-            ) : (
-              <AdMedia ad={ad} />
-            )}
-          </figure>
-        ) : (
-          <p style={adEmptyStyle}>　</p>
-        )}
-        {adCount > 1 ? <span style={adDotsStyle}>{dots(adCount, safeIndex)}</span> : null}
-      </aside>
+                {ad.caption}
+              </div>
+            ) : null}
+          </div>
+          {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
+        </aside>
+      </div>
     </div>
   );
 }
@@ -228,29 +275,34 @@ function Section({
   title,
   kind,
   section,
+  fullWidth,
 }: {
   title: string;
   kind: SignageSectionKind;
   section: MergedSection;
+  fullWidth?: boolean;
 }) {
   return (
-    <section aria-label={title} style={sectionStyle}>
-      <h2 style={sectionTitleStyle}>
+    <section aria-label={title} className={`${styles.card} ${fullWidth ? styles.fullWidth : ""}`}>
+      <h2 className={styles.cardTitle}>
         {title}
         {section.source && section.source !== "class" ? (
-          <span style={badgeStyle}>{section.source === "school" ? "学校共通" : "学年共通"}</span>
+          <span className={styles.sourceBadge}>
+            {section.source === "school" ? "学校共通" : "学年共通"}
+          </span>
         ) : null}
       </h2>
       {section.items.length === 0 ? (
-        <p style={emptyStyle}>なし</p>
+        <p className={styles.empty}>なし</p>
       ) : (
-        <ol style={itemsStyle}>
+        <ol className={styles.listGroup}>
           {section.items.map((item, i) => {
             const line = formatSignageItem(kind, item);
+            const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
             return (
               // 順序が意味を持ち再並びしない静的リストなので index key で十分。
               // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-              <li key={i} style={line.emphasis ? itemEmphasisStyle : itemStyle}>
+              <li key={i} className={cls}>
                 {line.text}
               </li>
             );
@@ -277,25 +329,25 @@ function WeatherWidget({ weather }: { weather: SignageWeather }) {
   const areaLabel = weather.areaName ? `天気 (${weather.areaName})` : "天気";
   const fetchedNote = formatFetchedNote(weather.fetchedAt);
   return (
-    <section aria-label={areaLabel} style={weatherSectionStyle}>
-      <h2 style={weatherTitleStyle}>
+    <section aria-label={areaLabel} className={`${styles.card} ${styles.fullWidth}`}>
+      <h2 className={styles.cardTitle}>
         <span>{areaLabel}</span>
         {weather.isStale ? (
           // 色のみに頼らずテキストで鮮度劣化を明示 (NFR05)。stale でも last-known-good を出し続ける (NFR02)。
-          <span style={weatherStaleBadgeStyle}>最新の取得に失敗（古い予報を表示中）</span>
+          <span className={styles.weatherStaleBadge}>最新の取得に失敗（古い予報を表示中）</span>
         ) : null}
       </h2>
       {days.length === 0 ? (
         // days が空でも weather!=null はありうる (将来) ため黙らず注記を出す。
-        <p style={emptyStyle}>予報データがありません</p>
+        <p className={styles.empty}>予報データがありません</p>
       ) : (
-        <ol style={weatherDaysStyle}>
+        <ol className={styles.weatherDays}>
           {days.map((day) => (
             <WeatherDayCard key={day.forecastDate} day={day} />
           ))}
         </ol>
       )}
-      {fetchedNote ? <p style={weatherFetchedStyle}>{fetchedNote}</p> : null}
+      {fetchedNote ? <p className={styles.weatherFetched}>{fetchedNote}</p> : null}
     </section>
   );
 }
@@ -304,19 +356,19 @@ function WeatherWidget({ weather }: { weather: SignageWeather }) {
 function WeatherDayCard({ day }: { day: WeatherDay }) {
   const glyph = WEATHER_ICON_GLYPH[day.icon];
   return (
-    <li style={weatherDayStyle}>
-      <span style={weatherDayDateStyle}>{formatDayLabel(day.forecastDate)}</span>
+    <li className={styles.weatherDay}>
+      <span className={styles.weatherDayDate}>{formatDayLabel(day.forecastDate)}</span>
       <span
         // glyph は装飾。意味は隣の iconLabel テキストが担うので読み上げから除外する (二重読み回避)。
         aria-hidden="true"
-        style={weatherGlyphStyle}
+        className={styles.weatherGlyph}
       >
         {glyph}
       </span>
       {/* 天気テキスト: weatherText があれば優先 (例「晴時々曇」)、無ければアイコンラベル。色に頼らない本文。 */}
-      <span style={weatherDayTextStyle}>{day.weatherText ?? day.iconLabel}</span>
-      <span style={weatherTempStyle}>{formatTemps(day.tempMax, day.tempMin)}</span>
-      <span style={weatherPopStyle}>{formatPop(day.pop)}</span>
+      <span className={styles.weatherDayText}>{day.weatherText ?? day.iconLabel}</span>
+      <span className={styles.weatherTemp}>{formatTemps(day.tempMax, day.tempMin)}</span>
+      <span className={styles.weatherPop}>{formatPop(day.pop)}</span>
     </li>
   );
 }
@@ -352,6 +404,36 @@ function formatDayLabel(forecastDate: string): string {
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
+/**
+ * 盤面ヘッダーの日付ラベル。`data.date` (YYYY-MM-DD, JST) を「YYYY年M月D日」と曜日に整形する
+ * (v1 ヘッダーの dateText / dayBadge 移植)。曜日は Date.UTC で求め TZ ドリフトを避ける
+ * ([[feedback_pg_month_window_interval_tz]] と同思想)。不正値は素直にそのまま返し画面を壊さない。
+ */
+function formatBoardDate(date: string): { dateText: string; dayText: string } {
+  const parts = date.split("-");
+  if (parts.length !== 3) {
+    return { dateText: date, dayText: "" };
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return { dateText: date, dayText: "" };
+  }
+  const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
+  return { dateText: `${y}年${m}月${d}日`, dayText: dow };
+}
+
+/** 実時計 HH:MM (JST)。ヘッダー帯に出す現在時刻。 */
+function formatClock(d: Date): string {
+  return d.toLocaleTimeString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 /** 最高/最低気温のテキスト。欠損は "—" で埋め空白にしない (色非依存 + 黙らない、NFR05)。 */
 function formatTemps(tempMax: number | null, tempMin: number | null): string {
   const hi = tempMax == null ? "—" : `${tempMax}°`;
@@ -377,23 +459,33 @@ function formatFetchedNote(fetchedAt: SignageWeather["fetchedAt"]): string | nul
   return `${time} 時点`;
 }
 
-/** 広告の media (image/video) + caption。リンク有無で <a> でラップされるため共通部品に切り出す。 */
+/** 広告の背景ぼかし (v1 adBackdrop)。前景と同じ media を cover + blur で敷き、余白の紺を隠す。 */
+function AdBackdrop({ ad }: { ad: SignagePayload["ads"][number] }) {
+  if (ad.mediaType === "video") {
+    return (
+      // 装飾用の背景ぼかし動画。controls 無し = フォーカス不可で、前景動画の複製なので AT から隠す。
+      // biome-ignore lint/a11y/noAriaHiddenOnFocusable: controls 無しの装飾複製背景（非フォーカス）
+      <video
+        className={styles.adBackdrop}
+        src={ad.mediaUrl}
+        muted
+        autoPlay
+        loop
+        playsInline
+        aria-hidden="true"
+      />
+    );
+  }
+  return <img className={styles.adBackdrop} src={ad.mediaUrl} alt="" aria-hidden="true" />;
+}
+
+/** 広告の前景 media (image/video)。リンク有無で <a> でラップされるため共通部品に切り出す。 */
 function AdMedia({ ad }: { ad: SignagePayload["ads"][number] }) {
-  return (
-    <>
-      {ad.mediaType === "video" ? (
-        <video src={ad.mediaUrl} autoPlay muted loop playsInline style={adMediaStyle} />
-      ) : (
-        // 外部 CDN URL の広告画像。Next/Image の最適化対象外のため素の img を使う。
-        <img src={ad.mediaUrl} alt={ad.caption ?? ""} style={adMediaStyle} />
-      )}
-      {ad.caption ? (
-        <figcaption style={{ ...adCaptionStyle, fontSize: `${ad.captionFontScale}rem` }}>
-          {ad.caption}
-        </figcaption>
-      ) : null}
-    </>
-  );
+  if (ad.mediaType === "video") {
+    return <video src={ad.mediaUrl} autoPlay muted loop playsInline className={styles.adMedia} />;
+  }
+  // 外部 CDN URL の広告画像。Next/Image の最適化対象外のため素の img を使う。
+  return <img src={ad.mediaUrl} alt={ad.caption ?? ""} className={styles.adMedia} />;
 }
 
 /**
@@ -413,154 +505,16 @@ function safeHttpUrl(linkUrl: string | null): string | null {
   }
 }
 
-/** ローテーション位置のドット表示 (現在位置を ● 他を ○)。 */
-function dots(count: number, active: number): string {
-  return Array.from({ length: count }, (_, i) => (i === active ? "●" : "○")).join(" ");
+/** ローテーション位置のドット表示 (現在位置を塗り、他を半透明に / v1 mobileAdIndicator 移植)。 */
+function Dots({ count, active }: { count: number; active: number }) {
+  return (
+    <div className={styles.adDots} aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => {
+        const cls = `${styles.dot} ${i === active ? styles.dotActive : ""}`;
+        // 固定長の装飾ドット列。index key で十分。
+        // biome-ignore lint/suspicious/noArrayIndexKey: 不変ドット列の描画
+        return <span key={i} className={cls} />;
+      })}
+    </div>
+  );
 }
-
-const rootStyle: React.CSSProperties = {
-  height: "100%",
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 3fr) minmax(0, 2fr)",
-  gap: "1.5rem",
-  padding: "1.5rem",
-  boxSizing: "border-box",
-};
-const contentStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "1rem",
-  minWidth: 0,
-};
-const dateHeaderStyle: React.CSSProperties = {
-  fontSize: "2rem",
-  fontWeight: 700,
-  borderBottom: "2px solid #334155",
-  paddingBottom: "0.5rem",
-};
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: "1rem",
-  overflow: "hidden",
-};
-const sectionStyle: React.CSSProperties = {
-  border: "1px solid #334155",
-  borderRadius: "10px",
-  padding: "0.75rem 1rem",
-  background: "rgba(255,255,255,0.03)",
-};
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: "1.2rem",
-  margin: "0 0 0.5rem",
-  display: "flex",
-  alignItems: "center",
-  gap: "0.5rem",
-};
-const itemsStyle: React.CSSProperties = {
-  margin: 0,
-  paddingLeft: "1.25rem",
-  display: "grid",
-  gap: "0.3rem",
-};
-const itemStyle: React.CSSProperties = { fontSize: "1.1rem" };
-// 重要マーク付き連絡 (isHighlight) は太字で強調する。
-const itemEmphasisStyle: React.CSSProperties = { fontSize: "1.1rem", fontWeight: 700 };
-const emptyStyle: React.CSSProperties = { color: "#64748b", margin: 0, fontSize: "1rem" };
-const adPaneStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.75rem",
-  minWidth: 0,
-};
-const adFigureStyle: React.CSSProperties = {
-  margin: 0,
-  width: "100%",
-  height: "100%",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.5rem",
-};
-// リンク付き広告のラッパ。figure の flex 列レイアウトを引き継ぎつつ下線・文字色を継承する。
-const adLinkStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.5rem",
-  width: "100%",
-  height: "100%",
-  color: "inherit",
-  textDecoration: "none",
-};
-const adMediaStyle: React.CSSProperties = {
-  maxWidth: "100%",
-  maxHeight: "80%",
-  objectFit: "contain",
-  borderRadius: "10px",
-};
-const adCaptionStyle: React.CSSProperties = { margin: 0, textAlign: "center", color: "#e2e8f0" };
-const adEmptyStyle: React.CSSProperties = { color: "#475569" };
-const adDotsStyle: React.CSSProperties = { letterSpacing: "0.25rem", color: "#94a3b8" };
-const badgeStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  padding: "0.1rem 0.5rem",
-  borderRadius: "999px",
-  background: "#334155",
-  color: "#e2e8f0",
-};
-
-// --- F14 天気ウィジェット (#128 / ADR-021)。Section と同系統の枠線・余白で既存サイネージ様式に揃える。 ---
-const weatherSectionStyle: React.CSSProperties = {
-  border: "1px solid #334155",
-  borderRadius: "10px",
-  padding: "0.75rem 1rem",
-  background: "rgba(255,255,255,0.03)",
-};
-const weatherTitleStyle: React.CSSProperties = {
-  fontSize: "1.2rem",
-  margin: "0 0 0.5rem",
-  display: "flex",
-  alignItems: "center",
-  flexWrap: "wrap",
-  gap: "0.5rem",
-};
-// 鮮度劣化バッジ。色 (琥珀) に加えテキストで明示し色のみ依存を避ける (NFR05)。
-const weatherStaleBadgeStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  fontWeight: 700,
-  padding: "0.1rem 0.5rem",
-  borderRadius: "999px",
-  background: "#78350f",
-  color: "#fde68a",
-};
-const weatherDaysStyle: React.CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-  gap: "0.75rem",
-};
-const weatherDayStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: "0.2rem",
-  textAlign: "center",
-};
-const weatherDayDateStyle: React.CSSProperties = { fontSize: "1rem", color: "#cbd5e1" };
-const weatherGlyphStyle: React.CSSProperties = { fontSize: "2.2rem", lineHeight: 1 };
-const weatherDayTextStyle: React.CSSProperties = { fontSize: "1.1rem", fontWeight: 700 };
-const weatherTempStyle: React.CSSProperties = { fontSize: "1rem" };
-const weatherPopStyle: React.CSSProperties = { fontSize: "1rem", color: "#93c5fd" };
-const weatherFetchedStyle: React.CSSProperties = {
-  margin: "0.5rem 0 0",
-  fontSize: "0.9rem",
-  color: "#94a3b8",
-  textAlign: "right",
-};

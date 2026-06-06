@@ -16,8 +16,8 @@ export function SignageInvalid() {
         gap: "1rem",
       }}
     >
-      <h1 style={{ fontSize: "2rem", margin: 0 }}>表示できません</h1>
-      <p style={{ fontSize: "1.1rem", color: "#cbd5e1", margin: 0 }}>
+      <h1 style={{ fontSize: "2rem", margin: 0, color: "#111827" }}>表示できません</h1>
+      <p style={{ fontSize: "1.1rem", color: "#6b7280", margin: 0 }}>
         この表示リンクは失効したか、有効期限が切れています。
         <br />
         担任の先生に新しいリンクの発行を依頼してください。
