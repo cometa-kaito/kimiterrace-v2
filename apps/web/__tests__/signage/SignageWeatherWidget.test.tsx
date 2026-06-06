@@ -67,7 +67,14 @@ function weather(overrides: Partial<SignageWeather>): SignageWeather {
 }
 
 function payload(weatherValue: SignageWeather | null): SignagePayload {
-  return { date: "2026-06-02", daily, scheduleDays: [], ads: [], weather: weatherValue };
+  return {
+    date: "2026-06-02",
+    designPattern: "pattern1",
+    daily,
+    scheduleDays: [],
+    ads: [],
+    weather: weatherValue,
+  };
 }
 
 describe("SignageClient 天気ウィジェット (#128 / F14)", () => {

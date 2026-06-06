@@ -65,7 +65,14 @@ function adWithLink(adId: string, linkUrl: string | null, caption: string | null
 }
 
 function payload(ads: SignagePayload["ads"]): SignagePayload {
-  return { date: "2026-05-31", daily, scheduleDays: [], ads, weather: null };
+  return {
+    date: "2026-05-31",
+    designPattern: "pattern1",
+    daily,
+    scheduleDays: [],
+    ads,
+    weather: null,
+  };
 }
 
 beforeEach(() => {

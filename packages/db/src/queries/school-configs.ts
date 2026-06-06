@@ -96,3 +96,67 @@ export async function upsertClassConfig(
     .returning({ id: schoolConfigs.id });
   return row?.id ?? null;
 }
+
+/**
+ * 指定 kind の **学校スコープ** (scope='school') 設定 1 行の `value` を取得する。
+ * 行が無ければ (未設定 / 別テナントで不可視) null。school_id は RLS (app.current_school_id) で
+ * 自校に限定されるため引数に取らない (ルール2、手書き WHERE school_id は書かない)。
+ * scope='school' の行は ck_school_configs_scope により grade/class/department が NULL で、
+ * ux_school_configs_target (NULLS NOT DISTINCT) で (school, 'school', kind) が一意。
+ */
+export async function getSchoolConfigValue(
+  tx: TenantTx,
+  kind: ConfigKind,
+): Promise<unknown | null> {
+  const [row] = await tx
+    .select({ value: schoolConfigs.value })
+    .from(schoolConfigs)
+    .where(and(eq(schoolConfigs.scope, "school"), eq(schoolConfigs.kind, kind)))
+    .limit(1);
+  return row ? row.value : null;
+}
+
+/**
+ * 指定 kind の **学校スコープ** 設定を upsert する (1 行 = 1 (school, scope='school', kind))。
+ * grade/class/department は NULL (ck_school_configs_scope)。競合キー・RLS 強制は {@link upsertClassConfig}
+ * と同一。
+ *
+ * @returns upsert 後の行 id (audit_log の record_id に使う)。
+ */
+export async function upsertSchoolConfig(
+  tx: TenantTx,
+  params: {
+    schoolId: string;
+    kind: ConfigKind;
+    value: object;
+    actorUserId: string;
+  },
+): Promise<string | null> {
+  const [row] = await tx
+    .insert(schoolConfigs)
+    .values({
+      schoolId: params.schoolId,
+      scope: "school",
+      kind: params.kind,
+      value: params.value,
+      createdBy: params.actorUserId,
+      updatedBy: params.actorUserId,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schoolConfigs.schoolId,
+        schoolConfigs.scope,
+        schoolConfigs.gradeId,
+        schoolConfigs.departmentId,
+        schoolConfigs.classId,
+        schoolConfigs.kind,
+      ],
+      set: {
+        value: params.value,
+        updatedBy: params.actorUserId,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ id: schoolConfigs.id });
+  return row?.id ?? null;
+}
