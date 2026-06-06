@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { color, radius, space } from "./tokens";
 
 /**
@@ -16,7 +16,7 @@ export type ToastOptions = {
   durationMs?: number;
 };
 
-type ToastItem = { id: number; message: ReactNode; tone: ToastTone };
+type ToastItem = { id: number; message: ReactNode; tone: ToastTone; durationMs: number };
 
 type ToastFn = (message: ReactNode, opts?: ToastOptions) => void;
 
@@ -46,25 +46,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const toast = useCallback<ToastFn>(
-    (message, opts) => {
-      idRef.current += 1;
-      const id = idRef.current;
-      const tone = opts?.tone ?? "info";
-      setToasts((prev) => [...prev, { id, message, tone }]);
-      const duration = opts?.durationMs ?? DEFAULT_DURATION_MS;
-      if (duration > 0) {
-        setTimeout(() => dismiss(id), duration);
-      }
-    },
-    [dismiss],
-  );
+  const toast = useCallback<ToastFn>((message, opts) => {
+    idRef.current += 1;
+    const id = idRef.current;
+    const tone = opts?.tone ?? "info";
+    const durationMs = opts?.durationMs ?? DEFAULT_DURATION_MS;
+    // 自動消滅タイマーは各カードが own して unmount で clearTimeout する（leak 防止）。
+    setToasts((prev) => [...prev, { id, message, tone, durationMs }]);
+  }, []);
 
   return (
     <ToastContext.Provider value={toast}>
       {children}
+      {/* 各カードが自前の live region（status/alert）を持つため、コンテナには aria-live を付けない
+          （二重アナウンス回避）。 */}
       <div
-        aria-live="polite"
         style={{
           position: "fixed",
           bottom: space.lg,
@@ -78,7 +74,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         }}
       >
         {toasts.map((t) => (
-          <ToastCard key={t.id} item={t} onDismiss={() => dismiss(t.id)} />
+          <ToastCard key={t.id} item={t} dismiss={dismiss} />
         ))}
       </div>
     </ToastContext.Provider>
@@ -100,8 +96,20 @@ export function useToast(): ToastFn {
   return toast;
 }
 
-function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
+function ToastCard({ item, dismiss }: { item: ToastItem; dismiss: (id: number) => void }) {
   const t = TONE[item.tone];
+
+  // 自動消滅タイマーをカード自身が own する。マウント中のみ生き、unmount / 依存変化で
+  // clearTimeout される（provider 離脱時の setState-after-unmount / タイマー leak を防ぐ）。
+  // dismiss は provider の useCallback([]) で安定、item.id/durationMs はトースト毎に不変。
+  useEffect(() => {
+    if (item.durationMs <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => dismiss(item.id), item.durationMs);
+    return () => clearTimeout(timer);
+  }, [item.id, item.durationMs, dismiss]);
+
   return (
     <div
       // error は即時、それ以外は丁寧に読み上げる。
@@ -125,7 +133,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
       <button
         type="button"
         aria-label="閉じる"
-        onClick={onDismiss}
+        onClick={() => dismiss(item.id)}
         style={{
           flexShrink: 0,
           border: "none",
