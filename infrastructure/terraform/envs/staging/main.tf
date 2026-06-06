@@ -162,7 +162,11 @@ locals {
   #          c64d328=#678 seed 修正だが web/schema 非影響ゆえ 91fd593 で同等）。**migrate_image_tag も同 sha に
   #          bump 済 → 本 deploy 前に migrate Job 実行で advertiser_id を staging DB に適用すること**。
   #          web:91fd593 を Cloud Build 済・AR push 済。
-  web_image_tag = "91fd593"
+  # 856e779: #683 サイネージ表示用URL(/signage/)をトークン発行UIに明示＋クラス編集に「サイネージ・生徒
+  #          リンク →」導線を追加（F05 UXギャップ解消）。91fd593 を内包＋その後の web 変更（= 現 main HEAD・
+  #          全機能込み）。ads.advertiser_id は既に staging DB 適用済（岐南広告 seed #680 が advertiser_id 付き
+  #          INSERT に成功＝列存在）ゆえ追加 migrate 不要。web:856e779 を Cloud Build 済・AR push 済。
+  web_image_tag = "856e779"
 }
 
 module "network" {
