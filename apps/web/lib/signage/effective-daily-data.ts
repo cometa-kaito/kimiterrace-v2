@@ -1,6 +1,6 @@
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
 import { type TenantTx, classes, dailyData, getClassConfigValue } from "@kimiterrace/db";
-import { type InferSelectModel, and, eq, or } from "drizzle-orm";
+import { type InferSelectModel, and, eq, inArray, or } from "drizzle-orm";
 
 /**
  * サイネージの実効日次データ解決 (#48-E1 / #191)。
@@ -172,4 +172,73 @@ export async function getEffectiveDailyData(
   const quietHoursFallback = readQuietRanges(quietHoursConfig);
 
   return mergeDailySections(date, rows, quietHoursFallback);
+}
+
+/** 1 日分の実効「予定」セクション。`getEffectiveScheduleDays` が日付配列ぶん返す。 */
+export type ScheduleDay = { date: string; schedule: MergedSection };
+
+/**
+ * v1 サイネージの「予定」3 列グリッド (今後 3 平日) 用に、**複数日付ぶんの予定セクションを 1 クエリで**
+ * 取得し、日付ごとに class > grade > school で精度優先マージする (#48-E1 のマージ規約を schedules に
+ * 限定して横展開)。連絡/課題/静粛時間は当日分のみで足りるため本関数は **schedules だけ**を読む
+ * (`daily_data` の他カラムは引かない = 転送量最小)。
+ *
+ * **テナント分離 (ルール2)**: `getEffectiveDailyData` と同様、RLS コンテキスト設定済 tx 内で呼ぶこと。
+ * `daily_data` の SELECT は `app.current_school_id` で自校に限定される (手書き `WHERE school_id` 非依存)。
+ *
+ * @param dates 取得する暦日 (YYYY-MM-DD) の配列。空なら空配列を返す。各日付に行が無ければ空セクション。
+ */
+export async function getEffectiveScheduleDays(
+  tx: TenantTx,
+  classId: string,
+  dates: string[],
+): Promise<ScheduleDay[]> {
+  if (dates.length === 0) {
+    return [];
+  }
+  const cls = (
+    await tx
+      .select({ gradeId: classes.gradeId, schoolId: classes.schoolId })
+      .from(classes)
+      .where(eq(classes.id, classId))
+      .limit(1)
+  )[0];
+  if (!cls) {
+    // クラス不可視/不在: 全日空 (盤面はプレースホルダー行で 5 行を保つ)。
+    return dates.map((date) => ({ date, schedule: { items: [], source: null } }));
+  }
+
+  const rows = await tx
+    .select({ scope: dailyData.scope, date: dailyData.date, schedules: dailyData.schedules })
+    .from(dailyData)
+    .where(
+      and(
+        inArray(dailyData.date, dates),
+        or(
+          and(eq(dailyData.scope, "class"), eq(dailyData.classId, classId)),
+          // 学年未割当 (grade_id NULL) のクラスは学年スコープを引かない。
+          cls.gradeId
+            ? and(eq(dailyData.scope, "grade"), eq(dailyData.gradeId, cls.gradeId))
+            : undefined,
+          eq(dailyData.scope, "school"),
+        ),
+      ),
+    );
+
+  return dates.map((date) => ({
+    date,
+    schedule: pickScheduleForDate(rows.filter((r) => r.date === date)),
+  }));
+}
+
+/** 1 日分の scope 別行から schedules を精度優先 (class > grade > school) で 1 つ選ぶ。 */
+function pickScheduleForDate(rows: Array<{ scope: string; schedules: unknown }>): MergedSection {
+  for (const scope of ["class", "grade", "school"] as const) {
+    const row = rows.find((r) => r.scope === scope);
+    const items = row ? nonEmptyArray(row.schedules) : null;
+    if (items) {
+      return { items, source: scope };
+    }
+  }
+  return { items: [], source: null };
 }
