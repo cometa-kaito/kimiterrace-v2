@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { adMediaType, hierarchyScope } from "../_shared/enums.js";
+import { advertisers } from "./advertisers.js";
 import { classes } from "./classes.js";
 import { departments } from "./departments.js";
 import { grades } from "./grades.js";
@@ -12,7 +13,9 @@ import { schools } from "./schools.js";
  *
  * - V1 では配列要素だったものを 1 行/広告に展開し、`display_order` を明示列化
  * - `scope` + 各 *_id で階層を表現。学校→学年→クラス（→学科）のマージは #48-F の View で実施
- * - 広告は CRM の `advertisers`（広告主アカウント）とは別概念（こちらは表示メディア）
+ * - `advertiser_id`（任意）で **CRM の広告主アカウント**に紐付ける (#46 運営側広告 CRM)。運営
+ *   (system_admin) が広告主のために入稿した広告に設定し、学校 (school_admin) が自校で作るクラス広告は
+ *   null。FK は `set null`（広告主削除でも広告自体は残し紐付けのみ解除）。
  */
 export const ads = pgTable(
   "ads",
@@ -25,6 +28,8 @@ export const ads = pgTable(
     gradeId: uuid("grade_id").references(() => grades.id, { onDelete: "cascade" }),
     departmentId: uuid("department_id").references(() => departments.id, { onDelete: "cascade" }),
     classId: uuid("class_id").references(() => classes.id, { onDelete: "cascade" }),
+    // CRM 広告主への紐付け (#46)。運営入稿広告に設定、学校作成のクラス広告は null。広告主削除で null 化。
+    advertiserId: uuid("advertiser_id").references(() => advertisers.id, { onDelete: "set null" }),
     mediaUrl: text("media_url").notNull(),
     mediaType: adMediaType("media_type").notNull(),
     // 画像の表示秒数（動画は再生完了で次へ）。V1 デフォルト 5 秒。
