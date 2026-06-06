@@ -229,18 +229,18 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 
   return (
     <div className={styles.signageRoot}>
-      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + ブランディング (v1 SignageHeader 移植) */}
+      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 天気（日付の隣に小さく）+ 実時計 + ブランディング */}
       <header className={styles.adHeader}>
         <span className={styles.dateText}>{dateText}</span>
         <span className={styles.dayBadge}>{dayText}</span>
+        {/* 天気は日付の隣に小さく（日付 + アイコン + 天気テキストのみ。気温/降水/取得時刻は省く、2026-06-07 ユーザー）。 */}
+        {data.weather ? <HeaderWeather weather={data.weather} /> : null}
         {time ? <span className={styles.timeText}>{time}</span> : null}
         <span className={styles.headerBranding}>キミテラス by Rebounder</span>
       </header>
 
       <div className={styles.container}>
         <main className={styles.infoArea}>
-          {/* 天気は予定の上に小さく1行で残す (F14, 2026-06-06 ユーザー確定で盤面残置)。null は枠ごと非表示。 */}
-          {data.weather ? <WeatherStrip weather={data.weather} /> : null}
           <div className={styles.contentGrid}>
             <ScheduleGrid days={data.scheduleDays} today={data.date} />
             <NoticeList section={data.daily.notices} />
@@ -290,11 +290,14 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
   );
 }
 
-/** 予定（今後3平日の3列グリッド）。上段に横幅いっぱいで配置 (v1 ScheduleGrid 移植)。 */
+/**
+ * 予定（今後3平日の3列グリッド）。上段に横幅いっぱいで配置 (v1 ScheduleGrid 移植)。
+ * 見出し文字「予定」は出さない（各列の日付ヘッダーで予定と分かる、2026-06-07 ユーザー）。aria-label は
+ * 残し、スクリーンリーダ/領域名としての識別は維持する（NFR05）。
+ */
 function ScheduleGrid({ days, today }: { days: ScheduleDay[]; today: string }) {
   return (
     <section aria-label="予定" className={`${styles.card} ${styles.scheduleSection}`}>
-      <h2 className={styles.cardTitle}>予定</h2>
       <div className={styles.scheduleGridContainer}>
         {days.map((day) => (
           <ScheduleColumn key={day.date} day={day} isToday={day.date === today} />
@@ -456,38 +459,34 @@ function SourceBadge({ source }: { source: MergedSection["source"] }) {
 }
 
 /**
- * F14 (#128 / ADR-021): 天気を **予定の上に小さく 1 行** で残す（2026-06-06 ユーザー確定。v1 には無いが
- * v2 の F14 を盤面に残置）。本日 + 翌日の 2 日。**端末は外部 API を叩かず** server 組み立て済ペイロードを描く。
- * a11y (NFR05): glyph は aria-hidden、意味は隣の日本語ラベル/数値テキストが担う（色のみ依存しない）。
- * 鮮度 (F14 §3): isStale はテキストで明示し、取得時刻も併記する。
+ * F14 (#128 / ADR-021): 天気を **ヘッダーの日付の隣に小さく** 出す（2026-06-07 ユーザー: 情報量を絞る）。
+ * 日付 + アイコン + 天気テキストのみ（気温・降水確率・取得時刻は省く）。本日 + 翌日の 2 日。**端末は外部
+ * API を叩かず** server 組み立て済ペイロードを描く。a11y (NFR05): glyph は aria-hidden、意味は隣の日本語
+ * テキスト（日付 + 天気文）が担う（色のみ依存しない）。鮮度 (F14 §3): isStale のときだけ簡潔に「古い予報」併記。
+ * 予報が無いとき (days=[]) はヘッダーに何も足さない（fail-soft、null は呼び出し側で枠ごと非表示）。
  */
-function WeatherStrip({ weather }: { weather: SignageWeather }) {
+function HeaderWeather({ weather }: { weather: SignageWeather }) {
   const days = weather.days.slice(0, WEATHER_MAX_DAYS);
+  if (days.length === 0) {
+    return null;
+  }
   const areaLabel = weather.areaName ? `天気 (${weather.areaName})` : "天気";
-  const fetchedNote = formatFetchedNote(weather.fetchedAt);
   return (
-    <section aria-label={areaLabel} className={styles.weatherStrip}>
-      <span className={styles.weatherStripLabel}>{areaLabel}</span>
-      {weather.isStale ? (
-        <span className={styles.weatherStaleBadge}>最新の取得に失敗（古い予報を表示中）</span>
-      ) : null}
-      {days.length === 0 ? (
-        <span className={styles.empty}>予報データがありません</span>
-      ) : (
-        days.map((day) => (
-          <span key={day.forecastDate} className={styles.weatherDay}>
-            <span className={styles.weatherDayDate}>{formatDayLabel(day.forecastDate)}</span>
-            <span aria-hidden="true" className={styles.weatherGlyph}>
-              {WEATHER_ICON_GLYPH[day.icon]}
-            </span>
-            <span className={styles.weatherDayText}>{day.weatherText ?? day.iconLabel}</span>
-            <span className={styles.weatherTemp}>{formatTemps(day.tempMax, day.tempMin)}</span>
-            <span className={styles.weatherPop}>{formatPop(day.pop)}</span>
+    // ヘッダー内の小さな天気注記をラベル付きグループにする。<fieldset> 等の semantic 要素はフォーム用で
+    // ここでは不適。role="group" + aria-label が最小で適切（地域名で天気のまとまりを読み上げに伝える）。
+    // biome-ignore lint/a11y/useSemanticElements: 暗色ヘッダー内の inline 天気注記。fieldset は不適切
+    <span className={styles.headerWeather} role="group" aria-label={areaLabel}>
+      {weather.isStale ? <span className={styles.headerWeatherStale}>古い予報</span> : null}
+      {days.map((day) => (
+        <span key={day.forecastDate} className={styles.headerWeatherDay}>
+          <span className={styles.headerWeatherDate}>{formatDayLabel(day.forecastDate)}</span>
+          <span aria-hidden="true" className={styles.headerWeatherGlyph}>
+            {WEATHER_ICON_GLYPH[day.icon]}
           </span>
-        ))
-      )}
-      {fetchedNote ? <span className={styles.weatherFetched}>{fetchedNote}</span> : null}
-    </section>
+          <span className={styles.headerWeatherText}>{day.weatherText ?? day.iconLabel}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -566,31 +565,6 @@ function formatClock(d: Date): string {
     minute: "2-digit",
     hour12: false,
   });
-}
-
-/** 最高/最低気温のテキスト。欠損は "—"。 */
-function formatTemps(tempMax: number | null, tempMin: number | null): string {
-  const hi = tempMax == null ? "—" : `${tempMax}°`;
-  const lo = tempMin == null ? "—" : `${tempMin}°`;
-  return `最高 ${hi} / 最低 ${lo}`;
-}
-
-/** 降水確率のテキスト。null は "—%"。 */
-function formatPop(pop: number | null): string {
-  return `降水 ${pop == null ? "—" : pop}%`;
-}
-
-/** 取得時刻を JST「○時時点」のテキストに。null は注記なし。 */
-function formatFetchedNote(fetchedAt: SignageWeather["fetchedAt"]): string | null {
-  if (fetchedAt == null) {
-    return null;
-  }
-  const time = new Date(fetchedAt).toLocaleTimeString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${time} 時点`;
 }
 
 /** 絵文字 glyph (装飾)。意味はラベルテキストが担保するため aria-hidden で出す (NFR05 色非依存)。 */

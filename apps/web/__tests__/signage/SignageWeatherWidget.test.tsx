@@ -77,19 +77,20 @@ function payload(weatherValue: SignageWeather | null): SignagePayload {
   };
 }
 
-describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
-  it("予報を描画する: 地域名・天気テキスト・気温・降水確率・取得時刻", () => {
+describe("SignageClient ヘッダー天気 (#128 / F14)", () => {
+  it("ヘッダーに 地域名グループ + 日付 + 天気テキスト を出す（情報量を絞り気温/降水/取得時刻は出さない）", () => {
     render(<SignageClient classToken={TOKEN} initial={payload(weather({}))} />);
 
-    // 地域名つきの領域ラベル (色非依存のテキスト)。
-    expect(screen.getByRole("region", { name: "天気 (美濃地方)" })).toBeInTheDocument();
+    // 地域名つきの天気グループ (ヘッダー内、role=group・色非依存ラベル)。
+    expect(screen.getByRole("group", { name: "天気 (美濃地方)" })).toBeInTheDocument();
     // 天気テキスト (weatherText 優先)。
     expect(screen.getByText("晴れ")).toBeInTheDocument();
-    // 気温・降水確率は数値テキストで併記 (色だけに依存しない、NFR05)。
-    expect(screen.getByText("最高 28° / 最低 18°")).toBeInTheDocument();
-    expect(screen.getByText("降水 30%")).toBeInTheDocument();
-    // 「○時時点」の鮮度注記 (JST 08:00)。
-    expect(screen.getByText(/時点/)).toBeInTheDocument();
+    // 日付ラベル (M/D(曜))。本日 6/2 は火曜。
+    expect(screen.getByText("6/2(火)")).toBeInTheDocument();
+    // 気温・降水・取得時刻は **出さない** (情報量を絞る、2026-06-07 ユーザー)。
+    expect(screen.queryByText(/最高/)).toBeNull();
+    expect(screen.queryByText(/降水/)).toBeNull();
+    expect(screen.queryByText(/時点/)).toBeNull();
   });
 
   it("weatherText が無ければアイコンラベルを本文に出す (色非依存のフォールバック)", () => {
@@ -102,17 +103,6 @@ describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
     expect(screen.getByText("くもり")).toBeInTheDocument();
   });
 
-  it("欠損値 (気温/降水) は空白でなく — で埋める (黙った空表示を禁止)", () => {
-    render(
-      <SignageClient
-        classToken={TOKEN}
-        initial={payload(weather({ days: [day({ tempMax: null, tempMin: null, pop: null })] }))}
-      />,
-    );
-    expect(screen.getByText("最高 — / 最低 —")).toBeInTheDocument();
-    expect(screen.getByText("降水 —%")).toBeInTheDocument();
-  });
-
   it("isStale のとき鮮度劣化を色だけでなくテキストで明示する (F14 §3 / NFR05)", () => {
     render(
       <SignageClient
@@ -122,22 +112,22 @@ describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
         )}
       />,
     );
-    // 古い予報でも last-known-good を出し続け (NFR02)、注記で明示する。
-    expect(screen.getByText(/最新の取得に失敗/)).toBeInTheDocument();
+    // 古い予報でも last-known-good を出し続け (NFR02)、簡潔な注記で明示する。
+    expect(screen.getByText("古い予報")).toBeInTheDocument();
     expect(screen.getByText("晴れ")).toBeInTheDocument(); // 予報自体は残す。
   });
 
-  it("weather=null ならウィジェットを出さない (fail-soft) が、本体 (時間割等) は描画され続ける", () => {
+  it("weather=null なら天気を出さない (fail-soft) が、本体 (予定等) は描画され続ける", () => {
     render(<SignageClient classToken={TOKEN} initial={payload(null)} />);
-    // 天気領域は存在しない。
-    expect(screen.queryByRole("region", { name: /天気/ })).toBeNull();
-    // 画面の他要素 (予定セクション等) は壊れず出る。
+    // 天気グループは存在しない。
+    expect(screen.queryByRole("group", { name: /天気/ })).toBeNull();
+    // 画面の他要素 (予定セクション等) は壊れず出る (見出し文字は無いが aria-label の領域は残る)。
     expect(screen.getByRole("region", { name: "予定" })).toBeInTheDocument();
   });
 
-  it("days が空でも黙らず「予報データがありません」を出す (空表示禁止)", () => {
+  it("days が空なら天気を出さない (fail-soft、ヘッダーに何も足さない)", () => {
     render(<SignageClient classToken={TOKEN} initial={payload(weather({ days: [] }))} />);
-    expect(screen.getByText("予報データがありません")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /天気/ })).toBeNull();
   });
 
   it("本日 + 翌日の 2 日に丸める (視認性、2026-06-03 確定 F14 表示範囲)", () => {
