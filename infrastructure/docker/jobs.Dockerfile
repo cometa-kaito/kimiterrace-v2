@@ -43,6 +43,11 @@ RUN pnpm install --frozen-lockfile --filter @kimiterrace/jobs...
 #   - @kimiterrace/jobs: tsconfig.build.json で src → dist へ emit（dist/weather/weather-job.js 等）。
 RUN pnpm --filter @kimiterrace/jobs... build
 
+# 部分ビルド / ソースアップロード欠落の回帰を **build 時に fail-fast** 検知する
+# （migrate.Dockerfile の standard_fonts test と同規律）。weather-job が emit されていなければ image を
+#  作らせない（不完全 image をデプロイして runtime で MODULE_NOT_FOUND になるのを防ぐ）。
+RUN test -f /app/apps/jobs/dist/weather/weather-job.js
+
 # ---- runtime: 最小限の起動環境 -------------------------------------------------------
 FROM node:22-slim AS runtime
 
