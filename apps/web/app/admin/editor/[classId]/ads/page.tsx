@@ -18,7 +18,7 @@ import { AdsManager } from "./_components/AdsManager";
  * RLS tx 内でまとめて読み、クライアント編集器に渡す。
  */
 export default async function ClassAdsPage({ params }: { params: Promise<{ classId: string }> }) {
-  await requireRole(ADS_ROLES);
+  const user = await requireRole(ADS_ROLES);
   const { classId } = await params;
 
   const data = await withSession(async (tx) => {
@@ -38,10 +38,17 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
     notFound();
   }
 
+  // 戻り導線は role 別: system_admin はエディタ (EDITOR_ROLES=teacher/school_admin) に 403 になるため
+  // 学校一覧へ戻す。school_admin はこのクラスの編集へ戻る。
+  const backHref =
+    user.role === "system_admin" ? "/admin/system/schools" : `/admin/editor/${classId}`;
+  const backLabel =
+    user.role === "system_admin" ? "学校一覧へ戻る" : `${data.className} の編集へ戻る`;
+
   return (
     <div>
-      <Link href={`/admin/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {data.className} の編集へ戻る
+      <Link href={backHref} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+        ← {backLabel}
       </Link>
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.className} の広告</h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
