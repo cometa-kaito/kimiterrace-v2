@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Cloud Run Jobs (バッチ)。Firestore→PostgreSQL データ移行など。",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "lint": "biome check src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
