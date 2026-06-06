@@ -4,6 +4,7 @@ import {
   linkContentToContractAction,
   unlinkContentFromContractAction,
 } from "@/lib/system-admin/contract-contents-actions";
+import { ConfirmDialog, useToast } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
@@ -39,8 +40,13 @@ export function ContractContentLinks({
   links: readonly LinkedContentItem[];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // 解除対象の紐付け (確認ダイアログ用)。null で未表示。
+  const [confirmUnlink, setConfirmUnlink] = useState<{ linkId: string; title: string } | null>(
+    null,
+  );
 
   function onLink(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -55,6 +61,7 @@ export function ContractContentLinks({
       });
       if (res.ok) {
         form.reset();
+        toast("出稿コンテンツを紐付けました", { tone: "success" });
         router.refresh();
       } else {
         setError(res.error.message);
@@ -62,14 +69,14 @@ export function ContractContentLinks({
     });
   }
 
-  function onUnlink(linkId: string, title: string) {
-    if (!window.confirm(`「${title}」の紐付けを解除しますか？`)) {
-      return;
-    }
+  function runUnlink(linkId: string, title: string) {
     setError(null);
     startTransition(async () => {
       const res = await unlinkContentFromContractAction({ linkId, advertiserId });
+      // 成否いずれもダイアログは閉じる (失敗はインラインの error 表示に集約)。
+      setConfirmUnlink(null);
       if (res.ok) {
+        toast(`「${title}」の紐付けを解除しました`, { tone: "success" });
         router.refresh();
       } else {
         setError(res.error.message);
@@ -92,7 +99,7 @@ export function ContractContentLinks({
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => onUnlink(l.linkId, l.title)}
+                onClick={() => setConfirmUnlink({ linkId: l.linkId, title: l.title })}
                 aria-label={`${l.title} の紐付けを解除`}
                 style={unlinkBtnStyle}
               >
@@ -118,6 +125,20 @@ export function ContractContentLinks({
           {pending ? "処理中…" : "紐付ける"}
         </button>
       </form>
+
+      <ConfirmDialog
+        open={confirmUnlink !== null}
+        tone="danger"
+        title={confirmUnlink ? `「${confirmUnlink.title}」の紐付けを解除しますか？` : ""}
+        confirmLabel="解除する"
+        pending={pending}
+        onConfirm={() => {
+          if (confirmUnlink) {
+            runUnlink(confirmUnlink.linkId, confirmUnlink.title);
+          }
+        }}
+        onCancel={() => setConfirmUnlink(null)}
+      />
     </div>
   );
 }
