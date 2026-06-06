@@ -109,7 +109,10 @@ locals {
   #          （web:1bc1666 ビルド成功・AR push 済）。さらに no-traffic canary で /signage（@kimiterrace/db→ai
   #          推移 import を runtime で叩く公開経路）と /api/health がいずれも 200 で runtime も健全と確認。
   #          よって #627 / #628(F15 TV登録UI) / #629(学校管理者・教員 発行UI) を含む 1bc1666 を deploy する。
-  web_image_tag = "1bc1666"
+  # bbb68be: #634 Toast 通知基盤 + #636 ブランドオレンジ明色化(#ea580c)+ルート / のロール別振り分け +
+  #          #638 サイドナビ active 判定を最長一致化(親子二重点灯バグ修正)。UI 変更ゆえ再 deploy。
+  #          ※ main HEAD は #637(ConfirmDialog 段3) まで進むが、本 deploy は bbb68be を指す（#637 は次回）。
+  web_image_tag = "bbb68be"
 }
 
 module "network" {
