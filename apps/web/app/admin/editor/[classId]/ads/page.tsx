@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { findVisibleClass, getEffectiveAdsForClass, listClassOwnAds } from "@kimiterrace/db";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdsManager } from "./_components/AdsManager";
 
@@ -39,7 +40,10 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
 
   return (
     <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>{data.className} の広告</h1>
+      <Link href={`/admin/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+        ← {data.className} の編集へ戻る
+      </Link>
+      <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.className} の広告</h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         このクラスに表示される広告を管理します。学校 / 学科 / 学年から継承された広告は参照のみです。
       </p>

@@ -57,7 +57,10 @@ export default async function ClassEditorPage({
   return (
     <div style={{ display: "grid", gap: "2rem" }}>
       <section>
-        <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>{schedule.className}</h1>
+        <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+          ← 編集対象の選択へ戻る
+        </Link>
+        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
         {canManageAds || canManageQuietHours ? (
           <p style={{ margin: "0 0 0.75rem", display: "flex", gap: "1rem" }}>
             {canManageAds ? (

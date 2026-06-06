@@ -34,7 +34,9 @@ test.describe("認証済み教員の管理エリア到達 /admin", () => {
       // 1. AppShell ヘッダの role バッジ「教員」(claims.role=teacher が解決できた証)。
       await expect(page.getByText("教員", { exact: true })).toBeVisible();
       // 2. エディタ着地の見出し (requireRole(EDITOR_ROLES) を通過した証)。
-      await expect(page.getByRole("heading", { name: "エディタ — クラスを選択" })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "エディタ — 編集する対象を選ぶ" }),
+      ).toBeVisible();
       // 3. 教員用サイドナビ「エディタ」リンク (navItemsForRole(teacher))。
       await expect(
         page.getByRole("navigation", { name: "メインナビゲーション" }).getByRole("link", {

@@ -1,69 +1,131 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
-import { getSchoolClasses } from "@/lib/editor/schedule-queries";
+import { getSchoolHierarchy } from "@/lib/school-admin/hub-queries";
+import type { GradeView } from "@/lib/school-admin/hub-queries";
 import Link from "next/link";
 
 /**
- * エディタ着地 (#48-H)。編集対象クラスを選ぶ。`/admin/editor/[classId]` で時間割編集へ。
- * Notice / Assignment セクション (#48-I) も同じクラス別エディタに後続で追加される想定。
+ * エディタ着地 (#48-H)。編集対象を **階層ツリー（学科 → 学年 → クラス）** で選ぶ（旧フラット一覧を
+ * 置換、ユーザー報告 2026-06-06「クラスを選択 UI が分かりにくい」への対応）。クラスをクリックすると
+ * `/admin/editor/[classId]` の編集へ。`getSchoolHierarchy`（RLS tx・自校）で学科/学年/クラスを取得。
  *
- * **空状態の導線はロール別 (校務DX原則: 教員に新たな工数を発生させない)**: クラスが 0 件のとき、
- * 従来は全ロールに「学校管理」(`/admin/school`) リンクを出していたが、`/admin/school` は
- * `SCHOOL_HIERARCHY_ROLES` (school_admin / system_admin) 専用で **teacher は含まれない**ため、teacher が
- * クリックすると 403 (`/forbidden`) に倒れる
- * 行き止まりだった。クラス設定は学校管理者の仕事であり教員の校務ではないため、teacher にはアクセス
- * できない導線を出さず「管理者が追加すると表示される」案内に留める。
+ * **空状態はロール別 (校務DX原則)**: クラス 0 件のとき、school_admin には学校管理への導線を、teacher には
+ * 「管理者が追加すると表示される」案内に留める（teacher は /admin/school で 403 になるため死リンクを出さない）。
+ *
+ * 注: 「学校全体 / 学科全体 / 学年全体」のまとめ編集（scope 対応）は後続スライスで本ツリーに追加する。
  */
 export default async function EditorIndexPage() {
   const user = await requireRole(EDITOR_ROLES);
-  const classList = await withSession((tx) => getSchoolClasses(tx));
+  const hierarchy = await withSession((tx) => getSchoolHierarchy(tx));
+  const { departments, grades } = hierarchy;
+  const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
+  const orphanGrades = grades.filter((g) => !g.departmentId);
+  const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0);
 
   return (
-    <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>エディタ — クラスを選択</h1>
-      {classList.length === 0 ? (
+    <div style={{ maxWidth: "720px" }}>
+      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>エディタ — 編集する対象を選ぶ</h1>
+
+      {totalClasses === 0 ? (
         user.role === "school_admin" ? (
-          // 学校管理者は /admin/school にアクセスできるので、クラス追加への導線を出す。
-          <p style={{ color: "#6b7280" }}>
-            クラスがまだありません。<Link href="/admin/school">学校管理</Link>で追加してください。
+          <p style={mutedStyle}>
+            編集できるクラスがまだありません。<Link href="/admin/school">学校管理</Link>
+            で学科・学年・クラスを追加してください。
           </p>
         ) : (
-          // 教員は /admin/school にアクセスできない (403)。行き止まりリンクを出さず、管理者の作業待ちで
-          // ここに表示されることだけ案内する (校務DX原則: 教員にクラス設定の工数を負わせない)。
-          <p style={{ color: "#6b7280" }}>
+          <p style={mutedStyle}>
             まだクラスがありません。学校管理者がクラスを追加すると、ここに表示されます。
           </p>
         )
       ) : (
-        <ul
-          style={{
-            display: "grid",
-            gap: "0.5rem",
-            listStyle: "none",
-            padding: 0,
-            maxWidth: "480px",
-          }}
-        >
-          {classList.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/admin/editor/${c.id}`}
-                style={{
-                  display: "block",
-                  padding: "0.6rem 0.9rem",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "8px",
-                  textDecoration: "none",
-                  color: "#1f2937",
-                }}
-              >
-                {c.academicYear} 年度 — {c.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <div style={{ display: "grid", gap: "1rem" }}>
+          {departments.length > 0 ? (
+            <>
+              {departments.map((d) => (
+                <section key={d.id} style={deptCardStyle}>
+                  <h2 style={deptTitleStyle}>{d.name}</h2>
+                  <GradeGroups grades={gradesOf(d.id)} />
+                </section>
+              ))}
+              {orphanGrades.length > 0 ? (
+                <section style={deptCardStyle}>
+                  <h2 style={deptTitleStyle}>学科未割当</h2>
+                  <GradeGroups grades={orphanGrades} />
+                </section>
+              ) : null}
+            </>
+          ) : (
+            <section style={deptCardStyle}>
+              <GradeGroups grades={grades} />
+            </section>
+          )}
+        </div>
       )}
     </div>
   );
 }
+
+/** 学年ごとに見出し + 配下クラスのリンクを出す。 */
+function GradeGroups({ grades }: { grades: GradeView[] }) {
+  if (grades.length === 0) {
+    return <p style={mutedSmallStyle}>学年がありません。</p>;
+  }
+  return (
+    <div style={{ display: "grid", gap: "0.6rem" }}>
+      {grades.map((g) => (
+        <div key={g.id}>
+          <h3 style={gradeTitleStyle}>{g.name}</h3>
+          {g.classes.length === 0 ? (
+            <p style={mutedSmallStyle}>クラスがありません（学校管理で追加）。</p>
+          ) : (
+            <ul style={classListStyle}>
+              {g.classes.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/admin/editor/${c.id}`} style={classLinkStyle}>
+                    {c.name}
+                    <span style={classMetaStyle}>{c.academicYear}年度</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const mutedStyle: React.CSSProperties = { color: "#6b7280" };
+const mutedSmallStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "0.85rem", margin: 0 };
+const deptCardStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "10px",
+  padding: "1rem",
+};
+const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: "0 0 0.6rem" };
+const gradeTitleStyle: React.CSSProperties = {
+  fontSize: "0.95rem",
+  color: "#374151",
+  margin: "0 0 0.35rem",
+};
+const classListStyle: React.CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.5rem",
+};
+const classLinkStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  padding: "0.5rem 0.9rem",
+  border: "1px solid #e5e7eb",
+  borderRadius: "8px",
+  textDecoration: "none",
+  color: "#1f2937",
+  background: "#fff",
+};
+const classMetaStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "0.78rem" };

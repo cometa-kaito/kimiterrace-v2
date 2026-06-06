@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { findVisibleClass, listClassMagicLinks } from "@kimiterrace/db";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MagicLinkManager } from "./_components/MagicLinkManager";
 
@@ -49,7 +50,10 @@ export default async function ClassMagicLinkPage({
 
   return (
     <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>
+      <Link href={`/admin/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+        ← {data.className} の編集へ戻る
+      </Link>
+      <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
         {data.className} の生徒アクセスリンク
       </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
