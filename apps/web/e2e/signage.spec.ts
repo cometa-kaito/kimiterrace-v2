@@ -25,9 +25,9 @@ test.describe("公開サイネージ /signage/{token}", () => {
   test("有効トークンで予定/連絡/提出物が描画される (golden path)", async ({ page }) => {
     await page.goto(`/signage/${SEED.KNOWN_TOKEN}`);
 
-    // セクション見出し (予定 / 連絡 / 提出物) が出る = token 解決 + RLS + 階層マージが成立。
-    // 見出しは v1 レイアウト移植で「時間割→予定 / 課題→提出物」に改称 (連絡は据え置き)。
-    await expect(page.getByRole("heading", { name: "予定" })).toBeVisible();
+    // セクション (予定 / 連絡 / 提出物) が出る = token 解決 + RLS + 階層マージが成立。
+    // 「予定」は見出し文字を出さず日付枠で示すため region (aria-label) で確認。連絡/提出物 は見出しあり。
+    await expect(page.getByRole("region", { name: "予定" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "連絡" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "提出物" })).toBeVisible();
 
@@ -61,7 +61,7 @@ test.describe("公開サイネージ /signage/{token}", () => {
     await expect(page.getByRole("heading", { name: "表示できません" })).toBeVisible();
     // seed した識別文字列は無効トークンでは一切出ない (テナント越境・誤表示なし)。
     await expect(page.getByText(SEED.NOTICE_TEXT)).toHaveCount(0);
-    // 有効時に必ず出る「予定」セクション見出しも無効画面には無い。
-    await expect(page.getByRole("heading", { name: "予定" })).toHaveCount(0);
+    // 有効時に必ず出る「予定」セクション (region) も無効画面には無い。
+    await expect(page.getByRole("region", { name: "予定" })).toHaveCount(0);
   });
 });
