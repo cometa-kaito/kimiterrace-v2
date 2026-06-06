@@ -72,8 +72,11 @@ locals {
   db_migrator_password_secret_id = "staging-db-migrator-password"
   db_url_migrator_secret_id      = "staging-db-url-migrator"
 
-  # migration Job が使うイメージタグ（M2 build/push 済。再ビルド時はここを更新）。
-  migrate_image_tag = "fefe8b0"
+  # migration Job が使うイメージタグ（再ビルド時はここを更新）。
+  # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
+  #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
+  #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
+  migrate_image_tag = "91fd593"
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -149,7 +152,12 @@ locals {
   #          .signageRoot を overflow-y:auto のスクロールコンテナ化）＋予定 3日×3行＋広告領域全体タップで
   #          管理設定リンクへ遷移（http(s) 限定サニタイズ）。afaaae3 を内包＋#667（= 現 main HEAD・全機能込み）。
   #          web:eb0aa96 を Cloud Build 済・AR push 済。
-  web_image_tag = "eb0aa96"
+  # 91fd593: 運営側広告 CRM を反映 — #675 ads.advertiser_id / #676 運営広告 actions・query / #677 広告主配下
+  #          の広告管理 UI（入稿/一覧/削除、scope=school）。eb0aa96 を内包＋#675/#676/#677（main HEAD は
+  #          c64d328=#678 seed 修正だが web/schema 非影響ゆえ 91fd593 で同等）。**migrate_image_tag も同 sha に
+  #          bump 済 → 本 deploy 前に migrate Job 実行で advertiser_id を staging DB に適用すること**。
+  #          web:91fd593 を Cloud Build 済・AR push 済。
+  web_image_tag = "91fd593"
 }
 
 module "network" {
