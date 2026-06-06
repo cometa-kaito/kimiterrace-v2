@@ -132,7 +132,9 @@ locals {
   #          UI 変更ゆえ再 build/deploy で反映（web:b9d37f0 を Cloud Build 済・AR push 済、main HEAD）。
   # 575e39c: #654 階層UX改善（処理中表示 / クラス追加=名前のみ / 学年を1まとまりに）を反映。b9d37f0 を
   #          内包＋#654（= 現 main HEAD・全機能込み）。web:575e39c を Cloud Build 済・AR push 済。
-  web_image_tag = "575e39c"
+  # f150e03: #660 エディタ対象選択を階層ツリー化＋各画面に「戻る」追加（段A-1）。575e39c を内包＋#660。
+  #          web:f150e03 を Cloud Build 済・AR push 済。
+  web_image_tag = "f150e03"
 }
 
 module "network" {
