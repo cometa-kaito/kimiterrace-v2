@@ -252,39 +252,36 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
           aria-label="広告"
           className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
         >
-          <div className={styles.adContainer}>
-            {ad ? <AdBackdrop key={`bd-${ad.adId}`} ad={ad} /> : null}
-            <div className={styles.adForeground}>
-              {ad ? (
-                adLink ? (
-                  <a
-                    href={adLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.adLink}
-                    aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
-                    onClick={() => onAdTap(ad.adId, safeIndex)}
-                  >
-                    <AdMedia key={ad.adId} ad={ad} />
-                  </a>
-                ) : (
-                  <AdMedia key={ad.adId} ad={ad} />
-                )
-              ) : (
-                <p className={styles.adEmpty}>　</p>
-              )}
-            </div>
-            {ad?.caption ? (
-              <div
-                className={styles.adCaption}
-                style={{ "--ad-caption-scale": String(ad.captionFontScale) } as React.CSSProperties}
+          {ad ? (
+            adLink ? (
+              // 広告領域**全体**をタップで遷移（管理で設定した linkUrl）。新規タブ + reverse tabnabbing
+              // 防止 (noopener noreferrer)。タップで tap テレメトリを送る（遷移は阻害しない）。adId は
+              // ingest 側で当該クラスの実効広告に実在照合される（水増しは DB 層でも弾く）。
+              <a
+                href={adLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.adAreaLink}
+                aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
+                onClick={() => onAdTap(ad.adId, safeIndex)}
               >
-                {ad.caption}
+                <AdInner ad={ad} />
+              </a>
+            ) : (
+              <AdInner ad={ad} />
+            )
+          ) : (
+            <div className={styles.adContainer}>
+              <div className={styles.adForeground}>
+                <p className={styles.adEmpty}>　</p>
               </div>
-            ) : null}
-          </div>
+            </div>
+          )}
           {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
         </aside>
+
+        {/* モバイル限定フッター（順序: タブ→広告→予定→連絡→提出物→フッター）。デスクトップは非表示。 */}
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
     </div>
   );
@@ -579,6 +576,29 @@ const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
 
 /** 表示する天気日数の上限 = 本日 + 翌日の 2 日。 */
 const WEATHER_MAX_DAYS = 2;
+
+/**
+ * 広告の中身（ぼかし背景 + 前景 media + キャプション）。リンク有無で <a> でラップされ広告領域全体を
+ * タップ可能にするため、中身を共通部品に切り出す。ad 変更で AdBackdrop/AdMedia の key を変えて差し替える。
+ */
+function AdInner({ ad }: { ad: SignagePayload["ads"][number] }) {
+  return (
+    <div className={styles.adContainer}>
+      <AdBackdrop key={`bd-${ad.adId}`} ad={ad} />
+      <div className={styles.adForeground}>
+        <AdMedia key={ad.adId} ad={ad} />
+      </div>
+      {ad.caption ? (
+        <div
+          className={styles.adCaption}
+          style={{ "--ad-caption-scale": String(ad.captionFontScale) } as React.CSSProperties}
+        >
+          {ad.caption}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** 広告の背景ぼかし (v1 adBackdrop)。前景と同じ media を cover + blur で敷き余白を隠す。 */
 function AdBackdrop({ ad }: { ad: SignagePayload["ads"][number] }) {

@@ -472,13 +472,15 @@
   align-items: center;
   justify-content: center;
 }
-.adLink {
+/* 広告領域全体のリンク（中身 .adContainer を縦に満たし、領域のどこをタップしても遷移）。 */
+.adAreaLink {
   display: flex;
+  flex-direction: column;
+  flex: 1;
   width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
   text-decoration: none;
+  color: inherit;
 }
 .adMedia {
   width: 100%;
@@ -535,6 +537,12 @@
   transform: scale(1.3);
 }
 
+/* モバイル限定フッター（順序の最後）。デスクトップ(70:30)では非表示、モバイルでのみ表示。 */
+.mobileFooter {
+  grid-area: footer;
+  display: none;
+}
+
 /* ===================== 12. レスポンシブ ===================== */
 /* 大型モニタ（フル HD） */
 @media (min-width: 1800px) and (min-height: 1000px) {
@@ -552,42 +560,81 @@
     --header-height: 64px;
   }
 }
-/* 縦長・小型画面: 1 列に積む（予定→連絡→提出物→広告）。5 行制限とコンテナクエリを解除。 */
+/* 縦長・小型画面（モバイル）: 1 列にスクロール表示。
+   順序 = タブ(sticky ヘッダー) → 広告 → 予定 → 連絡 → 提出物 → フッター。
+   広告を上部（最初に必ず見える位置）に出し、予定は 3 日(3 列) × 3 行に絞る。連絡/提出物は全件スクロール。
+   (2026-06-07 ユーザー確定) */
 @media (max-width: 899px) {
   .signageRoot {
     position: static;
-    overflow: auto;
+    overflow: visible;
     height: auto;
     min-height: 100%;
+  }
+  /* タブ(ヘッダー)はスクロール中も上部に残す。ブランディングはフッターへ寄せ、ヘッダーは日付/天気/時刻に絞る。 */
+  .adHeader {
+    position: sticky;
+  }
+  .headerBranding {
+    display: none;
   }
   .container {
     grid-template-columns: 1fr;
-    grid-template-areas: "info" "ad";
+    grid-template-areas: "ad" "info" "footer";
     height: auto;
-    min-height: 100%;
+    min-height: 0;
+    padding-top: 0;
   }
+  /* 広告は上部に大きめ（= 必ず表面に見える）。残りはスクロールで見せる。 */
+  .adArea {
+    height: 42vh;
+    min-height: 220px;
+  }
+  /* 予定 / 連絡 / 提出物 を縦に積む */
   .contentGrid {
     grid-template-columns: 1fr;
     grid-template-rows: none;
     grid-auto-rows: auto;
+    overflow: visible;
+  }
+  /* カードは中身の自然高さにして全件スクロール可にする（クリップしない）。 */
+  .card {
+    overflow: visible;
   }
   .scheduleSection {
     grid-column: auto;
   }
+  /* 予定: 3 日（3 列維持）× 3 行。4 行目以降は隠す。 */
   .scheduleScrollArea {
     container-type: normal;
     display: block;
   }
+  .scheduleScrollArea > .scheduleListItem:nth-of-type(n + 4) {
+    display: none;
+  }
+  .scheduleListItem {
+    font-size: clamp(0.6rem, 2.2vw, 0.95rem);
+    padding: 0.15rem 0;
+  }
+  .scheduleDateHeader {
+    font-size: clamp(0.7rem, 2.4vw, 1rem);
+  }
+  /* 連絡 / 提出物 は全件を表示（5 行制限とグリッドを解除、スクロールで見せる）。 */
   .listGroup {
     display: block;
   }
-  .scheduleScrollArea > .scheduleListItem:nth-of-type(n + 6),
   .listGroup > li:nth-of-type(n + 6),
   .taskTable tbody > tr:nth-of-type(n + 6) {
     display: revert;
   }
-  .adArea {
-    height: 60vh;
-    min-height: 320px;
+  /* フッター表示（順序の最後）。 */
+  .mobileFooter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.8rem;
+    font-size: clamp(0.7rem, 2vw, 0.85rem);
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
   }
 }
