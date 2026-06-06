@@ -1,6 +1,7 @@
 "use client";
 
 import { setMemberActiveAction } from "@/lib/role-management/member-actions";
+import { ConfirmDialog } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -9,8 +10,8 @@ import { useState, useTransition } from "react";
  * 各行 (管理可の対象) で操作する。認可・IdP 失効・DB mirror・監査は `setMemberActiveAction` が担保するので、
  * ここは操作と結果表示に徹する (ADR-026: エンフォースは IdP、本コンポーネントは UI)。
  *
- * **誤操作防止**: 無効化は「ログイン・操作を即時停止」する強い操作のため `window.confirm` で確認する。
- * 再有効化は確認不要。
+ * **誤操作防止**: 無効化は「ログイン・操作を即時停止」する強い操作のため、共通の `ConfirmDialog`
+ * (danger) で確認する (`window.confirm` から置換し、全画面で確認 UI を統一)。再有効化は確認不要。
  */
 export function MemberActiveToggle({
   userId,
@@ -24,19 +25,14 @@ export function MemberActiveToggle({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  function onClick() {
-    if (
-      isActive &&
-      !window.confirm(
-        `「${displayName}」を無効化します。ログイン・操作が即時停止します。よろしいですか？`,
-      )
-    ) {
-      return;
-    }
+  function run() {
     setError(null);
     startTransition(async () => {
       const res = await setMemberActiveAction({ userId, isActive: !isActive });
+      // 成否いずれもダイアログは閉じる (失敗はインラインの error 表示に集約)。
+      setConfirmOpen(false);
       if (res.ok) {
         router.refresh();
       } else {
@@ -45,12 +41,31 @@ export function MemberActiveToggle({
     });
   }
 
+  function onClick() {
+    // 無効化は確認ダイアログ経由、再有効化は即実行 (確認不要)。
+    if (isActive) {
+      setConfirmOpen(true);
+    } else {
+      run();
+    }
+  }
+
   return (
     <span style={wrapStyle}>
       <button type="button" onClick={onClick} disabled={pending} style={btnStyle}>
         {pending ? "…" : isActive ? "無効化" : "再有効化"}
       </button>
       {error ? <output style={errorStyle}>{error}</output> : null}
+      <ConfirmDialog
+        open={confirmOpen}
+        tone="danger"
+        title={`「${displayName}」を無効化しますか？`}
+        description="ログイン・操作が即時停止します。"
+        confirmLabel="無効化する"
+        pending={pending}
+        onConfirm={run}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </span>
   );
 }
