@@ -3,6 +3,7 @@ import { withSession } from "@/lib/db";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
+import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import Link from "next/link";
@@ -38,6 +39,9 @@ export default async function ClassEditorPage({
   // このエディタを使うため、teacher には死リンク (403 になる遷移) を出さない (#48-J Low-1 出し分け)。
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
+  // 生徒/サイネージ アクセスリンク発行は teacher / school_admin（= 本ページの EDITOR_ROLES と同集合）。
+  // 死リンク防止のため発行可ロールのみ導線を出す（magic-link ページは MAGIC_LINK_ISSUER_ROLES で 403 ガード）。
+  const canIssueMagicLink = isRoleAllowed(user.role, MAGIC_LINK_ISSUER_ROLES);
   const { date: dateParam } = await searchParams;
   const date =
     dateParam && isValidDate(dateParam)
@@ -67,8 +71,13 @@ export default async function ClassEditorPage({
             ← 編集対象の選択へ戻る
           </Link>
           <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
-          {canManageAds || canManageQuietHours ? (
-            <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem" }}>
+          {canManageAds || canManageQuietHours || canIssueMagicLink ? (
+            <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              {canIssueMagicLink ? (
+                <Link href={`/admin/editor/${classId}/magic-link`} style={{ fontSize: "0.9rem" }}>
+                  サイネージ・生徒リンク →
+                </Link>
+              ) : null}
               {canManageAds ? (
                 <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
                   広告管理 →

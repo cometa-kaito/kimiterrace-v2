@@ -109,19 +109,65 @@ describe("MagicLinkManager", () => {
     expect(screen.queryByTestId("issued-url")).not.toBeInTheDocument();
   });
 
-  it("URL コピーで clipboard.writeText を呼ぶ", async () => {
+  it("生徒URL / サイネージURL のコピーで clipboard.writeText を呼ぶ", async () => {
     stubFetch((_url, init) => {
       if ((init?.method ?? "GET") === "POST") {
-        return Promise.resolve(jsonRes({ id: "ml-1", path: "/s/COPY", expiresAt: "x" }, 201));
+        return Promise.resolve(
+          jsonRes(
+            { id: "ml-1", path: "/s/COPY", signagePath: "/signage/COPY", expiresAt: "x" },
+            201,
+          ),
+        );
       }
       return Promise.resolve(jsonRes({ links: [] }));
     });
     render(<MagicLinkManager classId={CLASS_ID} initialLinks={[]} />);
     fireEvent.click(screen.getByRole("button", { name: "新しいリンクを発行" }));
     await screen.findByTestId("issued-url");
-    fireEvent.click(screen.getByRole("button", { name: "URL をコピー" }));
+    fireEvent.click(screen.getByRole("button", { name: "生徒URLをコピー" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/s/COPY`));
-    expect(await screen.findByRole("button", { name: "コピーしました" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "サイネージURLをコピー" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/signage/COPY`),
+    );
+  });
+
+  it("発行結果にサイネージ表示用 URL(/signage/) と QR を出す（signagePath 優先）", async () => {
+    stubFetch((url, init) => {
+      if (url === "/api/magic-links" && (init?.method ?? "GET") === "POST") {
+        return Promise.resolve(
+          jsonRes(
+            { id: "ml-s", path: "/s/SIGTOKEN", signagePath: "/signage/SIGTOKEN", expiresAt: "x" },
+            201,
+          ),
+        );
+      }
+      return Promise.resolve(jsonRes({ links: [] }));
+    });
+    render(<MagicLinkManager classId={CLASS_ID} initialLinks={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "新しいリンクを発行" }));
+    const signage = await screen.findByTestId("signage-url");
+    expect(signage).toHaveTextContent(`${window.location.origin}/signage/SIGTOKEN`);
+    // 生徒用は /s/ ショートリンク。
+    expect(screen.getByTestId("issued-url")).toHaveTextContent(
+      `${window.location.origin}/s/SIGTOKEN`,
+    );
+    // サイネージ QR が SVG (title 付き) で出る。
+    const sigQr = screen.getByTestId("signage-qr");
+    expect(sigQr.querySelector("svg title")?.textContent).toBe("サイネージ表示用 URL の QR コード");
+  });
+
+  it("signagePath 不在でも /s/ パスから /signage/ を導出して表示（後方互換）", async () => {
+    stubFetch((url, init) => {
+      if (url === "/api/magic-links" && (init?.method ?? "GET") === "POST") {
+        return Promise.resolve(jsonRes({ id: "ml-d", path: "/s/DERIVED", expiresAt: "x" }, 201));
+      }
+      return Promise.resolve(jsonRes({ links: [] }));
+    });
+    render(<MagicLinkManager classId={CLASS_ID} initialLinks={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "新しいリンクを発行" }));
+    const signage = await screen.findByTestId("signage-url");
+    expect(signage).toHaveTextContent(`${window.location.origin}/signage/DERIVED`);
   });
 
   it("失効は 2 段階確認: 確定で revoke API を呼び一覧から消す", async () => {
