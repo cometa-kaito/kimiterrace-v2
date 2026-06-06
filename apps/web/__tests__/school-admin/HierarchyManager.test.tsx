@@ -71,7 +71,9 @@ describe("HierarchyManager（編集/削除/一括追加 配線）", () => {
   it("学科の削除は確認 → deleteDepartmentAction(id) を呼ぶ", async () => {
     render(<HierarchyManager hierarchy={HIERARCHY} />);
     // 学科行（電子工学科）の削除ボタン = 最初の「削除」。
-    fireEvent.click(screen.getAllByRole("button", { name: "削除" })[0]);
+    const [firstDel] = screen.getAllByRole("button", { name: "削除" });
+    if (!firstDel) throw new Error("削除ボタンが見つかりません");
+    fireEvent.click(firstDel);
     // 確認 UI が出る。
     const confirmBtn = await screen.findByRole("button", { name: "削除する" });
     fireEvent.click(confirmBtn);
@@ -93,7 +95,9 @@ describe("HierarchyManager（編集/削除/一括追加 配線）", () => {
     render(<HierarchyManager hierarchy={HIERARCHY} />);
     // クラス行（1組）の削除 = 学科1 + 学年1 の後、3 番目の「削除」。
     const dels = screen.getAllByRole("button", { name: "削除" });
-    fireEvent.click(dels[dels.length - 1]);
+    const lastDel = dels[dels.length - 1];
+    if (!lastDel) throw new Error("削除ボタンが見つかりません");
+    fireEvent.click(lastDel);
     const confirmBtn = await screen.findByRole("button", { name: "削除する" });
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(deleteClassMock).toHaveBeenCalledWith("c1"));
