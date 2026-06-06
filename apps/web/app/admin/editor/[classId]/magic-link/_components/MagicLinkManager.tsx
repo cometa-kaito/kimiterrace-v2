@@ -24,8 +24,12 @@ export type MagicLinkRow = {
   revokedAt?: string | null;
 };
 
-/** 発行直後にだけ手に入る平文 URL の情報。 */
-type IssuedToken = { id: string; url: string; expiresAt: string };
+/**
+ * 発行直後にだけ手に入る平文 URL の情報。同一トークンが 2 経路で有効:
+ * - `signageUrl` (/signage/) … サイネージ表示端末で開く盤面 URL（本ページの主目的）
+ * - `studentUrl` (/s/) … 生徒がスマホで開く生徒ショートリンク（→ /student）
+ */
+type IssuedToken = { id: string; signageUrl: string; studentUrl: string; expiresAt: string };
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -44,7 +48,7 @@ export function MagicLinkManager({
   const [issuing, setIssuing] = useState(false);
   const [issued, setIssued] = useState<IssuedToken | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedWhich, setCopiedWhich] = useState<"signage" | "student" | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [extendDays, setExtendDays] = useState("");
@@ -71,7 +75,7 @@ export function MagicLinkManager({
   async function issue() {
     setError(null);
     setIssued(null);
-    setCopied(false);
+    setCopiedWhich(null);
 
     const body: { classId: string; expiresInDays?: number } = { classId };
     const raw = expiresInDays.trim();
@@ -97,10 +101,22 @@ export function MagicLinkManager({
         setError(`発行に失敗しました (${res.status})。`);
         return;
       }
-      const data: { id: string; path: string; expiresAt: string } = await res.json();
+      const data: {
+        id: string;
+        path: string;
+        signagePath?: string;
+        token?: string;
+        expiresAt: string;
+      } = await res.json();
+      const origin = window.location.origin;
+      // サイネージ用パスは API の signagePath を優先。無ければ token / 生徒パスから導出（後方互換）。
+      const signagePath =
+        data.signagePath ??
+        (data.token ? `/signage/${data.token}` : data.path.replace(/^\/s\//, "/signage/"));
       setIssued({
         id: data.id,
-        url: `${window.location.origin}${data.path}`,
+        signageUrl: `${origin}${signagePath}`,
+        studentUrl: `${origin}${data.path}`,
         expiresAt: data.expiresAt,
       });
       setExpiresInDays("");
@@ -112,12 +128,12 @@ export function MagicLinkManager({
     }
   }
 
-  async function copyUrl(url: string) {
+  async function copyUrl(url: string, which: "signage" | "student") {
     try {
       await navigator.clipboard?.writeText(url);
-      setCopied(true);
+      setCopiedWhich(which);
     } catch {
-      setCopied(false);
+      setCopiedWhich(null);
     }
   }
 
@@ -179,6 +195,32 @@ export function MagicLinkManager({
     border: "1px solid #d1d5db",
     borderRadius: "0.3rem",
   };
+  const copyBtnStyle = {
+    marginTop: "0.4rem",
+    padding: "0.3rem 0.8rem",
+    borderRadius: "0.3rem",
+    border: "1px solid #93c5fd",
+    background: "#fff",
+    cursor: "pointer",
+  };
+  const qrBoxStyle = {
+    display: "inline-block",
+    padding: "0.5rem",
+    background: "#fff",
+    border: "1px solid #bfdbfe",
+    borderRadius: "0.3rem",
+  };
+  const sectionLabelStyle = {
+    margin: "0 0 0.3rem",
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    color: "#1e3a8a",
+  };
+  const urlCodeStyle = {
+    display: "block",
+    wordBreak: "break-all" as const,
+    fontSize: "0.9rem",
+  };
 
   return (
     <div>
@@ -229,66 +271,67 @@ export function MagicLinkManager({
             borderRadius: "0.4rem",
           }}
         >
-          <p style={{ margin: "0 0 0.4rem", fontWeight: 600, color: "#1e3a8a" }}>
-            発行しました。この URL は今だけ表示されます。
+          <p style={{ margin: "0 0 0.6rem", fontWeight: 600, color: "#1e3a8a" }}>
+            発行しました。以下の URL / QR は<strong>今だけ</strong>
+            表示されます（後から再表示できません）。
           </p>
-          <code
-            data-testid="issued-url"
-            style={{ display: "block", wordBreak: "break-all", fontSize: "0.9rem" }}
-          >
-            {issued.url}
-          </code>
-          <button
-            type="button"
-            onClick={() => copyUrl(issued.url)}
-            style={{
-              marginTop: "0.4rem",
-              padding: "0.3rem 0.8rem",
-              borderRadius: "0.3rem",
-              border: "1px solid #93c5fd",
-              background: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            {copied ? "コピーしました" : "URL をコピー"}
-          </button>
 
-          <div data-testid="magic-link-qr" style={{ marginTop: "0.75rem" }}>
-            <p style={{ margin: "0 0 0.4rem", fontSize: "0.85rem", color: "#1e3a8a" }}>
-              QR コード（印刷して教室に掲示できます）
+          {/* サイネージ端末用（本ページの主目的）。教室の表示端末のブラウザでこの URL を開く。 */}
+          <section style={{ marginBottom: "1rem" }}>
+            <p style={sectionLabelStyle}>
+              📺 サイネージ表示用 URL（教室の表示端末でこの URL を開く）
             </p>
-            <div
-              style={{
-                display: "inline-block",
-                padding: "0.5rem",
-                background: "#fff",
-                border: "1px solid #bfdbfe",
-                borderRadius: "0.3rem",
-              }}
+            <code data-testid="signage-url" style={urlCodeStyle}>
+              {issued.signageUrl}
+            </code>
+            <button
+              type="button"
+              onClick={() => copyUrl(issued.signageUrl, "signage")}
+              style={copyBtnStyle}
             >
-              <QRCodeSVG
-                value={issued.url}
-                size={160}
-                level="M"
-                title="クラス magic link の QR コード"
-              />
+              {copiedWhich === "signage" ? "コピーしました" : "サイネージURLをコピー"}
+            </button>
+            <div data-testid="signage-qr" style={{ marginTop: "0.5rem" }}>
+              <div style={qrBoxStyle}>
+                <QRCodeSVG
+                  value={issued.signageUrl}
+                  size={160}
+                  level="M"
+                  title="サイネージ表示用 URL の QR コード"
+                />
+              </div>
             </div>
-            <div>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                style={{
-                  marginTop: "0.4rem",
-                  padding: "0.3rem 0.8rem",
-                  borderRadius: "0.3rem",
-                  border: "1px solid #93c5fd",
-                  background: "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                QR を印刷
-              </button>
+          </section>
+
+          {/* 生徒用。QR を掲示・配布 → 生徒のスマホで開くと掲示物 Q&A（/student）へ。 */}
+          <section>
+            <p style={sectionLabelStyle}>📱 生徒用リンク（QR を掲示・配布 → 生徒のスマホで開く）</p>
+            <code data-testid="issued-url" style={urlCodeStyle}>
+              {issued.studentUrl}
+            </code>
+            <button
+              type="button"
+              onClick={() => copyUrl(issued.studentUrl, "student")}
+              style={copyBtnStyle}
+            >
+              {copiedWhich === "student" ? "コピーしました" : "生徒URLをコピー"}
+            </button>
+            <div data-testid="magic-link-qr" style={{ marginTop: "0.5rem" }}>
+              <div style={qrBoxStyle}>
+                <QRCodeSVG
+                  value={issued.studentUrl}
+                  size={160}
+                  level="M"
+                  title="クラス magic link の QR コード"
+                />
+              </div>
             </div>
+          </section>
+
+          <div style={{ marginTop: "0.75rem" }}>
+            <button type="button" onClick={() => window.print()} style={copyBtnStyle}>
+              QR を印刷
+            </button>
           </div>
         </div>
       ) : null}

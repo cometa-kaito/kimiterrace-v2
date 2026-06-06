@@ -117,6 +117,8 @@ describe("POST /api/magic-links (発行)", () => {
       classId: CLASS_ID,
       token: "PLAINTOKEN",
       path: "/s/PLAINTOKEN",
+      // サイネージ端末用 URL（同一トークンの /signage/ 経路）も返す。
+      signagePath: "/signage/PLAINTOKEN",
       expiresAt: "2026-04-01T00:00:00.000Z",
     });
     // DB に渡るのは hash のみ (平文ではない、ルール5)

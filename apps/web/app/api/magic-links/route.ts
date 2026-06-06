@@ -90,8 +90,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         id: issued.id,
         classId: issued.classId,
         // 平文トークンと相対パス。クライアントが origin を付けて URL/QR を生成する。
+        // 同一トークンが 2 つの匿名経路で有効: `path`(/s/ = 生徒ショートリンク→/student) と
+        // `signagePath`(/signage/ = サイネージ盤面)。サイネージ端末用 URL を UI に出すため両方返す。
         token,
         path: `/s/${token}`,
+        signagePath: `/signage/${token}`,
         expiresAt: issued.expiresAt.toISOString(),
       },
       { status: 201 },
