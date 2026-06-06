@@ -112,7 +112,10 @@ locals {
   # bbb68be: #634 Toast 通知基盤 + #636 ブランドオレンジ明色化(#ea580c)+ルート / のロール別振り分け +
   #          #638 サイドナビ active 判定を最長一致化(親子二重点灯バグ修正)。UI 変更ゆえ再 deploy。
   #          ※ main HEAD は #637(ConfirmDialog 段3) まで進むが、本 deploy は bbb68be を指す（#637 は次回）。
-  web_image_tag = "bbb68be"
+  # b1ed208: 段3 confirm 統一の残りを反映 — #637 教職員管理 / #640 広告主・契約 / #641 MFA の
+  #          window.confirm→共通 ConfirmDialog + 成功 Toast。これで apps/web の window.confirm は全廃。
+  #          UI 変更ゆえ再 build/deploy で反映（web:b1ed208 を Cloud Build 済・AR push 済、main HEAD）。
+  web_image_tag = "b1ed208"
 }
 
 module "network" {
