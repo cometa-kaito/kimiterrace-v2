@@ -72,9 +72,15 @@ export default async function SystemAdvertisersPage() {
                 </td>
                 <td style={tdStyle}>{formatJstDate(a.createdAt)}</td>
                 <td style={tdStyle}>
-                  <Link href={`/admin/system/advertisers/${a.id}/edit`} style={editLinkStyle}>
-                    編集
-                  </Link>
+                  <span style={{ display: "inline-flex", gap: "0.75rem" }}>
+                    {/* #46 運営側広告 CRM: この広告主の広告を入稿・管理する導線。 */}
+                    <Link href={`/admin/system/advertisers/${a.id}/ads`} style={editLinkStyle}>
+                      広告
+                    </Link>
+                    <Link href={`/admin/system/advertisers/${a.id}/edit`} style={editLinkStyle}>
+                      編集
+                    </Link>
+                  </span>
                 </td>
               </tr>
             ))}
