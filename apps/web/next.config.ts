@@ -63,6 +63,7 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  *   (NodeNext 互換) を使う。Next のバンドラはそのままでは解決できないため、production build グラフに
  *   入る workspace パッケージを列挙して Next の TS パイプラインで変換させる (Next monorepo の標準対応)。
  *   ai / observability は #154 の抽出トリガ route が production build に引き込むため追加 (PR #287)。
+ *   ui は共通 UI プリミティブの JIT パッケージ (dist ビルド無し・exports が raw TS を指し Next が変換)。
  * - `outputFileTracingRoot` / `outputFileTracingIncludes`: PDF 抽出器 (@kimiterrace/ai の PdfExtractor)
  *   は実行時に `pdfjs-dist/standard_fonts/` を **動的 `file://`** で読むが、Next の file-tracing (NFT) は
  *   動的アクセスを追えず standalone に同梱しない。同梱漏れすると標準フォント PDF の text 抽出がサイレントに
@@ -73,7 +74,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ["@kimiterrace/db", "@kimiterrace/ai", "@kimiterrace/observability"],
+  transpilePackages: [
+    "@kimiterrace/db",
+    "@kimiterrace/ai",
+    "@kimiterrace/observability",
+    "@kimiterrace/ui",
+  ],
   // pdfjs-dist はバンドルせず runtime に node_modules から require させる。バンドルすると
   // (a) PdfExtractor の `createRequire(import.meta.url).resolve("pdfjs-dist/package.json")` が
   // chunk 位置から解決できず standard_fonts を見失う、(b) legacy build の worker/font 資産が壊れる。
