@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { type TenantRole, listAllStaff } from "@kimiterrace/db";
+import Link from "next/link";
 import { StaffActiveToggle } from "./_components/StaffActiveToggle";
 import { StaffRoleToggle } from "./_components/StaffRoleToggle";
 
@@ -33,9 +34,14 @@ export default async function SystemUsersPage() {
     <section>
       <header style={headerStyle}>
         <h1 style={titleStyle}>教職員管理</h1>
-        <span style={countStyle}>
-          {schoolCount} 校 / 稼働 {activeCount} / 全 {staff.length} 名
-        </span>
+        <div style={headerRightStyle}>
+          <span style={countStyle}>
+            {schoolCount} 校 / 稼働 {activeCount} / 全 {staff.length} 名
+          </span>
+          <Link href="/admin/system/users/new" style={newLinkStyle}>
+            ＋ 教職員を発行
+          </Link>
+        </div>
       </header>
       <p style={subtitleStyle}>
         全校横断の教職員一覧です。各行でアカウントの無効化 / 再有効化とロール変更 (学校管理者 ⇄
@@ -147,6 +153,19 @@ const headerStyle: React.CSSProperties = {
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
 const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const headerRightStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "1rem",
+};
+const newLinkStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#fff",
+  background: "#1d4ed8",
+  padding: "0.4rem 0.9rem",
+  borderRadius: "6px",
+  textDecoration: "none",
+};
 const subtitleStyle: React.CSSProperties = { color: "#6b7280", margin: "0 0 1.25rem" };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = {
