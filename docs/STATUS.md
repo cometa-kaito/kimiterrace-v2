@@ -146,4 +146,4 @@
 
 - **過去の引き継ぎ（2026-06-05 以前）・旧「次にやるべき」・セッション履歴** → [STATUS-archive.md](STATUS-archive.md)
 - 各 PR の一次記録 → 各 PR body（`gh pr view <N>`）／ 各 Issue → `gh issue view <N>`
-- 詳細な技術判断 → [docs/adr/](adr/)（全 22 ADR）／ プロジェクト横断の規律 → `~/.claude/projects/.../memory/`
+- 詳細な技術判断 → [docs/adr/](adr/)（ADR 一覧）／ プロジェクト横断の規律 → `~/.claude/projects/.../memory/`
