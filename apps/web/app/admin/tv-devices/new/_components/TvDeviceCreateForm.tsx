@@ -20,12 +20,16 @@ type SchoolOption = { id: string; name: string; prefecture: string };
 
 type ScheduleForm = { enabled: boolean; onHour: string; offHour: string };
 
-/** 文字列の hour 入力を 0-23 の数値 or undefined に変換（空欄は未指定）。範囲検証は Server 側に委ねる。 */
+/**
+ * 文字列の hour 入力を 0-23 の数値 or undefined に変換（空欄・非数値は未指定扱い）。範囲検証は Server 側に
+ * 委ねる。非数値で `undefined`（=未指定）を返すことで「NaN→シリアライズで null→Server で拒否」の暗黙連鎖に
+ * 依存せず、意図（未指定）を明示する（PR #628 Reviewer Low-1）。
+ */
 function parseHour(value: string): number | undefined {
   const t = value.trim();
   if (t === "") return undefined;
   const n = Number(t);
-  return Number.isFinite(n) ? n : Number.NaN;
+  return Number.isFinite(n) ? n : undefined;
 }
 
 type CreatedDevice = { id: string; deviceId: string };

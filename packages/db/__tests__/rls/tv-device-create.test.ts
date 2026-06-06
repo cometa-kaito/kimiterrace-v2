@@ -117,14 +117,16 @@ describeOrSkip("RLS: F15 createTvDevice", () => {
       (tx) => createTvDevice(tx, input(dev, fx.schoolA)),
       APP,
     );
-    // 別校で同一 device_id → 23505。
-    await expect(
-      withTenantContext(
-        db,
-        { role: "system_admin" },
-        (tx) => createTvDevice(tx, input(dev, fx.schoolB)),
-        APP,
-      ),
-    ).rejects.toMatchObject({ code: "23505" });
+    // 別校で同一 device_id → 23505。Drizzle は driver エラーを DrizzleQueryError で包むため SQLSTATE は
+    // トップレベルでなく cause 側に乗る（ラップ無し・有り両対応で取り出す）。
+    const err = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => createTvDevice(tx, input(dev, fx.schoolB)),
+      APP,
+    ).catch((e: unknown) => e);
+    const code =
+      (err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
+    expect(code).toBe("23505");
   });
 });

@@ -33,11 +33,23 @@ import { ONBOARDING_ROLES, type TvOnboardingInput, validateTvOnboarding } from "
  * （config-edit-core.ts のコメント参照、DNS-rebinding 対策）。
  */
 
-/** PostgreSQL のエラーコード（SQLSTATE）を取り出す。 */
+/**
+ * PostgreSQL のエラーコード（SQLSTATE）を取り出す。
+ *
+ * **Drizzle のラップ対応**: Drizzle は driver の `PostgresError` を `DrizzleQueryError` で包むため、
+ * SQLSTATE（`code`）は**トップレベルでなく `.cause` 側**に乗る（実 PG テストで判明、CI のみ露見）。
+ * トップレベル `code` を直接読むと unique/FK 違反を検出できず conflict/invalid に写像し損ねて 500 に化ける。
+ * よって `error.code` → `error.cause.code` … と cause 連鎖を辿って最初に見つかった文字列 code を返す
+ * （ラップ無し・有り両対応）。深さは循環/暴走防止に上限を設ける。
+ */
 function pgCode(error: unknown): string | undefined {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const code = (error as { code: unknown }).code;
-    return typeof code === "string" ? code : undefined;
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") {
+      return code;
+    }
+    current = (current as { cause?: unknown }).cause;
   }
   return undefined;
 }
