@@ -93,6 +93,52 @@ export function jstDateString(now: Date = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
 
+/**
+ * サイネージ「予定」グリッドの列日付 (今後 `count` 日ぶん) を YYYY-MM-DD で返す。
+ *
+ * v1 ScheduleGrid の「今後 3 平日」を移植しつつ、**先頭列は常に基準日 (`fromDate` = 表示中の今日) を
+ * 固定**し、2 列目以降を翌日からの**平日** (土日スキップ) で埋める。
+ *   - `fromDate` が平日なら結果は v1 の「今後 N 平日」と完全一致 (例: 金 → [金, 月, 火])。
+ *   - `fromDate` が土日のときだけ v1 と異なり、先頭にその週末日を置く (例: 土 → [土, 月, 火])。学校は
+ *     休業日だが「今日」を必ず先頭に出す方が盤面の一貫性が高く、休日でも欠落しない (週末は予定が空なら
+ *     プレースホルダー 5 行になるだけ)。
+ *
+ * 暦日演算は UTC 上で行い端末 TZ に依存しない (jstDateString で解決した JST 暦日文字列をそのまま日付
+ * として扱う)。不正な日付文字列・count<=0 は空配列を返す (呼び出し側で fail-soft)。
+ */
+export function signageScheduleDates(fromDate: string, count: number): string[] {
+  const parts = fromDate.split("-");
+  if (parts.length !== 3 || count <= 0) {
+    return [];
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  // 実在暦日でなければ空 (parseSignageDate と同じ round-trip 検証)。
+  if (!(base.getUTCFullYear() === y && base.getUTCMonth() === m - 1 && base.getUTCDate() === d)) {
+    return [];
+  }
+  const fmt = (t: number): string => {
+    const dt = new Date(t);
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+  };
+  // 先頭列は基準日を固定 (週末でも今日を出す)。
+  const out: string[] = [fmt(base.getTime())];
+  let cursor = base.getTime() + 86_400_000; // 翌日から
+  // 残り列を平日で埋める。反復は最大 count+土日ぶん。暴走防止に上限を設ける。
+  for (let i = 0; out.length < count && i < count + 7; i++) {
+    const dow = new Date(cursor).getUTCDay(); // 0=日, 6=土
+    if (dow !== 0 && dow !== 6) {
+      out.push(fmt(cursor));
+    }
+    cursor += 86_400_000; // +1 日 (UTC は DST 無しなので安全)。
+  }
+  return out;
+}
+
 /** `YYYY-MM-DD` のフォーマット。実在暦日かは {@link parseSignageDate} が round-trip で別途検証する。 */
 const SIGNAGE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

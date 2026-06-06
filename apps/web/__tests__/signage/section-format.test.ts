@@ -1,4 +1,9 @@
-import { type SignageSectionKind, formatSignageItem } from "@/lib/signage/section-format";
+import {
+  type SignageSectionKind,
+  formatSignageItem,
+  parseAssignmentRow,
+  parseScheduleRow,
+} from "@/lib/signage/section-format";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -135,5 +140,87 @@ describe("formatSignageItem", () => {
       "quietHours",
       "schedules",
     ]);
+  });
+});
+
+describe("parseScheduleRow (予定グリッドの時限 + 内容 分割)", () => {
+  it("時限ラベルと内容 (科目 + 補足) に分ける", () => {
+    expect(parseScheduleRow({ period: 3, subject: "理科", note: "実験室" })).toEqual({
+      periodLabel: "3限",
+      content: "理科（実験室）",
+    });
+  });
+
+  it("note 無しは科目のみ", () => {
+    expect(parseScheduleRow({ period: 2, subject: "英語" })).toEqual({
+      periodLabel: "2限",
+      content: "英語",
+    });
+  });
+
+  it("period 欠損/非正は時限ラベル空", () => {
+    expect(parseScheduleRow({ subject: "数学" })).toEqual({ periodLabel: "", content: "数学" });
+    expect(parseScheduleRow({ period: 0, subject: "数学" })).toEqual({
+      periodLabel: "",
+      content: "数学",
+    });
+  });
+
+  it("確定スキーマ外は時限空 + 汎用ラベルにフォールバック (表示を壊さない)", () => {
+    expect(parseScheduleRow("自由テキスト")).toEqual({ periodLabel: "", content: "自由テキスト" });
+  });
+});
+
+describe("parseAssignmentRow (提出物テーブルの列 + 残日数)", () => {
+  const TODAY = "2026-06-06";
+
+  it("subject/task/期限短縮 + 残日数 (あとN日) を返す", () => {
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-13", subject: "数学", task: "ワーク" }, TODAY),
+    ).toEqual({
+      subject: "数学",
+      task: "ワーク",
+      deadlineShort: "6/13",
+      daysLeft: "あと7日",
+      isOverdue: false,
+      isUrgent: false,
+    });
+  });
+
+  it("当日締切は『今日』で緊急", () => {
+    const row = parseAssignmentRow({ deadline: TODAY, subject: "国語", task: "音読" }, TODAY);
+    expect(row).toMatchObject({ daysLeft: "今日", isUrgent: true, isOverdue: false });
+  });
+
+  it("翌日締切は『明日』で緊急", () => {
+    const row = parseAssignmentRow(
+      { deadline: "2026-06-07", subject: "英語", task: "単語" },
+      TODAY,
+    );
+    expect(row).toMatchObject({ daysLeft: "明日", isUrgent: true, isOverdue: false });
+  });
+
+  it("期限超過は『N日超過』で overdue", () => {
+    const row = parseAssignmentRow(
+      { deadline: "2026-06-04", subject: "理科", task: "レポート" },
+      TODAY,
+    );
+    expect(row).toMatchObject({ daysLeft: "2日超過", isOverdue: true, isUrgent: false });
+  });
+
+  it("subject/task 欠損は null (表に出さない)", () => {
+    expect(parseAssignmentRow({ deadline: TODAY, subject: "数学" }, TODAY)).toBeNull();
+    expect(parseAssignmentRow({ deadline: TODAY, task: "ワーク" }, TODAY)).toBeNull();
+    expect(parseAssignmentRow("生文字列", TODAY)).toBeNull();
+  });
+
+  it("期限欠損/不正は残日数空・非緊急 (表示は壊さない)", () => {
+    const row = parseAssignmentRow({ subject: "数学", task: "ワーク" }, TODAY);
+    expect(row).toMatchObject({
+      daysLeft: "",
+      deadlineShort: "",
+      isOverdue: false,
+      isUrgent: false,
+    });
   });
 });

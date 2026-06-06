@@ -159,3 +159,111 @@ export function formatSignageItem(kind: SignageSectionKind, item: unknown): Sign
   }
   return { text: genericLabel(item) };
 }
+
+// =====================================================================================
+// v1 レイアウト用の **構造化** パーサ (#48 サイネージ v1 デザイン移植)。
+// 予定グリッドは「時限 (太字) + 内容」の 2 分割、提出物テーブルは「期限/科目/提出物」の 3 列に
+// 分けて描くため、`formatSignageItem` の 1 行テキストとは別に各フィールドを返す。型は editor core を
+// 単一ソースにし (ルール3)、想定外要素は null/フォールバックで fail-soft。
+// =====================================================================================
+
+/** 予定 1 行: 時限ラベル (例「3限」、無ければ空) と内容 (科目 + 補足)。 */
+export type SignageScheduleRow = { periodLabel: string; content: string };
+
+/** 予定要素を「時限 + 内容」に分ける。確定スキーマ外は時限空 + 汎用ラベルにフォールバック。 */
+export function parseScheduleRow(item: unknown): SignageScheduleRow {
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    const rec = item as Record<string, unknown>;
+    const subject = str(field<ScheduleItem>(rec, "subject"));
+    if (subject) {
+      const period = field<ScheduleItem>(rec, "period");
+      const hasPeriod = typeof period === "number" && Number.isInteger(period) && period > 0;
+      const note = str(field<ScheduleItem>(rec, "note"));
+      return {
+        periodLabel: hasPeriod ? `${period}限` : "",
+        content: note ? `${subject}（${note}）` : subject,
+      };
+    }
+  }
+  return { periodLabel: "", content: genericLabel(item) };
+}
+
+/** 提出物 1 行: 科目・提出物・期限 (短縮日付) + 締切までの残日数ラベルと緊急度。 */
+export type SignageAssignmentRow = {
+  subject: string;
+  task: string;
+  deadlineShort: string;
+  daysLeft: string;
+  isOverdue: boolean;
+  isUrgent: boolean;
+};
+
+/**
+ * 提出物要素を表の各列へ分ける。`today` (YYYY-MM-DD, JST) との差で残日数を出す。subject/task が
+ * 揃わない要素は null (表に出さない)。期限が不正/欠損なら残日数は空・非緊急 (表示は壊さない)。
+ */
+export function parseAssignmentRow(item: unknown, today: string): SignageAssignmentRow | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return null;
+  }
+  const rec = item as Record<string, unknown>;
+  const subject = str(field<AssignmentItem>(rec, "subject"));
+  const task = str(field<AssignmentItem>(rec, "task"));
+  if (!subject || !task) {
+    return null;
+  }
+  const deadline = str(field<AssignmentItem>(rec, "deadline"));
+  const days = deadline ? daysBetween(today, deadline) : null;
+  return {
+    subject,
+    task,
+    deadlineShort: deadline ? shortDate(deadline) : "",
+    daysLeft: daysLeftLabel(days),
+    isOverdue: days !== null && days < 0,
+    // 当日・翌日締切は緊急 (赤)。v1 の days-urgent 相当。
+    isUrgent: days !== null && days >= 0 && days <= 1,
+  };
+}
+
+/** `today`→`deadline` の暦日差 (日)。両方 `YYYY-MM-DD` のときのみ。UTC 組み立てで TZ ドリフト回避。 */
+function daysBetween(today: string, deadline: string): number | null {
+  const t = ymdToUtc(today);
+  const d = ymdToUtc(deadline);
+  if (t === null || d === null) {
+    return null;
+  }
+  return Math.round((d - t) / 86_400_000);
+}
+
+/** `YYYY-MM-DD` を UTC ミリ秒へ (実在暦日のみ、桁溢れは null)。 */
+function ymdToUtc(s: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) {
+    return null;
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+    return null;
+  }
+  return dt.getTime();
+}
+
+/** 残日数 → 表示ラベル。超過/今日/明日/あとN日。null は空。 */
+function daysLeftLabel(days: number | null): string {
+  if (days === null) {
+    return "";
+  }
+  if (days < 0) {
+    return `${-days}日超過`;
+  }
+  if (days === 0) {
+    return "今日";
+  }
+  if (days === 1) {
+    return "明日";
+  }
+  return `あと${days}日`;
+}

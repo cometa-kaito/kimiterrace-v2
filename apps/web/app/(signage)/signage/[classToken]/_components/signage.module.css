@@ -1,53 +1,30 @@
 /**
- * signage.module.css — 公開サイネージ盤面のスタイル。
+ * signage.module.css — 公開サイネージ盤面のスタイル（v1 レイアウト移植版）。
  *
- * v1 (旧キミテラス `management/src/styles/signage.module.css`) の「マットトーン」デザインを
- * v2 のデータ形（単日ペイロード = 時間割/連絡/課題/静粛時間 + 天気 + 広告）へ移植したもの。
- * 配色・ヘッダーバー・白カード・点線罫線・暗色広告ゾーン（ぼかし背景 + キャプション + 透かし）を
- * v1 と一致させる。v1 の週次 3 日グリッドは v2 が単日データのためカードのリスト表示に置き換える。
+ * 旧キミテラス v1 の盤面レイアウトを忠実に再現する:
+ *   上段（横幅いっぱい）= 予定（今後3平日の3列グリッド・各列5行）
+ *   左下 = 連絡事項（5行）/ 右下 = 提出物（期限/科目/提出物の表・5行）
+ *   右側 = 広告（コンテンツ70 : 広告30）
+ *   天気は予定の上に小さく1行で残す。静粛時間は盤面に出さない（2026-06-06 ユーザー確定）。
+ * 配色は v1 のマットトーン（白地 + Ink Black + マットインディゴ + アラート赤 + 暗色広告ゾーン）。
  *
- * 目次:
- *  1. カスタムプロパティ（マットトーン統一パレット）
- *  2. リセット・ベース
- *  3. メインレイアウト（70:30）
- *  4. ヘッダーバー
- *  5. コンテンツグリッド
- *  6. カード共通
- *  7. リスト（連絡/課題/時間割/静粛時間）
- *  8. 天気カード
- *  9. 広告エリア
- * 10. ローテーションドット
- * 11. レスポンシブ（大型モニタ / モバイル）
+ * 目次: 1 変数 / 2 リセット / 3 レイアウト(70:30) / 4 ヘッダー帯 / 5 天気ストリップ /
+ *       6 コンテンツグリッド / 7 カード / 8 予定グリッド / 9 連絡 / 10 提出物 / 11 広告 / 12 レスポンシブ
  */
 
-/* =====================
-   1. カスタムプロパティ — マットトーン統一パレット
-   ===================== */
+/* ===================== 1. 変数（マットトーン） ===================== */
 .signageRoot {
-  /* ベース */
-  --bg-color: #ffffff; /* 白 */
-  --surface-muted: #f7f8fa; /* Mist Gray（日付ヘッダー等） */
-  --surface-sunken: #f2f3f5;
-
-  /* テキスト */
-  --primary-color: #111827; /* Ink Black — 見出し */
-  --text-color: #111827; /* 本文 */
-  --text-muted: #6b7280; /* 補助テキスト */
-
-  /* 罫線 */
+  --bg-color: #ffffff;
+  --surface-muted: #f7f8fa;
+  --primary-color: #111827;
+  --text-color: #111827;
+  --text-muted: #6b7280;
   --border-color: #e5e7eb;
-
-  /* アクセント（マットインディゴ） — 時限・リンク */
   --accent-color: #2c5282;
   --accent-weak: #eaf0f7;
-
-  /* アラート（赤） — 重要連絡 */
   --urgent-color: #b91c1c;
   --urgent-weak: #fdecec;
-
-  /* 広告ゾーン背景（遠目でも情報領域と区別できる沈んだ黒） */
   --ad-bg: #111827;
-
   --font-base: "Inter", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -67,9 +44,7 @@
   font-size: calc(var(--base-font-size) * var(--scale-factor));
 }
 
-/* =====================
-   2. リセット・ベース（スクロールバー非表示）
-   ===================== */
+/* ===================== 2. リセット（スクロールバー非表示） ===================== */
 .signageRoot *,
 .signageRoot *::before,
 .signageRoot *::after {
@@ -77,19 +52,15 @@
   margin: 0;
   padding: 0;
 }
-
 .signageRoot ::-webkit-scrollbar {
   display: none;
 }
-
 .signageRoot * {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-/* =====================
-   3. メインレイアウト（コンテンツ 70 : 広告 30）
-   ===================== */
+/* ===================== 3. メインレイアウト（コンテンツ70 : 広告30） ===================== */
 .container {
   display: grid;
   grid-template-columns: 70% 30%;
@@ -101,10 +72,9 @@
   background-color: var(--bg-color);
   padding-top: var(--header-height);
 }
-
 .infoArea {
   grid-area: info;
-  padding: 0 1vmin 1vmin;
+  padding: 0.4vmin 1vmin 1vmin;
   display: flex;
   flex-direction: column;
   gap: var(--content-gap);
@@ -115,9 +85,7 @@
   background-color: var(--bg-color);
 }
 
-/* =====================
-   4. ヘッダーバー（盤面上部・暗色帯）
-   ===================== */
+/* ===================== 4. ヘッダー帯（暗色） ===================== */
 .adHeader {
   position: absolute;
   top: 0;
@@ -134,19 +102,16 @@
   white-space: nowrap;
   color: white;
 }
-
 .dateText {
   font-size: clamp(0.7rem, 1vw, 0.95rem);
   font-weight: 600;
 }
-
 .dayBadge {
   background: rgba(255, 255, 255, 0.2);
   padding: 0.1em 0.4em;
   border-radius: 3px;
   font-size: clamp(0.6rem, 0.9vw, 0.85rem);
 }
-
 .timeText {
   font-size: clamp(0.7rem, 1vw, 0.95rem);
   font-weight: 500;
@@ -156,7 +121,6 @@
   font-family: "Roboto", monospace;
   font-variant-numeric: tabular-nums;
 }
-
 .headerBranding {
   margin-left: auto;
   font-size: clamp(0.55rem, 0.8vw, 0.72rem);
@@ -165,38 +129,85 @@
   letter-spacing: 0.02em;
 }
 
-/* =====================
-   5. コンテンツグリッド
-   ===================== */
+/* ===================== 5. 天気ストリップ（小さく1行で残す） ===================== */
+.weatherStrip {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.weatherStripLabel {
+  font-size: clamp(0.65rem, 0.9vw, 0.8rem);
+  font-weight: 700;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.weatherDay {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: clamp(0.7rem, 1vw, 0.95rem);
+}
+.weatherDayDate {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.weatherGlyph {
+  font-size: 1.1em;
+}
+.weatherDayText {
+  font-weight: 700;
+  color: var(--primary-color);
+}
+.weatherTemp {
+  color: var(--text-color);
+}
+.weatherPop {
+  color: var(--accent-color);
+}
+.weatherStaleBadge {
+  font-size: 0.7em;
+  font-weight: 700;
+  padding: 0.05em 0.4em;
+  border-radius: 999px;
+  background: var(--urgent-weak);
+  color: var(--urgent-color);
+}
+.weatherFetched {
+  margin-left: auto;
+  font-size: clamp(0.6rem, 0.8vw, 0.72rem);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ===================== 6. コンテンツグリッド（予定上 / 連絡+提出物下） ===================== */
 .contentGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-auto-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--content-gap);
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-/* 時間割・静粛時間は横幅いっぱい、連絡・課題は下段で 2 列に並ぶ */
-.fullWidth {
-  grid-column: 1 / -1;
-}
-
-/* =====================
-   6. カード共通 — 全カード同一の枠線（ニュートラル Ink）。見出しと配置で識別する。
-   ===================== */
+/* ===================== 7. カード共通 ===================== */
 .card {
   background: white;
   border-radius: var(--radius-md);
-  padding: 0.4vmin 1vmin 0.6vmin;
+  padding: 0.3vmin 1vmin 0.5vmin;
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
 }
-
 .cardTitle {
   display: flex;
   align-items: center;
@@ -210,8 +221,6 @@
   color: var(--primary-color);
   letter-spacing: -0.01em;
 }
-
-/* 採用元（学校共通 / 学年共通）バッジ */
 .sourceBadge {
   font-size: 0.62em;
   font-weight: 600;
@@ -221,9 +230,99 @@
   color: var(--accent-color);
 }
 
-/* =====================
-   7. リスト（連絡/課題/時間割/静粛時間）— 点線罫線で行を区切る
-   ===================== */
+/* ===================== 8. 予定グリッド（今後3平日・3列・5行） ===================== */
+.scheduleSection {
+  grid-column: 1 / -1;
+  min-height: 0;
+  overflow: hidden;
+}
+.scheduleGridContainer {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5vmin;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.scheduleDayColumn {
+  background-color: var(--surface-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.4vmin;
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.scheduleDateHeader {
+  text-align: center;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 0.2rem;
+  font-size: clamp(0.95rem, 1.4vw, 1.25rem);
+  padding: 0.15rem;
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+/* 今日のみ黒ベタで強調 — 色でなく明度差で見せる */
+.isToday .scheduleDateHeader {
+  background-color: var(--primary-color);
+  color: white;
+  border-radius: var(--radius-sm);
+  border-bottom-color: var(--primary-color);
+}
+/* 5 行を常時確保（cqh で行内フォントを自動調整、非対応 WebView は clamp(vw) フォールバック） */
+.scheduleScrollArea {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  container-type: size;
+  display: grid;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+}
+.scheduleScrollArea > .scheduleListItem:nth-of-type(n + 6) {
+  display: none;
+}
+.scheduleListItem {
+  /* cqh フォールバック: container query 非対応 WebView は前者 (vw 版) を、対応ブラウザは後者
+     (スクロール領域高さ基準) を採用する progressive enhancement。意図的な二重宣言。 */
+  font-size: clamp(0.78rem, 1.3vw, 1.2rem);
+  /* biome-ignore lint/suspicious/noDuplicateProperties: cqh フォールバック (非対応は前者の vw 版) */
+  font-size: clamp(0.7rem, 12cqh, 1.3rem);
+  line-height: 1.25;
+  border-bottom: 1px dotted var(--border-color);
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+/* 空きスロット: 中身を透明にし罫線だけ見せて「5行ぶん用意されている」と明示 */
+.schedulePlaceholder {
+  color: transparent;
+  user-select: none;
+}
+/* 時限 + 内容を 1 行（インライン）に保ち、親の flex-column-end で罫線直上に下詰めする */
+.scheduleRowInner {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scheduleTime {
+  font-size: 0.85em;
+  color: var(--primary-color);
+  font-weight: 700;
+  margin-right: 0.3em;
+}
+.scheduleContent {
+  font-weight: 600;
+}
+
+/* ===================== 9. 連絡事項（左下・5行） ===================== */
 .listGroup {
   list-style: none;
   padding-left: 0;
@@ -232,15 +331,16 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
 }
-
+.listGroup > li:nth-of-type(n + 6) {
+  display: none;
+}
 .listItem {
-  padding: 0.15rem 0;
   border-bottom: 1px dotted var(--border-color);
   font-size: clamp(1rem, 1.5vw, 1.45rem);
-  line-height: 1.35;
+  line-height: 1.3;
   font-weight: 600;
   color: var(--text-color);
   overflow: hidden;
@@ -249,99 +349,84 @@
   flex-direction: column;
   justify-content: center;
 }
-
-.listItem:last-child {
-  border-bottom: none;
-}
-
-/* 重要マーク付き連絡（isHighlight）— 赤系で強調 + 左縦線 */
+/* 重要連絡（isHighlight）= 赤 + 左縦線 */
 .itemEmphasis {
   color: var(--urgent-color);
   font-weight: 700;
   background-color: var(--urgent-weak);
   border-left: 4px solid var(--urgent-color);
-  padding-left: 10px;
+  padding-left: 8px;
 }
-
+.noticePlaceholder {
+  color: transparent;
+  user-select: none;
+}
 .empty {
   color: var(--text-muted);
   font-size: clamp(0.85rem, 1.2vw, 1.05rem);
   padding: 0.4rem 0;
 }
 
-/* 時間割の時限を強調する先頭ラベル風（テキスト整形は section-format 側、ここは色のみ） */
-.scheduleSection .listItem {
-  font-size: clamp(0.95rem, 1.4vw, 1.35rem);
-}
-
-/* =====================
-   8. 天気カード — カード様式に揃える
-   ===================== */
-.weatherDays {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 0.6rem;
+/* ===================== 10. 提出物（右下・表・5行） ===================== */
+.tableWrapper {
   flex: 1;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
-
-.weatherDay {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  text-align: center;
+.taskTable {
+  width: 100%;
+  border-collapse: collapse;
+  height: 100%;
 }
-
-.weatherDayDate {
-  font-size: clamp(0.8rem, 1vw, 1rem);
-  color: var(--text-muted);
+.taskTable th {
+  background: var(--surface-muted);
+  padding: 0.15rem 0.4rem;
+  text-align: left;
+  font-size: clamp(0.65rem, 1vw, 0.82rem);
+  position: sticky;
+  top: 0;
+  z-index: 1;
   font-weight: 600;
+  color: var(--text-muted);
 }
-
-.weatherGlyph {
-  font-size: clamp(1.6rem, 2.4vw, 2.2rem);
-  line-height: 1;
+.taskTable tbody > tr:nth-of-type(n + 6) {
+  display: none;
 }
-
-.weatherDayText {
-  font-size: clamp(0.95rem, 1.2vw, 1.1rem);
+.taskTable td {
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px dotted var(--border-color);
+  font-size: clamp(0.9rem, 1.4vw, 1.3rem);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.daysLeft {
   font-weight: 700;
   color: var(--primary-color);
 }
-
-.weatherTemp {
-  font-size: clamp(0.8rem, 1vw, 1rem);
-}
-
-.weatherPop {
-  font-size: clamp(0.8rem, 1vw, 1rem);
-  color: var(--accent-color);
-}
-
-.weatherStaleBadge {
-  font-size: 0.62em;
-  font-weight: 700;
-  padding: 0.1em 0.5em;
-  border-radius: 999px;
-  background: var(--urgent-weak);
+.daysUrgent {
   color: var(--urgent-color);
+  font-weight: 700;
 }
-
-.weatherFetched {
-  margin: 0.3rem 0 0;
-  font-size: clamp(0.7rem, 0.9vw, 0.85rem);
+.overdueRow {
+  background-color: var(--urgent-weak);
+  box-shadow: inset 3px 0 0 0 var(--urgent-color);
+}
+.overdueRow td {
+  opacity: 0.85;
+}
+.assignmentPlaceholder {
+  color: transparent;
+  user-select: none;
+}
+.noAssignment {
+  text-align: center;
   color: var(--text-muted);
-  text-align: right;
-  flex-shrink: 0;
 }
 
-/* =====================
-   9. 広告エリア — 暗色 + 同画像ぼかし背景 + キャプション + 透かし
-   ===================== */
+/* ===================== 11. 広告エリア（暗色 + ぼかし背景 + キャプション + 透かし） ===================== */
 .adArea {
   grid-area: ad;
   background: var(--ad-bg);
@@ -355,8 +440,6 @@
   max-height: 100%;
   min-height: 0;
 }
-
-/* 広告が無い時はブランド透かしを中央に出す */
 .adArea::after {
   content: "キミテラス Signage";
   position: absolute;
@@ -372,12 +455,9 @@
   letter-spacing: 0.1em;
   white-space: nowrap;
 }
-
-/* 広告表示中は透かし非表示（.adArea::after より後に宣言＝同特異度で上書き） */
 .adAreaHasMedia::after {
   content: none;
 }
-
 .adContainer {
   width: 100%;
   flex: 1;
@@ -385,8 +465,6 @@
   z-index: 10;
   overflow: hidden;
 }
-
-/* 余白（紺）を同画像のぼかしで埋める */
 .adBackdrop {
   position: absolute;
   inset: 0;
@@ -398,7 +476,6 @@
   z-index: 1;
   pointer-events: none;
 }
-
 .adForeground {
   position: relative;
   z-index: 2;
@@ -408,7 +485,6 @@
   align-items: center;
   justify-content: center;
 }
-
 .adLink {
   display: flex;
   width: 100%;
@@ -417,7 +493,6 @@
   justify-content: center;
   text-decoration: none;
 }
-
 .adMedia {
   width: 100%;
   height: 100%;
@@ -425,8 +500,6 @@
   position: relative;
   z-index: 11;
 }
-
-/* 広告下部の任意キャプション（企業名・大学名等） */
 .adCaption {
   position: absolute;
   left: 0;
@@ -450,15 +523,10 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
-
 .adEmpty {
   margin: auto;
   color: transparent;
 }
-
-/* =====================
-   10. ローテーションドット
-   ===================== */
 .adDots {
   position: absolute;
   bottom: 8px;
@@ -468,7 +536,6 @@
   gap: 6px;
   z-index: 21;
 }
-
 .dot {
   width: 7px;
   height: 7px;
@@ -476,17 +543,13 @@
   background: rgba(255, 255, 255, 0.4);
   transition: all 0.3s ease;
 }
-
 .dotActive {
   background: white;
   transform: scale(1.3);
 }
 
-/* =====================
-   11. レスポンシブ
-   ===================== */
-
-/* 大型モニタ（フル HD 1920x1080） */
+/* ===================== 12. レスポンシブ ===================== */
+/* 大型モニタ（フル HD） */
 @media (min-width: 1800px) and (min-height: 1000px) {
   .signageRoot {
     --scale-factor: 1.35;
@@ -494,8 +557,7 @@
     --header-height: 46px;
   }
 }
-
-/* 4K（3840x2160） */
+/* 4K */
 @media (min-width: 3000px) {
   .signageRoot {
     --scale-factor: 2;
@@ -503,30 +565,40 @@
     --header-height: 64px;
   }
 }
-
-/* 縦長・小型画面では 1 列に積む（広告は下） */
+/* 縦長・小型画面: 1 列に積む（予定→連絡→提出物→広告）。5 行制限とコンテナクエリを解除。 */
 @media (max-width: 899px) {
   .signageRoot {
+    position: static;
     overflow: auto;
     height: auto;
     min-height: 100%;
   }
-
   .container {
     grid-template-columns: 1fr;
     grid-template-areas: "info" "ad";
     height: auto;
     min-height: 100%;
   }
-
   .contentGrid {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: auto;
   }
-
-  .fullWidth {
+  .scheduleSection {
     grid-column: auto;
   }
-
+  .scheduleScrollArea {
+    container-type: normal;
+    display: block;
+  }
+  .listGroup {
+    display: block;
+  }
+  .scheduleScrollArea > .scheduleListItem:nth-of-type(n + 6),
+  .listGroup > li:nth-of-type(n + 6),
+  .taskTable tbody > tr:nth-of-type(n + 6) {
+    display: revert;
+  }
   .adArea {
     height: 60vh;
     min-height: 320px;

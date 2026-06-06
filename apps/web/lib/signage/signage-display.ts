@@ -7,7 +7,13 @@ import {
   withTenantContext,
 } from "@kimiterrace/db";
 import { getDb } from "../db";
-import { type EffectiveDailyData, getEffectiveDailyData } from "./effective-daily-data";
+import {
+  type EffectiveDailyData,
+  type ScheduleDay,
+  getEffectiveDailyData,
+  getEffectiveScheduleDays,
+} from "./effective-daily-data";
+import { signageScheduleDates } from "./rotation";
 import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
@@ -53,6 +59,11 @@ import { type SignageWeather, getSignageWeather } from "./weather";
 export type SignagePayload = {
   date: string;
   daily: EffectiveDailyData;
+  /**
+   * v1 サイネージの「予定」3 列グリッド (今後 3 平日) 用。`date` を起点に土日を飛ばした 3 平日ぶんの
+   * 実効「予定」セクション。連絡/課題/静粛時間は当日のみで足りるので `daily` 側に持つ (本配列は予定専用)。
+   */
+  scheduleDays: ScheduleDay[];
   ads: EffectiveAd[];
   /**
    * F14 (#128, ADR-021): 自校地域の天気予報（本日以降）。**バックエンド Job が `weather_forecasts` に
@@ -97,10 +108,17 @@ export async function getSignageDisplayData(
       return null;
     }
     const ads = await getEffectiveAdsForClass(tx, cls.classId);
+    // 予定グリッド (今後 3 平日)。`date` を起点に土日を飛ばした 3 平日ぶんの schedules を 1 クエリで取得
+    // (v1 ScheduleGrid の nextThreeWeekdays 移植)。同一 tx 内なので追加コネクションは増やさない。
+    const scheduleDays = await getEffectiveScheduleDays(
+      tx,
+      cls.classId,
+      signageScheduleDates(date, 3),
+    );
     // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
-    // サイネージ本体 (時間割/連絡/課題/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
+    // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    return { date, daily, ads, weather } satisfies SignagePayload;
+    return { date, daily, scheduleDays, ads, weather } satisfies SignagePayload;
   });
 }

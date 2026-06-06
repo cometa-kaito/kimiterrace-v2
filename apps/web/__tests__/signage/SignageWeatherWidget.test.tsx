@@ -67,7 +67,7 @@ function weather(overrides: Partial<SignageWeather>): SignageWeather {
 }
 
 function payload(weatherValue: SignageWeather | null): SignagePayload {
-  return { date: "2026-06-02", daily, ads: [], weather: weatherValue };
+  return { date: "2026-06-02", daily, scheduleDays: [], ads: [], weather: weatherValue };
 }
 
 describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
@@ -124,8 +124,8 @@ describe("SignageClient 天気ウィジェット (#128 / F14)", () => {
     render(<SignageClient classToken={TOKEN} initial={payload(null)} />);
     // 天気領域は存在しない。
     expect(screen.queryByRole("region", { name: /天気/ })).toBeNull();
-    // 画面の他要素 (時間割セクション等) は壊れず出る。
-    expect(screen.getByRole("region", { name: "時間割" })).toBeInTheDocument();
+    // 画面の他要素 (予定セクション等) は壊れず出る。
+    expect(screen.getByRole("region", { name: "予定" })).toBeInTheDocument();
   });
 
   it("days が空でも黙らず「予報データがありません」を出す (空表示禁止)", () => {

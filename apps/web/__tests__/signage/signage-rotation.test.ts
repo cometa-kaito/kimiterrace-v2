@@ -10,8 +10,50 @@ import {
   jstDateString,
   nextIndex,
   parseSignageDate,
+  signageScheduleDates,
 } from "@/lib/signage/rotation";
 import { describe, expect, it } from "vitest";
+
+describe("signageScheduleDates", () => {
+  // 2026-06-06 は土曜 / 06-05 金 / 06-03 水 / 06-08 月 / 06-09 火 / 12-31 木 (基準曜日)。
+  it("平日起点は v1 の今後N平日と一致する (水→水木金)", () => {
+    expect(signageScheduleDates("2026-06-03", 3)).toEqual([
+      "2026-06-03",
+      "2026-06-04",
+      "2026-06-05",
+    ]);
+  });
+
+  it("金曜起点は土日を飛ばす (金→金月火)", () => {
+    expect(signageScheduleDates("2026-06-05", 3)).toEqual([
+      "2026-06-05",
+      "2026-06-08",
+      "2026-06-09",
+    ]);
+  });
+
+  it("週末起点は先頭にその週末日を固定し2列目以降を平日で埋める (土→土月火)", () => {
+    expect(signageScheduleDates("2026-06-06", 3)).toEqual([
+      "2026-06-06",
+      "2026-06-08",
+      "2026-06-09",
+    ]);
+  });
+
+  it("月跨ぎ・年跨ぎでも連続する (木→木金月、土日スキップ)", () => {
+    expect(signageScheduleDates("2026-12-31", 3)).toEqual([
+      "2026-12-31",
+      "2027-01-01",
+      "2027-01-04",
+    ]);
+  });
+
+  it("不正な日付・count<=0 は空配列 (fail-soft)", () => {
+    expect(signageScheduleDates("2026-13-40", 3)).toEqual([]);
+    expect(signageScheduleDates("not-a-date", 3)).toEqual([]);
+    expect(signageScheduleDates("2026-06-06", 0)).toEqual([]);
+  });
+});
 
 /**
  * #48-E2 サイネージ再生制御の純粋ロジック。DB/DOM 非依存でローテーション・ポーリング間隔・
