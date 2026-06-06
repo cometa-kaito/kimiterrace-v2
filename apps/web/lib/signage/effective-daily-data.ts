@@ -1,5 +1,5 @@
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
-import { type TenantTx, classes, dailyData, getClassConfigValue } from "@kimiterrace/db";
+import { type TenantTx, classes, dailyData, getClassConfigValue, grades } from "@kimiterrace/db";
 import { type InferSelectModel, and, eq, inArray, or } from "drizzle-orm";
 
 /**
@@ -9,9 +9,11 @@ import { type InferSelectModel, and, eq, inArray, or } from "drizzle-orm";
  * マージする。広告 (`effective_ads_per_class` VIEW, #48-F) と対をなす「日次セクションの階層マージ」。
  *
  * **マージ規約 (per-field 精度優先)**: schedules / notices / assignments / quiet_hours の各セクション
- * ごとに、**最も具体的な scope で非空のものを採用** (class > grade > school)。クラスがその
- * セクションを持てばクラス、無ければ学年、無ければ学校デフォルトに段階フォールバックする。
- * (V1 の「クラス個別が無ければ学校全体デフォルトを表示」挙動を per-field で一般化。)
+ * ごとに、**最も具体的な scope で非空のものを採用** (class > grade > department > school)。クラスがその
+ * セクションを持てばクラス、無ければ学年、無ければ学科、無ければ学校デフォルトに段階フォールバックする。
+ * (V1 の「クラス個別が無ければ学校全体デフォルトを表示」挙動を per-field で一般化。段A-2 で「学科全体」
+ * 編集をサイネージに反映するため department scope をマージ対象に追加。クラスの所属学科は
+ * `grades.department_id` 経由で解決する。)
  *
  * **静粛時間の二段フォールバック (#191、#48-J-2 配線)**: quiet_hours は他セクションと違い「その日の
  * override」(`daily_data.quiet_hours`) と「クラスの永続既定」(`school_configs` scope=class
@@ -43,8 +45,11 @@ export type DailyScopeRow = Pick<
   "scope" | "schedules" | "notices" | "assignments" | "quietHours"
 >;
 
-/** マージ採用元になりうる scope (department はサイネージ表示対象外なので含めない)。 */
-type RenderableScope = "school" | "grade" | "class";
+/** マージ採用元になりうる scope (精度: class > grade > department > school)。段A-2 で department を追加。 */
+type RenderableScope = "school" | "department" | "grade" | "class";
+
+/** マージの精度優先順 (具体 → 一般)。`pick` / `pickScheduleForDate` がこの順で最初の非空を採用する。 */
+const SCOPE_PRECEDENCE = ["class", "grade", "department", "school"] as const;
 
 /** マージ後の 1 セクション。`source` は採用元 scope (全 scope 空なら null)。 */
 export type MergedSection = {
@@ -68,8 +73,9 @@ function nonEmptyArray(value: unknown): unknown[] | null {
 }
 
 /**
- * scope 別 (class/grade/school) の daily_data 行から、セクションごとに精度優先でマージする。
- * **純粋関数** — DB 非依存でテスト可能。department scope はサイネージ表示対象外として無視する。
+ * scope 別 (class/grade/department/school) の daily_data 行から、セクションごとに精度優先でマージする。
+ * **純粋関数** — DB 非依存でテスト可能。優先順は class > grade > department > school (段A-2 で department
+ * を追加、学科全体編集をサイネージに反映)。
  *
  * @param quietHoursFallback school_configs (scope=class, kind='quiet_hours') 由来のクラス永続既定
  *   (`{ ranges }` から取り出した配列、#191)。daily_data の quiet_hours が全 scope 空のときだけ
@@ -84,11 +90,12 @@ export function mergeDailySections(
   const byScope = {
     class: rows.find((r) => r.scope === "class") ?? null,
     grade: rows.find((r) => r.scope === "grade") ?? null,
+    department: rows.find((r) => r.scope === "department") ?? null,
     school: rows.find((r) => r.scope === "school") ?? null,
   };
 
   const pick = (field: SectionField): MergedSection => {
-    for (const scope of ["class", "grade", "school"] as const) {
+    for (const scope of SCOPE_PRECEDENCE) {
       const row = byScope[scope];
       const items = row ? nonEmptyArray(row[field]) : null;
       if (items) {
@@ -119,6 +126,41 @@ export function mergeDailySections(
 }
 
 /**
+ * クラスの階層 (所属学年・所属学科)。`grades.department_id` 経由で学科を解決する (段A-2)。
+ * `gradeId` / `departmentId` は未割当のとき null (学年未割当クラス / クラスモード校の学年は学科なし)。
+ */
+type ClassHierarchy = { gradeId: string | null; departmentId: string | null };
+
+/** クラスの所属学年・所属学科を 1 クエリ (grades への left join) で解決する。不可視/不在なら null。 */
+async function resolveClassHierarchy(
+  tx: TenantTx,
+  classId: string,
+): Promise<ClassHierarchy | null> {
+  const [row] = await tx
+    .select({ gradeId: classes.gradeId, departmentId: grades.departmentId })
+    .from(classes)
+    .leftJoin(grades, eq(classes.gradeId, grades.id))
+    .where(eq(classes.id, classId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * クラス視点で読むべき daily_data 行を選ぶ OR 句 (精度 class > grade > department > school)。
+ * 学年未割当 (grade_id NULL) は学年スコープを、学科未解決 (department_id NULL) は学科スコープを引かない。
+ */
+function scopeRowsForClass(classId: string, cls: ClassHierarchy) {
+  return or(
+    and(eq(dailyData.scope, "class"), eq(dailyData.classId, classId)),
+    cls.gradeId ? and(eq(dailyData.scope, "grade"), eq(dailyData.gradeId, cls.gradeId)) : undefined,
+    cls.departmentId
+      ? and(eq(dailyData.scope, "department"), eq(dailyData.departmentId, cls.departmentId))
+      : undefined,
+    eq(dailyData.scope, "school"),
+  );
+}
+
+/**
  * 指定クラスの指定日の実効日次データを取得する。クラスが存在しない/別テナントで不可視なら null。
  *
  * @param tx      RLS コンテキスト設定済トランザクション (withSession 内)
@@ -130,13 +172,7 @@ export async function getEffectiveDailyData(
   classId: string,
   date: string,
 ): Promise<EffectiveDailyData | null> {
-  const cls = (
-    await tx
-      .select({ gradeId: classes.gradeId, schoolId: classes.schoolId })
-      .from(classes)
-      .where(eq(classes.id, classId))
-      .limit(1)
-  )[0];
+  const cls = await resolveClassHierarchy(tx, classId);
   if (!cls) {
     return null;
   }
@@ -150,19 +186,7 @@ export async function getEffectiveDailyData(
       quietHours: dailyData.quietHours,
     })
     .from(dailyData)
-    .where(
-      and(
-        eq(dailyData.date, date),
-        or(
-          and(eq(dailyData.scope, "class"), eq(dailyData.classId, classId)),
-          // 学年未割当 (grade_id NULL) のクラスは学年スコープを引かない。
-          cls.gradeId
-            ? and(eq(dailyData.scope, "grade"), eq(dailyData.gradeId, cls.gradeId))
-            : undefined,
-          eq(dailyData.scope, "school"),
-        ),
-      ),
-    );
+    .where(and(eq(dailyData.date, date), scopeRowsForClass(classId, cls)));
 
   // クラスの永続既定 (school_configs scope=class kind='quiet_hours')。当日 daily_data に
   // quiet_hours の override が無いときのフォールバックに使う (#191、優先順は override > 既定)。
@@ -196,13 +220,7 @@ export async function getEffectiveScheduleDays(
   if (dates.length === 0) {
     return [];
   }
-  const cls = (
-    await tx
-      .select({ gradeId: classes.gradeId, schoolId: classes.schoolId })
-      .from(classes)
-      .where(eq(classes.id, classId))
-      .limit(1)
-  )[0];
+  const cls = await resolveClassHierarchy(tx, classId);
   if (!cls) {
     // クラス不可視/不在: 全日空 (盤面はプレースホルダー行で 5 行を保つ)。
     return dates.map((date) => ({ date, schedule: { items: [], source: null } }));
@@ -211,19 +229,7 @@ export async function getEffectiveScheduleDays(
   const rows = await tx
     .select({ scope: dailyData.scope, date: dailyData.date, schedules: dailyData.schedules })
     .from(dailyData)
-    .where(
-      and(
-        inArray(dailyData.date, dates),
-        or(
-          and(eq(dailyData.scope, "class"), eq(dailyData.classId, classId)),
-          // 学年未割当 (grade_id NULL) のクラスは学年スコープを引かない。
-          cls.gradeId
-            ? and(eq(dailyData.scope, "grade"), eq(dailyData.gradeId, cls.gradeId))
-            : undefined,
-          eq(dailyData.scope, "school"),
-        ),
-      ),
-    );
+    .where(and(inArray(dailyData.date, dates), scopeRowsForClass(classId, cls)));
 
   return dates.map((date) => ({
     date,
@@ -231,9 +237,9 @@ export async function getEffectiveScheduleDays(
   }));
 }
 
-/** 1 日分の scope 別行から schedules を精度優先 (class > grade > school) で 1 つ選ぶ。 */
+/** 1 日分の scope 別行から schedules を精度優先 (class > grade > department > school) で 1 つ選ぶ。 */
 function pickScheduleForDate(rows: Array<{ scope: string; schedules: unknown }>): MergedSection {
-  for (const scope of ["class", "grade", "school"] as const) {
+  for (const scope of SCOPE_PRECEDENCE) {
     const row = rows.find((r) => r.scope === scope);
     const items = row ? nonEmptyArray(row.schedules) : null;
     if (items) {
