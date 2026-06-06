@@ -1,10 +1,11 @@
+import { ToastProvider } from "@kimiterrace/ui";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F11 (#324): StaffActiveToggle のテスト。setStaffActiveAction と router を mock し、無効化は confirm を
- * 要求して反転値で action を呼ぶこと・再有効化は confirm 不要・キャンセルで未送信・失敗 (last-admin 等) の
- * 表示を検証。
+ * F11 (#324): StaffActiveToggle のテスト。setStaffActiveAction と router を mock し、無効化は共通
+ * ConfirmDialog で確認してから反転値で action を呼ぶこと・再有効化は確認不要・キャンセルで未送信・
+ * 失敗 (last-admin 等) の表示・成功トーストを検証。`window.confirm`→ConfirmDialog + Toast 化に追従。
  */
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -17,6 +18,19 @@ import { setStaffActiveAction } from "../../lib/system-admin/users-actions";
 const toggleMock = vi.mocked(setStaffActiveAction);
 const USER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+function renderToggle(isActive: boolean, displayName = "山田先生") {
+  return render(
+    <ToastProvider>
+      <StaffActiveToggle
+        userId={USER_ID}
+        isActive={isActive}
+        displayName={displayName}
+        schoolName="テスト高校 A"
+      />
+    </ToastProvider>,
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -25,58 +39,43 @@ afterEach(() => {
 });
 
 describe("StaffActiveToggle (#324 全校無効化トグル)", () => {
-  it("稼働中は「無効化」を表示し、confirm 後に isActive=false で呼ぶ → refresh", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("稼働中は「無効化」を表示し、確認ダイアログ確定後に isActive=false で呼ぶ → refresh + 成功トースト", async () => {
     toggleMock.mockResolvedValue({ ok: true, data: { id: USER_ID, isActive: false } });
-    render(
-      <StaffActiveToggle
-        userId={USER_ID}
-        isActive={true}
-        displayName="山田先生"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle(true);
+
     fireEvent.click(screen.getByRole("button", { name: "無効化" }));
+    expect(toggleMock).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("山田先生");
+
+    fireEvent.click(screen.getByRole("button", { name: "無効化する" }));
     await waitFor(() =>
       expect(toggleMock).toHaveBeenCalledWith({ userId: USER_ID, isActive: false }),
     );
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(await screen.findByText("テスト高校 A「山田先生」を無効化しました")).toBeInTheDocument();
   });
 
-  it("無効化を confirm キャンセルすると action を呼ばない", () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(
-      <StaffActiveToggle
-        userId={USER_ID}
-        isActive={true}
-        displayName="山田先生"
-        schoolName="テスト高校 A"
-      />,
-    );
+  it("確認ダイアログをキャンセルすると action を呼ばない", async () => {
+    renderToggle(true);
     fireEvent.click(screen.getByRole("button", { name: "無効化" }));
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(toggleMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
-  it("無効状態は「再有効化」を表示し、confirm なしで isActive=true で呼ぶ", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm");
+  it("無効状態は「再有効化」を表示し、確認なしで isActive=true で呼ぶ", async () => {
     toggleMock.mockResolvedValue({ ok: true, data: { id: USER_ID, isActive: true } });
-    render(
-      <StaffActiveToggle
-        userId={USER_ID}
-        isActive={false}
-        displayName="山田先生"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle(false);
     fireEvent.click(screen.getByRole("button", { name: "再有効化" }));
     await waitFor(() =>
       expect(toggleMock).toHaveBeenCalledWith({ userId: USER_ID, isActive: true }),
     );
-    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("失敗時 (last-admin 等) は error を表示し refresh しない", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     toggleMock.mockResolvedValue({
       ok: false,
       error: {
@@ -84,15 +83,9 @@ describe("StaffActiveToggle (#324 全校無効化トグル)", () => {
         message: "この学校で唯一の有効な学校管理者のため無効化できません。",
       },
     });
-    render(
-      <StaffActiveToggle
-        userId={USER_ID}
-        isActive={true}
-        displayName="管理者A"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle(true, "管理者A");
     fireEvent.click(screen.getByRole("button", { name: "無効化" }));
+    fireEvent.click(await screen.findByRole("button", { name: "無効化する" }));
     expect(await screen.findByText(/唯一の有効な学校管理者/)).toBeInTheDocument();
     expect(refresh).not.toHaveBeenCalled();
   });

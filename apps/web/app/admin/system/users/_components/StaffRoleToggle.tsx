@@ -1,6 +1,7 @@
 "use client";
 
 import { changeStaffRoleAction } from "@/lib/system-admin/users-actions";
+import { ConfirmDialog, useToast } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -11,8 +12,8 @@ import { useState, useTransition } from "react";
  * ここは操作と結果表示に徹する (ADR-026: エンフォースは IdP claims)。
  *
  * 教職員ロールは 2 種なのでトグル 1 つで表現する (ボタンラベルは変更先ロール)。ロール変更は **再ログインを
- * 強制する**強い操作のため必ず `window.confirm` で確認する。拒否 (唯一の有効な学校管理者の降格など) は
- * サーバのエラーメッセージを表示する。
+ * 強制する**強い操作のため必ず共通の `ConfirmDialog` で確認する (`window.confirm` から置換し確認 UI を統一)。
+ * 成功時は成功トースト、拒否 (唯一の有効な学校管理者の降格など) はインラインのエラーメッセージを表示する。
  */
 export function StaffRoleToggle({
   userId,
@@ -26,24 +27,24 @@ export function StaffRoleToggle({
   schoolName: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const nextRole = currentRole === "school_admin" ? "teacher" : "school_admin";
   const nextRoleLabel = nextRole === "school_admin" ? "学校管理者" : "教員";
 
-  function onClick() {
-    if (
-      !window.confirm(
-        `${schoolName} の「${displayName}」を${nextRoleLabel}に変更します。本人の再ログインが必要になります。よろしいですか？`,
-      )
-    ) {
-      return;
-    }
+  function run() {
     setError(null);
     startTransition(async () => {
       const res = await changeStaffRoleAction({ userId, nextRole });
+      // 成否いずれもダイアログは閉じる (失敗はインラインの error 表示に集約)。
+      setConfirmOpen(false);
       if (res.ok) {
+        toast(`${schoolName}「${displayName}」を${nextRoleLabel}に変更しました`, {
+          tone: "success",
+        });
         router.refresh();
       } else {
         setError(res.error.message);
@@ -53,10 +54,25 @@ export function StaffRoleToggle({
 
   return (
     <span style={wrapStyle}>
-      <button type="button" onClick={onClick} disabled={pending} style={btnStyle}>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        disabled={pending}
+        style={btnStyle}
+      >
         {pending ? "…" : `${nextRoleLabel}に変更`}
       </button>
       {error ? <output style={errorStyle}>{error}</output> : null}
+      <ConfirmDialog
+        open={confirmOpen}
+        tone="primary"
+        title={`${schoolName} の「${displayName}」を${nextRoleLabel}に変更しますか？`}
+        description="本人の再ログインが必要になります。"
+        confirmLabel="変更する"
+        pending={pending}
+        onConfirm={run}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </span>
   );
 }

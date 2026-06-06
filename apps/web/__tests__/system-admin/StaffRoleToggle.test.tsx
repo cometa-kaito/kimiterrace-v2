@@ -1,10 +1,12 @@
+import { ToastProvider } from "@kimiterrace/ui";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * F11 (#324, ADR-026 D2): StaffRoleToggle のテスト。changeStaffRoleAction と router を mock し、
- * 変更先ロールのラベル表示・confirm 後に反対ロールで action を呼ぶこと・キャンセルで未送信・失敗
- * (唯一の有効な学校管理者の降格など) の表示を検証。
+ * 変更先ロールのラベル表示・共通 ConfirmDialog 確定後に反対ロールで action を呼ぶこと・キャンセルで
+ * 未送信・失敗 (唯一の有効な学校管理者の降格など) の表示・成功トーストを検証。`window.confirm`→
+ * ConfirmDialog + Toast 化に追従。
  */
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
@@ -17,6 +19,19 @@ import { changeStaffRoleAction } from "../../lib/system-admin/users-actions";
 const changeMock = vi.mocked(changeStaffRoleAction);
 const USER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+function renderToggle(currentRole: "school_admin" | "teacher", displayName = "山田先生") {
+  return render(
+    <ToastProvider>
+      <StaffRoleToggle
+        userId={USER_ID}
+        currentRole={currentRole}
+        displayName={displayName}
+        schoolName="テスト高校 A"
+      />
+    </ToastProvider>,
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -25,57 +40,45 @@ afterEach(() => {
 });
 
 describe("StaffRoleToggle (#324 D2 ロール変更トグル)", () => {
-  it("teacher 行は「学校管理者に変更」を表示し、confirm 後に nextRole=school_admin で呼ぶ → refresh", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("teacher 行は「学校管理者に変更」を表示し、確認確定後に nextRole=school_admin で呼ぶ → refresh + 成功トースト", async () => {
     changeMock.mockResolvedValue({ ok: true, data: { id: USER_ID, role: "school_admin" } });
-    render(
-      <StaffRoleToggle
-        userId={USER_ID}
-        currentRole="teacher"
-        displayName="山田先生"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle("teacher");
+
     fireEvent.click(screen.getByRole("button", { name: "学校管理者に変更" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("学校管理者に変更しますか");
+
+    fireEvent.click(screen.getByRole("button", { name: "変更する" }));
     await waitFor(() =>
       expect(changeMock).toHaveBeenCalledWith({ userId: USER_ID, nextRole: "school_admin" }),
     );
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(
+      await screen.findByText("テスト高校 A「山田先生」を学校管理者に変更しました"),
+    ).toBeInTheDocument();
   });
 
-  it("school_admin 行は「教員に変更」を表示し、confirm 後に nextRole=teacher で呼ぶ", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("school_admin 行は「教員に変更」を表示し、確認確定後に nextRole=teacher で呼ぶ", async () => {
     changeMock.mockResolvedValue({ ok: true, data: { id: USER_ID, role: "teacher" } });
-    render(
-      <StaffRoleToggle
-        userId={USER_ID}
-        currentRole="school_admin"
-        displayName="管理者A"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle("school_admin", "管理者A");
     fireEvent.click(screen.getByRole("button", { name: "教員に変更" }));
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "変更する" }));
     await waitFor(() =>
       expect(changeMock).toHaveBeenCalledWith({ userId: USER_ID, nextRole: "teacher" }),
     );
   });
 
-  it("confirm キャンセルすると action を呼ばない (ロール変更は常に確認する)", () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(
-      <StaffRoleToggle
-        userId={USER_ID}
-        currentRole="teacher"
-        displayName="山田先生"
-        schoolName="テスト高校 A"
-      />,
-    );
+  it("確認ダイアログをキャンセルすると action を呼ばない (ロール変更は常に確認する)", async () => {
+    renderToggle("teacher");
     fireEvent.click(screen.getByRole("button", { name: "学校管理者に変更" }));
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(changeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 
   it("失敗時 (last-admin 降格など) は error を表示し refresh しない", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     changeMock.mockResolvedValue({
       ok: false,
       error: {
@@ -83,15 +86,9 @@ describe("StaffRoleToggle (#324 D2 ロール変更トグル)", () => {
         message: "この学校で唯一の有効な学校管理者のため教員に変更できません。",
       },
     });
-    render(
-      <StaffRoleToggle
-        userId={USER_ID}
-        currentRole="school_admin"
-        displayName="管理者A"
-        schoolName="テスト高校 A"
-      />,
-    );
+    renderToggle("school_admin", "管理者A");
     fireEvent.click(screen.getByRole("button", { name: "教員に変更" }));
+    fireEvent.click(await screen.findByRole("button", { name: "変更する" }));
     expect(await screen.findByText(/唯一の有効な学校管理者/)).toBeInTheDocument();
     expect(refresh).not.toHaveBeenCalled();
   });
