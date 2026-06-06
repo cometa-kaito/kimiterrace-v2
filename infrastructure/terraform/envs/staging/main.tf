@@ -96,6 +96,12 @@ locals {
   # `dist/seed-ginan-ads-cli.js` を起動）。seed-ginan-ads1 = feat/ginan-ads から build した版。
   seed_ginan_ads_image_tag = "seed-ginan-ads1"
 
+  # F13 (#391, ADR-020): PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ
+  # 冪等取り込みする backfill Job のイメージタグ。migrate イメージに backfill-presence-cli + 入力 NDJSON を
+  # 含む版（同一 Dockerfile・command 上書きで `dist/backfill-presence-cli.js` を起動）。a165780 =
+  # feat/backfill-presence の commit から build した版（NDJSON は未コミットの build-context 同梱）。
+  backfill_presence_image_tag = "a165780"
+
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
@@ -321,6 +327,26 @@ module "cloud_run_job_seed_ginan_ads" {
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_ads_image_tag}"
   command                = ["node", "dist/seed-ginan-ads-cli.js"] # 岐南 広告 seed を起動
   database_url_secret_id = local.db_url_migrator_secret_id        # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
+}
+
+# F13 (#391, ADR-020): PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ
+# 取り込む on-demand backfill Job。cloud_run_job_seed_ginan と同モジュール/イメージを **command 上書き** で
+# 再利用し `dist/backfill-presence-cli.js` を起動する。migrator DSN で system_admin context を張り、
+# device_mac→school_id 解決 + ON CONFLICT DO NOTHING(ux_events_presence_dedup) で冪等取り込み。
+# 実行: `gcloud run jobs execute kimiterrace-backfill-presence --region asia-northeast1 --project signage-v2-staging`。
+# 前提: sensor_devices に対象 device が登録済（kimiterrace-seed-ginan 実行済）。再実行・cutover 後の再取り込みも安全。
+module "cloud_run_job_backfill_presence" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-backfill-presence"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.backfill_presence_image_tag}"
+  command                = ["node", "dist/backfill-presence-cli.js"] # 来場検知履歴 backfill を起動
+  database_url_secret_id = local.db_url_migrator_secret_id           # migrator DSN（system_admin context で書込）
   vpc_connector          = module.network.vpc_connector_id
   deletion_protection    = false
 }
