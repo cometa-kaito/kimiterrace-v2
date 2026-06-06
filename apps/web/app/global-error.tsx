@@ -53,7 +53,7 @@ const textStyle: React.CSSProperties = { color: "#4b5563", maxWidth: "32rem" };
 const btnStyle: React.CSSProperties = {
   marginTop: "0.5rem",
   padding: "0.5rem 1.1rem",
-  background: "#c2410c",
+  background: "#ea580c",
   color: "#fff",
   border: "none",
   borderRadius: "6px",
