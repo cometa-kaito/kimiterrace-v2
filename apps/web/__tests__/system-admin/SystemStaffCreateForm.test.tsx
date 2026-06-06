@@ -38,11 +38,18 @@ function fill(opts?: { schoolId?: string; email?: string; displayName?: string; 
   const schoolId = opts?.schoolId ?? GINAN.id;
   const email = opts?.email ?? "admin@example.com";
   const displayName = opts?.displayName ?? "学校管理者A";
-  fireEvent.change(screen.getByLabelText(/学校（必須）/), { target: { value: schoolId } });
-  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: email } });
-  fireEvent.change(screen.getByLabelText(/表示名/), { target: { value: displayName } });
+  // FormField 化後はラベルが「学校」「ロール」「メールアドレス」「表示名」(必須印 * は aria-hidden)。
+  fireEvent.change(screen.getByRole("combobox", { name: "学校" }), { target: { value: schoolId } });
+  fireEvent.change(screen.getByRole("textbox", { name: "メールアドレス" }), {
+    target: { value: email },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "表示名" }), {
+    target: { value: displayName },
+  });
   if (opts?.role) {
-    fireEvent.change(screen.getByLabelText(/ロール/), { target: { value: opts.role } });
+    fireEvent.change(screen.getByRole("combobox", { name: "ロール" }), {
+      target: { value: opts.role },
+    });
   }
 }
 
@@ -51,6 +58,28 @@ describe("SystemStaffCreateForm (#508 system_admin 発行フォーム)", () => {
     render(<SystemStaffCreateForm schools={[]} />);
     expect(screen.getByText(/発行先の学校がありません/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "発行する" })).not.toBeInTheDocument();
+  });
+
+  it("空送信は項目別エラー (学校未選択 + email/表示名) を出し、action を呼ばない", () => {
+    render(<SystemStaffCreateForm schools={SCHOOLS} />);
+    fireEvent.click(screen.getByRole("button", { name: "発行する" }));
+    expect(createMock).not.toHaveBeenCalled();
+    expect(screen.getByText("発行先の学校を選択してください。")).toBeInTheDocument();
+    expect(screen.getByText("メールアドレスの形式が不正です。")).toBeInTheDocument();
+    expect(screen.getByText("表示名を入力してください (100 文字以内)。")).toBeInTheDocument();
+  });
+
+  it("学校を選ばずに他項目を埋めても、学校エラーで送信しない", () => {
+    render(<SystemStaffCreateForm schools={SCHOOLS} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "メールアドレス" }), {
+      target: { value: "admin@example.com" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "表示名" }), {
+      target: { value: "学校管理者A" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "発行する" }));
+    expect(createMock).not.toHaveBeenCalled();
+    expect(screen.getByText("発行先の学校を選択してください。")).toBeInTheDocument();
   });
 
   it("送信で {email, displayName, role, schoolId} を渡し、成功で初回設定リンクを表示する", async () => {

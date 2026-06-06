@@ -15,17 +15,13 @@ import {
 } from "../auth/admin-mutations";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { validateStaffCreate } from "../role-management/staff-create-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, conflict, forbidden, invalid, isUuid, notFound } from "./schools-core";
 
 /** この画面が扱う教職員ロール (school_admin ↔ teacher の相互変更)。student/guardian/system_admin は対象外。 */
 const STAFF_ROLES = ["school_admin", "teacher"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
-
-/** 発行入力の最小検証 (member-actions.ts と同方針)。`users.email` は varchar(320)。 */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_EMAIL = 320;
-const MAX_DISPLAY_NAME = 100;
 
 /**
  * mirror tx 内の FOR UPDATE 再カウントで last-admin レース (#355 Low-2) を検出したとき投げる番兵。
@@ -488,15 +484,13 @@ export async function createSystemStaffAction(raw: {
   role?: unknown;
   schoolId?: unknown;
 }): Promise<ActionResult<{ id: string; setupLink: string }>> {
-  // 入力検証 (IdP / DB 到達前に弾く)。
-  const email = typeof raw.email === "string" ? raw.email.trim() : "";
-  const displayName = typeof raw.displayName === "string" ? raw.displayName.trim() : "";
-  if (!EMAIL_RE.test(email) || email.length > MAX_EMAIL) {
-    return invalid("メールアドレスの形式が不正です。");
+  // 入力検証 (IdP / DB 到達前に弾く)。email/displayName の規則・メッセージは staff-create-core が単一
+  // ソース (member-actions / SystemStaffCreateForm の項目別検証と同一)。role/schoolId は system 固有。
+  const validated = validateStaffCreate(raw);
+  if (!validated.ok) {
+    return invalid(validated.message);
   }
-  if (displayName.length === 0 || displayName.length > MAX_DISPLAY_NAME) {
-    return invalid("表示名を入力してください (100 文字以内)。");
-  }
+  const { email, displayName } = validated.value;
   // role は school_admin / teacher のみ (system_admin 昇格は不可)。
   if (raw.role !== "school_admin" && raw.role !== "teacher") {
     return invalid("ロールは school_admin または teacher を指定してください。");
