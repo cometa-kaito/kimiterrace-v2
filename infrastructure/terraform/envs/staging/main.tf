@@ -136,9 +136,14 @@ locals {
   #          web:f150e03 を Cloud Build 済・AR push 済。
   # 5752b31: #664 サイネージ(pattern1) 天気をヘッダー日付の隣へ移動・情報量を絞る + 「予定」見出し省略。
   #          f150e03 を内包＋#664。web:5752b31 を Cloud Build 済・AR push 済。
-  # afaaae3: #666 MFA を UI（サイドナビ）から撤去（機能・コードは残置）。5752b31 を内包＋#666（= 現 main
-  #          HEAD・全機能込み）。web:afaaae3 を Cloud Build 済・AR push 済。
-  web_image_tag = "afaaae3"
+  # afaaae3: #666 MFA を UI（サイドナビ）から撤去（機能・コードは残置）。5752b31 を内包＋#666。
+  #          web:afaaae3 を Cloud Build 済・AR push 済。
+  # eb0aa96: #667 サイネージ(pattern1) モバイル応答化 — 縦並び順序を タブ→広告→予定→連絡→提出物→フッター
+  #          に固定（広告を表面=上部に）＋盤面をスクロール可能化（外殻 fixed shell の clip 回避＝mobile
+  #          .signageRoot を overflow-y:auto のスクロールコンテナ化）＋予定 3日×3行＋広告領域全体タップで
+  #          管理設定リンクへ遷移（http(s) 限定サニタイズ）。afaaae3 を内包＋#667（= 現 main HEAD・全機能込み）。
+  #          web:eb0aa96 を Cloud Build 済・AR push 済。
+  web_image_tag = "eb0aa96"
 }
 
 module "network" {
