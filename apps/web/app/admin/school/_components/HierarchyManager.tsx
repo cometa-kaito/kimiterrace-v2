@@ -34,6 +34,17 @@ type Dept = SchoolHierarchy["departments"][number];
 type Grade = SchoolHierarchy["grades"][number];
 type Cls = Grade["classes"][number];
 
+/**
+ * 学年名から学年数（1-12）を推定する（例:「電子工学科3年」→ 3 / 「1年」→ 1）。クラスの `grade` 列は
+ * 並び替え用で、ツリーの親（学年）と情報が重複するため UI では入力させず親の学年名から導出する。
+ * 推定不可（数字なし等）は 1 にフォールバック。
+ */
+function deriveGradeNumber(gradeName: string): number {
+  const m = gradeName.match(/(\d+)\s*年/) ?? gradeName.match(/\d+/);
+  const n = m ? Number(m[0].replace(/\D/g, "")) : Number.NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 12 ? n : 1;
+}
+
 export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -158,7 +169,7 @@ function NodeHeader({
           aria-label="表示順"
         />
         <button type="submit" disabled={pending} style={btnStyle}>
-          保存
+          {pending ? "保存中…" : "保存"}
         </button>
         <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
           やめる
@@ -189,7 +200,7 @@ function NodeHeader({
               })
             }
           >
-            削除する
+            {pending ? "削除中…" : "削除する"}
           </button>
           <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
             やめる
@@ -275,9 +286,16 @@ function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
         report={report}
       />
       <ul style={childListStyle}>
-        {grade.classes.map((c) => (
-          <ClassNode key={c.id} cls={c} report={report} />
-        ))}
+        {grade.classes.length === 0 ? (
+          <li style={emptyGradeStyle}>
+            <span style={emptyGradeTextStyle}>
+              掲示・サイネージにはクラス（表示単位）が必要です。組に分けない学年は「1まとまり」にできます。
+            </span>
+            <MakeGradeUnitButton grade={grade} report={report} />
+          </li>
+        ) : (
+          grade.classes.map((c) => <ClassNode key={c.id} cls={c} report={report} />)
+        )}
         <li>
           <AddClassForm grade={grade} report={report} />
         </li>
@@ -303,7 +321,8 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
         id: cls.id,
         name: fd.get("name"),
         academicYear: fd.get("academicYear"),
-        grade: fd.get("grade"),
+        // 学年数はツリーの親に追従するため編集させず現状値を保持する。
+        grade: cls.grade,
       });
       report(res, "クラスを更新しました。");
       if (res.ok) setEditing(false);
@@ -329,16 +348,8 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
             style={orderInputStyle}
             aria-label="年度"
           />
-          <input
-            name="grade"
-            type="number"
-            defaultValue={cls.grade}
-            required
-            style={orderInputStyle}
-            aria-label="学年数"
-          />
           <button type="submit" disabled={pending} style={btnStyle}>
-            保存
+            {pending ? "保存中…" : "保存"}
           </button>
           <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
             やめる
@@ -371,7 +382,7 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
               })
             }
           >
-            削除する
+            {pending ? "削除中…" : "削除する"}
           </button>
           <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
             やめる
@@ -416,7 +427,7 @@ function AddDepartmentForm({ report }: { report: Reporter }) {
       <input name="name" placeholder="学科名（例: 電子工学科）" required style={inputStyle} />
       <input name="displayOrder" type="number" placeholder="表示順" style={orderInputStyle} />
       <button type="submit" disabled={pending} style={btnStyle}>
-        学科を追加
+        {pending ? "追加中…" : "学科を追加"}
       </button>
     </form>
   );
@@ -456,9 +467,38 @@ function AddGradeForm({ department, report }: { department?: Dept; report: Repor
         style={inputStyle}
       />
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        {department ? "この学科に学年を追加" : "学年を追加"}
+        {pending ? "追加中…" : department ? "この学科に学年を追加" : "学年を追加"}
       </button>
     </form>
+  );
+}
+
+/**
+ * 「この学年を1まとまりにする」: 組に分けない学年の表示単位を 1 つ用意する。エディタ/サイネージ/QR は
+ * クラス基準のため、学年名と同名のクラスを 1 つ作り「学年＝1画面」として扱えるようにする（ユーザーは
+ * クラスを個別に名付け・管理しなくてよい。完全な学年スコープ対応の最小実装）。年度=今年・学年数=学年名から。
+ */
+function MakeGradeUnitButton({ grade, report }: { grade: Grade; report: Reporter }) {
+  const [pending, start] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      style={secondaryBtnStyle}
+      onClick={() =>
+        start(async () => {
+          const res = await createClassAction({
+            gradeId: grade.id,
+            name: grade.name,
+            academicYear: new Date().getFullYear(),
+            grade: deriveGradeNumber(grade.name),
+          });
+          report(res, "この学年を1まとまりにしました。");
+        })
+      }
+    >
+      {pending ? "設定中…" : "この学年を1まとまりにする"}
+    </button>
   );
 }
 
@@ -472,8 +512,9 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
       const res = await createClassAction({
         gradeId: grade.id,
         name: fd.get("name"),
-        academicYear: fd.get("academicYear"),
-        grade: fd.get("grade"),
+        // 年度は今年を自動設定、学年数は親の学年名から自動算出（UI では入力させない）。
+        academicYear: new Date().getFullYear(),
+        grade: deriveGradeNumber(grade.name),
       });
       report(res, "クラスを追加しました。");
       if (res.ok) form.reset();
@@ -482,17 +523,14 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
   return (
     <form onSubmit={add} style={addFormStyle}>
       <span style={plusStyle}>＋</span>
-      <input name="name" placeholder="クラス名（例: 1組）" required style={inputStyle} />
       <input
-        name="academicYear"
-        type="number"
-        placeholder="年度（例: 2026）"
+        name="name"
+        placeholder="クラス名（例: 1組／組が無ければ『全体』）"
         required
-        style={orderInputStyle}
+        style={inputStyle}
       />
-      <input name="grade" type="number" placeholder="学年数" required style={orderInputStyle} />
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        この学年にクラスを追加
+        {pending ? "追加中…" : "この学年にクラスを追加"}
       </button>
     </form>
   );
@@ -543,7 +581,7 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
       <input name="base" placeholder="学年名（例: 1年）" style={inputStyle} />
       <span style={bulkLabelStyle}>を追加</span>
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        全学科に一括追加
+        {pending ? "追加中…" : "全学科に一括追加"}
       </button>
     </form>
   );
@@ -646,6 +684,13 @@ const bulkBoxStyle: React.CSSProperties = {
   borderRadius: "8px",
 };
 const bulkLabelStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#374151" };
+const emptyGradeStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.5rem",
+};
+const emptyGradeTextStyle: React.CSSProperties = { fontSize: "0.82rem", color: "#6b7280" };
 const addFormStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
