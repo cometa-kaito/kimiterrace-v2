@@ -21,8 +21,10 @@ import { SESSION_COOKIE_NAME, createSessionCookie } from "../../../../lib/auth/s
  * - `path=/`: 全パスで有効
  */
 
-// session cookie の有効期間。Identity Platform は 5分〜14日を許容。教員系セッションは 5 日。
-const SESSION_EXPIRES_IN_MS = 5 * 24 * 60 * 60 * 1000;
+// session cookie の有効期間。Identity Platform は 5分〜14日を許容。教室 PC でのログイン維持負担を下げる
+// ため上限の 14 日に設定する（2026-06-06 ユーザー要望「1ヶ月程」だが IdP 上限が 14 日のため上限を採用。
+// 真の 30 日連続はスライディング更新の別実装が必要）。多数の教員が各クラスで個別入力する運用前提。
+const SESSION_EXPIRES_IN_MS = 14 * 24 * 60 * 60 * 1000;
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!isSameOriginRequest(request)) {
