@@ -162,6 +162,13 @@
       "when": 1780663798227,
       "tag": "20260605124958_presence_dedup_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1780781929813,
+      "tag": "20260606213849_ads_advertiser_id",
+      "breakpoints": true
     }
   ]
 }

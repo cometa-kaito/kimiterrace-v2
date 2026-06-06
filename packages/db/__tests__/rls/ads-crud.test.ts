@@ -25,6 +25,8 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
   let classB1: string;
   let ownAd1: string;
   let ownAd2: string;
+  let advertiserId: string;
+  let ownAdWithAdvertiser: string;
 
   /** RLS context を張った max:1 接続で fn を実行する (session レベル set_config)。 */
   async function asSchool<T>(schoolId: string, fn: (db: ReturnType<typeof drizzle>) => Promise<T>) {
@@ -76,6 +78,20 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
     await sql`INSERT INTO ads (school_id, scope, media_url, media_type, display_order)
       VALUES (${fx.schoolA}, 'school', 'https://ex.com/a-school.png', 'image', 5)`;
 
+    // #46: advertiser_id 紐付け検証用。広告主 1 件 (superuser 投入、CRM=全校共通) + それに紐づくクラス広告。
+    advertiserId = (
+      await sql<{ id: string }[]>`
+        INSERT INTO advertisers (company_name) VALUES ('テスト広告主') RETURNING id
+      `
+    )[0].id;
+    ownAdWithAdvertiser = (
+      await sql<{ id: string }[]>`
+        INSERT INTO ads (school_id, scope, class_id, advertiser_id, media_url, media_type, display_order)
+        VALUES (${fx.schoolA}, 'class', ${classA1}, ${advertiserId}, 'https://ex.com/a-adv.png', 'image', 30)
+        RETURNING id
+      `
+    )[0].id;
+
     // School B のクラス + 広告 (テナント分離検証用)
     const gradeB1 = (
       await sql<{ id: string }[]>`
@@ -99,8 +115,9 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
 
   it("listClassOwnAds: 自クラススコープ広告のみ display_order 昇順 (学校継承は含まない)", async () => {
     const rows = await asSchool(fx.schoolA, (db) => listClassOwnAds(db as never, classA1));
-    expect(rows.map((r) => r.id)).toEqual([ownAd1, ownAd2]); // order 10 → 20
-    expect(rows).toHaveLength(2);
+    // order 10 → 20 → 30 (advertiser_id 紐付けの有無に関わらずクラス広告は全て出る)。
+    expect(rows.map((r) => r.id)).toEqual([ownAd1, ownAd2, ownAdWithAdvertiser]);
+    expect(rows).toHaveLength(3);
     expect(rows.map((r) => r.mediaUrl)).not.toContain("https://ex.com/a-school.png");
   });
 
@@ -132,6 +149,15 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
     const bAdId = (await asSchool(fx.schoolB, (db) => listClassOwnAds(db as never, classB1)))[0].id;
     const cross = await asSchool(fx.schoolA, (db) => findClassOwnAd(db as never, bAdId));
     expect(cross).toBeNull();
+  });
+
+  it("advertiser_id (#46): 紐付けありは round-trip、無しは null (新列の保存/取得)", async () => {
+    const withAdv = await asSchool(fx.schoolA, (db) =>
+      findClassOwnAd(db as never, ownAdWithAdvertiser),
+    );
+    expect(withAdv?.advertiserId).toBe(advertiserId);
+    const noAdv = await asSchool(fx.schoolA, (db) => findClassOwnAd(db as never, ownAd1));
+    expect(noAdv?.advertiserId).toBeNull();
   });
 
   it("findClassOwnAd: 継承広告 (scope='school') は対象外 → null", async () => {
