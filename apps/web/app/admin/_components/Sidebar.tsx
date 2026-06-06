@@ -1,6 +1,6 @@
 "use client";
 
-import type { NavItem } from "@/lib/nav";
+import { type NavItem, activeNavHref } from "@/lib/nav";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -16,6 +16,8 @@ import { useState } from "react";
 export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // 最長一致のみを active にする（親 /admin/school が子 /admin/school/members で誤点灯するのを防ぐ）。
+  const activeHref = activeNavHref(items, pathname);
 
   return (
     <div className="admin-sidebar-wrap">
@@ -36,8 +38,8 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
       >
         <ul>
           {items.map((item) => {
-            // 完全一致 or 配下 (例: /admin/editor/123) を active 扱いにする。
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            // 完全一致 or 配下 (例: /admin/editor/123) のうち最長一致のみ active（activeNavHref）。
+            const isActive = item.href === activeHref;
             return (
               <li key={item.href}>
                 <Link

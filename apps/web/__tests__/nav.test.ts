@@ -1,6 +1,12 @@
 import type { TenantRole } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
-import { ADMIN_ROLES, homePathForRole, isAdminRole, navItemsForRole } from "../lib/nav";
+import {
+  ADMIN_ROLES,
+  activeNavHref,
+  homePathForRole,
+  isAdminRole,
+  navItemsForRole,
+} from "../lib/nav";
 
 /**
  * role 別 navigation の純粋ロジック検証 (#48-C)。node 環境で網羅できるよう副作用を持たない。
@@ -199,5 +205,35 @@ describe("homePathForRole", () => {
   it("管理エリア対象外ロールはサイネージ (/) に倒す", () => {
     expect(homePathForRole("student")).toBe("/");
     expect(homePathForRole("guardian")).toBe("/");
+  });
+});
+
+describe("activeNavHref (最長一致)", () => {
+  const schoolAdmin = navItemsForRole("school_admin");
+
+  it("子ページ /admin/school/members では教職員のみ active、親の学校管理は点灯しない (バグ回帰)", () => {
+    // 旧実装は startsWith で親 /admin/school も一致し「学校管理」「教職員」が両点灯していた。
+    expect(activeNavHref(schoolAdmin, "/admin/school/members")).toBe("/admin/school/members");
+  });
+
+  it("親ページ /admin/school では学校管理が active", () => {
+    expect(activeNavHref(schoolAdmin, "/admin/school")).toBe("/admin/school");
+  });
+
+  it("配下ページ /admin/editor/123 はエディタ (親 href) を active にする", () => {
+    expect(activeNavHref(schoolAdmin, "/admin/editor/123")).toBe("/admin/editor");
+  });
+
+  it("どの項目にも一致しないパスは空文字（どれも active にしない）", () => {
+    expect(activeNavHref(schoolAdmin, "/admin/unknown")).toBe("");
+    expect(activeNavHref([], "/admin/school")).toBe("");
+  });
+
+  it("system_admin: /admin/system/schools/new は学校一覧を active（最長一致で 1 つだけ）", () => {
+    const sysAdmin = navItemsForRole("system_admin");
+    const active = activeNavHref(sysAdmin, "/admin/system/schools/new");
+    expect(active).toBe("/admin/system/schools");
+    // 他項目（教職員管理 /admin/system/users 等）は active にならない。
+    expect(active).not.toBe("/admin/system/users");
   });
 });

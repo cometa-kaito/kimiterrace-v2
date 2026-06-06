@@ -131,3 +131,22 @@ export function homePathForRole(role: TenantRole): string {
       return "/";
   }
 }
+
+/**
+ * 現在パス `pathname` に対して active 表示すべき nav 項目の href を返す（**最長一致**）。
+ *
+ * 候補は「完全一致」または「配下（`href + "/"` 始まり、例: /admin/editor/123）」。その中で最も具体的
+ * （= href が最長）な 1 つだけを active とする。これにより、親 `/admin/school`（学校管理）が子ページ
+ * `/admin/school/members`（教職員）で**同時に点灯する**バグを防ぐ（前方一致だけだと親も一致するため）。
+ * 一致なしは `""`（どの項目も active にしない）。
+ */
+export function activeNavHref(items: readonly NavItem[], pathname: string): string {
+  let best = "";
+  for (const item of items) {
+    const matched = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (matched && item.href.length > best.length) {
+      best = item.href;
+    }
+  }
+  return best;
+}
