@@ -51,13 +51,36 @@ describe("mergeDailySections", () => {
     }
   });
 
-  it("department scope は表示対象外として無視される", () => {
+  it("department scope は school より優先 / grade より下 (段A-2: class > grade > department > school)", () => {
     const merged = mergeDailySections("2026-05-30", [
+      row("school", { schedules: ["S校"], notices: ["N校"], assignments: ["A校"] }),
+      row("department", { schedules: ["S学科"], notices: ["N学科"] }),
+      row("grade", { schedules: ["S学年"] }),
+    ]);
+    // schedules: grade 非空 → grade (department/school より優先)
+    expect(merged.schedules).toEqual({ items: ["S学年"], source: "grade" });
+    // notices: grade 空 / department 非空 → department (school より優先)
+    expect(merged.notices).toEqual({ items: ["N学科"], source: "department" });
+    // assignments: grade/department 空 / school 非空 → school
+    expect(merged.assignments).toEqual({ items: ["A校"], source: "school" });
+  });
+
+  it("department のみ非空なら department を採用 (学科全体編集がサイネージに反映される)", () => {
+    const merged = mergeDailySections("2026-05-30", [
+      row("department", { schedules: ["S学科"] }),
+      row("school", { schedules: [] }),
+    ]);
+    expect(merged.schedules).toEqual({ items: ["S学科"], source: "department" });
+  });
+
+  it("class > grade > department > school の完全な優先順", () => {
+    const merged = mergeDailySections("2026-05-30", [
+      row("class", { schedules: ["S組"] }),
+      row("grade", { schedules: ["S学年"] }),
       row("department", { schedules: ["S学科"] }),
       row("school", { schedules: ["S校"] }),
     ]);
-    // department は拾わず school にフォールバック
-    expect(merged.schedules).toEqual({ items: ["S校"], source: "school" });
+    expect(merged.schedules).toEqual({ items: ["S組"], source: "class" });
   });
 
   it("class スコープ採用時は source=class (継承バッジを出さない側)", () => {
