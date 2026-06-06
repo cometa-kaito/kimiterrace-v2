@@ -2,7 +2,7 @@
  * `@kimiterrace/ui` 公開バレル。
  *
  * presentational プリミティブ（段1）+ interactive プリミティブ（段2・"use client"）。残り
- * （Toast / FormField / DataTable / useUnsavedGuard）は後続 PR で追加する。
+ * （FormField / DataTable / useUnsavedGuard）は後続 PR で追加する。
  *
  * **消費前提（重要）**: 本パッケージは `package.json` の `exports.default` が **raw TS ソース**
  * (`./src/index.ts`) を指す JIT パッケージで、dist ビルドを持たない。これは `@kimiterrace/db` /
@@ -19,4 +19,6 @@ export { Button } from "./Button";
 export type { ButtonVariant } from "./Button";
 export { ConfirmDialog } from "./ConfirmDialog";
 export type { ConfirmTone } from "./ConfirmDialog";
+export { ToastProvider, useToast } from "./Toast";
+export type { ToastOptions, ToastTone } from "./Toast";
 export * as tokens from "./tokens";

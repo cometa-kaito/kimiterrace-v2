@@ -1,7 +1,7 @@
 "use client";
 
 import { setMemberActiveAction } from "@/lib/role-management/member-actions";
-import { ConfirmDialog } from "@kimiterrace/ui";
+import { ConfirmDialog, useToast } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -23,6 +23,7 @@ export function MemberActiveToggle({
   displayName: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -34,6 +35,13 @@ export function MemberActiveToggle({
       // 成否いずれもダイアログは閉じる (失敗はインラインの error 表示に集約)。
       setConfirmOpen(false);
       if (res.ok) {
+        // 成功フィードバック (これまで無音だった) をトーストで明示。
+        toast(
+          isActive ? `「${displayName}」を無効化しました` : `「${displayName}」を再有効化しました`,
+          {
+            tone: "success",
+          },
+        );
         router.refresh();
       } else {
         setError(res.error.message);

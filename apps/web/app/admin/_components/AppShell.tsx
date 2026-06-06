@@ -1,5 +1,6 @@
 import type { AuthUser } from "@/lib/auth/session";
 import { navItemsForRole } from "@/lib/nav";
+import { ToastProvider } from "@kimiterrace/ui";
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { SignOutButton } from "./SignOutButton";
@@ -28,7 +29,9 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
       <div className="admin-body" style={bodyStyle}>
         <Sidebar items={items} />
         <main className="admin-main" style={mainStyle}>
-          {children}
+          {/* 配下の client コンポーネントが useToast() で成功/エラー通知を出せるようにする。
+              ToastProvider は client だが server の children をそのまま透過する。 */}
+          <ToastProvider>{children}</ToastProvider>
         </main>
       </div>
     </div>
