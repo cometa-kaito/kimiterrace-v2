@@ -21,6 +21,7 @@ vi.mock("@/lib/school-admin/hub-actions", () => ({
 
 import { HierarchyManager } from "../../app/admin/school/_components/HierarchyManager";
 import {
+  createClassAction,
   createGradeAction,
   deleteClassAction,
   deleteDepartmentAction,
@@ -28,6 +29,7 @@ import {
 
 const ok = { ok: true as const, data: { id: "x" } };
 const createGradeMock = vi.mocked(createGradeAction);
+const createClassMock = vi.mocked(createClassAction);
 const deleteDeptMock = vi.mocked(deleteDepartmentAction);
 const deleteClassMock = vi.mocked(deleteClassAction);
 
@@ -51,6 +53,7 @@ const HIERARCHY = {
 beforeEach(() => {
   vi.clearAllMocks();
   createGradeMock.mockResolvedValue(ok);
+  createClassMock.mockResolvedValue(ok);
   deleteDeptMock.mockResolvedValue(ok);
   deleteClassMock.mockResolvedValue(ok);
 });
@@ -100,5 +103,28 @@ describe("HierarchyManager（編集/削除/一括追加 配線）", () => {
     const confirmBtn = await within(classLi).findByRole("button", { name: "削除する" });
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(deleteClassMock).toHaveBeenCalledWith("c1"));
+  });
+
+  it("組の無い学年は『この学年を1まとまりにする』で学年名のクラスを作る", async () => {
+    const h = {
+      departments: [{ id: "d1", name: "電子工学科", displayOrder: 0 }],
+      grades: [
+        {
+          id: "g2",
+          name: "電子工学科2年",
+          displayOrder: 0,
+          hasClasses: false,
+          departmentId: "d1",
+          classes: [],
+        },
+      ],
+    };
+    render(<HierarchyManager hierarchy={h} />);
+    fireEvent.click(screen.getByRole("button", { name: "この学年を1まとまりにする" }));
+    await waitFor(() =>
+      expect(createClassMock).toHaveBeenCalledWith(
+        expect.objectContaining({ gradeId: "g2", name: "電子工学科2年" }),
+      ),
+    );
   });
 });
