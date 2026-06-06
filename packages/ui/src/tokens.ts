@@ -19,9 +19,11 @@ export const color = {
   muted: "#6b7280",
   border: "#e5e7eb",
   bgSoft: "#f7f8fa",
-  /** UI アクセント（白文字で WCAG AA を満たす深いオレンジ。グラデはロゴ画像のみ・2026-06-05 方針）。 */
-  primary: "#c2410c",
-  primaryHover: "#9a3412",
+  /** UI アクセント（明るいオレンジ #ea580c・2026-06-06 ユーザー指定で旧 #c2410c から明色化。
+   *  白文字は約 3.6:1 = 非テキスト UI 3:1 のみ充足／通常テキスト 4.5:1 は未達、hover #c2410c は AA 充足）。
+   *  グラデはロゴ画像のみ・2026-06-05 方針。globals.css --brand-primary と一致させること。 */
+  primary: "#ea580c",
+  primaryHover: "#c2410c",
 
   // ステータストーン（薄背景 / 文字 / 枠）。StatusBadge・各種バナーで共有。
   neutralBg: "#f3f4f6",

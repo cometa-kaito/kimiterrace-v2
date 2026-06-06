@@ -16,16 +16,16 @@ describe("Button", () => {
 
   it("primary variant の背景色を適用する", () => {
     render(<Button variant="primary">x</Button>);
-    expect(screen.getByRole("button").style.background).toBe("rgb(194, 65, 12)"); // #c2410c
+    expect(screen.getByRole("button").style.background).toBe("rgb(234, 88, 12)"); // #ea580c
   });
 
   it("hover で背景が hover 色に変わり、leave で戻る", () => {
     render(<Button variant="primary">x</Button>);
     const btn = screen.getByRole("button");
     fireEvent.mouseEnter(btn);
-    expect(btn.style.background).toBe("rgb(154, 52, 18)"); // primaryHover #9a3412
+    expect(btn.style.background).toBe("rgb(194, 65, 12)"); // primaryHover #c2410c
     fireEvent.mouseLeave(btn);
-    expect(btn.style.background).toBe("rgb(194, 65, 12)"); // 戻る
+    expect(btn.style.background).toBe("rgb(234, 88, 12)"); // 戻る
   });
 
   it("disabled は不活性表示（opacity/cursor）かつ hover 色を出さない", () => {
@@ -40,7 +40,7 @@ describe("Button", () => {
     expect(btn.style.cursor).toBe("default");
     fireEvent.mouseEnter(btn);
     // disabled 中は hover 色に変えない（base 色のまま）。
-    expect(btn.style.background).toBe("rgb(194, 65, 12)");
+    expect(btn.style.background).toBe("rgb(234, 88, 12)");
   });
 
   it("onClick を透過し、呼出側 onMouseEnter も内部 hover と両立して呼ぶ", () => {
@@ -56,6 +56,6 @@ describe("Button", () => {
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onMouseEnter).toHaveBeenCalledTimes(1); // 内部 setHover と共存（潰さない）
-    expect(btn.style.background).toBe("rgb(154, 52, 18)"); // hover も効く
+    expect(btn.style.background).toBe("rgb(194, 65, 12)"); // hover も効く
   });
 });
