@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -59,7 +59,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("HierarchyManager（編集/削除/一括追加 配線）", () => {
   it("学科・学年・クラスに編集/削除ボタンを出す", () => {
     render(<HierarchyManager hierarchy={HIERARCHY} />);
-    // 「電子工学科」は学科行 + 学年追加の学科プルダウン option の双方に出るため getAllByText で見る。
+    // ツリーの学科ノード見出しに「電子工学科」が出る。
     expect(screen.getAllByText("電子工学科").length).toBeGreaterThan(0);
     expect(screen.getByText("電子工学科3年")).toBeInTheDocument();
     expect(screen.getByText(/1組/)).toBeInTheDocument();
@@ -93,12 +93,11 @@ describe("HierarchyManager（編集/削除/一括追加 配線）", () => {
 
   it("クラスの削除は確認 → deleteClassAction(id) を呼ぶ", async () => {
     render(<HierarchyManager hierarchy={HIERARCHY} />);
-    // クラス行（1組）の削除 = 学科1 + 学年1 の後、3 番目の「削除」。
-    const dels = screen.getAllByRole("button", { name: "削除" });
-    const lastDel = dels[dels.length - 1];
-    if (!lastDel) throw new Error("削除ボタンが見つかりません");
-    fireEvent.click(lastDel);
-    const confirmBtn = await screen.findByRole("button", { name: "削除する" });
+    // ツリーではクラス行（1組）の <li> 内の「削除」を within で特定する（DOM 順依存にしない）。
+    const classLi = screen.getByText(/1組/).closest("li");
+    if (!classLi) throw new Error("クラス行が見つかりません");
+    fireEvent.click(within(classLi).getByRole("button", { name: "削除" }));
+    const confirmBtn = await within(classLi).findByRole("button", { name: "削除する" });
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(deleteClassMock).toHaveBeenCalledWith("c1"));
   });
