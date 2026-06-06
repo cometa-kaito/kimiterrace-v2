@@ -115,7 +115,9 @@ locals {
   # b1ed208: 段3 confirm 統一の残りを反映 — #637 教職員管理 / #640 広告主・契約 / #641 MFA の
   #          window.confirm→共通 ConfirmDialog + 成功 Toast。これで apps/web の window.confirm は全廃。
   #          UI 変更ゆえ再 build/deploy で反映（web:b1ed208 を Cloud Build 済・AR push 済、main HEAD）。
-  web_image_tag = "b1ed208"
+  # 1216a84: #642 学校管理ハブの学科/学年/クラス 編集・削除 + 学年の全学科一括追加。b1ed208 を内包＋#642。
+  #          web:1216a84 を Cloud Build 済・AR push 済。#644(b1ed208) merge 後にこれを上書き deploy する。
+  web_image_tag = "1216a84"
 }
 
 module "network" {
