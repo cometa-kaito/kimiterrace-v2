@@ -117,7 +117,10 @@ locals {
   #          UI 変更ゆえ再 build/deploy で反映（web:b1ed208 を Cloud Build 済・AR push 済、main HEAD）。
   # 1216a84: #642 学校管理ハブの学科/学年/クラス 編集・削除 + 学年の全学科一括追加。b1ed208 を内包＋#642。
   #          web:1216a84 を Cloud Build 済・AR push 済。#644(b1ed208) merge 後にこれを上書き deploy する。
-  web_image_tag = "1216a84"
+  # 7495bc0: #643 公開サイネージ盤面を v1 レイアウトに作り直し（予定=今後3平日3列5行 / 連絡 / 提出物表 /
+  #          広告70:30 / 天気は小さく残置・静粛時間除外）。1216a84(#642 含む) を内包＋#643。main HEAD。
+  #          web:7495bc0 を Cloud Build 済・AR push 済。なお #627 は build を恒常ブロックしない（#632 訂正済）。
+  web_image_tag = "7495bc0"
 }
 
 module "network" {
