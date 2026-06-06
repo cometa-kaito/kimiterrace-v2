@@ -2,6 +2,7 @@ import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { ADMIN_ROLES } from "@/lib/nav";
 import { withSession } from "@/lib/db";
 import { TV_CONFIG_EDIT_ROLES } from "@/lib/tv/config-edit-core";
+import { ONBOARDING_ROLES } from "@/lib/tv/onboarding-core";
 import {
   TV_STATUS_ICON,
   TV_STATUS_LABEL,
@@ -38,6 +39,9 @@ export default async function TvDevicesPage() {
   // 設定編集は school_admin / system_admin 限定。teacher には 403 に終わる「編集」リンクを出さない
   // （死リンク防止、#494 Reviewer Low-2）。実体の認可は編集ページの requireRole + RLS が担保する。
   const canEditConfig = isRoleAllowed(user.role, TV_CONFIG_EDIT_ROLES);
+  // 新規登録（オンボーディング、F15 §4.3）は cross-tenant 操作のため system_admin 限定。teacher /
+  // school_admin には登録リンクを出さない（死リンク防止、実体の認可は /new ページの requireRole）。
+  const canOnboard = isRoleAllowed(user.role, ONBOARDING_ROLES);
   const devices = await withSession((tx) => listTvDevices(tx));
   // 判定基準時刻はリクエスト時刻で固定し、全行を同一 now で判定する（行ごとの揺れを避ける）。
   const now = new Date();
@@ -52,8 +56,15 @@ export default async function TvDevicesPage() {
     <section>
       <header style={headerStyle}>
         <h1 style={titleStyle}>TV デバイス</h1>
-        <span style={countStyle}>
-          稼働中 {onlineCount} / 応答なし {downCount} / 全 {devices.length} 台
+        <span style={headerRightStyle}>
+          <span style={countStyle}>
+            稼働中 {onlineCount} / 応答なし {downCount} / 全 {devices.length} 台
+          </span>
+          {canOnboard && (
+            <Link href="/admin/tv-devices/new" style={onboardLinkStyle}>
+              ＋ 新規登録
+            </Link>
+          )}
         </span>
       </header>
       <p style={subtitleStyle}>
@@ -187,6 +198,18 @@ const headerStyle: React.CSSProperties = {
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
 const countStyle: React.CSSProperties = { color: "#6b7280", fontSize: "0.85rem" };
+const headerRightStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "1rem",
+};
+const onboardLinkStyle: React.CSSProperties = {
+  color: "#1d4ed8",
+  fontWeight: 600,
+  textDecoration: "none",
+  fontSize: "0.9rem",
+  whiteSpace: "nowrap",
+};
 const subtitleStyle: React.CSSProperties = { color: "#6b7280", margin: "0.35rem 0 1.25rem" };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = {

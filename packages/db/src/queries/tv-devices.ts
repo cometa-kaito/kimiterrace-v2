@@ -30,6 +30,9 @@ type Selectable = Pick<PostgresJsDatabase, "select">;
 /** UPDATE だけできれば良い（設定編集 Action は RLS context tx を渡す）。 */
 type Updatable = Pick<PostgresJsDatabase, "update">;
 
+/** INSERT だけできれば良い（新規登録 Action は RLS context tx を渡す）。 */
+type Insertable = Pick<PostgresJsDatabase, "insert">;
+
 /**
  * TV デバイス一覧 1 行（管理 UI の一覧用射影）。設定の生値（webhook_url / notes）や監査列は含めず、
  * 一覧表示と稼働ステータス判定に要る最小限に絞る。`targetMac` は UI 側でマスク表示する（F15 §5）。
@@ -281,4 +284,82 @@ export async function updateTvDeviceConfig(
     .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
     .returning({ id: tvDevices.id, version: tvDevices.version });
   return rows[0];
+}
+
+/**
+ * 新規登録（オンボーディング、F15 §4.3）が INSERT する 1 デバイス分の正規化済み入力。
+ *
+ * `deviceId` / `schoolId` は **必須**（システム管理列だが登録時のみオペレーターが決める）。`deviceId` は
+ * TV が初回起動時に生成した値をオペレーターが転記する（未登録ポーリング検出からの登録）か、事前採番として
+ * Action が UUIDv4 を生成して渡す（F15 §4.3「手動入力 or 自動生成」）。グローバル UNIQUE 制約
+ * （ux_tv_devices_device_id）が二重登録を DB レベルで弾く（ポーリング解決の一意性、schema 参照）。
+ *
+ * `version` は schema 既定の 1 から始める（明示しない）。TV は初回ポーリングで version=1 の設定を取り込む。
+ * `lastSeenAt` / `alertState` 等の TV 由来・チェッカ由来の列は登録時に触らない（schema 既定）。
+ *
+ * 監査 actor: `createdBy` / `updatedBy` は **users(id) FK**。新規登録は F15 §4.3 で **system_admin 限定**
+ * だが、system_admin は `users` 行でなく `system_admins` 行（`uid = system_admins.id`）なので、ここに
+ * system_admin の uid を入れると FK 違反になる。よって呼び出し側は **null**（システム作成、auditColumns の
+ * 規約どおり）を渡し、「誰が」は同一 tx で `audit_log`（actorIdentityUid に system_admin uid）に残す
+ * （setStaffActiveAction と同じ cross-tenant 監査パターン）。
+ */
+export type TvDeviceCreateInput = {
+  deviceId: string;
+  schoolId: string;
+  label: string | null;
+  targetMac: string | null;
+  signageUrl: string | null;
+  webhookUrl: string | null;
+  scheduleJson: TvSchedule | null;
+  monitoringEnabled: boolean;
+  notes: string | null;
+  /** 監査 actor（users.id）。system_admin 起点は null（上記参照）。 */
+  createdBy: string | null;
+};
+
+type TvDeviceCreatedRef = Pick<TvDeviceRow, "id" | "deviceId">;
+
+/**
+ * 新規登録: TV デバイスを 1 行 INSERT する（F15 §4.3）。
+ *
+ * **RLS 委譲（ルール2）**: 手書きの `WHERE`/分岐で school を絞らない。INSERT の WITH CHECK を
+ * `tv_devices` の RLS（tenant_isolation: school_id 一致 / system_admin_full_access: role=system_admin）が
+ * 評価する。登録は system_admin 起点（role=system_admin context）なので **full_access policy** が任意校への
+ * INSERT を許可する。万一テナント context（school_admin）で別校 school_id を渡すと WITH CHECK 違反（RLS
+ * エラー）になり cross-tenant 登録は構造的に防がれる。
+ *
+ * **一意性**: `device_id` のグローバル UNIQUE 違反は SQLSTATE 23505、不在 school_id は FK 違反 23503 として
+ * throw する（呼び出し側 Action が conflict / invalid に写像）。
+ *
+ * @param db     非 BYPASSRLS の Drizzle クライアント / tx（RLS context 下で呼ぶこと）。
+ * @param input  正規化済みの登録入力。
+ * @returns      作成行の `{ id, deviceId }`（id は行 PK、以降の編集・履歴リンクに使う）。
+ */
+export async function createTvDevice(
+  db: Insertable,
+  input: TvDeviceCreateInput,
+): Promise<TvDeviceCreatedRef> {
+  const rows = await db
+    .insert(tvDevices)
+    .values({
+      deviceId: input.deviceId,
+      schoolId: input.schoolId,
+      label: input.label,
+      targetMac: input.targetMac,
+      signageUrl: input.signageUrl,
+      webhookUrl: input.webhookUrl,
+      scheduleJson: input.scheduleJson,
+      monitoringEnabled: input.monitoringEnabled,
+      notes: input.notes,
+      createdBy: input.createdBy,
+      updatedBy: input.createdBy,
+    })
+    .returning({ id: tvDevices.id, deviceId: tvDevices.deviceId });
+  // INSERT は成功なら必ず 1 行 RETURNING する（RLS WITH CHECK 違反・制約違反は throw）。0 行は到達しない
+  // が、型安全のため防御的に扱う。
+  const row = rows[0];
+  if (!row) {
+    throw new Error("createTvDevice: INSERT が行を返しませんでした");
+  }
+  return row;
 }
