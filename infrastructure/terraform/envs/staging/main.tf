@@ -91,6 +91,11 @@ locals {
   # 修正した版（5765ea2 は旧名「岐阜県立岐南工業高校」で fail-loud したため差し替え）。
   seed_ginan_image_tag = "665b6b7"
 
+  # 岐南 電子工学科 PoC の実契約 6 社サイネージ広告（advertisers + 学校スコープ ads）を登録する seed Job の
+  # イメージタグ。migrate イメージに seed-ginan-ads-cli を含む版（同一 Dockerfile・command 上書きで
+  # `dist/seed-ginan-ads-cli.js` を起動）。seed-ginan-ads1 = feat/ginan-ads から build した版。
+  seed_ginan_ads_image_tag = "seed-ginan-ads1"
+
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
@@ -285,6 +290,37 @@ module "cloud_run_job_seed_ginan" {
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_image_tag}"
   command                = ["node", "dist/seed-ginan-sensors-cli.js"] # 岐南センサー seed を起動
   database_url_secret_id = local.db_url_migrator_secret_id            # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
+}
+
+# サイネージ広告クリエイティブの公開配信バケット（#46/#48-F）。サイネージ端末が ads.media_url を直接 GET する。
+# 広告は公開掲示物（PII なし）ゆえ公開 read。教員アップロード（upload_storage, PII あり）とは逆の公開ポリシー。
+# 画像実体（オブジェクト）は content ゆえ Terraform 管理外（gcloud storage cp で upload）。
+module "ad_media" {
+  source        = "../../modules/ad_media"
+  project_id    = var.project_id
+  location      = var.region
+  env           = local.env
+  enabled       = true
+  force_destroy = true # staging は recreate 容易性優先（#70 同規律）
+}
+
+# 岐南 電子工学科 PoC の実契約 6 社サイネージ広告（advertisers + 学校スコープ ads）を登録する on-demand seed Job。
+# cloud_run_job_seed_ginan と同モジュール/イメージを **command 上書き** で再利用し `dist/seed-ginan-ads-cli.js` を
+# 起動する。migrator DSN で system_admin context を張って固定 id 冪等 upsert。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-ads --region asia-northeast1 --project signage-v2-staging`。
+# 前提: schools に「岐阜県立岐南工業高等学校」が既存（無ければ fail-loud）+ ad_media バケットに 6 画像 upload 済。
+module "cloud_run_job_seed_ginan_ads" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-seed-ginan-ads"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_ads_image_tag}"
+  command                = ["node", "dist/seed-ginan-ads-cli.js"] # 岐南 広告 seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id        # migrator DSN（system_admin context で seed）
   vpc_connector          = module.network.vpc_connector_id
   deletion_protection    = false
 }
