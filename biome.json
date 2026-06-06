@@ -99,6 +99,7 @@
         "**/packages/db/src/seed-staging-cli.ts",
         "**/packages/db/src/seed-ginan-sensors-cli.ts",
         "**/packages/db/src/seed-ginan-ads-cli.ts",
+        "**/packages/db/src/backfill-presence-cli.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",

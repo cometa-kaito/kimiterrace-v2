@@ -73,3 +73,6 @@ tmp/
 # 60+ 堆積で ripgrep/glob が timeout する + Windows MAX_PATH で削除困難になるため除外。
 # レーン規律の詳細は docs/parallel-lanes.md §10 (follow-up GC)
 .claude/worktrees/
+
+# F13 backfill 入力（学校の在室時刻＝公開リポジトリに残さない。build-context へは .gcloudignore 非対象で届く）
+packages/db/_kt_backfill_data.ndjson
