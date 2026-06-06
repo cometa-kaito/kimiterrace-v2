@@ -69,4 +69,40 @@ describe("FormField", () => {
     );
     expect(screen.getByLabelText("学校名")).toHaveAttribute("id", "school-name");
   });
+
+  it("複数の FormField は別々の id を採番する（useId 一意性＝ページ内衝突しない）", () => {
+    render(
+      <>
+        <FormField label="名前A">
+          <input />
+        </FormField>
+        <FormField label="名前B">
+          <input />
+        </FormField>
+      </>,
+    );
+    const a = screen.getByLabelText("名前A");
+    const b = screen.getByLabelText("名前B");
+    expect(a.id).toBeTruthy();
+    expect(b.id).toBeTruthy();
+    expect(a.id).not.toBe(b.id);
+  });
+
+  it("子が既に持つ aria-describedby を保ち、hint→error id を後ろに連結する（説明を失わない）", () => {
+    render(
+      <FormField label="メール" hint="連絡先" error="形式が不正です">
+        <input aria-describedby="external-note" />
+      </FormField>,
+    );
+    const input = screen.getByLabelText("メール");
+    const hint = screen.getByText("連絡先");
+    const err = screen.getByRole("alert");
+    expect(input).toHaveAttribute("aria-describedby", `external-note ${hint.id} ${err.id}`);
+  });
+
+  it("子が要素でない（文字列）場合もクラッシュせず描画する（id/aria 注入はスキップ）", () => {
+    render(<FormField label="補足のみ">プレーンテキスト</FormField>);
+    expect(screen.getByText("プレーンテキスト")).toBeInTheDocument();
+    expect(screen.getByText("補足のみ")).toBeInTheDocument();
+  });
 });

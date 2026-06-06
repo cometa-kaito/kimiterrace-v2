@@ -18,6 +18,13 @@ import { color, fontSize, space } from "./tokens";
  *
  * 必須印（*）は装飾（`aria-hidden`）。必須の意味はコントロール側の `required` 属性で伝える。
  * エラーは `role="alert"` で即時に読み上げる。
+ *
+ * 注意:
+ * - `children` は**単一のフォームコントロール要素**を前提とする。要素でない（文字列/複数子/Fragment）
+ *   場合は id/aria を注入できず、ラベルの関連付けが効かない（注入はスキップしそのまま描画）。
+ * - 子が既に持つ `id`/`aria-invalid` は注入値で上書きする。`aria-describedby` だけは**既存値を保ち**
+ *   FormField の hint/error id を後ろに連結する（コントロール固有の説明を失わない）。
+ * - `htmlFor` を明示する場合、id の一意性は呼出側の責任（同じ値を複数 FormField に渡すと衝突する）。
  */
 export function FormField({
   label,
@@ -34,15 +41,23 @@ export function FormField({
   hint?: ReactNode;
   /** インラインエラー。真値なら role=alert で表示し、コントロールに aria-invalid を立てる。 */
   error?: ReactNode;
-  /** id を明示したい場合の上書き（既定は useId 採番）。 */
+  /** id を明示したい場合の上書き（既定は useId 採番・一意性は呼出側責任）。 */
   htmlFor?: string;
 }) {
   const generatedId = useId();
   const fieldId = htmlFor ?? generatedId;
   const hintId = `${fieldId}-hint`;
   const errorId = `${fieldId}-error`;
+
+  // 子が既に持つ aria-describedby を保ち、FormField の hint/error id を後ろに連結する（説明を失わない）。
+  const childProps = isValidElement(children)
+    ? (children.props as { "aria-describedby"?: unknown })
+    : undefined;
+  const inherited = childProps?.["aria-describedby"];
   const describedBy =
-    [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
+    [typeof inherited === "string" ? inherited : null, hint ? hintId : null, error ? errorId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   // 単一の子要素に id / aria を注入（ラベルと結ぶ）。要素でなければそのまま描画する。
   const control = isValidElement(children)
