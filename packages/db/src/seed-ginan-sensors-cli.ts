@@ -60,6 +60,8 @@ async function main(): Promise<void> {
   const perDevice: Array<{ grade: number; deviceMac: string; class: string; action: string }> = [];
   let inserted = 0;
   let skipped = 0;
+  // 解決した tenant を成功ログに出して可査性を担保する（schools.name は一意でないため）。
+  let resolvedSchoolId: string | undefined;
 
   try {
     await sql.begin(async (tx) => {
@@ -75,6 +77,7 @@ async function main(): Promise<void> {
           `school not found by name: ${SCHOOL_NAME}（先に学校レコードを作成してください）`,
         );
       }
+      resolvedSchoolId = schoolId;
 
       for (const d of GINAN_ECE_SENSOR_DEVICES) {
         // class 紐づけは best-effort: 電子工学科（departments）→ 学年（grades）→ クラス（classes）を辿り、
@@ -85,6 +88,8 @@ async function main(): Promise<void> {
           JOIN grades g ON c.grade_id = g.id
           JOIN departments dep ON g.department_id = dep.id
           WHERE c.school_id = ${schoolId}
+            AND g.school_id = ${schoolId}
+            AND dep.school_id = ${schoolId}
             AND dep.name = ${DEPARTMENT_NAME}
             AND c.grade = ${d.grade}`;
 
@@ -132,6 +137,7 @@ async function main(): Promise<void> {
       JSON.stringify({
         event: "seed.ginan.sensors.done",
         schoolName: SCHOOL_NAME,
+        schoolId: resolvedSchoolId,
         department: DEPARTMENT_NAME,
         inserted,
         skipped,
