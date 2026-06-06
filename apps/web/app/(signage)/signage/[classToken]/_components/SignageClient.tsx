@@ -282,8 +282,17 @@ function Section({
   section: MergedSection;
   fullWidth?: boolean;
 }) {
+  // schedules カードだけは行が長くなりがち（"1限 数学（小テスト）"等）なので、やや小さめの行フォントを
+  // 当てる `.scheduleSection` 修飾を付ける。他セクションは既定の `.listItem` サイズ。
+  const cardClass = [
+    styles.card,
+    fullWidth ? styles.fullWidth : "",
+    kind === "schedules" ? styles.scheduleSection : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <section aria-label={title} className={`${styles.card} ${fullWidth ? styles.fullWidth : ""}`}>
+    <section aria-label={title} className={cardClass}>
       <h2 className={styles.cardTitle}>
         {title}
         {section.source && section.source !== "class" ? (
