@@ -200,6 +200,15 @@ describe("parseAssignmentRow (提出物テーブルの列 + 残日数)", () => {
     expect(row).toMatchObject({ daysLeft: "明日", isUrgent: true, isOverdue: false });
   });
 
+  it("締切3日以内は緊急・4日以上は通常 (v1 diffDays<=3 境界)", () => {
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-09", subject: "数学", task: "p.1" }, TODAY),
+    ).toMatchObject({ daysLeft: "あと3日", isUrgent: true });
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-10", subject: "数学", task: "p.2" }, TODAY),
+    ).toMatchObject({ daysLeft: "あと4日", isUrgent: false });
+  });
+
   it("期限超過は『N日超過』で overdue", () => {
     const row = parseAssignmentRow(
       { deadline: "2026-06-04", subject: "理科", task: "レポート" },

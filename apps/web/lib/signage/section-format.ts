@@ -220,8 +220,8 @@ export function parseAssignmentRow(item: unknown, today: string): SignageAssignm
     deadlineShort: deadline ? shortDate(deadline) : "",
     daysLeft: daysLeftLabel(days),
     isOverdue: days !== null && days < 0,
-    // 当日・翌日締切は緊急 (赤)。v1 の days-urgent 相当。
-    isUrgent: days !== null && days >= 0 && days <= 1,
+    // 締切まで3日以内 (当日含む) は緊急 (赤)。v1 calculateDaysLeft の days-urgent (diffDays<=3) に一致。
+    isUrgent: days !== null && days >= 0 && days <= 3,
   };
 }
 
