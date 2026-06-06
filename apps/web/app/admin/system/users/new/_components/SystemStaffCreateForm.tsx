@@ -1,6 +1,11 @@
 "use client";
 
+import {
+  type StaffCreateFieldErrors,
+  collectStaffCreateFieldErrors,
+} from "@/lib/role-management/staff-create-core";
 import { createSystemStaffAction } from "@/lib/system-admin/users-actions";
+import { FormField } from "@kimiterrace/ui";
 import { type FormEvent, useState, useTransition } from "react";
 
 /**
@@ -13,9 +18,8 @@ import { type FormEvent, useState, useTransition } from "react";
  * 戻さず setupLink を画面に出して発行者がコピー → 利用者へ共有できるようにする (email 自動送信は持たない
  * MVP、リンクは発行者経由で渡す。StaffCreateForm と同方針)。
  *
- * **新規校オンボーディングの前提**: 学校 (テナント) は system_admin が `/admin/system/schools/new` で作るが、
- * その学校の **最初の school_admin** を作る UI がこれまで無く、階層 (学科/学年/クラス) 編集に進めなかった
- * (階層編集は school_admin 限定 = `toHubActor` が school_id を要求)。本画面がその空白を埋める。
+ * **項目別インライン検証 (FormField)**: email/displayName は `staff-create-core` の単一ソース検証、学校は
+ * 未選択を弾く。`noValidate` でネイティブバブルと二重化しない。
  */
 
 type SchoolOption = { id: string; name: string; prefecture: string };
@@ -26,23 +30,47 @@ const ROLE_OPTIONS = [
   { value: "teacher", label: "教員" },
 ] as const;
 
+/** 項目別エラー (email/displayName は core 由来 + 学校選択)。 */
+type SystemStaffFieldErrors = StaffCreateFieldErrors & { schoolId?: string };
+
 export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ setupLink: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<SystemStaffFieldErrors>({});
+
+  // 入力中はその項目のエラーを消す (修正に追従)。
+  function clearError(field: keyof SystemStaffFieldErrors) {
+    setFieldErrors((prev) => {
+      if (prev[field] === undefined) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const raw = { email: fd.get("email"), displayName: fd.get("displayName") };
+    // クライアント側の項目別検証 (email/displayName は Server Action と同じ規則、学校は未選択を弾く)。
+    const errors: SystemStaffFieldErrors = { ...collectStaffCreateFieldErrors(raw) };
+    const schoolId = fd.get("schoolId");
+    if (typeof schoolId !== "string" || schoolId === "") {
+      errors.schoolId = "発行先の学校を選択してください。";
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError(null);
+      return;
+    }
+    setFieldErrors({});
     setError(null);
     startTransition(async () => {
-      const res = await createSystemStaffAction({
-        email: fd.get("email"),
-        displayName: fd.get("displayName"),
-        role: fd.get("role"),
-        schoolId: fd.get("schoolId"),
-      });
+      const res = await createSystemStaffAction({ ...raw, role: fd.get("role"), schoolId });
       if (res.ok) {
         setCreated({ setupLink: res.data.setupLink });
       } else {
@@ -101,12 +129,21 @@ export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) 
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ display: "grid", gap: "1rem" }}>
-      {error ? <output style={errorStyle}>{error}</output> : null}
+    <form onSubmit={onSubmit} noValidate style={{ display: "grid", gap: "0.5rem" }}>
+      {error ? (
+        <output role="alert" style={errorStyle}>
+          {error}
+        </output>
+      ) : null}
 
-      <label style={labelStyle}>
-        学校（必須）
-        <select name="schoolId" required defaultValue="" style={inputStyle}>
+      <FormField label="学校" required error={fieldErrors.schoolId}>
+        <select
+          name="schoolId"
+          required
+          defaultValue=""
+          style={inputStyle}
+          onChange={() => clearError("schoolId")}
+        >
           <option value="" disabled>
             学校を選択
           </option>
@@ -116,10 +153,9 @@ export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) 
             </option>
           ))}
         </select>
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        ロール（必須）
+      <FormField label="ロール" required hint="新規校の最初の管理者を作るには「学校管理者」を選ぶ">
         <select name="role" required defaultValue="school_admin" style={inputStyle}>
           {ROLE_OPTIONS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -127,22 +163,30 @@ export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) 
             </option>
           ))}
         </select>
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        メールアドレス（必須）
-        <input name="email" type="email" required maxLength={320} style={inputStyle} />
-      </label>
+      <FormField label="メールアドレス" required error={fieldErrors.email}>
+        <input
+          name="email"
+          type="email"
+          required
+          maxLength={320}
+          style={inputStyle}
+          onChange={() => clearError("email")}
+        />
+      </FormField>
 
-      <label style={labelStyle}>
-        表示名（必須）
-        <input name="displayName" required maxLength={100} style={inputStyle} />
-      </label>
+      <FormField label="表示名" required error={fieldErrors.displayName}>
+        <input
+          name="displayName"
+          required
+          maxLength={100}
+          style={inputStyle}
+          onChange={() => clearError("displayName")}
+        />
+      </FormField>
 
-      <p style={noteStyle}>
-        新規校の最初の<strong>学校管理者</strong>
-        を作るにはロールを「学校管理者」にしてください。発行後に表示される初回設定リンクを本人へ共有してください。
-      </p>
+      <p style={noteStyle}>発行後に表示される初回設定リンクを本人へ共有してください。</p>
 
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
         <button type="submit" disabled={pending} style={btnStyle}>
@@ -163,6 +207,8 @@ const labelStyle: React.CSSProperties = {
   color: "#374151",
 };
 const inputStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
   padding: "0.5rem 0.6rem",
   border: "1px solid #d1d5db",
   borderRadius: "6px",
