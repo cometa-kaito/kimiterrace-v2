@@ -14,6 +14,7 @@ import {
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
 import { signageScheduleDates } from "./rotation";
+import { type SignageDesignPattern, getSignageDesignPattern } from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
@@ -58,6 +59,11 @@ import { type SignageWeather, getSignageWeather } from "./weather";
 /** サイネージ 1 画面分のペイロード。Server Component の初期描画とポーリング応答で共有。 */
 export type SignagePayload = {
   date: string;
+  /**
+   * 学校が選んだサイネージ盤面デザインパターン（学校別デザイン）。`SignageClient` がこの値で盤面
+   * コンポーネントを dispatch する。未設定の学校は既定 `pattern1`（今回作成した v1 レイアウト）。
+   */
+  designPattern: SignageDesignPattern;
   daily: EffectiveDailyData;
   /**
    * v1 サイネージの「予定」3 列グリッド (今後 3 平日) 用。`date` を起点に土日を飛ばした 3 平日ぶんの
@@ -119,6 +125,9 @@ export async function getSignageDisplayData(
     // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    return { date, daily, scheduleDays, ads, weather } satisfies SignagePayload;
+    // 学校別デザインパターン（school_configs display_settings.signageDesign）。未設定は既定 pattern1。
+    // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
+    const designPattern = await getSignageDesignPattern(tx);
+    return { date, designPattern, daily, scheduleDays, ads, weather } satisfies SignagePayload;
   });
 }

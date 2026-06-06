@@ -22,6 +22,7 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
+import type { SignageDesignPattern } from "@/lib/signage/signage-design";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -174,10 +175,55 @@ export function SignageClient({
     return <SignageInvalid />;
   }
 
-  const ad = adCount > 0 ? ads[safeIndex] : null;
+  // 配列 index アクセスは T|undefined。盤面コンポーネントへ T|null で渡すため undefined を null に丸める。
+  const ad = adCount > 0 ? (ads[safeIndex] ?? null) : null;
   const adLink = ad ? safeHttpUrl(ad.linkUrl) : null;
-  const hasMedia = ad != null;
 
+  // 学校が選んだデザインパターンで盤面コンポーネントを dispatch する（学校別デザイン）。再生制御
+  // （ポーリング/ローテーション/テレメトリ/時計）は本コンポーネントが持ち、盤面は表示専用で受け取る。
+  return renderDesignBoard(data.designPattern, {
+    data,
+    ad,
+    adLink,
+    adCount,
+    safeIndex,
+    now,
+    onAdTap: handleAdTap,
+  });
+}
+
+/** 各デザインパターンの盤面が受け取る共通 props（再生制御は SignageClient 側、盤面は表示のみ）。 */
+type SignageBoardProps = {
+  data: SignagePayload;
+  ad: SignagePayload["ads"][number] | null;
+  adLink: string | null;
+  adCount: number;
+  safeIndex: number;
+  now: Date | null;
+  onAdTap: (adId: string, slotIndex: number) => void;
+};
+
+/**
+ * 学校が選んだデザインパターンに応じた盤面コンポーネントを返す（**学校別デザインの拡張点**）。
+ * 現状は `pattern1`（今回作成した v1 レイアウト）のみ。未知/将来パターンは既定 `pattern1` に
+ * フォールバックして必ず描画する。将来パターン追加時は case と専用 Board を足すだけで拡張できる。
+ */
+function renderDesignBoard(pattern: SignageDesignPattern, props: SignageBoardProps) {
+  switch (pattern) {
+    case "pattern1":
+      return <Pattern1Board {...props} />;
+    default:
+      return <Pattern1Board {...props} />;
+  }
+}
+
+/**
+ * パターン1: 旧キミテラス v1 レイアウト盤面。
+ *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
+ *   天気は予定の上に小さく1行。学校が `pattern1` を選んだとき（既定）に描画される。
+ */
+function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
+  const hasMedia = ad != null;
   const { dateText, dayText } = formatBoardDate(data.date);
   const time = now ? formatClock(now) : "";
 
@@ -217,7 +263,7 @@ export function SignageClient({
                     rel="noopener noreferrer"
                     className={styles.adLink}
                     aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
-                    onClick={() => handleAdTap(ad.adId, safeIndex)}
+                    onClick={() => onAdTap(ad.adId, safeIndex)}
                   >
                     <AdMedia key={ad.adId} ad={ad} />
                   </a>
