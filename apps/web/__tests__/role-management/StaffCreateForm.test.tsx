@@ -32,6 +32,28 @@ describe("StaffCreateForm (#508 発行フォーム)", () => {
     expect(screen.getByText(/発行できるのは/)).toBeInTheDocument();
   });
 
+  it("空送信は項目別エラーを出し、action を呼ばない (クライアント検証)", () => {
+    render(<StaffCreateForm />);
+    fireEvent.click(screen.getByRole("button", { name: "発行する" }));
+    expect(createMock).not.toHaveBeenCalled();
+    expect(screen.getByText("メールアドレスの形式が不正です。")).toBeInTheDocument();
+    expect(screen.getByText("表示名を入力してください (100 文字以内)。")).toBeInTheDocument();
+  });
+
+  it("メール形式違反は email 項目エラーで action を呼ばない", () => {
+    render(<StaffCreateForm />);
+    fireEvent.change(screen.getByRole("textbox", { name: "メールアドレス" }), {
+      target: { value: "not-an-email" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "表示名" }), {
+      target: { value: "山田先生" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "発行する" }));
+    expect(createMock).not.toHaveBeenCalled();
+    expect(screen.getByText("メールアドレスの形式が不正です。")).toBeInTheDocument();
+    expect(screen.queryByText("表示名を入力してください (100 文字以内)。")).toBeNull();
+  });
+
   it("送信で {email, displayName} を渡して action を呼び、成功で初回設定リンクを表示する", async () => {
     createMock.mockResolvedValue({
       ok: true,

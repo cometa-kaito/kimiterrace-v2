@@ -1,6 +1,12 @@
 "use client";
 
 import { createStaffAction } from "@/lib/role-management/member-actions";
+import {
+  type StaffCreateFieldErrors,
+  collectStaffCreateFieldErrors,
+  hasStaffCreateFieldErrors,
+} from "@/lib/role-management/staff-create-core";
+import { FormField } from "@kimiterrace/ui";
 import { type FormEvent, useState, useTransition } from "react";
 
 /**
@@ -10,22 +16,45 @@ import { type FormEvent, useState, useTransition } from "react";
  * **初回パスワード設定リンク (setupLink) の表示**に徹する (AdvertiserCreateForm と同方針)。
  * 成功時は一覧へ戻さず、setupLink を画面に出して発行者がコピー → 利用者へ共有できるようにする
  * (email 自動送信は持たない MVP、リンクは発行者経由で渡す)。
+ *
+ * **項目別インライン検証 (FormField)**: 送信前に `collectStaffCreateFieldErrors` で項目別に検証し、エラーは
+ * 各項目の下に表示する。検証規則は Server Action と同じ単一ソース (staff-create-core)。`noValidate` で
+ * ネイティブ検証バブルと二重化しない。
  */
 export function StaffCreateForm() {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ setupLink: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<StaffCreateFieldErrors>({});
+
+  // 入力中はその項目のエラーを消す (修正に追従)。
+  function clearError(field: keyof StaffCreateFieldErrors) {
+    setFieldErrors((prev) => {
+      if (prev[field] === undefined) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const raw = { email: fd.get("email"), displayName: fd.get("displayName") };
+    // クライアント側の項目別検証。エラーがあれば送信せず項目の下に表示する (Server Action と同じ規則)。
+    const errors = collectStaffCreateFieldErrors(raw);
+    if (hasStaffCreateFieldErrors(errors)) {
+      setFieldErrors(errors);
+      setError(null);
+      return;
+    }
+    setFieldErrors({});
     setError(null);
     startTransition(async () => {
-      const res = await createStaffAction({
-        email: fd.get("email"),
-        displayName: fd.get("displayName"),
-      });
+      const res = await createStaffAction(raw);
       if (res.ok) {
         setCreated({ setupLink: res.data.setupLink });
       } else {
@@ -71,18 +100,33 @@ export function StaffCreateForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ display: "grid", gap: "1rem" }}>
-      {error ? <output style={errorStyle}>{error}</output> : null}
+    <form onSubmit={onSubmit} noValidate style={{ display: "grid", gap: "0.5rem" }}>
+      {error ? (
+        <output role="alert" style={errorStyle}>
+          {error}
+        </output>
+      ) : null}
 
-      <label style={labelStyle}>
-        メールアドレス（必須）
-        <input name="email" type="email" required maxLength={320} style={inputStyle} />
-      </label>
+      <FormField label="メールアドレス" required error={fieldErrors.email}>
+        <input
+          name="email"
+          type="email"
+          required
+          maxLength={320}
+          style={inputStyle}
+          onChange={() => clearError("email")}
+        />
+      </FormField>
 
-      <label style={labelStyle}>
-        表示名（必須）
-        <input name="displayName" required maxLength={100} style={inputStyle} />
-      </label>
+      <FormField label="表示名" required error={fieldErrors.displayName}>
+        <input
+          name="displayName"
+          required
+          maxLength={100}
+          style={inputStyle}
+          onChange={() => clearError("displayName")}
+        />
+      </FormField>
 
       <p style={noteStyle}>
         発行できるのは<strong>教員</strong>
@@ -108,6 +152,8 @@ const labelStyle: React.CSSProperties = {
   color: "#374151",
 };
 const inputStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
   padding: "0.5rem 0.6rem",
   border: "1px solid #d1d5db",
   borderRadius: "6px",
