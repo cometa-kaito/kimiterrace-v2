@@ -1,5 +1,5 @@
 /**
- * F13 (#391, ADR-020): 岐阜県立岐南工業高校「電子工学科 1〜3 年」に **現在設置されている**
+ * F13 (#391, ADR-020): 岐阜県立岐南工業高等学校「電子工学科 1〜3 年」に **現在設置されている**
  * SwitchBot 人感センサー（PIR）を v2 の `sensor_devices`（センサー管理）へ登録するための
  * **シードデータ（純データ・副作用なし）**。実投入は {@link ./seed-ginan-sensors-cli.ts} が行う。
  *
@@ -44,7 +44,7 @@ export function canonicalizeMac(mac: string): string {
 }
 
 /** 解決キー: 学校名（`schools.name`）。env `SEED_GINAN_SCHOOL_NAME` で上書き可。 */
-export const GINAN_SCHOOL_NAME = "岐阜県立岐南工業高校";
+export const GINAN_SCHOOL_NAME = "岐阜県立岐南工業高等学校";
 
 /** 解決キー: 学科名（`departments.name`）。env `SEED_GINAN_DEPARTMENT_NAME` で上書き可。 */
 export const GINAN_ECE_DEPARTMENT_NAME = "電子工学科";

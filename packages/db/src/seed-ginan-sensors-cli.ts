@@ -7,7 +7,7 @@ import {
 } from "./seed-ginan-sensors.js";
 
 /**
- * F13 (#391, ADR-020): 岐阜県立岐南工業高校「電子工学科 1〜3 年」の設置済み SwitchBot 人感センサーを
+ * F13 (#391, ADR-020): 岐阜県立岐南工業高等学校「電子工学科 1〜3 年」の設置済み SwitchBot 人感センサーを
  * v2 の `sensor_devices`（センサー管理）へ登録する **シード実行エントリ**。
  * データ（実 MAC・出典）は {@link ./seed-ginan-sensors.ts} を参照。
  *
@@ -17,7 +17,7 @@ import {
  *   （`command=["node","dist/seed-ginan-sensors-cli.js"]`、seed-staging-cli と同パターン）。
  *
  * ## 前提（このシードは作らない）
- * 学校 `岐阜県立岐南工業高校` と `departments=電子工学科` / 1〜3 年の grades・classes は **既存**であること。
+ * 学校 `岐阜県立岐南工業高等学校` と `departments=電子工学科` / 1〜3 年の grades・classes は **既存**であること。
  * 本シードは責務を「センサー登録のみ」に絞る（ルール6: 1 PR = 1 機能）。学校が見つからなければ
  * 孤児行を作らず **fail-loud** で中断する。
  *

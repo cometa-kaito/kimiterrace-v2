@@ -106,7 +106,7 @@ describe("validateGinanSeedDevices", () => {
 
 describe("解決キー定数", () => {
   it("学校名・学科名がユーザー確定値", () => {
-    expect(GINAN_SCHOOL_NAME).toBe("岐阜県立岐南工業高校");
+    expect(GINAN_SCHOOL_NAME).toBe("岐阜県立岐南工業高等学校");
     expect(GINAN_ECE_DEPARTMENT_NAME).toBe("電子工学科");
   });
 });

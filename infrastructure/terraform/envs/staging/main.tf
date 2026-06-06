@@ -84,8 +84,9 @@ locals {
 
   # F13 (#391, ADR-020): 岐南工業 電子工学科1〜3年の設置済 SwitchBot を sensor_devices に登録する seed Job の
   # イメージタグ。migrate イメージに seed-ginan-sensors-cli を含む版（同一 Dockerfile・command 上書きで
-  # `dist/seed-ginan-sensors-cli.js` を起動）。5765ea2 = PR #670 merge 後の main から build した版。
-  seed_ginan_image_tag = "5765ea2"
+  # `dist/seed-ginan-sensors-cli.js` を起動）。665b6b7 = 学校名を実レコード「岐阜県立岐南工業高等学校」に
+  # 修正した版（5765ea2 は旧名「岐阜県立岐南工業高校」で fail-loud したため差し替え）。
+  seed_ginan_image_tag = "665b6b7"
 
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
@@ -264,7 +265,7 @@ module "cloud_run_job_seed" {
 # cloud_run_job_seed と同モジュール/イメージを **command 上書き** で再利用し `dist/seed-ginan-sensors-cli.js` を
 # 起動する。migrator DSN で system_admin context を張って冪等 INSERT（実 MAC は LP 本番 tv_devices 由来）。
 # 実行: `gcloud run jobs execute kimiterrace-seed-ginan --region asia-northeast1 --project signage-v2-staging`。
-# 前提: schools に「岐阜県立岐南工業高校」+ departments=電子工学科 / 1〜3年 grades・classes が既存（無ければ
+# 前提: schools に「岐阜県立岐南工業高等学校」+ departments=電子工学科 / 1〜3年 grades・classes が既存（無ければ
 # seed が fail-loud で中断し DB を変更しない）。再実行は ON CONFLICT(device_mac) DO NOTHING で安全。
 module "cloud_run_job_seed_ginan" {
   source                 = "../../modules/cloud_run_job_migrate"
