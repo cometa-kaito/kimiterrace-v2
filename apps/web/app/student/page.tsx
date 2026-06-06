@@ -1,3 +1,4 @@
+import { EmptyState } from "@kimiterrace/ui";
 import { resolveStudentSession } from "../../lib/magic-link/student-session";
 import { StudentChat } from "./_components/StudentChat";
 
@@ -31,14 +32,12 @@ export default async function StudentLandingPage() {
           maxWidth: "32rem",
           margin: "4rem auto",
           padding: "0 1rem",
-          textAlign: "center",
         }}
       >
-        <h1>セッションが無効です</h1>
-        <p>
-          アクセス用リンクが失効したか、有効期限が切れています。担任の先生に新しいリンクの発行を
-          依頼してください。
-        </p>
+        <EmptyState
+          title="セッションが無効です"
+          description="アクセス用リンクが失効したか、有効期限が切れています。担任の先生に新しいリンクの発行を依頼してください。"
+        />
       </main>
     );
   }

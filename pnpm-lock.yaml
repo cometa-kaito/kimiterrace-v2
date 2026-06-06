@@ -88,6 +88,9 @@ importers:
       '@kimiterrace/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@kimiterrace/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
@@ -236,6 +239,42 @@ importers:
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/ui:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.4.16
+        version: 2.4.16
+      '@testing-library/dom':
+        specifier: ^10.4.1
+        version: 10.4.1
+      '@testing-library/jest-dom':
+        specifier: ^6.9.1
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: ^16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.15
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.15)
+      jsdom:
+        specifier: ^29.1.1
+        version: 29.1.1(@noble/hashes@1.8.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.6(react@19.2.6)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
