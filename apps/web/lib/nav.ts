@@ -1,5 +1,4 @@
 import type { TenantRole } from "@kimiterrace/db";
-import { MFA_ENROLLMENT_PATH } from "./mfa/policy";
 
 /**
  * role 別 navigation の**純粋ロジック** (#48-C)。
@@ -33,6 +32,17 @@ export const ADMIN_ROLES = [
 
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
+/**
+ * **MFA (二要素認証) の nav 項目は意図的に外している (2026-06-07 ユーザー判断)**。MFA は現状運用しないため
+ * UI の入口 (サイドナビ) からは触れさせない。ただし**機能・コードは残置**する — enrollment ページ
+ * (`/admin/account/mfa`) / client 登録・解除 / 監査 Server Action (`enrollment-actions`) / 強制ゲート
+ * (`enforceMfaGate`、既定 OFF) / policy はすべて温存する。本番導入時 (`MFA_ENFORCEMENT=on`) は、各ロールに
+ * `{ label: "二要素認証", href: MFA_ENROLLMENT_PATH }` を**再追加すれば復帰**できる (強制ゲートが未登録者を
+ * 同ページへ誘導する経路は nav に依らず機能する)。
+ *
+ * ⚠️ 「nav 配線が漏れている」と誤認して再追加しないこと。広告主 nav の前例 (#46、配線漏れ) とは状況が異なり、
+ * これは**意図的な撤去**。再表示は MFA 運用開始の判断とセットで行う。
+ */
 const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // システム管理者: 全校横断の運用 (RLS bypass ではなく system_admin policy 経由、ADR-019)。
   system_admin: [
@@ -55,9 +65,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 自校の月次サマリービュー (/admin/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
     { label: "月次レポート", href: "/admin/system/reports" },
     { label: "フィードバック", href: "/admin/system/feedback" },
-    // F11 (#47, ADR-031): 自分の二要素認証 (MFA) 登録。teacher 以上 (= 全管理ロール) 共通の
-    // セルフサービス。requireRole(MFA_REQUIRED_ROLES) で全管理ロール許可 → 死リンクにならない。
-    { label: "二要素認証", href: MFA_ENROLLMENT_PATH },
+    // 二要素認証 (MFA) は意図的に nav から外す (上記 NAV_BY_ROLE の注記参照。機能は残置)。
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開。
   //
@@ -76,8 +84,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F06 (#370): 教員も使える掲示物 Q&A チャット。/admin/chat も /api/teacher/chat も
     // requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止で publisher のみ。
     { label: "掲示物 Q&A", href: "/admin/chat" },
-    // F11 (#47, ADR-031): 自分の二要素認証 (MFA) 登録 (セルフサービス、teacher 以上共通)。
-    { label: "二要素認証", href: MFA_ENROLLMENT_PATH },
+    // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   ],
   // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 掲示物 Q&A (F06)。
   //
@@ -92,8 +99,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F06 (#370): 教員も使える掲示物 Q&A チャット (/admin/chat → /api/teacher/chat)。teacher も
     // PUBLISHER_ROLES に含まれるため出す (requireRole(PUBLISHER_ROLES) で許可 → 死リンクにならない)。
     { label: "掲示物 Q&A", href: "/admin/chat" },
-    // F11 (#47, ADR-031): 自分の二要素認証 (MFA) 登録 (セルフサービス、teacher 以上共通)。
-    { label: "二要素認証", href: MFA_ENROLLMENT_PATH },
+    // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   ],
 };
 

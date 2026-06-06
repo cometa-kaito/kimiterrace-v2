@@ -38,14 +38,13 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A + 二要素認証 (#48-C 導線、F02 入力、F04 公開ハブ、F06 チャット、F11 MFA)。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
+  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A (#48-C 導線、F02 入力、F04 公開ハブ、F06 チャット)。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去、MFA は意図的に nav から撤去 (機能残置)", () => {
     const items = navItemsForRole("teacher");
     expect(items.map((i) => i.href)).toEqual([
       "/admin/editor",
       "/admin/teacher-input",
       "/admin/contents",
       "/admin/chat",
-      "/admin/account/mfa",
     ]);
   });
 
@@ -115,7 +114,7 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック + 二要素認証（自校エディタは出さない）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + 月次レポート + フィードバック（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
@@ -125,7 +124,6 @@ describe("navItemsForRole", () => {
       "/admin/system/sensors",
       "/admin/system/reports",
       "/admin/system/feedback",
-      "/admin/account/mfa",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
   });
@@ -178,6 +176,14 @@ describe("navItemsForRole", () => {
       "/admin/system/dashboard",
     );
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/dashboard");
+  });
+
+  it("二要素認証 (/admin/account/mfa) は誰の nav にも出さない (2026-06-07 ユーザー判断: MFA 現状非運用ゆえ UI 入口を撤去・機能は残置)", () => {
+    // ⚠️ 意図的な撤去。enrollment ページ / Server Action / 強制ゲート / policy は残置しており、MFA 運用
+    // 開始時に nav 3 項目を再追加すれば復帰する。「配線漏れ」と誤認して再追加しないこと (nav.ts の注記参照)。
+    for (const role of ["system_admin", "school_admin", "teacher"] as const) {
+      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/admin/account/mfa");
+    }
   });
 
   it("管理エリア対象外ロール (student/guardian) は空配列 — UI に管理ナビを出さない", () => {
