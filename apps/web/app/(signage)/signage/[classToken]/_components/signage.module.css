@@ -565,11 +565,24 @@
    広告を上部（最初に必ず見える位置）に出し、予定は 3 日(3 列) × 3 行に絞る。連絡/提出物は全件スクロール。
    (2026-06-07 ユーザー確定) */
 @media (max-width: 899px) {
+  /* 外殻 layout.tsx は position:fixed; inset:0; overflow:hidden で viewport に固定される。よって本要素
+     (基底 position:absolute; inset:0) を **自身がスクロールするコンテナ** にする（縦長コンテンツを内部
+     スクロール）。static + overflow:visible にすると外殻にクリップされてスクロール不能になる（実機 ≤899px）。 */
   .signageRoot {
-    position: static;
-    overflow: visible;
-    height: auto;
-    min-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .signageRoot ::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+  }
+  .signageRoot ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 3px;
+  }
+  .signageRoot * {
+    scrollbar-width: thin;
   }
   /* タブ(ヘッダー)はスクロール中も上部に残す。ブランディングはフッターへ寄せ、ヘッダーは日付/天気/時刻に絞る。 */
   .adHeader {
