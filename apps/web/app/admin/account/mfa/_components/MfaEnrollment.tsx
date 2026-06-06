@@ -1,6 +1,7 @@
 "use client";
 
 import { recordMfaEnrollmentAudit } from "@/lib/mfa/enrollment-actions";
+import { ConfirmDialog } from "@kimiterrace/ui";
 import {
   type MultiFactorInfo,
   type TotpSecret,
@@ -51,6 +52,8 @@ export function MfaEnrollment() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // 解除確認ダイアログの対象 factor (null で非表示)。window.confirm を共通 ConfirmDialog に置換。
+  const [confirmFactor, setConfirmFactor] = useState<MultiFactorInfo | null>(null);
 
   // 現在の登録状況を client SDK から読む (currentUser が無ければ再ログイン案内)。
   const refresh = useCallback(() => {
@@ -130,13 +133,12 @@ export function MfaEnrollment() {
     }
   }
 
-  // 既存の第2要素を解除する (確認ダイアログ付き)。解除後も監査に記録する。
-  async function onUnenroll(factor: MultiFactorInfo) {
-    if (!window.confirm("登録済みの二要素認証を解除します。よろしいですか？")) {
-      return;
-    }
+  // 既存の第2要素を解除する。確認は共通 ConfirmDialog (confirmFactor) 経由で、ここは確定後の実処理に徹する。
+  // 解除後も監査に記録する。
+  async function runUnenroll(factor: MultiFactorInfo) {
     const user = getClientAuth().currentUser;
     if (!user) {
+      setConfirmFactor(null);
       setError("セッションを確認できませんでした。再ログインしてください。");
       return;
     }
@@ -161,7 +163,9 @@ export function MfaEnrollment() {
       refresh();
       router.refresh();
     } finally {
+      // 成否いずれもダイアログを閉じ、busy を解除する (失敗はインライン error に集約)。
       setBusy(false);
+      setConfirmFactor(null);
     }
   }
 
@@ -194,7 +198,7 @@ export function MfaEnrollment() {
                 <span>{f.displayName || "Authenticator アプリ"}</span>
                 <button
                   type="button"
-                  onClick={() => onUnenroll(f)}
+                  onClick={() => setConfirmFactor(f)}
                   disabled={busy}
                   style={dangerBtnStyle}
                 >
@@ -243,6 +247,21 @@ export function MfaEnrollment() {
 
       {error ? <output style={errorStyle}>{error}</output> : null}
       {notice ? <output style={noticeStyle}>{notice}</output> : null}
+
+      <ConfirmDialog
+        open={confirmFactor !== null}
+        tone="danger"
+        title="二要素認証を解除しますか？"
+        description="解除すると、次回からパスワードのみでログインします。"
+        confirmLabel="解除する"
+        pending={busy}
+        onConfirm={() => {
+          if (confirmFactor) {
+            runUnenroll(confirmFactor);
+          }
+        }}
+        onCancel={() => setConfirmFactor(null)}
+      />
     </div>
   );
 }

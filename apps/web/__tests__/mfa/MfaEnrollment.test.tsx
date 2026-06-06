@@ -142,12 +142,13 @@ describe("MfaEnrollment 監査失敗 UX (#544 Reviewer Low-2)", () => {
   });
 
   it("unenroll 成功後に監査が throw しても『解除は成功・監査のみ失敗』を表示 (解除失敗と取り違えない)", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mountMultiFactor([{ uid: "f1", displayName: "Authenticator アプリ" }]);
     auditMock.mockRejectedValue(new Error("IdP transient"));
     render(<MfaEnrollment />);
 
+    // 「解除」で確認ダイアログを開き、「解除する」で確定する (window.confirm→ConfirmDialog)。
     fireEvent.click(await screen.findByRole("button", { name: "解除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "解除する" }));
 
     expect(
       await screen.findByText(/解除は完了しましたが監査記録に失敗しました/),
@@ -156,15 +157,27 @@ describe("MfaEnrollment 監査失敗 UX (#544 Reviewer Low-2)", () => {
   });
 
   it("unenroll 自体が失敗したら解除失敗エラーを表示し監査を呼ばない", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const mf = mountMultiFactor([{ uid: "f1", displayName: "Authenticator アプリ" }]);
     mf.unenroll.mockRejectedValue(new Error("requires recent login"));
     render(<MfaEnrollment />);
 
     fireEvent.click(await screen.findByRole("button", { name: "解除" }));
+    fireEvent.click(await screen.findByRole("button", { name: "解除する" }));
 
     expect(await screen.findByText(/解除に失敗しました/)).toBeInTheDocument();
     expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it("解除の確認ダイアログをキャンセルすると unenroll を呼ばない (確認がゲートになっている)", async () => {
+    const mf = mountMultiFactor([{ uid: "f1", displayName: "Authenticator アプリ" }]);
+    render(<MfaEnrollment />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "解除" }));
+    await screen.findByRole("alertdialog");
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+
+    expect(mf.unenroll).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });
 });
 
