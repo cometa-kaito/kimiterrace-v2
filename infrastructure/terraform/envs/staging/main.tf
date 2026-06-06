@@ -131,8 +131,11 @@ locals {
   #          検証（検証規則を core の単一ソースに統合）。ce55060(#646 学校フォーム/#648 含む) を内包＋#650/#652。
   #          UI 変更ゆえ再 build/deploy で反映（web:b9d37f0 を Cloud Build 済・AR push 済、main HEAD）。
   # 575e39c: #654 階層UX改善（処理中表示 / クラス追加=名前のみ / 学年を1まとまりに）を反映。b9d37f0 を
-  #          内包＋#654（= 現 main HEAD・全機能込み）。web:575e39c を Cloud Build 済・AR push 済。
-  web_image_tag = "575e39c"
+  #          内包＋#654。web:575e39c を Cloud Build 済・AR push 済。
+  # a824e23: 段3 FormField 採用の追加分 + サイネージ設計を反映 — #658 学校ごとサイネージデザイン /
+  #          #659 system_admin 教職員発行フォーム検証 / #661 広告主 編集フォーム検証。575e39c を内包＋
+  #          #657/#658/#659/#661（= 現 main HEAD・全機能込み）。web:a824e23 を Cloud Build 済・AR push 済。
+  web_image_tag = "a824e23"
 }
 
 module "network" {
