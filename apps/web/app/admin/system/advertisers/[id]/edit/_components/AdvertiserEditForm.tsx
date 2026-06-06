@@ -5,8 +5,12 @@ import {
   ADVERTISER_STATUS_DESCRIPTION,
   ADVERTISER_STATUS_LABEL,
   ADVERTISER_STATUS_ORDER,
+  type AdvertiserFieldErrors,
+  collectAdvertiserFieldErrors,
+  hasAdvertiserFieldErrors,
 } from "@/lib/system-admin/advertisers-core";
 import type { AdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
+import { FormField } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
@@ -15,26 +19,51 @@ import { type FormEvent, useState, useTransition } from "react";
  * 呼ぶ。成功時は一覧へ戻る。認可・検証・監査・RLS は Server Action 側が担保するので、ここは入力収集と
  * 結果表示に徹する (AdvertiserCreateForm と同方針)。会社名のみ必須、その他は任意。稼働状態の切替は
  * 一覧の稼働トグルが管轄で本フォームには含めない。
+ *
+ * **項目別インライン検証 (FormField)**: 送信前に `collectAdvertiserFieldErrors` で項目別に検証し、エラーは
+ * 各項目の下に表示する。検証規則は Server Action と同じ単一ソース (AdvertiserCreateForm と共有)。
+ * `noValidate` でネイティブ検証バブルと二重化しない。
  */
 export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetail }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<AdvertiserFieldErrors>({});
+
+  // 入力中はその項目のエラーを消す (修正に追従)。
+  function clearError(field: keyof AdvertiserFieldErrors) {
+    setFieldErrors((prev) => {
+      if (prev[field] === undefined) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const raw = {
+      companyName: fd.get("companyName"),
+      industry: fd.get("industry"),
+      contactEmail: fd.get("contactEmail"),
+      contactPhone: fd.get("contactPhone"),
+      address: fd.get("address"),
+      notes: fd.get("notes"),
+    };
+    // クライアント側の項目別検証。エラーがあれば送信せず項目の下に表示する (Server Action と同じ規則)。
+    const errors = collectAdvertiserFieldErrors(raw);
+    if (hasAdvertiserFieldErrors(errors)) {
+      setFieldErrors(errors);
+      setError(null);
+      return;
+    }
+    setFieldErrors({});
     setError(null);
     startTransition(async () => {
-      const res = await updateAdvertiserAction(advertiser.id, {
-        companyName: fd.get("companyName"),
-        industry: fd.get("industry"),
-        contactEmail: fd.get("contactEmail"),
-        contactPhone: fd.get("contactPhone"),
-        address: fd.get("address"),
-        notes: fd.get("notes"),
-        status: fd.get("status"),
-      });
+      const res = await updateAdvertiserAction(advertiser.id, { ...raw, status: fd.get("status") });
       if (res.ok) {
         router.push("/admin/system/advertisers");
         router.refresh();
@@ -45,22 +74,25 @@ export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetai
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ display: "grid", gap: "1rem" }}>
-      {error ? <output style={errorStyle}>{error}</output> : null}
+    <form onSubmit={onSubmit} noValidate style={{ display: "grid", gap: "0.5rem" }}>
+      {error ? (
+        <output role="alert" style={errorStyle}>
+          {error}
+        </output>
+      ) : null}
 
-      <label style={labelStyle}>
-        会社名（必須）
+      <FormField label="会社名" required error={fieldErrors.companyName}>
         <input
           name="companyName"
           required
           maxLength={200}
           defaultValue={advertiser.companyName}
           style={inputStyle}
+          onChange={() => clearError("companyName")}
         />
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        ステータス
+      <FormField label="ステータス" hint="見込み / 契約中 / 休止（休止は配信対象外）">
         <select name="status" defaultValue={advertiser.status} style={inputStyle}>
           {ADVERTISER_STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
@@ -68,59 +100,59 @@ export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetai
             </option>
           ))}
         </select>
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        業種（任意）
+      <FormField label="業種" hint="任意" error={fieldErrors.industry}>
         <input
           name="industry"
           maxLength={100}
           defaultValue={advertiser.industry ?? ""}
           style={inputStyle}
+          onChange={() => clearError("industry")}
         />
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        担当メールアドレス（任意）
+      <FormField label="担当メールアドレス" hint="任意" error={fieldErrors.contactEmail}>
         <input
           name="contactEmail"
           type="email"
           maxLength={320}
           defaultValue={advertiser.contactEmail ?? ""}
           style={inputStyle}
+          onChange={() => clearError("contactEmail")}
         />
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        担当電話番号（任意）
+      <FormField label="担当電話番号" hint="任意" error={fieldErrors.contactPhone}>
         <input
           name="contactPhone"
           maxLength={50}
           defaultValue={advertiser.contactPhone ?? ""}
           style={inputStyle}
+          onChange={() => clearError("contactPhone")}
         />
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        住所（任意）
+      <FormField label="住所" hint="任意" error={fieldErrors.address}>
         <input
           name="address"
           maxLength={1000}
           defaultValue={advertiser.address ?? ""}
           style={inputStyle}
+          onChange={() => clearError("address")}
         />
-      </label>
+      </FormField>
 
-      <label style={labelStyle}>
-        備考（任意）
+      <FormField label="備考" hint="任意" error={fieldErrors.notes}>
         <textarea
           name="notes"
           maxLength={2000}
           rows={3}
           defaultValue={advertiser.notes ?? ""}
           style={inputStyle}
+          onChange={() => clearError("notes")}
         />
-      </label>
+      </FormField>
 
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
         <button type="submit" disabled={pending} style={btnStyle}>
@@ -134,13 +166,9 @@ export function AdvertiserEditForm({ advertiser }: { advertiser: AdvertiserDetai
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "grid",
-  gap: "0.3rem",
-  fontSize: "0.85rem",
-  color: "#374151",
-};
 const inputStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
   padding: "0.5rem 0.6rem",
   border: "1px solid #d1d5db",
   borderRadius: "6px",
