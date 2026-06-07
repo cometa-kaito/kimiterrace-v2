@@ -74,7 +74,7 @@ describe("OperatorAdForm", () => {
         schoolId: SCHOOL_ID,
         mediaUrl: "https://cdn.example.com/a.png",
         mediaType: "image",
-        durationSec: "10",
+        durationSec: "30",
         linkUrl: "",
         caption: "",
       }),

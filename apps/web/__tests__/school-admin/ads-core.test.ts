@@ -23,14 +23,14 @@ describe("validateAdInput", () => {
     displayOrder: 2,
   };
 
-  it("正常: 既定値 (duration 5 / fontScale 1.0 / order 0 / caption,link null)", () => {
+  it("正常: 既定値 (duration 30 / fontScale 1.0 / order 0 / caption,link null)", () => {
     const r = validateAdInput({ mediaUrl: "https://x.test/a.png", mediaType: "image" });
     expect(r).toEqual({
       ok: true,
       value: {
         mediaUrl: "https://x.test/a.png",
         mediaType: "image",
-        durationSec: 5,
+        durationSec: 30,
         linkUrl: null,
         caption: null,
         captionFontScale: 1.0,

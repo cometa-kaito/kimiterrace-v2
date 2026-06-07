@@ -131,10 +131,10 @@ function normalizeOrder(value: unknown): number | null {
   return normalizeInt(value, 0, ORDER_MAX);
 }
 
-/** durationSec: 未指定は 5 (V1 既定)。整数 1..300 のみ。 */
+/** durationSec: 未指定は 30 秒（既定）。整数 1..300 のみ。 */
 function normalizeDuration(value: unknown): number | null {
   if (value === undefined || value === null || value === "") {
-    return 5;
+    return 30;
   }
   return normalizeInt(value, DURATION_MIN, DURATION_MAX);
 }
