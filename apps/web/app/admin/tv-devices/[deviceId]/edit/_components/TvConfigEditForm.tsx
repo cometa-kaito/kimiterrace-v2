@@ -1,6 +1,12 @@
 "use client";
 
 import { updateTvDeviceConfigAction } from "@/lib/tv/config-edit-actions";
+import {
+  type TvScheduleFormState,
+  WEEKDAY_LABELS,
+  formStateToScheduleInput,
+  scheduleToFormState,
+} from "@/lib/tv/config-edit-core";
 import type { TvSchedule } from "@kimiterrace/db/schema";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
@@ -27,29 +33,6 @@ type InitialConfig = {
   notes: string | null;
 };
 
-/** schedule をフォーム用の素朴な編集 state に展開する（hour 入力は文字列で持ち、送信時に数値化）。 */
-type ScheduleForm = {
-  enabled: boolean;
-  onHour: string;
-  offHour: string;
-};
-
-function toScheduleForm(s: TvSchedule | null): ScheduleForm {
-  return {
-    enabled: s?.enabled ?? false,
-    onHour: s?.onHour === undefined ? "" : String(s.onHour),
-    offHour: s?.offHour === undefined ? "" : String(s.offHour),
-  };
-}
-
-/** 文字列の hour 入力を 0-23 の数値 or undefined に変換（空欄は未指定）。範囲検証は Server 側に委ねる。 */
-function parseHour(value: string): number | undefined {
-  const t = value.trim();
-  if (t === "") return undefined;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : Number.NaN;
-}
-
 export function TvConfigEditForm({
   deviceRowId,
   initial,
@@ -69,21 +52,23 @@ export function TvConfigEditForm({
   const [targetMac, setTargetMac] = useState(initial.targetMac ?? "");
   const [notes, setNotes] = useState(initial.notes ?? "");
   const [monitoringEnabled, setMonitoringEnabled] = useState(initial.monitoringEnabled);
-  const [schedule, setSchedule] = useState<ScheduleForm>(toScheduleForm(initial.schedule));
+  const [schedule, setSchedule] = useState<TvScheduleFormState>(
+    scheduleToFormState(initial.schedule),
+  );
+
+  /** 曜日チェックボックスのトグル（index 0=日..6=土）。 */
+  function toggleWeekday(index: number) {
+    setSchedule((s) => ({
+      ...s,
+      weekdays: s.weekdays.map((checked, i) => (i === index ? !checked : checked)),
+    }));
+  }
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    // schedule は enabled が立っているか時刻が入っていれば送る（全て空なら null = スケジュール無し）。
-    const onHour = parseHour(schedule.onHour);
-    const offHour = parseHour(schedule.offHour);
-    const hasSchedule = schedule.enabled || onHour !== undefined || offHour !== undefined;
-    const scheduleInput: TvSchedule | null = hasSchedule
-      ? {
-          enabled: schedule.enabled,
-          ...(onHour !== undefined ? { onHour } : {}),
-          ...(offHour !== undefined ? { offHour } : {}),
-        }
-      : null;
+    // 入力された表示時刻・曜日・有効フラグを送信用 TvSchedule に変換（全て空なら null = スケジュール無し）。
+    // 範囲・整合の最終検証は Server Action 側 validateSchedule が行う。
+    const scheduleInput: TvSchedule | null = formStateToScheduleInput(schedule);
 
     startTransition(async () => {
       const res = await updateTvDeviceConfigAction(deviceRowId, {
@@ -199,6 +184,32 @@ export function TvConfigEditForm({
             />
           </label>
         </div>
+        <div style={weekdayGroupStyle}>
+          <span style={labelTextStyle}>表示する曜日</span>
+          <div style={weekdayRowStyle}>
+            {WEEKDAY_LABELS.map((dayLabel, i) => {
+              const checked = schedule.weekdays[i] ?? false;
+              return (
+                <label
+                  key={dayLabel}
+                  style={{ ...weekdayItemStyle, ...(checked ? weekdayItemCheckedStyle : {}) }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleWeekday(i)}
+                    disabled={pending}
+                    aria-label={`${dayLabel}曜日`}
+                  />
+                  <span>{dayLabel}</span>
+                </label>
+              );
+            })}
+          </div>
+          <span style={hintStyle}>
+            未選択 / 全選択はどちらも「毎日」表示です（特定曜日だけ選ぶと、その曜日のみ表示）。
+          </span>
+        </div>
       </fieldset>
 
       <label style={checkRowStyle}>
@@ -261,8 +272,28 @@ const checkRowStyle: React.CSSProperties = {
   gap: "0.5rem",
   fontSize: "0.9rem",
 };
-const hourRowStyle: React.CSSProperties = { display: "flex", gap: "1rem" };
+const hourRowStyle: React.CSSProperties = { display: "flex", gap: "1rem", flexWrap: "wrap" };
 const hourFieldStyle: React.CSSProperties = { display: "grid", gap: "0.3rem", maxWidth: "8rem" };
+const weekdayGroupStyle: React.CSSProperties = { display: "grid", gap: "0.4rem" };
+const weekdayRowStyle: React.CSSProperties = { display: "flex", gap: "0.4rem", flexWrap: "wrap" };
+const weekdayItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  padding: "0.3rem 0.55rem",
+  border: "1px solid #d1d5db",
+  borderRadius: "0.4rem",
+  fontSize: "0.85rem",
+  cursor: "pointer",
+  userSelect: "none",
+};
+const weekdayItemCheckedStyle: React.CSSProperties = {
+  borderColor: "#1d4ed8",
+  background: "#eff6ff",
+  color: "#1e3a8a",
+  fontWeight: 600,
+};
+const hintStyle: React.CSSProperties = { fontSize: "0.78rem", color: "#6b7280" };
 const submitStyle: React.CSSProperties = {
   padding: "0.5rem 1.25rem",
   background: "#1d4ed8",

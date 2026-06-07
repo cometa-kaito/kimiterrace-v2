@@ -276,6 +276,74 @@ export function validateSchedule(raw: unknown): Validated<TvSchedule | null> {
 }
 
 /**
+ * --- 編集フォーム ↔ TvSchedule の純変換（client-safe・単体テスト可能） ---------------------------
+ *
+ * client フォーム（TvConfigEditForm）が schedule を編集する際の素朴な state ⇔ `TvSchedule` の往復を
+ * **純関数**として core に置く。理由: ①フォーム内インラインだと React 19 transition 絡みで RTL が flaky
+ * （[[feedback_react19_transition_pending_test_flaky]]）なので変換ロジックを切り出して決定的に unit する、
+ * ②表示時間（hour）と表示曜日（weekday）の UI を加える本機能（F15 §4.2）のロジック単一ソース化。
+ */
+
+/** 曜日ラベル（index 0=日 .. 6=土）。schema の weekdays（0=日..6=土）に揃える。 */
+export const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/**
+ * 編集フォームの schedule state。hour 入力は文字列で保持し送信時に数値化（空欄=未指定）。
+ * `weekdays` は長さ 7 の boolean[]（index 0=日..6=土）で各曜日のチェック状態を持つ。
+ */
+export type TvScheduleFormState = {
+  enabled: boolean;
+  onHour: string;
+  offHour: string;
+  weekdays: boolean[];
+};
+
+/** `TvSchedule | null` をフォーム state に展開する。weekdays 未指定（=全曜日）は全チェックなしで表現。 */
+export function scheduleToFormState(s: TvSchedule | null): TvScheduleFormState {
+  const set = new Set(s?.weekdays ?? []);
+  return {
+    enabled: s?.enabled ?? false,
+    onHour: s?.onHour === undefined ? "" : String(s.onHour),
+    offHour: s?.offHour === undefined ? "" : String(s.offHour),
+    weekdays: Array.from({ length: 7 }, (_, i) => set.has(i)),
+  };
+}
+
+/** 文字列の hour 入力を数値 or undefined に。空欄は undefined、非数は NaN（Server 検証で弾く）。 */
+function parseHourInput(value: string): number | undefined {
+  const t = value.trim();
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
+/**
+ * フォーム state を送信用 `TvSchedule | null` に変換する。全項目が空（無効・時刻未入力・曜日未選択）なら
+ * `null`（スケジュール無し）。曜日は**部分選択時のみ**配列化し、全選択 or 未選択は `weekdays` を省略する
+ * （schema: 未指定 = 全曜日）。範囲・整合の最終検証は Server 側 `validateSchedule` が行う。
+ */
+export function formStateToScheduleInput(form: TvScheduleFormState): TvSchedule | null {
+  const onHour = parseHourInput(form.onHour);
+  const offHour = parseHourInput(form.offHour);
+  const selectedWeekdays = form.weekdays
+    .map((checked, i) => (checked ? i : -1))
+    .filter((i) => i >= 0);
+  // 全曜日（7 個）/ 未選択（0 個）は「毎日」とみなし weekdays を省略（冗長な全曜日配列を保存しない）。
+  const includeWeekdays = selectedWeekdays.length > 0 && selectedWeekdays.length < 7;
+  const hasSchedule =
+    form.enabled || onHour !== undefined || offHour !== undefined || selectedWeekdays.length > 0;
+  if (!hasSchedule) {
+    return null;
+  }
+  return {
+    enabled: form.enabled,
+    ...(onHour !== undefined ? { onHour } : {}),
+    ...(offHour !== undefined ? { offHour } : {}),
+    ...(includeWeekdays ? { weekdays: selectedWeekdays } : {}),
+  };
+}
+
+/**
  * 編集可能フィールドのみを取り出して検証・正規化したパッチ（query 層 `TvDeviceConfigPatch` 互換）。
  * 文字列フィールドは trim し、空文字は `null`（クリア）に正規化する。
  */
