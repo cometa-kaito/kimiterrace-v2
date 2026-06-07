@@ -18,10 +18,13 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const [open, setOpen] = useState(false);
   // 最長一致のみを active にする（親 /admin/school が子 /admin/school/members で誤点灯するのを防ぐ）。
   const activeHref = activeNavHref(items, pathname);
+  // 項目が 1 つ以下（teacher = エディタのみ）はハンバーガー不要。
+  // かつ nav を常時表示するため data-open を強制 "true" にしてモバイルでも見える状態にする。
+  const single = items.length <= 1;
 
   return (
     <div className="admin-sidebar-wrap">
-      {items.length > 1 && (
+      {!single && (
         <button
           type="button"
           className="admin-hamburger"
@@ -35,7 +38,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
       <nav
         id="admin-nav"
         className="admin-nav"
-        data-open={open ? "true" : "false"}
+        data-open={single || open ? "true" : "false"}
         aria-label="メインナビゲーション"
       >
         <ul>
