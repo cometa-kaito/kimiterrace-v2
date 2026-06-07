@@ -49,6 +49,8 @@ export type AuthUser = {
   role: TenantRole;
   /** system_admin は school に属さないため null になりうる (テナント外、ADR-019)。 */
   schoolId: string | null;
+  /** Identity Platform メールアドレス。ヘッダ表示用。セキュリティ判断には使わない。 */
+  email?: string;
 };
 
 /** session cookie 検証時に取り出す生の custom claims (検証前)。 */
@@ -146,11 +148,14 @@ export async function verifySessionCookie(
     // `decoded.uid` は Auth localId (= ID トークン sub) であり custom claim ではない。
     // `role` / `school_id` は特権 SA が付与する custom claim。localId を users.id(UUID) に
     // 一致させる provisioning 前提は normalizeClaims の docstring を参照 (ADR-003)。
-    return normalizeClaims({
+    const authUser = normalizeClaims({
       uid: decoded.uid,
       role: decoded.role,
       school_id: decoded.school_id,
     });
+    if (!authUser) return null;
+    // email は表示用途のみ。存在しない場合はフィールド自体を省略し既存 toEqual テストを壊さない。
+    return decoded.email ? { ...authUser, email: decoded.email } : authUser;
   } catch {
     // 改竄・期限切れ・失効はすべて deny。例外内容はログに出さない (secret/トークン断片の漏洩防止、ルール5)。
     return null;
