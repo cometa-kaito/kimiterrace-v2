@@ -187,7 +187,9 @@ locals {
   # 0571d00: #703 連絡に表示日数（プリセット今日のみ/明日まで/3日間/1週間+カスタム1〜14日）・提出物は
   #          期限+2日まで自動表示後に自動消去。サイネージ読み取りを単日→過去31日遡及窓に変更。
   #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
-  web_image_tag = "0571d00"
+  # 09b7cc40: #701 管理ヘッダーにログイン中のメールアドレスを表示。
+  #           schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:09b7cc40 を Cloud Build 済・AR push 済。
+  web_image_tag = "09b7cc40"
 }
 
 module "network" {
