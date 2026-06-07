@@ -93,11 +93,9 @@ export default async function SensorsPage() {
               <th scope="col" style={thLeftStyle}>
                 稼働状態
               </th>
-              {canWrite ? (
-                <th scope="col" style={thLeftStyle}>
-                  操作
-                </th>
-              ) : null}
+              <th scope="col" style={thLeftStyle}>
+                操作
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -151,17 +149,26 @@ function SensorRow({ sensor, canWrite }: { sensor: SensorDeviceStatus; canWrite:
         </span>
         {decommissioned ? <span style={decommissionedTagStyle}>撤去済み</span> : null}
       </td>
-      {canWrite ? (
-        <td style={tdLeftStyle}>
+      <td style={tdLeftStyle}>
+        <span style={actionsCellStyle}>
           <a
-            href={`/admin/sensors/${sensor.id}/edit`}
+            href={`/admin/sensors/${sensor.id}/history`}
             style={editLinkStyle}
-            aria-label={`${sensor.locationLabel ?? "未設定のセンサー"}を編集`}
+            aria-label={`${sensor.locationLabel ?? "未設定のセンサー"}の検知履歴を見る`}
           >
-            編集
+            履歴
           </a>
-        </td>
-      ) : null}
+          {canWrite ? (
+            <a
+              href={`/admin/sensors/${sensor.id}/edit`}
+              style={editLinkStyle}
+              aria-label={`${sensor.locationLabel ?? "未設定のセンサー"}を編集`}
+            >
+              編集
+            </a>
+          ) : null}
+        </span>
+      </td>
     </tr>
   );
 }
@@ -194,6 +201,7 @@ const editLinkStyle: React.CSSProperties = {
   fontWeight: 600,
   color: "#1d4ed8",
 };
+const actionsCellStyle: React.CSSProperties = { display: "inline-flex", gap: "0.75rem" };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
 const cameraBadgeStyle: React.CSSProperties = {
   fontSize: "0.7rem",
