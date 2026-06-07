@@ -49,13 +49,23 @@ const SCOPE_LABEL: Record<string, string> = {
 };
 
 export function AdsManager({
-  classId,
+  scope,
+  targetId,
+  ownLabel,
   ownAds,
   inherited,
+  showInherited = true,
 }: {
-  classId: string;
+  /** 編集対象のスコープ ("school"|"department"|"grade"|"class")。Server Action に渡す。 */
+  scope: string;
+  /** 対象 id (school は null)。Server Action に渡す。 */
+  targetId: string | null;
+  /** 自スコープ見出しの語 (例: "このクラス" / "この学年" / "この学科" / "学校全体")。 */
+  ownLabel: string;
   ownAds: OwnAd[];
   inherited: InheritedAd[];
+  /** 継承広告セクションを表示するか。クラス画面のみ true (per-class 実効ビューがあるため)。既定 true。 */
+  showInherited?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -97,7 +107,7 @@ export function AdsManager({
     e.preventDefault();
     const form = e.currentTarget;
     run(
-      () => createAdAction(classId, fieldsFrom(form)),
+      () => createAdAction(scope, targetId, fieldsFrom(form)),
       "広告を追加しました。",
       () => form.reset(),
     );
@@ -107,14 +117,14 @@ export function AdsManager({
     e.preventDefault();
     const form = e.currentTarget;
     run(
-      () => updateAdAction(classId, adId, fieldsFrom(form)),
+      () => updateAdAction(scope, targetId, adId, fieldsFrom(form)),
       "広告を更新しました。",
       () => setEditing(null),
     );
   }
 
   function remove(adId: string) {
-    run(() => deleteAdAction(classId, adId), "広告を削除しました。");
+    run(() => deleteAdAction(scope, targetId, adId), "広告を削除しました。");
   }
 
   return (
@@ -127,7 +137,9 @@ export function AdsManager({
 
       {/* このクラス固有の広告 (編集可能) */}
       <section style={cardStyle}>
-        <h2 style={h2Style}>このクラスの広告 ({ownAds.length})</h2>
+        <h2 style={h2Style}>
+          {ownLabel}の広告 ({ownAds.length})
+        </h2>
         {ownAds.length === 0 ? (
           <p style={{ color: "#6b7280", margin: "0 0 0.75rem" }}>まだ広告がありません。</p>
         ) : (
@@ -193,30 +205,32 @@ export function AdsManager({
         ) : null}
       </section>
 
-      {/* 上位階層から継承された広告 (read-only) */}
-      <section style={cardStyle}>
-        <h2 style={h2Style}>継承された広告 ({inherited.length})</h2>
-        <p style={{ color: "#6b7280", margin: "0 0 0.75rem", fontSize: "0.85rem" }}>
-          学校 / 学科 / 学年で設定された広告です。ここでは編集できません。
-        </p>
-        {inherited.length === 0 ? (
-          <p style={{ color: "#6b7280", margin: 0 }}>継承された広告はありません。</p>
-        ) : (
-          <ul style={listStyle}>
-            {inherited.map((ad) => (
-              <li key={ad.adId} style={adItemStyle}>
-                <AdSummary
-                  mediaType={ad.mediaType}
-                  durationSec={ad.durationSec}
-                  caption={ad.caption}
-                  displayOrder={ad.displayOrder}
-                  scopeBadge={SCOPE_LABEL[ad.sourceScope] ?? ad.sourceScope}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* 上位階層から継承された広告 (read-only)。per-class 実効ビューがあるクラス画面のみ表示。 */}
+      {showInherited ? (
+        <section style={cardStyle}>
+          <h2 style={h2Style}>継承された広告 ({inherited.length})</h2>
+          <p style={{ color: "#6b7280", margin: "0 0 0.75rem", fontSize: "0.85rem" }}>
+            学校 / 学科 / 学年で設定された広告です。ここでは編集できません。
+          </p>
+          {inherited.length === 0 ? (
+            <p style={{ color: "#6b7280", margin: 0 }}>継承された広告はありません。</p>
+          ) : (
+            <ul style={listStyle}>
+              {inherited.map((ad) => (
+                <li key={ad.adId} style={adItemStyle}>
+                  <AdSummary
+                    mediaType={ad.mediaType}
+                    durationSec={ad.durationSec}
+                    caption={ad.caption}
+                    displayOrder={ad.displayOrder}
+                    scopeBadge={SCOPE_LABEL[ad.sourceScope] ?? ad.sourceScope}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

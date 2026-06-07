@@ -3,13 +3,14 @@
 import {
   type TenantTx,
   auditLog,
-  findVisibleClass,
-  getClassConfigValue,
-  upsertClassConfig,
+  findVisibleTarget,
+  getScopeConfigValue,
+  upsertScopeConfig,
 } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { type EditorTarget, parseEditorTarget, targetIdColumns } from "../editor/schedule-core";
 import {
   type ActionResult,
   QUIET_HOURS_KIND,
@@ -19,7 +20,6 @@ import {
   conflict,
   forbidden,
   invalid,
-  isUuid,
   readQuietRanges,
   toQuietHoursActor,
   validateQuietHours,
@@ -98,20 +98,37 @@ function auditView(value: QuietHoursValue): Record<string, unknown> {
   return { count: value.ranges.length, ranges: value.ranges };
 }
 
+/** target に対応する静粛時間ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/quiet-hours。 */
+function quietHoursPath(target: EditorTarget): string {
+  switch (target.scope) {
+    case "school":
+      return "/admin/editor/scope/school/quiet-hours";
+    case "department":
+      return `/admin/editor/scope/department/${target.departmentId}/quiet-hours`;
+    case "grade":
+      return `/admin/editor/scope/grade/${target.gradeId}/quiet-hours`;
+    case "class":
+      return `/admin/editor/${target.classId}/quiet-hours`;
+  }
+}
+
 /**
- * 指定クラスの静粛時間を設定する (upsert)。`ranges` 空配列で「静粛時間なし」に更新できる。
+ * 指定スコープ (学校全体 / 学科 / 学年 / クラス) の静粛時間を設定する (upsert)。`ranges` 空配列で
+ * 「静粛時間なし」に更新できる。親階層に設定すると配下クラスに継承表示される (effective-daily-data)。
  *
- * @param rawClassId 対象クラス id
- * @param rawRanges  時間帯配列 (`[{ start:"HH:MM", end:"HH:MM" }]`)
+ * @param rawScope    "school" | "department" | "grade" | "class"
+ * @param rawTargetId 対象 id (school は null)
+ * @param rawRanges   時間帯配列 (`[{ start:"HH:MM", end:"HH:MM" }]`)
  */
 export async function saveQuietHoursAction(
-  rawClassId: unknown,
+  rawScope: unknown,
+  rawTargetId: unknown,
   rawRanges: unknown,
 ): Promise<ActionResult<{ id: string }>> {
-  if (!isUuid(rawClassId)) {
-    return invalid("クラスの指定が不正です。");
+  const target = parseEditorTarget(rawScope, rawTargetId);
+  if (!target) {
+    return invalid("編集対象 (スコープ) の指定が不正です。");
   }
-  const classId = rawClassId;
   const v = validateQuietHours(rawRanges);
   if (!v.ok) {
     return invalid(v.message);
@@ -120,23 +137,24 @@ export async function saveQuietHoursAction(
   if ("ok" in actor) {
     return actor;
   }
+  const cols = targetIdColumns(target);
 
   try {
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
-    // (ADR-019 §#95 / Issue #226)。本 Action は特定 class = 特定 school のテナントスコープ操作。
+    // (ADR-019 §#95 / Issue #226)。本 Action は特定 scope = 特定 school のテナントスコープ操作。
     const id = await withSession(
       async (tx) => {
-        // 自校で可視なクラスか (他校 id は RLS で不可視 → CrossTenantError)。
-        if (!(await findVisibleClass(tx, classId))) {
-          throw new CrossTenantError("指定されたクラスが見つかりません。");
+        // 対象 (学科/学年/クラス) が自校で可視か (他校 id は RLS で不可視 → CrossTenantError)。
+        if (!(await findVisibleTarget(tx, cols))) {
+          throw new CrossTenantError("指定された編集対象が見つかりません。");
         }
         // upsert 前に既存値を読み、insert/update の別と before スナップショットを確定する。
-        const prev = await getClassConfigValue(tx, classId, QUIET_HOURS_KIND);
+        const prev = await getScopeConfigValue(tx, cols, QUIET_HOURS_KIND);
         const operation: "insert" | "update" = prev === null ? "insert" : "update";
 
-        const newId = await upsertClassConfig(tx, {
+        const newId = await upsertScopeConfig(tx, {
           schoolId: actor.schoolId,
-          classId,
+          target: cols,
           kind: QUIET_HOURS_KIND,
           value: v.value,
           actorUserId: actor.userId,
@@ -161,7 +179,7 @@ export async function saveQuietHoursAction(
       { tenantScoped: true },
     );
 
-    revalidatePath(`/admin/editor/${classId}/quiet-hours`);
+    revalidatePath(quietHoursPath(target));
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
     revalidatePath("/admin/signage-preview/[classId]", "page");
     return { ok: true, data: { id } };

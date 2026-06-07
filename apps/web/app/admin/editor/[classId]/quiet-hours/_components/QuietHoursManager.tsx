@@ -14,10 +14,14 @@ import { type FormEvent, useState, useTransition } from "react";
  * 時間帯 0 件で保存すると「静粛時間なし」に更新できる (全削除)。
  */
 export function QuietHoursManager({
-  classId,
+  scope,
+  targetId,
   initialRanges,
 }: {
-  classId: string;
+  /** 編集対象のスコープ ("school"|"department"|"grade"|"class")。Server Action に渡す。 */
+  scope: string;
+  /** 対象 id (school は null)。Server Action に渡す。 */
+  targetId: string | null;
   initialRanges: QuietRange[];
 }) {
   const router = useRouter();
@@ -39,7 +43,7 @@ export function QuietHoursManager({
     e.preventDefault();
     // 空欄 ("") はそのまま渡し、Server Action 側の検証 (HH:MM) で弾く (部分保存しない)。
     startTransition(async () => {
-      const res = await saveQuietHoursAction(classId, ranges);
+      const res = await saveQuietHoursAction(scope, targetId, ranges);
       if (res.ok) {
         setMsg({ ok: true, text: "静粛時間を保存しました。" });
         router.refresh();
