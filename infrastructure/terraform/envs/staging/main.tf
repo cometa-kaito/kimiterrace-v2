@@ -175,7 +175,12 @@ locals {
   #          リンク →」導線を追加（F05 UXギャップ解消）。91fd593 を内包＋その後の web 変更（= 現 main HEAD・
   #          全機能込み）。ads.advertiser_id は既に staging DB 適用済（岐南広告 seed #680 が advertiser_id 付き
   #          INSERT に成功＝列存在）ゆえ追加 migrate 不要。web:856e779 を Cloud Build 済・AR push 済。
-  web_image_tag = "856e779"
+  # a55236e: #687 エディタの範囲選択 UI を分かりやすく（着地で範囲の概念を説明＋共通＝青ピル/クラス＝白チップに
+  #          視覚分離＋ラベル明確化）。856e779 を内包＋#685(来場 backfill)/#686(infra fail-fast)/#688(F15 nav 配線)/
+  #          #689(段C エディタ AI アシスタント)＝現 main HEAD。schema 変更なし（91fd593 以降に新 migration 無し
+  #          を `git diff packages/db/{drizzle,migrations}` で確認）ゆえ migrate 不要・web のみ。web:a55236e を
+  #          Cloud Build 済・AR push 済。
+  web_image_tag = "a55236e"
 }
 
 module "network" {
