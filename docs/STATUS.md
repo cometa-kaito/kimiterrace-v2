@@ -6,7 +6,7 @@
 - リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public) ／ Issue: https://github.com/cometa-kaito/kimiterrace-v2/issues
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
-- 最終更新: 2026-06-06 ／ 更新者: Claude Code
+- 最終更新: 2026-06-07 ／ 更新者: Claude Code
 
 ---
 
@@ -24,8 +24,9 @@
 
 ## 現在地サマリ（2026-06-06）
 
-- **main HEAD**: `be2804c`（[#618](https://github.com/cometa-kaito/kimiterrace-v2/pull/618) UI グラデ→ソリッド `#c2410c`・merged）。
-- **staging live**: image `web:548a212`（revision `kimiterrace-web-00007-srg`）。**`web:be2804c` は Cloud Build + AR push 済だが未デプロイ**（`web_image_tag` は `548a212` のまま）→ 最終再デプロイで反映予定。
+- **main HEAD**: `401ba61`（[#691](https://github.com/cometa-kaito/kimiterrace-v2/pull/691) staging bump → a55236e・merged）。直前は `a55236e`（[#689](https://github.com/cometa-kaito/kimiterrace-v2/pull/689) エディタ AI アシスタント浮遊UI・merged）。
+- **staging live**: image `web:a55236e`（[#689](https://github.com/cometa-kaito/kimiterrace-v2/pull/689)・2026-06-07 デプロイ）。Terraform `web_image_tag = "a55236e"` 適用済。
+- **含む最近の変更**: #688 F15 モニタ設定(/admin/tv-devices)を system_admin nav に追加（配線漏れ修正）, #689 エディタ AIアシスタント浮遊UI, #686 Cloud Build fail-fast, #685 LP/Turso presence 履歴 backfill, #678/#679 岐南工業 SwitchBot センサー seed。
 - **Cloud Run URL**: `https://kimiterrace-web-5wkl3il5zq-an.a.run.app`（`/api/health` 200）。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash）。
 - **staging 構成**: network + Cloud SQL（`kimiterrace-pg`・private IP `10.60.0.3`・schema/RLS/トリガ/関数 全投入）+ Identity Platform（email/password）+ Cloud Run web。~$95–105/月（Cloud Run scale-to-zero）。
 - **コスト停止** = staging cloud_run `ai_enabled=false` に戻して apply（Vertex 即 OFF）、またはフル停止は `terraform -chdir=infrastructure/terraform/envs/staging destroy`。
