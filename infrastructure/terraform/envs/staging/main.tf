@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "91fd593"
+  migrate_image_tag = "4b96a30"
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -189,7 +189,7 @@ locals {
   #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
   # 09b7cc40: #701 管理ヘッダーにログイン中のメールアドレスを表示。
   #           schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:09b7cc40 を Cloud Build 済・AR push 済。
-  web_image_tag = "09b7cc40"
+  web_image_tag = "4b96a30"
 }
 
 module "network" {

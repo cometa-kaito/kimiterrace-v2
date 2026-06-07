@@ -1,0 +1,56 @@
+# infrastructure/docker/cloudbuild-migrate.yaml
+#
+# staging の migrate / seed 用 image を **再現可能に** build & push する Cloud Build 設定。
+# この image は `kimiterrace-migrate`（migrate-cli）と各 seed Cloud Run Job（command 上書きで
+# seed-*-cli を起動）の共通ベース。新しい migration（drizzle/*.sql）や seed CLI を反映するには本 image を
+# 再ビルドし、main.tf の `migrate_image_tag`（および必要なら seed 系 tag）を bump して terraform apply する。
+#
+# なぜ commit するか: cloudbuild-web.yaml と同じ理由（一時 config をやめ、どの clean checkout からも同じ
+# image を build できるようにする）。これまで migrate image は一時 config で手書き build されていた。
+#
+# 使い方（monorepo ルートから。build context = リポジトリルート）:
+#   gcloud builds submit . \
+#     --project=signage-v2-staging \
+#     --config=infrastructure/docker/cloudbuild-migrate.yaml \
+#     --service-account=projects/signage-v2-staging/serviceAccounts/33826309713-compute@developer.gserviceaccount.com \
+#     --substitutions=_SHA=<git-sha>
+#
+#   その後 main.tf の local.migrate_image_tag を <git-sha> に bump → terraform apply（migrate / seed jobs）→
+#   `gcloud run jobs execute kimiterrace-migrate --region=asia-northeast1 --wait` で適用する。
+
+substitutions:
+  _SHA: ""
+  _REPO: "asia-northeast1-docker.pkg.dev/signage-v2-staging/kimiterrace"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 空 _SHA → `migrate:` という不正/曖昧 tag を loud fail にする（cloudbuild-web.yaml と同方針）。
+  - id: validate-substitutions
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "sh"
+    env:
+      - "SHA=${_SHA}"
+    args:
+      - "-c"
+      - |
+        set -eu
+        if [ -z "$$SHA" ]; then
+          echo "ERROR: _SHA is required (image tag = git sha). e.g. --substitutions=_SHA=<sha>"
+          exit 1
+        fi
+
+  # migrate.Dockerfile（monorepo whole-tree COPY → @kimiterrace/db build = migrate-cli + seed-*-cli）。
+  - id: build
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-f"
+      - "infrastructure/docker/migrate.Dockerfile"
+      - "-t"
+      - "${_REPO}/migrate:${_SHA}"
+      - "."
+
+images:
+  - "${_REPO}/migrate:${_SHA}"
