@@ -10,14 +10,14 @@ import styles from "./editor-board.module.css";
  * **表示専用のレイアウト component**（hook なし → "use client" 不要）。各セクションの編集ロジック
  * （action 呼び出し・検証・保存）は既存の ScheduleEditor / NoticeEditor / AssignmentEditor がそのまま
  * 担い、本 component はそれらを盤面風に**並べるだけ**。サイネージ表示専用 component
- * （`(signage)/.../SignageClient.tsx`）は読み取り専用で参考にし、レイアウト（時間割=上段／連絡=左下／
+ * （`(signage)/.../SignageClient.tsx`）は読み取り専用で参考にし、レイアウト（予定=上段／連絡=左下／
  * 提出物=右下／広告=右）を編集画面に寄せている。
  *
- * PC（広い画面）= 盤面風グリッド（時間割上段・連絡＋提出物下段・広告/天気プレビューを右）。
+ * PC（広い画面）= 盤面風グリッド（予定上段・連絡＋提出物下段・広告/天気プレビューを右）。
  * スマホ（~768px 以下）= 1 列の縦積みフォーム（CSS Module のメディアクエリで出し分け）。
  *
  * 見出し（h1 = 対象名・level など）と「戻る」リンク・対象説明は呼び出し側（page / ScopeEditorView）が
- * `header` に渡す。これにより既存 e2e の見出しセレクタ（クラス名 h1 / 「時間割」「連絡」「提出物」）を
+ * `header` に渡す。これにより既存 e2e の見出しセレクタ（クラス名 h1 / 「予定」「連絡」「提出物」）を
  * 壊さずに済む。
  */
 export function EditorBoard({
@@ -37,7 +37,7 @@ export function EditorBoard({
       <div className={styles.board}>
         <div className={styles.sections}>
           <section className={`${styles.card} ${styles.scheduleCell}`}>
-            <h2 className={styles.cardTitle}>時間割</h2>
+            <h2 className={styles.cardTitle}>予定</h2>
             {schedule}
           </section>
           <section className={`${styles.card} ${styles.noticesCell}`}>

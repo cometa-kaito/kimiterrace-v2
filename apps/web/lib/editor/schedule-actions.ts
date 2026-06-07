@@ -23,14 +23,14 @@ import {
 
 /**
  * エディタ Schedule の Server Action (#48-H、ADR-008 / 段A-2 で scope 汎用化)。指定対象 (学校全体 /
- * 学科全体 / 学年全体 / クラス)・日付の時間割を保存する。
+ * 学科全体 / 学年全体 / クラス)・日付の予定を保存する。
  *
  * 検証 → 認可 (`requireRole`) → `withSession` の自校 RLS tx 内で daily_data を upsert + `audit_log`
  * 追記 (`upsertDailySectionForTarget`) → `revalidatePath`。対象が自校で可視かを RLS 経由で確認してから
  * 書き込む (cross-tenant 防止、ルール2)。既存行があれば UPDATE、無ければ INSERT。
  */
 
-/** 指定対象・日付の時間割を保存する (scope 汎用)。 */
+/** 指定対象・日付の予定を保存する (scope 汎用)。 */
 export async function setScheduleAction(
   scope: unknown,
   targetId: unknown,
@@ -74,7 +74,7 @@ export async function setScheduleAction(
 }
 
 /**
- * 指定クラス・日付の時間割を保存する (後方互換)。既存 `[classId]` 画面・テストのために維持し、
+ * 指定クラス・日付の予定を保存する (後方互換)。既存 `[classId]` 画面・テストのために維持し、
  * scope 汎用版 `setScheduleAction` に class target で委譲する。
  */
 export async function setClassScheduleAction(

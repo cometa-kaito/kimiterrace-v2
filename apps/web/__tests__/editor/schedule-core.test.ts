@@ -77,7 +77,7 @@ describe("validateScheduleItems", () => {
     expect(validateScheduleItems([{ period: 1, subject: "あ".repeat(33) }]).ok).toBe(false);
   });
 
-  it("空配列は許可 (時間割なし = 全削除)", () => {
+  it("空配列は許可 (予定なし = 全削除)", () => {
     expect(validateScheduleItems([])).toEqual({ ok: true, value: [] });
   });
 });

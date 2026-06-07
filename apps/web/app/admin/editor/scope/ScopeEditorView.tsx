@@ -15,7 +15,7 @@ import { notFound } from "next/navigation";
 /**
  * scope エディタ (段A-2) の共通ビュー。学校全体 / 学科全体 / 学年全体の各ページが本コンポーネントに
  * `target` を渡して 3 セクション編集器を描画する。`[classId]` ページと同じ構成 (戻るリンク + 見出し +
- * 時間割 / 連絡 / 提出物) を target 汎用にしたもの。
+ * 予定 / 連絡 / 提出物) を target 汎用にしたもの。
  *
  * `EDITOR_ROLES` (teacher / school_admin) に限定。`?date=YYYY-MM-DD` で対象日を指定 (既定は JST 今日)。
  * 対象が自校で不可視 (別テナント / 不在) なら RLS 経由で `getEditorTargetData` が null → 404。

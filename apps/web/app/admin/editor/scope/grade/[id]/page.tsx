@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ScopeEditorView } from "../../ScopeEditorView";
 
 /**
- * 学年全体エディタ (段A-2)。指定学年スコープ (`daily_data.scope='grade'`) の時間割 / 連絡 / 提出物を
+ * 学年全体エディタ (段A-2)。指定学年スコープ (`daily_data.scope='grade'`) の予定 / 連絡 / 提出物を
  * 編集する。別テナント / 不在の学年 id は RLS 経由で `ScopeEditorView` が 404。
  */
 export default async function GradeScopeEditorPage({
