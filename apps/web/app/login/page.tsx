@@ -1,107 +1,35 @@
-"use client";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, Suspense, useState } from "react";
-import { getClientAuth } from "../../lib/auth/clientApp";
+import { listTeacherLoginSchools } from "@kimiterrace/db";
+import { Suspense } from "react";
+import { getDb } from "../../lib/db";
+import { LoginForm } from "./_components/LoginForm";
 
 /**
- * ログイン画面 (ADR-003)。
+ * ログイン画面 (ADR-003 / ADR-032)。**Server Component**。
  *
- * Identity Platform client SDK でサインイン → ID トークンを /api/auth/session へ POST
- * → session cookie 確立 → next へ遷移、という認証の配線。
+ * 教員ロールが最多のため **教員ログイン（学校共通パスワード）を中心**に設計する（ユーザー要望）。本サーバー
+ * コンポーネントは「共通ログインが有効な学校」を列挙して `LoginForm`（Client）へ渡す:
+ *  - 1 校のみ有効 → 学校選択を出さず「パスワードのみ」。
+ *  - 複数校 → 学校選択を出す。
+ *  - 0 校 → 教員モードは出さず職員ログインを既定にする。
  *
- * **遷移先 next の既定は `/admin`**（ロール別ホームへサーバー側でリダイレクトされる）。
- * 旧既定 `/` は scaffold placeholder（行き止まり）だったため、ログイン後にユーザーが
- * 作業画面へ入れなかった回帰を解消する（教員 → /admin/editor 等）。
+ * 学校解決は `listTeacherLoginSchools(getDb())`（RLS の扉、内部で system_admin 文脈、ADR-032）。公開
+ * （未認証）経路だが返すのは有効校の id/名のみ（秘密なし）。DB 障害時も**職員ログインは使えるべき**なので
+ * 失敗は握りつぶして空配列にフォールバックする（教員モードが出ないだけ）。
  *
- * `useSearchParams` を使う子は Suspense 境界で包む (Next.js のビルド要件)。
+ * `LoginForm` は `useSearchParams`（next）を使うため Suspense 境界で包む（Next のビルド要件）。
  */
-export default function LoginPage() {
-  return (
-    <Suspense fallback={null}>
-      <LoginForm />
-    </Suspense>
-  );
-}
-
-function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // 既定は /admin（ロール別ホームへサーバーが振り分ける）。`/` は行き止まりだったため使わない。
-  // オープンリダイレクト防止: 同一オリジンの相対パス（先頭 "/" かつ "//"・"/\" でない）のみ許可し、
-  // それ以外（外部 URL・protocol-relative 等）は /admin にフォールバックする。
-  const rawNext = searchParams.get("next");
-  const next = rawNext && /^\/(?![/\\])/.test(rawNext) ? rawNext : "/admin";
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const credential = await signInWithEmailAndPassword(getClientAuth(), email, password);
-      const idToken = await credential.user.getIdToken();
-      const res = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      });
-      if (!res.ok) {
-        throw new Error(`session 確立に失敗しました (${res.status})`);
-      }
-      router.push(next);
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "ログインに失敗しました");
-    } finally {
-      setSubmitting(false);
-    }
+export default async function LoginPage(): Promise<React.ReactElement> {
+  let teacherSchools: { id: string; name: string }[] = [];
+  try {
+    teacherSchools = await listTeacherLoginSchools(getDb());
+  } catch {
+    // DB 障害でも職員ログインは出す（教員モードのみ抑止）。理由はログに出さない（ルール5）。
+    teacherSchools = [];
   }
 
   return (
-    <main className="login-screen">
-      <div className="login-card">
-        {/* ブランドロゴ（アイコン + キミテラス）。装飾目的のため alt は簡潔に。 */}
-        <img className="login-logo" src="/brand/logo-full.png" alt="キミテラス" />
-        <h1 className="login-title">ログイン</h1>
-        <form onSubmit={onSubmit}>
-          <label className="login-field">
-            メールアドレス
-            <input
-              className="login-input"
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
-          <label className="login-field">
-            パスワード
-            <input
-              className="login-input"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          <button
-            type="submit"
-            className="brand-btn"
-            style={{ width: "100%", marginTop: "0.5rem" }}
-            disabled={submitting}
-          >
-            {submitting ? "ログイン中..." : "ログイン"}
-          </button>
-        </form>
-        {error ? <p className="login-error">{error}</p> : null}
-      </div>
-    </main>
+    <Suspense fallback={null}>
+      <LoginForm next="/admin" teacherSchools={teacherSchools} />
+    </Suspense>
   );
 }

@@ -9,7 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
-vi.mock("@/lib/system-admin/schools-actions", () => ({ updateSchoolAction: vi.fn() }));
+vi.mock("@/lib/system-admin/schools-actions", () => ({
+  updateSchoolAction: vi.fn(),
+  setSchoolTeacherPasswordAction: vi.fn(),
+  clearSchoolTeacherPasswordAction: vi.fn(),
+}));
 
 import { SchoolEditForm } from "../../app/admin/system/schools/[id]/edit/_components/SchoolEditForm";
 import { updateSchoolAction } from "../../lib/system-admin/schools-actions";
@@ -21,6 +25,7 @@ const SCHOOL = {
   prefecture: "岐阜県",
   code: "G001",
   hierarchyMode: "department" as const,
+  teacherLoginEnabled: false,
 };
 
 beforeEach(() => {
