@@ -1,12 +1,27 @@
 "use client";
 
+import {
+  EDITOR_SAVE_STATE_LABEL,
+  deriveEditorSaveState,
+  serializeForDirty,
+  useUnsavedGuard,
+} from "@/lib/editor/editor-save-state";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { inputStyle, primaryBtnStyle, removeBtnStyle, secondaryBtnStyle } from "./editor-styles";
+import {
+  dirtyTextStyle,
+  inputStyle,
+  primaryBtnDisabledStyle,
+  primaryBtnStyle,
+  removeBtnStyle,
+  saveBarStyle,
+  savedTextStyle,
+  secondaryBtnStyle,
+} from "./editor-styles";
 import { toEditorTarget } from "./target";
 
 /**
@@ -17,7 +32,8 @@ import { toEditorTarget } from "./target";
  * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
  *
  * #243 (②UI-UX): 各連絡に「表示日数」(入力日を起点に何日間サイネージに出すか) を持たせる。プリセット
- * (今日のみ/明日まで/3日間/1週間) + カスタム (1..14)。既定は今日のみ (1)。
+ * (今日のみ/明日まで/3日間/1週間) + カスタム (1..14)。既定は今日のみ (1)。さらに未保存ガード・保存状態の
+ * 明示・未変更時の保存無効化・入力 aria-label を備える（普及した編集 UI に倣う離脱事故防止）。
  */
 type Row = {
   id: string;
@@ -42,6 +58,16 @@ function clampDisplayDays(n: number): number {
     return 1;
   }
   return Math.min(DISPLAY_DAYS_MAX, Math.max(1, Math.round(n)));
+}
+
+/** 行 state を保存ペイロード（NoticeItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
+function toNoticeItems(rows: Row[]): NoticeItem[] {
+  return rows.map((r) => ({
+    text: r.text,
+    ...(r.isHighlight ? { isHighlight: true } : {}),
+    // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
+    ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
+  }));
 }
 
 export function NoticeEditor({
@@ -73,6 +99,14 @@ export function NoticeEditor({
   // 新規行の安定キー用カウンタ。初期行は r0.. を使うので length から続け、衝突しない。
   const nextId = useRef(initialItems.length);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [savedOnce, setSavedOnce] = useState(false);
+
+  // dirty は「保存される items」基準（行 id / custom フラグ等の UI 専用 state では誤検出しない）。
+  const currentSerialized = serializeForDirty(toNoticeItems(rows));
+  const baselineRef = useRef<string>(currentSerialized);
+  const dirty = currentSerialized !== baselineRef.current;
+  const saveState = deriveEditorSaveState({ dirty, savedOnce });
+  useUnsavedGuard(dirty);
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -90,15 +124,12 @@ export function NoticeEditor({
   }
 
   function save() {
-    const items: NoticeItem[] = rows.map((r) => ({
-      text: r.text,
-      ...(r.isHighlight ? { isHighlight: true } : {}),
-      // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
-      ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
-    }));
+    const items = toNoticeItems(rows);
     startTransition(async () => {
       const res = await setNoticesAction(target.scope, targetId(target), date, items);
       if (res.ok) {
+        baselineRef.current = serializeForDirty(items);
+        setSavedOnce(true);
         setMsg({ ok: true, text: "保存しました。" });
         router.refresh();
       } else {
@@ -126,6 +157,7 @@ export function NoticeEditor({
               onChange={(e) => update(i, { text: e.target.value })}
               placeholder="連絡事項"
               style={{ ...inputStyle, flex: 1, minWidth: "12rem" }}
+              aria-label={`${i + 1} 件目の連絡事項`}
             />
             <label
               style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.85rem" }}
@@ -152,7 +184,7 @@ export function NoticeEditor({
                   }
                 }}
                 style={inputStyle}
-                aria-label="表示日数"
+                aria-label={`${i + 1} 件目の表示日数`}
               >
                 {DISPLAY_DAYS_PRESETS.map((p) => (
                   <option key={p.value} value={String(p.value)}>
@@ -180,25 +212,41 @@ export function NoticeEditor({
                     update(i, { displayDays: clampDisplayDays(Number(e.target.value)) })
                   }
                   style={{ ...inputStyle, width: "4rem" }}
-                  aria-label="表示日数 (日)"
+                  aria-label={`${i + 1} 件目の表示日数 (日)`}
                 />
                 日間
               </label>
             ) : null}
-            <button type="button" onClick={() => removeRow(i)} style={removeBtnStyle}>
+            <button
+              type="button"
+              onClick={() => removeRow(i)}
+              style={removeBtnStyle}
+              aria-label={`${i + 1} 件目を削除`}
+            >
               削除
             </button>
           </li>
         ))}
       </ul>
 
-      <div style={{ display: "flex", gap: "0.5rem" }}>
+      <div style={saveBarStyle}>
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
           連絡を追加
         </button>
-        <button type="button" onClick={save} disabled={pending} style={primaryBtnStyle}>
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending || !dirty}
+          style={pending || !dirty ? primaryBtnDisabledStyle : primaryBtnStyle}
+        >
           {pending ? "保存中..." : "保存"}
         </button>
+        {saveState !== "idle" ? (
+          <span style={saveState === "dirty" ? dirtyTextStyle : savedTextStyle} aria-live="polite">
+            {saveState === "dirty" ? "● " : "✓ "}
+            {EDITOR_SAVE_STATE_LABEL[saveState]}
+          </span>
+        ) : null}
       </div>
     </div>
   );

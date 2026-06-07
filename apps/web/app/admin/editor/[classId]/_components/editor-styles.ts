@@ -40,3 +40,42 @@ export const removeBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontSize: "0.85rem",
 };
+
+/**
+ * #243 (②UI-UX): 表（予定 / 提出物）をスマホでも崩さず横スクロールで読めるようにするラッパ。
+ * 表自体は `tableStyle` で min-width を持たせ、狭幅では本ラッパが横スクロールを出す（列が潰れない）。
+ */
+export const tableWrapStyle: React.CSSProperties = {
+  overflowX: "auto",
+  WebkitOverflowScrolling: "touch",
+};
+export const tableStyle: React.CSSProperties = {
+  borderCollapse: "collapse",
+  width: "100%",
+  minWidth: "30rem",
+};
+
+/** 保存ボタン行（ボタン + 保存状態テキストを横並び、狭幅で折返し）。 */
+export const saveBarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "0.75rem",
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+/** 「未保存の変更があります」（注意色）。 */
+export const dirtyTextStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  color: "#b45309",
+};
+/** 「保存済み」（成功色）。 */
+export const savedTextStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  color: "#166534",
+};
+/** 無効化された保存ボタン（未変更時）。 */
+export const primaryBtnDisabledStyle: React.CSSProperties = {
+  ...primaryBtnStyle,
+  background: "#9ca3af",
+  cursor: "not-allowed",
+};
