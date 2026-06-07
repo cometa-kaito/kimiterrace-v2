@@ -46,6 +46,10 @@ const CHOKEPOINT_MODULE = "lib/db.ts";
  *   越境防止は解決キー `device_mac` の**グローバル UNIQUE**で担保（system_admin_full_access policy）。
  * - `pollTvConfig` / `pollPendingTvCommands` / `ackTvCommand`: TV デバイス poll（ADR-022）。device_id→school を
  *   **system_admin 文脈**で解決し BYPASSRLS 不使用。共有シークレット検証は route 側（poll-secret.ts）。
+ * - `isTeacherLoginEnabled` / `listTeacherLoginSchools`: 教員「学校共通パスワード」ログイン（ADR-032）の
+ *   公開（セッション無し）学校解決。内部で **system_admin role 文脈**（withTenantContext）を張り
+ *   BYPASSRLS 不使用（pollTvConfig と同型）。読み取りは学校 id/名のみで秘密は返さない。総当たり抑止は
+ *   route 側（失敗のみ計上の IP レート制限 + CSRF）。
  *
  * 新たにこの集合へ追加するには allowlist 編集 = レビュー時の明示判断を要求する（生接続の使用面を固定）。
  */
@@ -56,6 +60,8 @@ const RLS_DOOR_FUNCTIONS = [
   "pollTvConfig",
   "pollPendingTvCommands",
   "ackTvCommand",
+  "isTeacherLoginEnabled",
+  "listTeacherLoginSchools",
 ] as const;
 
 /** `getDb()` を第 1 引数に直接渡してよい呼び出し元（正規ラッパ + RLS の扉）。 */

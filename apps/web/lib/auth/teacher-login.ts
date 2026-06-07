@@ -25,12 +25,14 @@ export type TeacherSchoolResolution =
 export async function resolveTeacherLoginSchool(
   schoolId: string | undefined,
 ): Promise<TeacherSchoolResolution> {
-  const db = getDb();
+  // getDb() は「RLS の扉」関数（isTeacherLoginEnabled / listTeacherLoginSchools）に**直接**渡す。
+  // 各扉は内部で system_admin role 文脈（withTenantContext）を張るため、生 getDb() をローカル変数に
+  // 退避せず扉へインライン渡しする（チョークポイント監査 rls-chokepoint-audit.test.ts の扉 allowlist 経路）。
   if (schoolId) {
-    const enabled = await isTeacherLoginEnabled(db, schoolId);
+    const enabled = await isTeacherLoginEnabled(getDb(), schoolId);
     return enabled ? { ok: true, schoolId } : { ok: false, reason: "not_enabled" };
   }
-  const candidates = await listTeacherLoginSchools(db);
+  const candidates = await listTeacherLoginSchools(getDb());
   if (candidates.length === 1) {
     return { ok: true, schoolId: candidates[0]!.id };
   }
