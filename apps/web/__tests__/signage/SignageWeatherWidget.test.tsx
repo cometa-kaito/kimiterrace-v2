@@ -84,6 +84,7 @@ function payload(
     scheduleDays,
     ads: [],
     weather: weatherValue,
+    classContext: { departmentName: null, gradeName: null, className: null },
   };
 }
 

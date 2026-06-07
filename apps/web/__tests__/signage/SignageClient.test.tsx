@@ -72,6 +72,7 @@ function payload(ads: SignagePayload["ads"]): SignagePayload {
     scheduleDays: [],
     ads,
     weather: null,
+    classContext: { departmentName: "電子工学科", gradeName: "1年", className: "A組" },
   };
 }
 
@@ -95,6 +96,11 @@ describe("SignageClient view impression (#43 / F07)", () => {
   it("広告ゼロでは view を送らない", () => {
     render(<SignageClient classToken={TOKEN} initial={payload([])} />);
     expect(sendSignageEvent).not.toHaveBeenCalled();
+  });
+
+  it("ヘッダーに学科・学年・クラスの識別ラベルを表示する (#243)", () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([])} />);
+    expect(screen.getByText("電子工学科 1年 A組")).toBeInTheDocument();
   });
 
   it("clientId が空なら clientId キーを載せない (無効値を送らない)", () => {
