@@ -343,7 +343,7 @@ function ScheduleColumn({
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
       <div className={styles.scheduleDateHeader}>
-        <span>{scheduleHeaderLabel(day.date)}</span>
+        <span className={styles.scheduleDateLabel}>{scheduleHeaderLabel(day.date)}</span>
         {weatherDay ? (
           <span
             className={styles.scheduleWeatherInline}
