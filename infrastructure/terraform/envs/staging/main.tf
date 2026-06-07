@@ -171,11 +171,11 @@ locals {
   #          c64d328=#678 seed 修正だが web/schema 非影響ゆえ 91fd593 で同等）。**migrate_image_tag も同 sha に
   #          bump 済 → 本 deploy 前に migrate Job 実行で advertiser_id を staging DB に適用すること**。
   #          web:91fd593 を Cloud Build 済・AR push 済。
-  # 856e779: #683 サイネージ表示用URL(/signage/)をトークン発行UIに明示＋クラス編集に「サイネージ・生徒
-  #          リンク →」導線を追加（F05 UXギャップ解消）。91fd593 を内包＋その後の web 変更（= 現 main HEAD・
-  #          全機能込み）。ads.advertiser_id は既に staging DB 適用済（岐南広告 seed #680 が advertiser_id 付き
-  #          INSERT に成功＝列存在）ゆえ追加 migrate 不要。web:856e779 を Cloud Build 済・AR push 済。
-  web_image_tag = "856e779"
+  # a55236e: #689 段C エディタAIアシスタント浮遊UI（連絡をAIで下書き）を反映。エディタ A(scope編集)/
+  #          B(サイネージ盤面風レイアウト)/C(AIアシスタント) の一気通貫が live に乗る。856e779（#683 導線）を
+  #          内包＋その後の web 変更（= 現 main HEAD a55236e・全機能込み）。スキーマ変更なし＝追加 migrate 不要。
+  #          web:a55236e を Cloud Build 済・AR push 済（2026-06-07 09:56）。
+  web_image_tag = "a55236e"
 }
 
 module "network" {
