@@ -291,7 +291,8 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 
 /**
  * 予定（今後3平日の3列グリッド）。上段に横幅いっぱいで配置 (v1 ScheduleGrid 移植)。
- * 各列の日付ヘッダーに当日の天気を横並びで表示する（2026-06-07 ユーザー）。aria-label は
+ * 各列の日付ヘッダーに当日の天気を横並びで表示する（2026-06-07 ユーザー）。天気が古い場合は
+ * F14 §3 要件に従い「古い予報」バッジをセクション右端に表示する。aria-label は
  * 残し、スクリーンリーダ/領域名としての識別は維持する（NFR05）。
  */
 function ScheduleGrid({
@@ -305,6 +306,11 @@ function ScheduleGrid({
 }) {
   return (
     <section aria-label="予定" className={`${styles.card} ${styles.scheduleSection}`}>
+      {weather?.isStale ? (
+        <span className={styles.scheduleStaleNotice} role="status" aria-live="polite">
+          古い予報
+        </span>
+      ) : null}
       <div className={styles.scheduleGridContainer}>
         {days.map((day) => {
           const weatherDay = weather?.days.find((d) => d.forecastDate === day.date) ?? null;
@@ -339,7 +345,10 @@ function ScheduleColumn({
       <div className={styles.scheduleDateHeader}>
         <span>{scheduleHeaderLabel(day.date)}</span>
         {weatherDay ? (
-          <span className={styles.scheduleWeatherInline} aria-label={weatherDay.iconLabel}>
+          <span
+            className={styles.scheduleWeatherInline}
+            aria-label={weatherDay.weatherText ?? weatherDay.iconLabel}
+          >
             <span aria-hidden="true" className={styles.scheduleWeatherGlyph}>
               {WEATHER_ICON_GLYPH[weatherDay.icon]}
             </span>
