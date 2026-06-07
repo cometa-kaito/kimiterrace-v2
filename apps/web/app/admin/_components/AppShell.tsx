@@ -22,7 +22,8 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
         {/* ブランドのワードマーク（キミテラス）。 */}
         <img src="/brand/logo-wordmark.png" alt="キミテラス" style={brandLogoStyle} />
         <span style={roleBadgeStyle}>{ROLE_LABEL[user.role]}</span>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {user.email && <span style={userEmailStyle}>{user.email}</span>}
           <SignOutButton />
         </div>
       </header>
@@ -63,6 +64,11 @@ const headerStyle: React.CSSProperties = {
 };
 
 const brandLogoStyle: React.CSSProperties = { height: "1.7rem", width: "auto", display: "block" };
+
+const userEmailStyle: React.CSSProperties = {
+  fontSize: "0.8rem",
+  color: "var(--brand-muted)",
+};
 
 const roleBadgeStyle: React.CSSProperties = {
   fontSize: "0.78rem",
