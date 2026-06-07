@@ -1,6 +1,7 @@
+import { ASSIGNMENT_GRACE_DAYS } from "@/lib/editor/notice-assignment-core";
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
 import { type TenantTx, classes, dailyData, getClassConfigValue, grades } from "@kimiterrace/db";
-import { type InferSelectModel, and, eq, inArray, or } from "drizzle-orm";
+import { type InferSelectModel, and, eq, gte, inArray, lte, or } from "drizzle-orm";
 
 /**
  * サイネージの実効日次データ解決 (#48-E1 / #191)。
@@ -125,6 +126,116 @@ export function mergeDailySections(
   };
 }
 
+/** サイネージの遡及読み取り窓 (日数)。連絡(最大表示日数 14)・提出物(期限前後)の活性判定に十分な過去日数。 */
+const EFFECTIVE_LOOKBACK_DAYS = 31;
+
+const MS_PER_DAY = 86_400_000;
+
+function dateToUtcMs(d: string): number {
+  const parts = d.split("-");
+  return Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+
+/** YYYY-MM-DD 間の暦日差 (to - from)。UTC 基準で TZ/DST 非依存。 */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((dateToUtcMs(to) - dateToUtcMs(from)) / MS_PER_DAY);
+}
+
+/** YYYY-MM-DD に n 日加算して YYYY-MM-DD を返す (遡及窓の開始日計算)。 */
+export function addDays(date: string, n: number): string {
+  const dt = new Date(dateToUtcMs(date) + n * MS_PER_DAY);
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 連絡が today に表示中か。入力日 (rowDate) から displayDays 日間 (既定 1=入力日のみ)。 */
+export function isNoticeActive(item: unknown, rowDate: string, today: string): boolean {
+  const dd =
+    typeof item === "object" &&
+    item !== null &&
+    typeof (item as { displayDays?: unknown }).displayDays === "number"
+      ? (item as { displayDays: number }).displayDays
+      : 1;
+  const diff = daysBetween(rowDate, today);
+  return diff >= 0 && diff < dd;
+}
+
+/** 提出物が today に表示中か。期限 + ASSIGNMENT_GRACE_DAYS 日まで表示し、以後は消える。 */
+export function isAssignmentActive(item: unknown, today: string): boolean {
+  const deadline =
+    typeof item === "object" && item !== null ? (item as { deadline?: unknown }).deadline : null;
+  if (typeof deadline !== "string") {
+    return false;
+  }
+  return daysBetween(deadline, today) <= ASSIGNMENT_GRACE_DAYS;
+}
+
+/** 遡及窓の 1 行 (DailyScopeRow + 入力日)。notices/assignments の活性判定に入力日が要る。 */
+type DailyWindowRow = DailyScopeRow & { date: string };
+
+/**
+ * 遡及窓の行から、scope 精度優先で「today に活性な」notices/assignments をマージする。最も具体的な scope に
+ * 活性項目が 1 件でもあればその scope を採用 (既存の per-field 最具体勝ち規約を多日へ拡張)。採用 scope の
+ * 活性項目を入力日昇順で集め、提出物は期限昇順に整える。**純関数**。
+ */
+function mergeWindowedSection(
+  rows: DailyWindowRow[],
+  field: "notices" | "assignments",
+  today: string,
+): MergedSection {
+  for (const scope of SCOPE_PRECEDENCE) {
+    const scopeRows = rows
+      .filter((r) => r.scope === scope)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const active: unknown[] = [];
+    for (const r of scopeRows) {
+      const items = nonEmptyArray(r[field]);
+      if (!items) {
+        continue;
+      }
+      for (const it of items) {
+        const ok =
+          field === "notices" ? isNoticeActive(it, r.date, today) : isAssignmentActive(it, today);
+        if (ok) {
+          active.push(it);
+        }
+      }
+    }
+    if (active.length > 0) {
+      if (field === "assignments") {
+        active.sort((a, b) => {
+          const da = (a as { deadline: string }).deadline;
+          const db = (b as { deadline: string }).deadline;
+          return da < db ? -1 : da > db ? 1 : 0;
+        });
+      }
+      return { items: active, source: scope };
+    }
+  }
+  return { items: [], source: null };
+}
+
+/**
+ * 遡及窓の行 (今日を含む過去 N 日) から実効日次データを組む。schedules / quietHours は当日行のみで
+ * (mergeDailySections と同規約)、notices / assignments は窓内の活性項目を採用する (#243 表示日数)。
+ * **純関数** — DB 非依存でテスト可能。
+ */
+export function mergeEffectiveWithWindow(
+  date: string,
+  windowRows: DailyWindowRow[],
+  quietHoursFallback: unknown[] | null = null,
+): EffectiveDailyData {
+  const todayRows = windowRows.filter((r) => r.date === date);
+  const single = mergeDailySections(date, todayRows, quietHoursFallback);
+  return {
+    ...single,
+    notices: mergeWindowedSection(windowRows, "notices", date),
+    assignments: mergeWindowedSection(windowRows, "assignments", date),
+  };
+}
+
 /**
  * クラスの階層 (所属学年・所属学科)。`grades.department_id` 経由で学科を解決する (段A-2)。
  * `gradeId` / `departmentId` は未割当のとき null (学年未割当クラス / クラスモード校の学年は学科なし)。
@@ -177,25 +288,35 @@ export async function getEffectiveDailyData(
     return null;
   }
 
+  // 連絡(表示日数)・提出物(期限+猶予)を多日表示するため、当日だけでなく過去 EFFECTIVE_LOOKBACK_DAYS 日分の
+  // 行を 1 クエリで読む (schedules/quietHours は当日行のみ使用 = mergeEffectiveWithWindow が振り分け)。
+  // RLS により自校に限定される (ルール2、手書き WHERE school_id 非依存)。
+  const windowStart = addDays(date, -(EFFECTIVE_LOOKBACK_DAYS - 1));
   const rows = await tx
     .select({
       scope: dailyData.scope,
+      date: dailyData.date,
       schedules: dailyData.schedules,
       notices: dailyData.notices,
       assignments: dailyData.assignments,
       quietHours: dailyData.quietHours,
     })
     .from(dailyData)
-    .where(and(eq(dailyData.date, date), scopeRowsForClass(classId, cls)));
+    .where(
+      and(
+        gte(dailyData.date, windowStart),
+        lte(dailyData.date, date),
+        scopeRowsForClass(classId, cls),
+      ),
+    );
 
-  // クラスの永続既定 (school_configs scope=class kind='quiet_hours')。当日 daily_data に
-  // quiet_hours の override が無いときのフォールバックに使う (#191、優先順は override > 既定)。
-  // 読み取りは同じ RLS コンテキスト (app.current_school_id) で自校に限定される (ルール2)。
+  // クラスの永続既定 (school_configs scope=class kind='quiet_hours')。当日 daily_data に quiet_hours の
+  // override が無いときのフォールバック (#191、優先順は override > 既定)。同じ RLS コンテキストで自校限定。
   // 値は `{ ranges: [...] }` オブジェクトなので readQuietRanges で配列形に揃える (値形ブリッジ)。
   const quietHoursConfig = await getClassConfigValue(tx, classId, "quiet_hours");
   const quietHoursFallback = readQuietRanges(quietHoursConfig);
 
-  return mergeDailySections(date, rows, quietHoursFallback);
+  return mergeEffectiveWithWindow(date, rows, quietHoursFallback);
 }
 
 /** 1 日分の実効「予定」セクション。`getEffectiveScheduleDays` が日付配列ぶん返す。 */

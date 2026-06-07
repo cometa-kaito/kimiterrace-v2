@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type DailyScopeRow, mergeDailySections } from "../../lib/signage/effective-daily-data";
+import {
+  type DailyScopeRow,
+  addDays,
+  daysBetween,
+  isAssignmentActive,
+  isNoticeActive,
+  mergeDailySections,
+  mergeEffectiveWithWindow,
+} from "../../lib/signage/effective-daily-data";
 
 /**
  * daily_data 階層マージ (class > grade > school、per-field) の純粋ロジック検証 (#48-E1)。
@@ -158,5 +166,117 @@ describe("mergeDailySections: quiet_hours 二段フォールバック (#191)", (
   it("既定引数を省略すると従来挙動 (空 source null)", () => {
     const merged = mergeDailySections("2026-05-31", []);
     expect(merged.quietHours).toEqual({ items: [], source: null });
+  });
+});
+
+/** 遡及窓の 1 行 (DailyScopeRow + 入力日)。 */
+function wrow(scope: DailyScopeRow["scope"], date: string, parts: Partial<DailyScopeRow>) {
+  return {
+    scope,
+    date,
+    schedules: parts.schedules ?? [],
+    notices: parts.notices ?? [],
+    assignments: parts.assignments ?? [],
+    quietHours: parts.quietHours ?? [],
+  };
+}
+
+describe("daysBetween / addDays", () => {
+  it("daysBetween は暦日差 (to - from)、月/年跨ぎも正しい", () => {
+    expect(daysBetween("2026-06-07", "2026-06-10")).toBe(3);
+    expect(daysBetween("2026-06-10", "2026-06-07")).toBe(-3);
+    expect(daysBetween("2026-06-30", "2026-07-01")).toBe(1);
+    expect(daysBetween("2026-12-31", "2027-01-01")).toBe(1);
+  });
+  it("addDays は n 日加算 (月/年跨ぎ・負数)", () => {
+    expect(addDays("2026-06-07", 3)).toBe("2026-06-10");
+    expect(addDays("2026-06-30", 1)).toBe("2026-07-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDays("2026-06-07", -30)).toBe("2026-05-08");
+  });
+});
+
+describe("isNoticeActive", () => {
+  it("既定 (displayDays 無し) は入力日のみ", () => {
+    expect(isNoticeActive({ text: "x" }, "2026-06-07", "2026-06-07")).toBe(true);
+    expect(isNoticeActive({ text: "x" }, "2026-06-06", "2026-06-07")).toBe(false);
+  });
+  it("displayDays=3 は入力日から 3 日間 (当日含む)、4 日目は切れる", () => {
+    const item = { text: "x", displayDays: 3 };
+    expect(isNoticeActive(item, "2026-06-05", "2026-06-05")).toBe(true);
+    expect(isNoticeActive(item, "2026-06-05", "2026-06-07")).toBe(true);
+    expect(isNoticeActive(item, "2026-06-05", "2026-06-08")).toBe(false);
+  });
+  it("未来入力 (today < rowDate) は非活性", () => {
+    expect(isNoticeActive({ text: "x", displayDays: 5 }, "2026-06-10", "2026-06-07")).toBe(false);
+  });
+});
+
+describe("isAssignmentActive (期限 + 2 日まで)", () => {
+  it("期限前〜期限+2日は活性、+3日で消える", () => {
+    const a = { deadline: "2026-06-10", subject: "数学", task: "p10" };
+    expect(isAssignmentActive(a, "2026-06-05")).toBe(true);
+    expect(isAssignmentActive(a, "2026-06-10")).toBe(true);
+    expect(isAssignmentActive(a, "2026-06-12")).toBe(true);
+    expect(isAssignmentActive(a, "2026-06-13")).toBe(false);
+  });
+  it("deadline が無い/不正は非活性", () => {
+    expect(isAssignmentActive({ subject: "x" }, "2026-06-10")).toBe(false);
+    expect(isAssignmentActive(null, "2026-06-10")).toBe(false);
+  });
+});
+
+describe("mergeEffectiveWithWindow", () => {
+  it("連絡: 数日前入力の displayDays>1 が今日も活性なら表示", () => {
+    const merged = mergeEffectiveWithWindow("2026-06-07", [
+      wrow("class", "2026-06-05", { notices: [{ text: "三日間連絡", displayDays: 3 }] }),
+    ]);
+    expect(merged.notices).toEqual({
+      items: [{ text: "三日間連絡", displayDays: 3 }],
+      source: "class",
+    });
+  });
+
+  it("連絡: 表示日数が切れた連絡は出さず下位 scope にフォールバック", () => {
+    const merged = mergeEffectiveWithWindow("2026-06-07", [
+      wrow("class", "2026-06-05", { notices: [{ text: "今日のみ(切れ)" }] }),
+      wrow("school", "2026-06-07", { notices: [{ text: "学校連絡" }] }),
+    ]);
+    expect(merged.notices).toEqual({ items: [{ text: "学校連絡" }], source: "school" });
+  });
+
+  it("提出物: 期限+2日まで自動表示、+3日で消える", () => {
+    const a = { deadline: "2026-06-06", subject: "国語", task: "漢字" };
+    const active = mergeEffectiveWithWindow("2026-06-08", [
+      wrow("class", "2026-06-01", { assignments: [a] }),
+    ]);
+    expect(active.assignments.items).toEqual([a]);
+    const expired = mergeEffectiveWithWindow("2026-06-09", [
+      wrow("class", "2026-06-01", { assignments: [a] }),
+    ]);
+    expect(expired.assignments).toEqual({ items: [], source: null });
+  });
+
+  it("提出物: 複数日入力ぶんを期限昇順に統合", () => {
+    const merged = mergeEffectiveWithWindow("2026-06-07", [
+      wrow("class", "2026-06-06", {
+        assignments: [{ deadline: "2026-06-12", subject: "数", task: "t1" }],
+      }),
+      wrow("class", "2026-06-07", {
+        assignments: [{ deadline: "2026-06-08", subject: "国", task: "t2" }],
+      }),
+    ]);
+    expect(merged.assignments.items).toEqual([
+      { deadline: "2026-06-08", subject: "国", task: "t2" },
+      { deadline: "2026-06-12", subject: "数", task: "t1" },
+    ]);
+  });
+
+  it("schedules/quietHours は当日行のみで判定 (窓の過去日は無視)", () => {
+    const merged = mergeEffectiveWithWindow("2026-06-07", [
+      wrow("class", "2026-06-05", { schedules: ["過去の時間割"] }),
+      wrow("class", "2026-06-07", { schedules: ["今日の時間割"] }),
+    ]);
+    expect(merged.schedules).toEqual({ items: ["今日の時間割"], source: "class" });
   });
 });

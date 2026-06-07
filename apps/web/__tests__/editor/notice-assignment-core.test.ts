@@ -51,6 +51,26 @@ describe("validateNoticeItems", () => {
   it("空配列は許可 (連絡なし = 全削除)", () => {
     expect(validateNoticeItems([])).toEqual({ ok: true, value: [] });
   });
+
+  it("displayDays: >1 は採用、1 / 未指定 は省略 (既定 今日のみ)", () => {
+    expect(validateNoticeItems([{ text: "a", displayDays: 3 }])).toEqual({
+      ok: true,
+      value: [{ text: "a", displayDays: 3 }],
+    });
+    expect(validateNoticeItems([{ text: "a", displayDays: 1 }])).toEqual({
+      ok: true,
+      value: [{ text: "a" }],
+    });
+    expect(validateNoticeItems([{ text: "a" }])).toEqual({ ok: true, value: [{ text: "a" }] });
+  });
+
+  it("displayDays: 0 / 15 / 非整数 / 文字列 は拒否 (境界 14 は許可)", () => {
+    expect(validateNoticeItems([{ text: "a", displayDays: 14 }]).ok).toBe(true);
+    expect(validateNoticeItems([{ text: "a", displayDays: 0 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ text: "a", displayDays: 15 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ text: "a", displayDays: 2.5 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ text: "a", displayDays: "3" }]).ok).toBe(false);
+  });
 });
 
 describe("validateAssignmentItems", () => {
