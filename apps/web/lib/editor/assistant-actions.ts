@@ -2,11 +2,15 @@
 
 import {
   AiDisabledError,
+  ExtractFailedError,
+  ExtractorNotConfiguredError,
   type ModelClient,
   type RateLimiter,
+  UnsupportedFormatError,
   assertAiEnabled,
   createPerSchoolRateLimiter,
   createVertexModelClient,
+  extractText,
   findSuspectedPersonalNames,
   findUnmaskedPii,
   maskPII,
@@ -15,6 +19,7 @@ import {
 import { auditLog } from "@kimiterrace/db";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { resolveUploadType } from "../teacher-input/upload-validation";
 import {
   ASSIST_INPUT_MAX,
   type AssistDraftResult,
@@ -32,15 +37,16 @@ import {
 } from "./schedule-core";
 
 /**
- * 段C: エディタ AI アシスタント Server Action（連絡ドラフト）。教員のメモ/発話 → AI 整形 →
+ * 段C: エディタ AI アシスタント Server Action（連絡ドラフト）。教員のメモ/発話/**ファイル** → AI 整形 →
  * 連絡(notices) の候補を返す（**保存はしない**。client が確認後に既存 `setNoticesAction` で保存する）。
  *
  * 規律:
- * - ルール4 PII: 送信前に書式 PII (電話/メール) を `maskPII` でマスク + `findUnmaskedPii` fail-closed。
+ * - ルール4 PII: Vertex 送信前に書式 PII (電話/メール) を `maskPII` でマスク + `findUnmaskedPii` fail-closed。
  *   氏名らしき高確信パターン (ADR-030 soft-gate) は未 override なら送信せず警告。LLM 呼び出しは
  *   `audit_log` に記録 (本文は残さず件数のみ)。`AI_ENABLED` kill-switch を `assertAiEnabled` で尊重。
+ *   ファイル抽出テキストも同じ `runNoticeDraft` パイプラインを通すので、マスク/soft-gate/監査は同一。
  * - ルール2 RLS: 監査書込は `withSession` の自校 tx。actor はセッション由来 (外部入力を信用しない)。
- * - 生メモ/応答本文はログ・監査に出さない。本 action は DB のコンテンツを変更しない (ドラフトのみ)。
+ * - 生メモ/応答本文/ファイル内容はログ・監査に出さない。本 action は DB のコンテンツを変更しない (ドラフトのみ)。
  *
  * **本MVP は連絡のみ**。時間割/提出物の AI 化は後続スライス。
  */
@@ -56,6 +62,19 @@ function getModel(): ModelClient {
   memoModel = createVertexModelClient({ project, location });
   return memoModel;
 }
+
+/**
+ * エディタのファイル入力で受理する拡張子（テキスト抽出が即動作するもの）。
+ * 画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) ゆえ本MVPでは非対応 → `unsupported_format`。
+ */
+const EDITOR_FILE_EXTS = new Set(["pdf", "docx", "xlsx"]);
+
+/**
+ * エディタファイル入力のサイズ上限 (10MB)。Server Action 経路ゆえ next.config の
+ * `serverActions.bodySizeLimit` (12MB = 本値 + multipart 余白) と整合させる。大容量 (50MB) の
+ * F01 教員アップロードは Route Handler 経路で別管理 (#695 Reviewer High-1)。
+ */
+const ASSIST_FILE_MAX_BYTES = 10 * 1024 * 1024;
 
 /** 監査の record_id（対象の最も具体的な id。school scope は schoolId）。 */
 function auditRecordId(target: EditorTarget, actor: EditorActor): string {
@@ -78,45 +97,50 @@ export interface AssistDeps {
   nowMs?: number;
 }
 
-/**
- * 教員のメモ/発話テキストを AI で「連絡」候補に整形して返す（保存しない）。
- * すべてのエラーを {@link AssistDraftResult} に畳む（throw しない）。
- */
-export async function assistDraftNoticesAction(
+function defaultDeps(): AssistDeps {
+  return { model: getModel(), rateLimiter: sharedRateLimiter };
+}
+
+/** target 解決 + 認証 + AI 有効化を共通化（成功で {target, actor}、失敗で畳んだ結果）。 */
+async function authorizeAssist(
   scope: unknown,
   targetId: unknown,
-  rawText: unknown,
-  opts: { acknowledgePii?: boolean } = {},
-  deps: AssistDeps = { model: getModel(), rateLimiter: sharedRateLimiter },
-): Promise<AssistDraftResult> {
+): Promise<
+  { ok: true; target: EditorTarget; actor: EditorActor } | { ok: false; result: AssistDraftResult }
+> {
   const target = parseEditorTarget(scope, targetId);
   if (!target) {
-    return { ok: false, reason: "error" };
+    return { ok: false, result: { ok: false, reason: "error" } };
   }
-  const text = typeof rawText === "string" ? rawText.trim() : "";
-  if (text.length === 0) {
-    return { ok: false, reason: "empty" };
-  }
-  if (text.length > ASSIST_INPUT_MAX) {
-    return { ok: false, reason: "too_long" };
-  }
-
   const user = await requireRole(EDITOR_ROLES);
   const actor = toEditorActor(user);
   if (!actor) {
-    return { ok: false, reason: "forbidden" };
+    return { ok: false, result: { ok: false, reason: "forbidden" } };
   }
-
   // AI_ENABLED kill-switch（#289 / ルール4）。
   try {
     assertAiEnabled();
   } catch (e) {
     if (e instanceof AiDisabledError) {
-      return { ok: false, reason: "disabled" };
+      return { ok: false, result: { ok: false, reason: "disabled" } };
     }
     throw e;
   }
+  return { ok: true, target, actor };
+}
 
+/**
+ * 抽出済み/入力済みテキスト → 連絡候補の共通パイプライン（soft-gate → rate → mask → 生成 → 逆マスク →
+ * fail-closed → 監査）。text/file 両エントリが本関数を共有する。`source` は監査の区別用。
+ */
+async function runNoticeDraft(
+  target: EditorTarget,
+  actor: EditorActor,
+  text: string,
+  opts: { acknowledgePii?: boolean },
+  deps: AssistDeps,
+  source: "text" | "file",
+): Promise<AssistDraftResult> {
   // ADR-030 PII soft-gate: 敬称連接の氏名らしきパターン検出 → 未 override は送信せず警告。
   const suspects = findSuspectedPersonalNames(text);
   if (suspects.length > 0 && opts.acknowledgePii !== true) {
@@ -172,7 +196,7 @@ export async function assistDraftNoticesAction(
       recordId: auditRecordId(target, actor),
       operation: "update",
       diff: {
-        aiAssist: "notices_draft",
+        aiAssist: source === "file" ? "notices_draft_file" : "notices_draft",
         noticeCount: notices.length,
         suspectedNameCount: suspects.length,
         scope: target.scope,
@@ -184,4 +208,85 @@ export async function assistDraftNoticesAction(
   });
 
   return { ok: true, notices };
+}
+
+/**
+ * 教員のメモ/発話テキストを AI で「連絡」候補に整形して返す（保存しない）。
+ * すべてのエラーを {@link AssistDraftResult} に畳む（throw しない）。
+ */
+export async function assistDraftNoticesAction(
+  scope: unknown,
+  targetId: unknown,
+  rawText: unknown,
+  opts: { acknowledgePii?: boolean } = {},
+  deps: AssistDeps = defaultDeps(),
+): Promise<AssistDraftResult> {
+  const text = typeof rawText === "string" ? rawText.trim() : "";
+  if (text.length === 0) {
+    return { ok: false, reason: "empty" };
+  }
+  if (text.length > ASSIST_INPUT_MAX) {
+    return { ok: false, reason: "too_long" };
+  }
+
+  const auth = await authorizeAssist(scope, targetId);
+  if (!auth.ok) {
+    return auth.result;
+  }
+
+  return runNoticeDraft(auth.target, auth.actor, text, opts, deps, "text");
+}
+
+/**
+ * アップロードファイル (PDF / Word / Excel) からテキストを抽出し、AI で「連絡」候補に整形して返す
+ * （保存しない）。画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) のため本MVP非対応。
+ * 抽出後は {@link runNoticeDraft} を通すので PII マスク/soft-gate/監査は text 経路と同一（ルール4）。
+ */
+export async function assistDraftNoticesFromFileAction(
+  scope: unknown,
+  targetId: unknown,
+  formData: FormData,
+  opts: { acknowledgePii?: boolean } = {},
+  deps: AssistDeps = defaultDeps(),
+): Promise<AssistDraftResult> {
+  const file = formData?.get?.("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, reason: "empty" };
+  }
+  if (file.size > ASSIST_FILE_MAX_BYTES) {
+    return { ok: false, reason: "too_large" };
+  }
+  // MIME allowlist（ファイル名でなく MIME を一次ソース）。画像/レガシー Office 等は弾く。
+  const uploadType = resolveUploadType(file.type);
+  if (!uploadType || !EDITOR_FILE_EXTS.has(uploadType.ext)) {
+    return { ok: false, reason: "unsupported_format" };
+  }
+
+  const auth = await authorizeAssist(scope, targetId);
+  if (!auth.ok) {
+    return auth.result;
+  }
+
+  let text: string;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // OCR は渡さない（画像は上で弾き済み・PDF/DOCX/XLSX のみ到達）。抽出テキストは未マスク（ルール4）。
+    const extracted = await extractText({ bytes, mimeType: file.type, filename: file.name });
+    text = extracted.text.trim().slice(0, ASSIST_INPUT_MAX);
+  } catch (e) {
+    // 形式未対応/未配線（画像 OCR 等）は unsupported、パース失敗（破損/暗号化）は extract_failed。
+    if (e instanceof UnsupportedFormatError || e instanceof ExtractorNotConfiguredError) {
+      return { ok: false, reason: "unsupported_format" };
+    }
+    if (e instanceof ExtractFailedError) {
+      return { ok: false, reason: "extract_failed" };
+    }
+    return { ok: false, reason: "extract_failed" };
+  }
+
+  if (text.length === 0) {
+    return { ok: false, reason: "no_text" };
+  }
+
+  return runNoticeDraft(auth.target, auth.actor, text, opts, deps, "file");
 }

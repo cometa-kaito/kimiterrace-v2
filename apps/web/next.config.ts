@@ -74,6 +74,16 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+  // Server Action のリクエストボディ上限。既定は 1MB で、これだと段C エディタアシスタントの
+  // ファイル入力 (assistDraftNoticesFromFileAction) が 1MB 超の PDF/Word/Excel を action 到達前に
+  // 413 で弾いてしまう (#695 Reviewer High-1)。エディタの連絡用ドキュメントは小さいので、global な
+  // DoS 面拡大を抑えるため 12MB に留める (action 側は 10MB で too_large、+2MB は multipart 余白)。
+  // 大容量 (50MB) の F01 教員アップロードは Server Action でなく Route Handler 経由なので本設定の対象外。
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "12mb",
+    },
+  },
   transpilePackages: [
     "@kimiterrace/db",
     "@kimiterrace/ai",
