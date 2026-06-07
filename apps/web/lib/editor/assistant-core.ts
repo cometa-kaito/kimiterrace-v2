@@ -26,6 +26,10 @@ export type AssistDraftResult =
         | "pii_leak" // マスク漏れ fail-closed 作動
         | "empty" // 入力空
         | "too_long" // 入力過大
+        | "too_large" // ファイルサイズ上限超過
+        | "unsupported_format" // 対応外ファイル形式（画像 OCR 未配線含む）
+        | "no_text" // ファイルからテキストを抽出できなかった
+        | "extract_failed" // ファイル解析失敗（破損/暗号化等）
         | "no_result" // モデル応答が空/不正
         | "error";
     };

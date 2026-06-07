@@ -8,9 +8,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // vi.hoisted: vi.mock factory は巻き上げられるため、参照するフェイクは hoisted で先に生成する。
 const h = vi.hoisted(() => {
   class FakeAiDisabledError extends Error {}
+  class FakeUnsupportedFormatError extends Error {}
+  class FakeExtractorNotConfiguredError extends Error {}
+  class FakeExtractFailedError extends Error {}
   return {
     AiDisabledError: FakeAiDisabledError,
+    UnsupportedFormatError: FakeUnsupportedFormatError,
+    ExtractorNotConfiguredError: FakeExtractorNotConfiguredError,
+    ExtractFailedError: FakeExtractFailedError,
     assertAiEnabled: vi.fn(),
+    extractText: vi.fn(),
     findSuspectedPersonalNames: vi.fn(),
     findUnmaskedPii: vi.fn(),
     maskPII: vi.fn(),
@@ -22,7 +29,11 @@ const h = vi.hoisted(() => {
 
 vi.mock("@kimiterrace/ai", () => ({
   AiDisabledError: h.AiDisabledError,
+  UnsupportedFormatError: h.UnsupportedFormatError,
+  ExtractorNotConfiguredError: h.ExtractorNotConfiguredError,
+  ExtractFailedError: h.ExtractFailedError,
   assertAiEnabled: h.assertAiEnabled,
+  extractText: h.extractText,
   findSuspectedPersonalNames: h.findSuspectedPersonalNames,
   findUnmaskedPii: h.findUnmaskedPii,
   maskPII: h.maskPII,
@@ -36,7 +47,10 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@kimiterrace/db", () => ({ auditLog: {} }));
 
-import { assistDraftNoticesAction } from "../../lib/editor/assistant-actions";
+import {
+  assistDraftNoticesAction,
+  assistDraftNoticesFromFileAction,
+} from "../../lib/editor/assistant-actions";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -62,6 +76,7 @@ beforeEach(() => {
   h.findUnmaskedPii.mockReset().mockReturnValue([]);
   h.maskPII.mockReset().mockImplementation((t: string) => ({ masked: t, dictionary: {} }));
   h.unmaskPII.mockReset().mockImplementation((t: string) => t);
+  h.extractText.mockReset().mockResolvedValue({ text: "明日は短縮授業", format: "pdf" });
   h.insertValues.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => vi.clearAllMocks());
@@ -131,5 +146,87 @@ describe("assistDraftNoticesAction", () => {
     h.requireRole.mockResolvedValue({ uid: "u1", schoolId: null, role: "teacher" });
     const r = await assistDraftNoticesAction("class", CLASS_ID, "連絡", {}, deps());
     expect(r).toEqual({ ok: false, reason: "forbidden" });
+  });
+});
+
+function pdfFile(name = "notice.pdf", type = "application/pdf"): File {
+  return new File(["dummy-content"], name, { type });
+}
+function fileForm(file: File): FormData {
+  const fd = new FormData();
+  fd.append("file", file);
+  return fd;
+}
+
+describe("assistDraftNoticesFromFileAction", () => {
+  it("file 無しは empty", async () => {
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, new FormData(), {}, deps());
+    expect(r).toEqual({ ok: false, reason: "empty" });
+  });
+
+  it("非対応 MIME（画像）は unsupported_format（抽出前に弾く）", async () => {
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile("p.png", "image/png")),
+      {},
+      d,
+    );
+    expect(r).toEqual({ ok: false, reason: "unsupported_format" });
+    expect(h.extractText).not.toHaveBeenCalled();
+  });
+
+  it("PDF 正常 → notices を返し audit_log に書き込む", async () => {
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
+    expect(r).toEqual({ ok: true, notices: [{ text: "連絡A", isHighlight: true }] });
+    expect(h.extractText).toHaveBeenCalledOnce();
+    expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("OCR 未配線（ExtractorNotConfigured）は unsupported_format", async () => {
+    h.extractText.mockRejectedValue(new h.ExtractorNotConfiguredError());
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile()),
+      {},
+      deps(),
+    );
+    expect(r).toEqual({ ok: false, reason: "unsupported_format" });
+  });
+
+  it("解析失敗（ExtractFailed）は extract_failed", async () => {
+    h.extractText.mockRejectedValue(new h.ExtractFailedError());
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile()),
+      {},
+      deps(),
+    );
+    expect(r).toEqual({ ok: false, reason: "extract_failed" });
+  });
+
+  it("抽出テキストが空なら no_text", async () => {
+    h.extractText.mockResolvedValue({ text: "   ", format: "pdf" });
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile()),
+      {},
+      deps(),
+    );
+    expect(r).toEqual({ ok: false, reason: "no_text" });
+  });
+
+  it("ファイル経路でも氏名は pii_warning（共有パイプライン・送信しない）", async () => {
+    h.extractText.mockResolvedValue({ text: "田中さんが欠席", format: "pdf" });
+    h.findSuspectedPersonalNames.mockReturnValue([{ surface: "田中さん" }]);
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
+    expect(r).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中さん"] });
+    expect(d.model.generate).not.toHaveBeenCalled();
   });
 });

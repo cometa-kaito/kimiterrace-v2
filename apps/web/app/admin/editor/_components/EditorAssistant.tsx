@@ -1,22 +1,36 @@
 "use client";
 
-import { assistDraftNoticesAction } from "@/lib/editor/assistant-actions";
+import {
+  assistDraftNoticesAction,
+  assistDraftNoticesFromFileAction,
+} from "@/lib/editor/assistant-actions";
 import type { AssistDraftResult } from "@/lib/editor/assistant-core";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import styles from "./editor-assistant.module.css";
 
 /** 提案リストの安定キー用に id を付与した連絡（保存時は id を無視して text/isHighlight のみ採用）。 */
 type ProposedNotice = NoticeItem & { id: string };
 
+/** ファイル入力で受理する MIME（PDF / Word / Excel。画像 OCR は未配線ゆえ非対応）。 */
+const FILE_ACCEPT = [
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+].join(",");
+
 /**
  * 段C: エディタの **AI アシスタント浮遊UI**（ユーザー要望 2026-06-07）。編集画面の右下に常駐するボタンを
- * 押すと浮遊パネルが開き、**話す（音声）/ 打つ（テキスト）→ AI が「連絡」を下書き → 確認 → 反映（保存）**
- * できる。保存は段A-2 の `setNoticesAction`（自校 RLS・監査）に委譲。AI 下書きは `assistDraftNoticesAction`
- * （PII マスク/soft-gate/監査/AI_ENABLED gate 済）。本MVP は連絡のみ（時間割/提出物は後続）。
+ * 押すと浮遊パネルが開き、**話す（音声）/ 打つ（テキスト）/ ファイル（PDF・Word・Excel）→ AI が「連絡」を
+ * 下書き → 確認 → 反映（保存）** できる。保存は段A-2 の `setNoticesAction`（自校 RLS・監査）に委譲。AI 下書きは
+ * `assistDraftNoticesAction` / `assistDraftNoticesFromFileAction`（PII マスク/soft-gate/監査/AI_ENABLED gate 済）。
+ * 本MVP は連絡のみ（時間割/提出物は後続）。画像はサーバ側 OCR 配線後に対応。
  */
 export function EditorAssistant({
   scope,
@@ -38,6 +52,8 @@ export function EditorAssistant({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [warnSurfaces, setWarnSurfaces] = useState<string[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const speech = useSpeechToText("ja-JP");
 
@@ -55,22 +71,48 @@ export function EditorAssistant({
     }
   }
 
-  function runDraft(acknowledgePii: boolean) {
+  function clearFile() {
+    setPendingFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function handleResult(res: AssistDraftResult) {
+    if (res.ok) {
+      setProposed(res.notices.map((n, i) => ({ ...n, id: `${i}-${n.text}` })));
+      setSelected(new Set(res.notices.map((_, i) => i)));
+    } else if (res.reason === "pii_warning") {
+      setWarnSurfaces(res.suspectedSurfaces);
+    } else {
+      setMsg(MESSAGES[res.reason] ?? "うまくいきませんでした。");
+    }
+  }
+
+  /** fileArg を渡せばファイル経路、未指定なら現在の pendingFile（無ければテキスト経路）。 */
+  function runDraft(acknowledgePii: boolean, fileArg?: File | null) {
+    const file = fileArg !== undefined ? fileArg : pendingFile;
     setMsg(null);
     setWarnSurfaces(null);
     startDraft(async () => {
-      const res: AssistDraftResult = await assistDraftNoticesAction(scope, targetId, text, {
-        acknowledgePii,
-      });
-      if (res.ok) {
-        setProposed(res.notices.map((n, i) => ({ ...n, id: `${i}-${n.text}` })));
-        setSelected(new Set(res.notices.map((_, i) => i)));
-      } else if (res.reason === "pii_warning") {
-        setWarnSurfaces(res.suspectedSurfaces);
+      let res: AssistDraftResult;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        res = await assistDraftNoticesFromFileAction(scope, targetId, fd, { acknowledgePii });
       } else {
-        setMsg(MESSAGES[res.reason] ?? "うまくいきませんでした。");
+        res = await assistDraftNoticesAction(scope, targetId, text, { acknowledgePii });
       }
+      handleResult(res);
     });
+  }
+
+  function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    setPendingFile(f);
+    if (f) {
+      runDraft(false, f);
+    }
   }
 
   function apply() {
@@ -87,6 +129,7 @@ export function EditorAssistant({
         setMsg("連絡に反映しました。");
         setProposed(null);
         setText("");
+        clearFile();
         router.refresh();
       } else {
         setMsg(res.error.message);
@@ -119,7 +162,8 @@ export function EditorAssistant({
           </div>
 
           <p className={styles.hint}>
-            話すか入力すると、AI が「連絡」の下書きを作ります。確認して反映してください。
+            話す・入力する・ファイル（PDF / Word / Excel）から、AI
+            が「連絡」の下書きを作ります。確認して反映してください。
           </p>
 
           <textarea
@@ -142,13 +186,38 @@ export function EditorAssistant({
             ) : null}
             <button
               type="button"
+              className={styles.ghost}
+              disabled={drafting}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              📄 ファイルから
+            </button>
+            <button
+              type="button"
               className={styles.primary}
               disabled={drafting || text.trim().length === 0}
-              onClick={() => runDraft(false)}
+              onClick={() => {
+                clearFile();
+                runDraft(false, null);
+              }}
             >
               {drafting ? "作成中…" : "AIで連絡を作る"}
             </button>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={FILE_ACCEPT}
+            aria-label="ファイルを選択（PDF・Word・Excel）"
+            style={{ display: "none" }}
+            onChange={onFilePicked}
+          />
+          {pendingFile ? (
+            <p className={styles.interim}>
+              {drafting ? "ファイルを読み取り中… " : "選択中: "}
+              {pendingFile.name}
+            </p>
+          ) : null}
           {speech.listening ? <p className={styles.interim}>{speech.interim}</p> : null}
 
           {warnSurfaces ? (
@@ -209,7 +278,14 @@ export function EditorAssistant({
                 <button type="button" className={styles.primary} disabled={saving} onClick={apply}>
                   {saving ? "反映中…" : "連絡に反映する"}
                 </button>
-                <button type="button" className={styles.ghost} onClick={() => setProposed(null)}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => {
+                    setProposed(null);
+                    clearFile();
+                  }}
+                >
                   破棄
                 </button>
               </div>
@@ -228,8 +304,12 @@ const MESSAGES: Record<string, string> = {
   disabled: "AI 機能が現在無効です。",
   rate_limited: "短時間に使いすぎました。少し待って再度お試しください。",
   pii_leak: "個人情報が含まれる可能性があるため中止しました。",
-  empty: "メモを入力してください。",
+  empty: "メモを入力するか、ファイルを選んでください。",
   too_long: "入力が長すぎます。短くしてください。",
+  too_large: "ファイルが大きすぎます（上限 50MB）。",
+  unsupported_format: "対応していない形式です（PDF・Word・Excel のみ。画像は今後対応）。",
+  no_text: "ファイルから文字を読み取れませんでした。",
+  extract_failed: "ファイルを読み取れませんでした（破損・暗号化の可能性）。",
   no_result: "うまく作成できませんでした。言い換えて再度お試しください。",
   error: "エラーが発生しました。もう一度お試しください。",
 };
