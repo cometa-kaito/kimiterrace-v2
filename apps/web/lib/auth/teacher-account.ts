@@ -11,8 +11,9 @@ import { getAdminAuth } from "./adminApp";
  * `setCustomUserClaims`（Auth REST、署名不要）だけで provisioning する。
  *
  * ## localId == users.id（ADR-003 前提）
- * IdP の localId（=uid）を `users.id` と一致させるため、uid は **学校 id から決定的に導く UUIDv5**。
- * これにより session cookie 検証（`decoded.uid` を users.id として扱う）と `created_by` FK が成立する。
+ * IdP の localId（=uid）を `users.id` と一致させるため、uid は **学校 id から決定的に導く UUID**
+ * （SHA-256 ベースの UUIDv8 形式、`deterministicUuid`）。これにより session cookie 検証
+ * （`decoded.uid` を users.id として扱う）と `created_by` FK が成立する。
  */
 
 /** UUIDv5 名前空間（本アプリの共通教員アカウント用に固定採番した定数 UUID）。 */
@@ -33,24 +34,30 @@ function bytesToUuid(bytes: Buffer): string {
 }
 
 /**
- * RFC 4122 UUIDv5（SHA-1 ベースの名前ベース UUID）。同じ (namespace, name) からは常に同じ UUID を返す
- * （決定的）。共通教員アカウントの uid を学校 id から安定導出するために使う。
+ * 名前ベースの **決定的 UUID**（RFC 9562 UUIDv8 形式）。同じ (namespace, name) からは常に同じ UUID を返す。
+ * 共通教員アカウントの uid を学校 id から安定導出するために使う。
+ *
+ * **ハッシュは SHA-256**（SHA-1 ではない）。本来 RFC 4122 UUIDv5 は SHA-1 規定だが、ここでのハッシュは
+ * 「学校 id を 128bit の安定 ID に畳む」用途で**セキュリティ目的ではない**（衝突耐性も SHA-256 で十分）。
+ * SHA-1 を使うと静的解析（CodeQL js/weak-cryptographic-algorithm）が weak-crypto として検出するため、
+ * 用途上不要な弱アルゴリズムを避け SHA-256 + version 8（custom）形式にする。出力は 8-4-4-4-12 の正規
+ * UUID 形式で `users.id`（uuid 列）/ session 検証の UUID 正規表現を満たす。
  */
-export function uuidv5(name: string, namespace: string): string {
-  const hash = createHash("sha1")
+export function deterministicUuid(name: string, namespace: string): string {
+  const hash = createHash("sha256")
     .update(uuidToBytes(namespace))
     .update(Buffer.from(name, "utf8"))
     .digest();
   const bytes = Buffer.from(hash.subarray(0, 16));
-  // version 5 と RFC 4122 variant をセット（subarray(0,16) ゆえ index 6/8 は常に存在、`?? 0` は型充足）。
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  // version 8（RFC 9562 custom）と RFC variant をセット（subarray ゆえ index 6/8 は常に存在、`?? 0` は型充足）。
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80;
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   return bytesToUuid(bytes);
 }
 
 /** 学校 id から共通教員アカウントの決定的 uid（= users.id）を導く。 */
 export function sharedTeacherUid(schoolId: string): string {
-  return uuidv5(schoolId, TEACHER_ACCOUNT_NAMESPACE);
+  return deterministicUuid(schoolId, TEACHER_ACCOUNT_NAMESPACE);
 }
 
 /** 学校 id から共通教員アカウントの決定的 email を導く（ハイフン除去でローカル部を英数字に保つ）。 */
