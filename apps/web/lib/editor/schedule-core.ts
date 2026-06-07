@@ -166,7 +166,7 @@ export function isValidDate(value: unknown): value is string {
 }
 
 /**
- * 時間割の 1 コマ。`period` は時限 (1..12)、`subject` は科目名 (1..32)、`note` は任意の補足。
+ * 予定の 1 コマ。`period` は時限 (1..12)、`subject` は科目名 (1..32)、`note` は任意の補足。
  * サイネージ (#48-E1) は `subject` を代表ラベルとして描画する。
  */
 export type ScheduleItem = { period: number; subject: string; note?: string };
@@ -190,21 +190,21 @@ function normalizeString(value: unknown, max: number): string | null {
 }
 
 /**
- * 時間割配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
+ * 予定配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
  * period の重複は許容しない (同じ時限が 2 つあると描画・編集が破綻するため)。
  */
 export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (!Array.isArray(raw)) {
-    return { ok: false, message: "時間割の形式が不正です。" };
+    return { ok: false, message: "予定の形式が不正です。" };
   }
   if (raw.length > MAX_ITEMS) {
-    return { ok: false, message: `時間割は最大 ${MAX_ITEMS} コマまでです。` };
+    return { ok: false, message: `予定は最大 ${MAX_ITEMS} コマまでです。` };
   }
   const seen = new Set<number>();
   const items: ScheduleItem[] = [];
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) {
-      return { ok: false, message: "時間割の各コマが不正です。" };
+      return { ok: false, message: "予定の各コマが不正です。" };
     }
     const rec = entry as Record<string, unknown>;
     const period = typeof rec.period === "string" ? Number(rec.period) : rec.period;

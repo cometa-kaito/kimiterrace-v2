@@ -11,7 +11,7 @@
  * スキーマ確定前は 2 レンダラ (admin プレビュー `SignageBoard` #48-E1 / 公開 `SignageClient` #48-E2) が
  * **同一の lossy な `itemLabel`** を各々重複実装しており、`["title","label","text","subject",...]` の
  * 先頭ヒットだけを拾っていた。その結果:
- *  - 時間割は `subject` のみ表示し**時限 (period) を捨てる**、
+ *  - 予定は `subject` のみ表示し**時限 (period) を捨てる**、
  *  - 提出物は `subject` のみ表示し**期限 (deadline)・内容 (task) を捨てる**、
  *  - 連絡は `text` を表示するが**重要マーク (isHighlight) を反映しない**、
  *  - 静粛時間は一致するキーが無いため `JSON.stringify` され `{"start":"12:30",...}` と**生 JSON が露出**
@@ -74,7 +74,7 @@ function shortDate(deadline: string): string {
   return `${Number(m[2])}/${Number(m[3])}`;
 }
 
-/** 時間割: "N限 科目（補足）"。`period` を冠して時限を明示する。 */
+/** 予定: "N限 科目（補足）"。`period` を冠して時限を明示する。 */
 function formatSchedule(rec: Record<string, unknown>): SignageLine | null {
   const subject = str(field<ScheduleItem>(rec, "subject"));
   if (!subject) {

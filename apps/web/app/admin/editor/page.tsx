@@ -33,7 +33,7 @@ export default async function EditorIndexPage() {
 
       {/* 範囲の概念を最初に説明（分かりにくさの主因＝何を選べばよいか不明）。 */}
       <div style={explainStyle}>
-        <p style={{ margin: "0 0 0.4rem" }}>範囲を選んで、時間割・連絡・提出物を編集します。</p>
+        <p style={{ margin: "0 0 0.4rem" }}>範囲を選んで、予定・連絡・提出物を編集します。</p>
         <ul style={explainListStyle}>
           <li>
             <span style={classDot} /> <strong>クラス</strong>（白）を選ぶ … そのクラス

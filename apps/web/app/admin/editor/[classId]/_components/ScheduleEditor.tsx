@@ -16,7 +16,7 @@ import {
 import { toEditorTarget } from "./target";
 
 /**
- * 時間割エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
+ * 予定エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
  * 保存時に `setScheduleAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・RLS は
  * Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
  *

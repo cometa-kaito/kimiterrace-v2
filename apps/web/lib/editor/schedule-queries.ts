@@ -14,7 +14,7 @@ export async function getSchoolClasses(tx: TenantTx): Promise<EditableClass[]> {
 }
 
 /**
- * エディタ Schedule の読み取り (#48-H)。指定クラス・日付の現在の時間割を取得する。
+ * エディタ Schedule の読み取り (#48-H)。指定クラス・日付の現在の予定を取得する。
  *
  * **RLS (ルール2)**: `withSession` の自校 tx 内で呼ぶ。`classes` / `daily_data` の SELECT は
  * `app.current_school_id` で自校に限定される。別テナントのクラス id は不可視 → null。

@@ -27,7 +27,7 @@ export function SignageBoard({
       <header style={dateHeaderStyle}>{date}</header>
 
       <div style={gridStyle}>
-        <Section title="時間割" kind="schedules" section={daily.schedules} />
+        <Section title="予定" kind="schedules" section={daily.schedules} />
         <Section title="連絡" kind="notices" section={daily.notices} />
         <Section title="課題" kind="assignments" section={daily.assignments} />
         <Section title="静粛時間" kind="quietHours" section={daily.quietHours} />
