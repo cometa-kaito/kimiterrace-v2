@@ -184,10 +184,10 @@ locals {
   #          入力（段C）/ #693 cloudbuild-web.yaml トラッキング。5c65a885 を内包＋全変更＝現 main HEAD。
   #          schema 変更なし（live 以降 packages/db/{drizzle,migrations} に .sql 追加なし）ゆえ migrate 不要。
   #          web:fb51910 を Cloud Build 済・AR push 済。
-  # 31e2d69: #698 C アシスタントで「明日」等の相対日付を基準日(JST)で具体日に変換。fb51910(= #695 ファイル
-  #          入力・Server Action body 上限是正込み) を内包＝現 main HEAD の web 全コード（c66a0a7 は bump のみ）。
-  #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:31e2d69 を Cloud Build 済・AR push 済。
-  web_image_tag = "31e2d69"
+  # 0571d00: #703 連絡に表示日数（プリセット今日のみ/明日まで/3日間/1週間+カスタム1〜14日）・提出物は
+  #          期限+2日まで自動表示後に自動消去。サイネージ読み取りを単日→過去31日遡及窓に変更。
+  #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
+  web_image_tag = "0571d00"
 }
 
 module "network" {
