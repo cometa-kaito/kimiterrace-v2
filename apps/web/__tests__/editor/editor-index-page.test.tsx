@@ -53,24 +53,28 @@ describe("EditorIndexPage scope 対象リンク", () => {
   it("学校全体 / 学科全体 / 学年全体 / クラスのリンクを正しい href で出す", async () => {
     render(await EditorIndexPage());
 
-    const school = screen.getByRole("link", { name: "学校全体を編集" });
+    const school = screen.getByRole("link", { name: "学校全体の共通を編集" });
     expect(school).toHaveAttribute("href", "/admin/editor/scope/school");
 
-    const dept = screen.getByRole("link", { name: "学科全体を編集" });
+    const dept = screen.getByRole("link", { name: "この学科の共通を編集" });
     expect(dept).toHaveAttribute("href", `/admin/editor/scope/department/${DEPT_ID}`);
 
-    const grade = screen.getByRole("link", { name: "学年全体を編集" });
+    const grade = screen.getByRole("link", { name: "この学年の共通を編集" });
     expect(grade).toHaveAttribute("href", `/admin/editor/scope/grade/${GRADE_ID}`);
 
     // 既存クラスリンクは維持される。
     const cls = screen.getByRole("link", { name: /1年A組/ });
     expect(cls).toHaveAttribute("href", `/admin/editor/${CLASS_ID}`);
+
+    // 分かりやすさ改善: 範囲の概念（共通は配下の全クラスに表示・クラス個別が優先）を説明する。
+    expect(screen.getByText(/範囲を選んで/)).toBeInTheDocument();
+    expect(screen.getByText(/優先順位: クラス ＞ 学年 ＞ 学科 ＞ 学校全体/)).toBeInTheDocument();
   });
 
   it("クラス 0 件でも学校全体リンクは出る (学校全体は常に編集可能)", async () => {
     getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
     render(await EditorIndexPage());
-    expect(screen.getByRole("link", { name: "学校全体を編集" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "学校全体の共通を編集" })).toHaveAttribute(
       "href",
       "/admin/editor/scope/school",
     );

@@ -6,16 +6,18 @@ import type { GradeView } from "@/lib/school-admin/hub-queries";
 import Link from "next/link";
 
 /**
- * エディタ着地 (#48-H)。編集対象を **階層ツリー（学科 → 学年 → クラス）** で選ぶ（旧フラット一覧を
- * 置換、ユーザー報告 2026-06-06「クラスを選択 UI が分かりにくい」への対応）。クラスをクリックすると
- * `/admin/editor/[classId]` の編集へ。`getSchoolHierarchy`（RLS tx・自校）で学科/学年/クラスを取得。
+ * エディタ着地 (#48-H)。編集する **範囲** を **階層ツリー（学校全体 → 学科 → 学年 → クラス）** で選ぶ。
+ *
+ * **分かりやすさ (ユーザー報告 2026-06-07「範囲選択 UI が分かりにくい」)**: 範囲の概念（広い範囲＝配下の全
+ * クラスに共通表示 / クラス個別が優先）を冒頭で説明し、「共通（全体）」の編集ボタンを**青いピル**で、クラスは
+ * **白いチップ**で視覚的に明確に区別する。これにより「クラスを編集」と「共通を編集」を取り違えにくくする。
  *
  * **空状態はロール別 (校務DX原則)**: クラス 0 件のとき、school_admin には学校管理への導線を、teacher には
  * 「管理者が追加すると表示される」案内に留める（teacher は /admin/school で 403 になるため死リンクを出さない）。
  *
- * **scope まとめ編集（段A-2）**: 先頭に「学校全体」、各学科見出しに「学科全体」、各学年見出しに「学年全体」の
- * 編集リンクを出す。ここで保存した内容は、より具体的なクラス個別入力が無いクラスのサイネージに共通表示される
- * （精度優先 class > grade > department > school、`effective-daily-data.ts`）。
+ * **scope まとめ編集（段A-2）**: 「学校全体」「学科の共通」「学年の共通」で保存した内容は、より具体的なクラス
+ * 個別入力が無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、
+ * `effective-daily-data.ts`）。
  */
 export default async function EditorIndexPage() {
   const user = await requireRole(EDITOR_ROLES);
@@ -26,12 +28,32 @@ export default async function EditorIndexPage() {
   const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0);
 
   return (
-    <div style={{ maxWidth: "720px" }}>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>エディタ — 編集する対象を選ぶ</h1>
+    <div style={{ maxWidth: "760px" }}>
+      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.5rem" }}>エディタ — 編集する範囲を選ぶ</h1>
+
+      {/* 範囲の概念を最初に説明（分かりにくさの主因＝何を選べばよいか不明）。 */}
+      <div style={explainStyle}>
+        <p style={{ margin: "0 0 0.4rem" }}>範囲を選んで、時間割・連絡・提出物を編集します。</p>
+        <ul style={explainListStyle}>
+          <li>
+            <span style={classDot} /> <strong>クラス</strong>（白）を選ぶ … そのクラス
+            <strong>だけ</strong>に表示
+          </li>
+          <li>
+            <span style={scopeDot} /> <strong>共通</strong>（青：学校全体／学科／学年）を選ぶ …
+            配下の
+            <strong>全クラスに共通</strong>で表示
+          </li>
+        </ul>
+        <p style={{ margin: "0.4rem 0 0", color: "#6b7280", fontSize: "0.82rem" }}>
+          クラスに個別の入力があれば、共通より優先されます（優先順位: クラス ＞ 学年 ＞ 学科 ＞
+          学校全体）。
+        </p>
+      </div>
 
       <p style={{ margin: "0 0 1rem" }}>
-        <Link href="/admin/editor/scope/school" style={scopeLinkStyle}>
-          学校全体を編集
+        <Link href="/admin/editor/scope/school" style={scopeBtnStyle}>
+          <span aria-hidden="true">▦</span> 学校全体の共通を編集
         </Link>
       </p>
 
@@ -54,8 +76,11 @@ export default async function EditorIndexPage() {
                 <section key={d.id} style={deptCardStyle}>
                   <div style={headerRowStyle}>
                     <h2 style={deptTitleStyle}>{d.name}</h2>
-                    <Link href={`/admin/editor/scope/department/${d.id}`} style={scopeLinkStyle}>
-                      学科全体を編集
+                    <Link
+                      href={`/admin/editor/scope/department/${d.id}`}
+                      style={scopeBtnSmallStyle}
+                    >
+                      <span aria-hidden="true">▦</span> この学科の共通を編集
                     </Link>
                   </div>
                   <GradeGroups grades={gradesOf(d.id)} />
@@ -79,34 +104,39 @@ export default async function EditorIndexPage() {
   );
 }
 
-/** 学年ごとに見出し + 配下クラスのリンクを出す。 */
+/** 学年ごとに見出し + 「学年の共通」ボタン + 配下クラスのチップを出す。 */
 function GradeGroups({ grades }: { grades: GradeView[] }) {
   if (grades.length === 0) {
     return <p style={mutedSmallStyle}>学年がありません。</p>;
   }
   return (
-    <div style={{ display: "grid", gap: "0.6rem" }}>
+    <div style={{ display: "grid", gap: "0.8rem" }}>
       {grades.map((g) => (
         <div key={g.id}>
           <div style={headerRowStyle}>
             <h3 style={gradeTitleStyle}>{g.name}</h3>
-            <Link href={`/admin/editor/scope/grade/${g.id}`} style={scopeLinkStyle}>
-              学年全体を編集
+            <Link href={`/admin/editor/scope/grade/${g.id}`} style={scopeBtnSmallStyle}>
+              <span aria-hidden="true">▦</span> この学年の共通を編集
             </Link>
           </div>
           {g.classes.length === 0 ? (
             <p style={mutedSmallStyle}>クラスがありません（学校管理で追加）。</p>
           ) : (
-            <ul style={classListStyle}>
-              {g.classes.map((c) => (
-                <li key={c.id}>
-                  <Link href={`/admin/editor/${c.id}`} style={classLinkStyle}>
-                    {c.name}
-                    <span style={classMetaStyle}>{c.academicYear}年度</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div
+              style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}
+            >
+              <span style={classGroupLabel}>クラス:</span>
+              <ul style={classListStyle}>
+                {g.classes.map((c) => (
+                  <li key={c.id}>
+                    <Link href={`/admin/editor/${c.id}`} style={classLinkStyle}>
+                      {c.name}
+                      <span style={classMetaStyle}>{c.academicYear}年度</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       ))}
@@ -114,6 +144,39 @@ function GradeGroups({ grades }: { grades: GradeView[] }) {
   );
 }
 
+const explainStyle: React.CSSProperties = {
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  borderRadius: "10px",
+  padding: "0.75rem 1rem",
+  marginBottom: "1rem",
+  fontSize: "0.9rem",
+  color: "#1f2937",
+};
+const explainListStyle: React.CSSProperties = {
+  margin: 0,
+  paddingLeft: "1.1rem",
+  display: "grid",
+  gap: "0.2rem",
+};
+const classDot: React.CSSProperties = {
+  display: "inline-block",
+  width: "0.7rem",
+  height: "0.7rem",
+  borderRadius: "3px",
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  verticalAlign: "middle",
+};
+const scopeDot: React.CSSProperties = {
+  display: "inline-block",
+  width: "0.7rem",
+  height: "0.7rem",
+  borderRadius: "3px",
+  border: "1px solid #93c5fd",
+  background: "#dbeafe",
+  verticalAlign: "middle",
+};
 const mutedStyle: React.CSSProperties = { color: "#6b7280" };
 const mutedSmallStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "0.85rem", margin: 0 };
 const deptCardStyle: React.CSSProperties = {
@@ -129,17 +192,33 @@ const gradeTitleStyle: React.CSSProperties = {
 };
 const headerRowStyle: React.CSSProperties = {
   display: "flex",
-  alignItems: "baseline",
+  alignItems: "center",
   justifyContent: "space-between",
   gap: "0.75rem",
   marginBottom: "0.5rem",
+  flexWrap: "wrap",
 };
-const scopeLinkStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  color: "#2563eb",
+// 「共通（全体）」編集ボタン: クラスの白チップと明確に区別する青いピル。
+const scopeBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  padding: "0.45rem 0.9rem",
+  border: "1px solid #93c5fd",
+  borderRadius: "999px",
+  background: "#dbeafe",
+  color: "#1d4ed8",
+  fontSize: "0.9rem",
+  fontWeight: 600,
   textDecoration: "none",
   whiteSpace: "nowrap",
 };
+const scopeBtnSmallStyle: React.CSSProperties = {
+  ...scopeBtnStyle,
+  padding: "0.25rem 0.7rem",
+  fontSize: "0.8rem",
+};
+const classGroupLabel: React.CSSProperties = { fontSize: "0.8rem", color: "#6b7280" };
 const classListStyle: React.CSSProperties = {
   listStyle: "none",
   margin: 0,
