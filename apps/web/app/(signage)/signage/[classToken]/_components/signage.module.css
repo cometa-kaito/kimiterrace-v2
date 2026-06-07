@@ -129,48 +129,18 @@
   letter-spacing: 0.02em;
 }
 
-/* ===================== 5. ヘッダー天気（日付の隣に小さく・暗色帯ゆえ明色テキスト） ===================== */
-.headerWeather {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-left: 0.3rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.4);
-  white-space: nowrap;
-  overflow: hidden;
-  min-width: 0;
-}
-.headerWeatherDay {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: clamp(0.7rem, 1vw, 0.95rem);
-  min-width: 0;
-}
-.headerWeatherDate {
-  color: rgba(255, 255, 255, 0.75);
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.headerWeatherGlyph {
-  font-size: 1.15em;
-  flex-shrink: 0;
-}
-.headerWeatherText {
-  color: #fff;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.headerWeatherStale {
-  font-size: 0.7em;
+/* ===================== 5. 予定セクション 古い予報バナー ===================== */
+.scheduleStaleNotice {
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
   font-weight: 700;
-  padding: 0.05em 0.4em;
+  padding: 0.1em 0.5em;
   border-radius: 999px;
-  background: rgba(185, 28, 28, 0.85);
-  color: #fff;
-  flex-shrink: 0;
+  background: rgba(185, 28, 28, 0.12);
+  color: var(--urgent-color);
+  border: 1px solid rgba(185, 28, 28, 0.3);
+  align-self: flex-end;
+  margin-right: 0.3rem;
+  white-space: nowrap;
 }
 
 /* ===================== 6. コンテンツグリッド（予定上 / 連絡+提出物下） ===================== */
@@ -242,14 +212,18 @@
   min-height: 0;
 }
 .scheduleDateHeader {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
   font-weight: 700;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 0.2rem;
   font-size: clamp(0.95rem, 1.4vw, 1.25rem);
-  padding: 0.15rem;
+  padding: 0.15rem 0.3rem;
   flex-shrink: 0;
   color: var(--primary-color);
+  overflow: hidden;
 }
 /* 今日のみ黒ベタで強調 — 色でなく明度差で見せる */
 .isToday .scheduleDateHeader {
@@ -257,6 +231,37 @@
   color: white;
   border-radius: var(--radius-sm);
   border-bottom-color: var(--primary-color);
+}
+/* 日付ラベル: 常に全幅を確保し、天気に押し潰されない（flex-shrink:0）。 */
+.scheduleDateLabel {
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* 予定列ヘッダー内の天気（アイコン + テキスト）。日付の右側に小さく添える。isToday の白継承で自動対応。 */
+.scheduleWeatherInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.78em;
+  font-weight: 600;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.scheduleWeatherGlyph {
+  flex-shrink: 0;
+  font-size: 1.1em;
+  line-height: 1;
+}
+.scheduleWeatherText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 /* 5 行を常時確保（cqh で行内フォントを自動調整、非対応 WebView は clamp(vw) フォールバック） */
 .scheduleScrollArea {
@@ -420,7 +425,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   overflow: hidden;
   position: relative;
   height: 100%;
@@ -446,8 +451,11 @@
   content: none;
 }
 .adContainer {
+  /* 縦長 16:9（9:16 portrait）に固定。親高さを超えるときは max-height で折り返し幅を自動縮小。 */
   width: 100%;
-  flex: 1;
+  aspect-ratio: 9 / 16;
+  max-height: 100%;
+  flex: none;
   position: relative;
   z-index: 10;
   overflow: hidden;
@@ -472,10 +480,12 @@
   align-items: center;
   justify-content: center;
 }
-/* 広告領域全体のリンク（中身 .adContainer を縦に満たし、領域のどこをタップしても遷移）。 */
+/* 広告領域全体のリンク。縦横中央に .adContainer を配置し、領域のどこをタップしても遷移できる。 */
 .adAreaLink {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   width: 100%;
   min-height: 0;
@@ -602,6 +612,13 @@
   .adArea {
     height: 42vh;
     min-height: 220px;
+  }
+  /* モバイルは縦長画面全幅を使うため aspect-ratio を解除して高さに追従させる。 */
+  .adContainer {
+    aspect-ratio: unset;
+    width: 100%;
+    max-height: 100%;
+    flex: 1;
   }
   /* 予定 / 連絡 / 提出物 を縦に積む */
   .contentGrid {
