@@ -129,48 +129,18 @@
   letter-spacing: 0.02em;
 }
 
-/* ===================== 5. ヘッダー天気（日付の隣に小さく・暗色帯ゆえ明色テキスト） ===================== */
-.headerWeather {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-left: 0.3rem;
-  padding-left: 0.5rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.4);
-  white-space: nowrap;
-  overflow: hidden;
-  min-width: 0;
-}
-.headerWeatherDay {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: clamp(0.7rem, 1vw, 0.95rem);
-  min-width: 0;
-}
-.headerWeatherDate {
-  color: rgba(255, 255, 255, 0.75);
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.headerWeatherGlyph {
-  font-size: 1.15em;
-  flex-shrink: 0;
-}
-.headerWeatherText {
-  color: #fff;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.headerWeatherStale {
-  font-size: 0.7em;
+/* ===================== 5. 予定セクション 古い予報バナー ===================== */
+.scheduleStaleNotice {
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
   font-weight: 700;
-  padding: 0.05em 0.4em;
+  padding: 0.1em 0.5em;
   border-radius: 999px;
-  background: rgba(185, 28, 28, 0.85);
-  color: #fff;
-  flex-shrink: 0;
+  background: rgba(185, 28, 28, 0.12);
+  color: var(--urgent-color);
+  border: 1px solid rgba(185, 28, 28, 0.3);
+  align-self: flex-end;
+  margin-right: 0.3rem;
+  white-space: nowrap;
 }
 
 /* ===================== 6. コンテンツグリッド（予定上 / 連絡+提出物下） ===================== */
