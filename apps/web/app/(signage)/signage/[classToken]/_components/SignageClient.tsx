@@ -24,7 +24,7 @@ import {
 } from "@/lib/signage/section-format";
 import type { SignageDesignPattern } from "@/lib/signage/signage-design";
 import type { SignagePayload } from "@/lib/signage/signage-display";
-import type { SignageWeather, WeatherIcon } from "@/lib/signage/weather";
+import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SignageInvalid } from "./SignageInvalid";
 import styles from "./signage.module.css";
@@ -229,12 +229,10 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 
   return (
     <div className={styles.signageRoot}>
-      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 天気（日付の隣に小さく）+ 実時計 + ブランディング */}
+      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + ブランディング。天気は予定列の日付横に移動（2026-06-07 ユーザー）。 */}
       <header className={styles.adHeader}>
         <span className={styles.dateText}>{dateText}</span>
         <span className={styles.dayBadge}>{dayText}</span>
-        {/* 天気は日付の隣に小さく（日付 + アイコン + 天気テキストのみ。気温/降水/取得時刻は省く、2026-06-07 ユーザー）。 */}
-        {data.weather ? <HeaderWeather weather={data.weather} /> : null}
         {time ? <span className={styles.timeText}>{time}</span> : null}
         <span className={styles.headerBranding}>キミテラス by Rebounder</span>
       </header>
@@ -242,7 +240,11 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
       <div className={styles.container}>
         <main className={styles.infoArea}>
           <div className={styles.contentGrid}>
-            <ScheduleGrid days={data.scheduleDays} today={data.date} />
+            <ScheduleGrid
+              days={data.scheduleDays}
+              today={data.date}
+              weather={data.weather ?? null}
+            />
             <NoticeList section={data.daily.notices} />
             <AssignmentTable section={data.daily.assignments} today={data.date} />
           </div>
@@ -289,28 +291,73 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 
 /**
  * 予定（今後3平日の3列グリッド）。上段に横幅いっぱいで配置 (v1 ScheduleGrid 移植)。
- * 見出し文字「予定」は出さない（各列の日付ヘッダーで予定と分かる、2026-06-07 ユーザー）。aria-label は
+ * 各列の日付ヘッダーに当日の天気を横並びで表示する（2026-06-07 ユーザー）。天気が古い場合は
+ * F14 §3 要件に従い「古い予報」バッジをセクション右端に表示する。aria-label は
  * 残し、スクリーンリーダ/領域名としての識別は維持する（NFR05）。
  */
-function ScheduleGrid({ days, today }: { days: ScheduleDay[]; today: string }) {
+function ScheduleGrid({
+  days,
+  today,
+  weather,
+}: {
+  days: ScheduleDay[];
+  today: string;
+  weather: SignageWeather | null;
+}) {
   return (
     <section aria-label="予定" className={`${styles.card} ${styles.scheduleSection}`}>
+      {weather?.isStale ? (
+        <span className={styles.scheduleStaleNotice} role="status" aria-live="polite">
+          古い予報
+        </span>
+      ) : null}
       <div className={styles.scheduleGridContainer}>
-        {days.map((day) => (
-          <ScheduleColumn key={day.date} day={day} isToday={day.date === today} />
-        ))}
+        {days.map((day) => {
+          const weatherDay = weather?.days.find((d) => d.forecastDate === day.date) ?? null;
+          return (
+            <ScheduleColumn
+              key={day.date}
+              day={day}
+              isToday={day.date === today}
+              weatherDay={weatherDay}
+            />
+          );
+        })}
       </div>
     </section>
   );
 }
 
-/** 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）＋ 時限順の予定行を 5 行分（空きはプレースホルダー）。 */
-function ScheduleColumn({ day, isToday }: { day: ScheduleDay; isToday: boolean }) {
+/** 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）に天気を横並びで表示。5 行分の予定行（空きはプレースホルダー）。 */
+function ScheduleColumn({
+  day,
+  isToday,
+  weatherDay,
+}: {
+  day: ScheduleDay;
+  isToday: boolean;
+  weatherDay: WeatherDay | null;
+}) {
   const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
   const placeholders = Math.max(0, MIN_ROWS - rows.length);
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
-      <div className={styles.scheduleDateHeader}>{scheduleHeaderLabel(day.date)}</div>
+      <div className={styles.scheduleDateHeader}>
+        <span className={styles.scheduleDateLabel}>{scheduleHeaderLabel(day.date)}</span>
+        {weatherDay ? (
+          <span
+            className={styles.scheduleWeatherInline}
+            aria-label={weatherDay.weatherText ?? weatherDay.iconLabel}
+          >
+            <span aria-hidden="true" className={styles.scheduleWeatherGlyph}>
+              {WEATHER_ICON_GLYPH[weatherDay.icon]}
+            </span>
+            <span className={styles.scheduleWeatherText}>
+              {weatherDay.weatherText ?? weatherDay.iconLabel}
+            </span>
+          </span>
+        ) : null}
+      </div>
       <div className={styles.scheduleScrollArea}>
         {rows.map((row, i) => (
           // 予定は再並びしない静的リスト。index key で十分。
@@ -460,38 +507,6 @@ const SOURCE_BADGE_LABEL: Record<"school" | "department" | "grade", string> = {
   grade: "学年共通",
 };
 
-/**
- * F14 (#128 / ADR-021): 天気を **ヘッダーの日付の隣に小さく** 出す（2026-06-07 ユーザー: 情報量を絞る）。
- * 日付 + アイコン + 天気テキストのみ（気温・降水確率・取得時刻は省く）。本日 + 翌日の 2 日。**端末は外部
- * API を叩かず** server 組み立て済ペイロードを描く。a11y (NFR05): glyph は aria-hidden、意味は隣の日本語
- * テキスト（日付 + 天気文）が担う（色のみ依存しない）。鮮度 (F14 §3): isStale のときだけ簡潔に「古い予報」併記。
- * 予報が無いとき (days=[]) はヘッダーに何も足さない（fail-soft、null は呼び出し側で枠ごと非表示）。
- */
-function HeaderWeather({ weather }: { weather: SignageWeather }) {
-  const days = weather.days.slice(0, WEATHER_MAX_DAYS);
-  if (days.length === 0) {
-    return null;
-  }
-  const areaLabel = weather.areaName ? `天気 (${weather.areaName})` : "天気";
-  return (
-    // ヘッダー内の小さな天気注記をラベル付きグループにする。<fieldset> 等の semantic 要素はフォーム用で
-    // ここでは不適。role="group" + aria-label が最小で適切（地域名で天気のまとまりを読み上げに伝える）。
-    // biome-ignore lint/a11y/useSemanticElements: 暗色ヘッダー内の inline 天気注記。fieldset は不適切
-    <span className={styles.headerWeather} role="group" aria-label={areaLabel}>
-      {weather.isStale ? <span className={styles.headerWeatherStale}>古い予報</span> : null}
-      {days.map((day) => (
-        <span key={day.forecastDate} className={styles.headerWeatherDay}>
-          <span className={styles.headerWeatherDate}>{formatDayLabel(day.forecastDate)}</span>
-          <span aria-hidden="true" className={styles.headerWeatherGlyph}>
-            {WEATHER_ICON_GLYPH[day.icon]}
-          </span>
-          <span className={styles.headerWeatherText}>{day.weatherText ?? day.iconLabel}</span>
-        </span>
-      ))}
-    </span>
-  );
-}
-
 /** 予定要素を時限 (period) 昇順に並べる。period 欠損/不正は末尾へ。元配列は破壊しない。 */
 function sortByPeriod(items: unknown[]): unknown[] {
   return [...items].sort((a, b) => periodOf(a) - periodOf(b));
@@ -523,22 +538,6 @@ function scheduleHeaderLabel(date: string): string {
   const mm = String(m).padStart(2, "0");
   const dd = String(d).padStart(2, "0");
   return `${mm}/${dd} (${dow})`;
-}
-
-/** `YYYY-MM-DD` → 天気の短い日付ラベル (例「6/2(月)」)。不正値はそのまま返す。 */
-function formatDayLabel(forecastDate: string): string {
-  const parts = forecastDate.split("-");
-  if (parts.length !== 3) {
-    return forecastDate;
-  }
-  const y = Number(parts[0]);
-  const m = Number(parts[1]);
-  const d = Number(parts[2]);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
-    return forecastDate;
-  }
-  const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
-  return `${m}/${d}(${dow})`;
 }
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"] as const;
@@ -578,9 +577,6 @@ const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
   thunder: "⚡",
   unknown: "？",
 };
-
-/** 表示する天気日数の上限 = 本日 + 翌日の 2 日。 */
-const WEATHER_MAX_DAYS = 2;
 
 /**
  * 広告の中身（ぼかし背景 + 前景 media + キャプション）。リンク有無で <a> でラップされ広告領域全体を
