@@ -5,11 +5,18 @@ import {
   auditLog,
   createSchool,
   deleteSchool,
+  ensureSharedTeacherUserRow,
   getSchool,
+  setSchoolTeacherLoginEnabled,
   updateSchool,
 } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
+import {
+  disableSharedTeacherAccount,
+  provisionSharedTeacherAccount,
+} from "../auth/teacher-account";
+import { validateTeacherPasswordPolicy } from "../auth/teacher-password-core";
 import { withSession } from "../db";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import {
@@ -277,4 +284,88 @@ async function writeSchoolAudit(
     createdBy: isSystemAdmin ? null : user.uid,
     updatedBy: isSystemAdmin ? null : user.uid,
   });
+}
+
+/**
+ * ADR-032: 学校の「教員共通パスワード」を設定/更新し、共通教員ログインを有効化する（system_admin 専用）。
+ *
+ * 手順: 認可 → ポリシー検証（≥4 文字）→ 対象校の存在確認 → IdP の共通教員アカウントを provisioning
+ * （`provisionSharedTeacherAccount`、外部システムゆえ tx 外）→ DB で共通教員 `users` 行を用意 +
+ * `teacher_login_enabled=true` + 監査（同一 tx）。**パスワード平文/ハッシュは本 DB に保存しない**
+ * （IdP が保管、ルール5）。監査 diff にもパスワードは載せない。
+ */
+export async function setSchoolTeacherPasswordAction(raw: {
+  schoolId?: unknown;
+  password?: unknown;
+}): Promise<ActionResult<{ enabled: boolean }>> {
+  if (!isUuid(raw.schoolId)) {
+    return invalid("学校の指定が不正です。");
+  }
+  const schoolId = raw.schoolId;
+  const policy = validateTeacherPasswordPolicy(raw.password);
+  if (!policy.ok) {
+    return invalid(policy.message);
+  }
+  const password = raw.password as string;
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  // IdP プロビジョニング前に対象校の可視性/存在を確認（不可視/不存在は not_found、孤児アカウントを作らない）。
+  const exists = await withSession(async (tx) => Boolean(await getSchool(tx, schoolId)));
+  if (!exists) {
+    return notFound("指定された学校が見つかりません。");
+  }
+
+  // IdP（外部システム）の共通教員アカウントを冪等に用意/更新（tx 外）。
+  const { uid } = await provisionSharedTeacherAccount(schoolId, password);
+
+  // DB: 共通教員 users 行（created_by FK 充足）+ enabled フラグ + 監査を同一 tx で。
+  await withSession(async (tx, user) => {
+    await ensureSharedTeacherUserRow(tx, {
+      uid,
+      schoolId,
+      displayName: "教員（共通アカウント）",
+    });
+    await setSchoolTeacherLoginEnabled(tx, { schoolId, enabled: true });
+    await writeSchoolAudit(tx, user, schoolId, "update", {
+      action: "set_teacher_password",
+      teacherLoginEnabled: true,
+    });
+  });
+
+  revalidatePath(`/admin/system/schools/${schoolId}/edit`);
+  revalidatePath(`/admin/system/schools/${schoolId}`);
+  return { ok: true, data: { enabled: true } };
+}
+
+/**
+ * ADR-032: 学校の共通教員ログインを停止する（system_admin 専用）。IdP の共通教員アカウントを無効化し
+ * （既存セッションも失効）、`teacher_login_enabled=false` にする。冪等（アカウント不在は無視）。
+ */
+export async function clearSchoolTeacherPasswordAction(raw: {
+  schoolId?: unknown;
+}): Promise<ActionResult<{ enabled: boolean }>> {
+  if (!isUuid(raw.schoolId)) {
+    return invalid("学校の指定が不正です。");
+  }
+  const schoolId = raw.schoolId;
+  await requireRole(SYSTEM_ADMIN_ROLES);
+
+  const exists = await withSession(async (tx) => Boolean(await getSchool(tx, schoolId)));
+  if (!exists) {
+    return notFound("指定された学校が見つかりません。");
+  }
+
+  await disableSharedTeacherAccount(schoolId);
+
+  await withSession(async (tx, user) => {
+    await setSchoolTeacherLoginEnabled(tx, { schoolId, enabled: false });
+    await writeSchoolAudit(tx, user, schoolId, "update", {
+      action: "clear_teacher_password",
+      teacherLoginEnabled: false,
+    });
+  });
+
+  revalidatePath(`/admin/system/schools/${schoolId}/edit`);
+  revalidatePath(`/admin/system/schools/${schoolId}`);
+  return { ok: true, data: { enabled: false } };
 }

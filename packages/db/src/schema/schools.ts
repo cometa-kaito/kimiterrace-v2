@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { schoolHierarchyMode } from "../_shared/enums.js";
 
@@ -16,6 +16,11 @@ export const schools = pgTable("schools", {
   // 階層モード（V1 schools.hierarchyMode 相当）。class=学年>クラス / department=学年>学科>クラス。
   // 既存校は普通科前提で class をデフォルトとする（#48-L / #123）。
   hierarchyMode: schoolHierarchyMode("hierarchy_mode").notNull().default("class"),
+  // 教員「学校共通パスワード」ログインの有効/無効（ADR-032）。system_admin が共通パスワードを設定すると
+  // true になり、ログイン画面の学校選択にこの学校が現れる。★ パスワード（およびそのハッシュ）は本テーブルに
+  // 保存しない — Identity Platform 側の per-school 共通教員アカウントに Google がハッシュ保管する（ルール5:
+  // 秘密を自前 DB に置かない）。本フラグは「この学校が共通パスワードログインを提供しているか」のみを表す。
+  teacherLoginEnabled: boolean("teacher_login_enabled").notNull().default(false),
   notes: text("notes"),
   ...auditColumns,
 });
