@@ -177,10 +177,10 @@ locals {
   #          INSERT に成功＝列存在）ゆえ追加 migrate 不要。web:856e779 を Cloud Build 済・AR push 済。
   # a55236e: #687 エディタの範囲選択 UI を分かりやすく（着地で範囲の概念を説明＋共通＝青ピル/クラス＝白チップに
   #          視覚分離＋ラベル明確化）。856e779 を内包＋#685(来場 backfill)/#686(infra fail-fast)/#688(F15 nav 配線)/
-  #          #689(段C エディタ AI アシスタント)＝現 main HEAD。schema 変更なし（91fd593 以降に新 migration 無し
-  #          を `git diff packages/db/{drizzle,migrations}` で確認）ゆえ migrate 不要・web のみ。web:a55236e を
-  #          Cloud Build 済・AR push 済。
-  web_image_tag = "a55236e"
+  #          #690(広告・静粛時間 スコープ化)＝現 main HEAD。schema 変更なし（ads/school_configs の
+  #          ck_ads_scope / ck_school_configs_scope は既存で全スコープ対応済）ゆえ migrate 不要・web のみ。
+  #          web:5c65a885 を Cloud Build 済・AR push 済。
+  web_image_tag = "5c65a885"
 }
 
 module "network" {
