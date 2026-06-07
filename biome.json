@@ -98,6 +98,7 @@
         "**/packages/db/src/migrate-cli.ts",
         "**/packages/db/src/seed-staging-cli.ts",
         "**/packages/db/src/seed-ginan-sensors-cli.ts",
+        "**/packages/db/src/seed-ginan-tv-devices-cli.ts",
         "**/packages/db/src/seed-ginan-ads-cli.ts",
         "**/packages/db/src/backfill-presence-cli.ts",
         "**/*.config.ts",
