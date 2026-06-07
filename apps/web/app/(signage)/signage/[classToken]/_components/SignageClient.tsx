@@ -1,5 +1,6 @@
 "use client";
 
+import { formatClassIdentity } from "@/lib/signage/class-identity";
 import type { MergedSection, ScheduleDay } from "@/lib/signage/effective-daily-data";
 import { getClientId, sendSignageEvent } from "@/lib/signage/event-beacon";
 import {
@@ -226,14 +227,21 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
   const hasMedia = ad != null;
   const { dateText, dayText } = formatBoardDate(data.date);
   const time = now ? formatClock(now) : "";
+  // #243: このサイネージの識別ラベル（学科 学年 クラス）。時刻の横に出してどの端末か判別できるようにする。
+  const classIdentity = formatClassIdentity(data.classContext);
 
   return (
     <div className={styles.signageRoot}>
-      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + ブランディング。天気は予定列の日付横に移動（2026-06-07 ユーザー）。 */}
+      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別 + ブランディング。天気は予定列の日付横に移動（2026-06-07 ユーザー）。 */}
       <header className={styles.adHeader}>
         <span className={styles.dateText}>{dateText}</span>
         <span className={styles.dayBadge}>{dayText}</span>
         {time ? <span className={styles.timeText}>{time}</span> : null}
+        {classIdentity ? (
+          <span className={styles.classIdentity} aria-label={`表示クラス: ${classIdentity}`}>
+            {classIdentity}
+          </span>
+        ) : null}
         <span className={styles.headerBranding}>キミテラス by Rebounder</span>
       </header>
 

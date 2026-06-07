@@ -128,6 +128,17 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+/* #243: サイネージ識別ラベル（学科 学年 クラス）。時刻の横に出して端末を判別可能にする。 */
+.classIdentity {
+  margin-left: 0.3rem;
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: clamp(0.62rem, 0.95vw, 0.9rem);
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 /* ===================== 5. 予定セクション 古い予報バナー ===================== */
 .scheduleStaleNotice {

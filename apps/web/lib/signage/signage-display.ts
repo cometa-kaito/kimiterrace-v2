@@ -1,8 +1,10 @@
 import { hashToken } from "@/lib/magic-link/token";
 import {
   type EffectiveAd,
+  type SignageClassContext,
   type TenantTx,
   getEffectiveAdsForClass,
+  getSignageClassContext,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
@@ -78,6 +80,11 @@ export type SignagePayload = {
    * fail-soft。天気が無くても画面の他要素は壊れない、F14 §3 / NFR02）。
    */
   weather: SignageWeather | null;
+  /**
+   * #243 (②UI-UX): このサイネージが**どのクラスのものか識別**するための文脈（学科名 / 学年名 / クラス名）。
+   * ヘッダーの時刻横に表示する。階層モードにより学科・学年は null になりうる。RLS で自校に限定。
+   */
+  classContext: SignageClassContext;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -128,6 +135,17 @@ export async function getSignageDisplayData(
     // 学校別デザインパターン（school_configs display_settings.signageDesign）。未設定は既定 pattern1。
     // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
     const designPattern = await getSignageDesignPattern(tx);
-    return { date, designPattern, daily, scheduleDays, ads, weather } satisfies SignagePayload;
+    // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
+    // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
+    const classContext = await getSignageClassContext(tx, cls.classId);
+    return {
+      date,
+      designPattern,
+      daily,
+      scheduleDays,
+      ads,
+      weather,
+      classContext,
+    } satisfies SignagePayload;
   });
 }
