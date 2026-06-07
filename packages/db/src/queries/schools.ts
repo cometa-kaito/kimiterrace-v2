@@ -38,10 +38,10 @@ export type SchoolSummary = Pick<
   "id" | "name" | "prefecture" | "code" | "hierarchyMode" | "createdAt"
 >;
 
-/** 学校編集フォーム用の射影 (一覧 + notes、編集対象の基本フィールド)。 */
+/** 学校編集フォーム用の射影 (一覧 + notes + 教員共通ログイン有効フラグ、編集対象の基本フィールド)。 */
 export type SchoolEditable = Pick<
   SchoolRow,
-  "id" | "name" | "prefecture" | "code" | "hierarchyMode" | "notes"
+  "id" | "name" | "prefecture" | "code" | "hierarchyMode" | "notes" | "teacherLoginEnabled"
 >;
 
 /** 学校詳細 (#48-L2): マスタ全フィールド + 配下の階層 (学年/クラス/学科) 件数。 */
@@ -87,6 +87,7 @@ export async function getSchool(db: Selectable, id: string): Promise<SchoolEdita
       code: schools.code,
       hierarchyMode: schools.hierarchyMode,
       notes: schools.notes,
+      teacherLoginEnabled: schools.teacherLoginEnabled,
     })
     .from(schools)
     .where(eq(schools.id, id))
