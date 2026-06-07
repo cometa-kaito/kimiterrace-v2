@@ -26,14 +26,19 @@ export default async function ClassQuietHoursPage({
   await requireRole(QUIET_HOURS_ROLES);
   const { classId } = await params;
 
-  const data = await withSession(async (tx) => {
-    const cls = await findVisibleClass(tx, classId);
-    if (!cls) {
-      return null;
-    }
-    const value = await getClassConfigValue(tx, classId, QUIET_HOURS_KIND);
-    return { className: cls.name, ranges: readQuietRanges(value) };
-  });
+  const data = await withSession(
+    async (tx) => {
+      const cls = await findVisibleClass(tx, classId);
+      if (!cls) {
+        return null;
+      }
+      const value = await getClassConfigValue(tx, classId, QUIET_HOURS_KIND);
+      return { className: cls.name, ranges: readQuietRanges(value) };
+      // tenantScoped: system_admin を降格し full_access policy の全校発火を止める (他校 class の可視化を防ぐ、
+      // ADR-019 §#95)。write 側 (quiet-hours-actions) と同規律で read も自校に限定する。
+    },
+    { tenantScoped: true },
+  );
 
   // クラスが自校で不可視 (別テナント / 存在しない) なら 404。
   if (!data) {
@@ -52,7 +57,7 @@ export default async function ClassQuietHoursPage({
         サイネージを静音 /
         非表示にする時間帯を設定します。設定した時間帯はサイネージ表示に反映されます。
       </p>
-      <QuietHoursManager classId={classId} initialRanges={data.ranges} />
+      <QuietHoursManager scope="class" targetId={classId} initialRanges={data.ranges} />
     </div>
   );
 }

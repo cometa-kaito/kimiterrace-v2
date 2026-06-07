@@ -3,10 +3,12 @@ import { EditorBoard } from "@/app/admin/editor/[classId]/_components/EditorBoar
 import { NoticeEditor } from "@/app/admin/editor/[classId]/_components/NoticeEditor";
 import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { ScheduleEditor } from "@/app/admin/editor/[classId]/_components/ScheduleEditor";
-import { requireRole } from "@/lib/auth/guard";
+import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getEditorTargetData } from "@/lib/editor/daily-data-read";
 import { EDITOR_ROLES, type EditorTarget, isValidDate } from "@/lib/editor/schedule-core";
+import { ADS_ROLES } from "@/lib/school-admin/ads-core";
+import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -21,6 +23,20 @@ import { notFound } from "next/navigation";
  */
 const JST = "Asia/Tokyo";
 
+/** scope ターゲットのサブページ (ads / quiet-hours) への href。 */
+function scopeSubHref(target: EditorTarget, sub: "ads" | "quiet-hours"): string {
+  switch (target.scope) {
+    case "school":
+      return `/admin/editor/scope/school/${sub}`;
+    case "department":
+      return `/admin/editor/scope/department/${target.departmentId}/${sub}`;
+    case "grade":
+      return `/admin/editor/scope/grade/${target.gradeId}/${sub}`;
+    case "class":
+      return `/admin/editor/${target.classId}/${sub}`;
+  }
+}
+
 export async function ScopeEditorView({
   target,
   searchParams,
@@ -28,7 +44,11 @@ export async function ScopeEditorView({
   target: EditorTarget;
   searchParams: Promise<{ date?: string }>;
 }) {
-  await requireRole(EDITOR_ROLES);
+  const user = await requireRole(EDITOR_ROLES);
+  // 広告 / 静粛時間は school_admin / system_admin のみ (ADS_ROLES / QUIET_HOURS_ROLES)。teacher も scope
+  // エディタを使うため、死リンク (403 遷移) を出さないよう発行可ロールにだけ導線を出す (class 編集と同規律)。
+  const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
+  const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
   const { date: dateParam } = await searchParams;
   const date =
     dateParam && isValidDate(dateParam)
@@ -59,6 +79,20 @@ export async function ScopeEditorView({
               ← 編集対象の選択へ戻る
             </Link>
             <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
+            {canManageAds || canManageQuietHours ? (
+              <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                {canManageAds ? (
+                  <Link href={scopeSubHref(target, "ads")} style={{ fontSize: "0.9rem" }}>
+                    広告管理 →
+                  </Link>
+                ) : null}
+                {canManageQuietHours ? (
+                  <Link href={scopeSubHref(target, "quiet-hours")} style={{ fontSize: "0.9rem" }}>
+                    静粛時間 →
+                  </Link>
+                ) : null}
+              </p>
+            ) : null}
             <p style={mutedStyle}>
               この内容は配下の全クラスのサイネージに共通で表示されます
               (クラス個別の入力があればそちらが優先)。

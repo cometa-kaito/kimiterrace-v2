@@ -21,17 +21,22 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
   const user = await requireRole(ADS_ROLES);
   const { classId } = await params;
 
-  const data = await withSession(async (tx) => {
-    const cls = await findVisibleClass(tx, classId);
-    if (!cls) {
-      return null;
-    }
-    const ownAds = await listClassOwnAds(tx, classId);
-    // 継承広告 (親階層由来 = is_inherited) のみ read-only 表示に使う (自クラス分は ownAds で編集)。
-    const effective = await getEffectiveAdsForClass(tx, classId);
-    const inherited = effective.filter((a) => a.isInherited);
-    return { className: cls.name, ownAds, inherited };
-  });
+  const data = await withSession(
+    async (tx) => {
+      const cls = await findVisibleClass(tx, classId);
+      if (!cls) {
+        return null;
+      }
+      const ownAds = await listClassOwnAds(tx, classId);
+      // 継承広告 (親階層由来 = is_inherited) のみ read-only 表示に使う (自クラス分は ownAds で編集)。
+      const effective = await getEffectiveAdsForClass(tx, classId);
+      const inherited = effective.filter((a) => a.isInherited);
+      return { className: cls.name, ownAds, inherited };
+      // tenantScoped: system_admin を降格し full_access policy の全校発火を止める (他校 class の可視化を防ぐ、
+      // ADR-019 §#95)。write 側 (ads-actions) と同規律で read も自校に限定する。
+    },
+    { tenantScoped: true },
+  );
 
   // クラスが自校で不可視 (別テナント / 存在しない) なら 404。
   if (!data) {
@@ -55,7 +60,9 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
         このクラスに表示される広告を管理します。学校 / 学科 / 学年から継承された広告は参照のみです。
       </p>
       <AdsManager
-        classId={classId}
+        scope="class"
+        targetId={classId}
+        ownLabel="このクラス"
         ownAds={data.ownAds}
         inherited={data.inherited.map((a) => ({
           adId: a.adId,

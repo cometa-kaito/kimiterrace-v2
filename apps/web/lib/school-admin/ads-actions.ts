@@ -1,10 +1,11 @@
 "use server";
 
-import { type TenantTx, ads, auditLog, findClassOwnAd, findVisibleClass } from "@kimiterrace/db";
+import { type TenantTx, ads, auditLog, findOwnAd, findVisibleTarget } from "@kimiterrace/db";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { type EditorTarget, parseEditorTarget, targetIdColumns } from "../editor/schedule-core";
 import {
   ADS_ROLES,
   type ActionResult,
@@ -82,15 +83,34 @@ async function authorize(): Promise<AdsActor | ActionResult<never>> {
   return actor;
 }
 
+/** target に対応する広告管理ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/ads。 */
+function adsPath(target: EditorTarget): string {
+  switch (target.scope) {
+    case "school":
+      return "/admin/editor/scope/school/ads";
+    case "department":
+      return `/admin/editor/scope/department/${target.departmentId}/ads`;
+    case "grade":
+      return `/admin/editor/scope/grade/${target.gradeId}/ads`;
+    case "class":
+      return `/admin/editor/${target.classId}/ads`;
+  }
+}
+
 /** mutation の共通後処理: 自校 tx 実行 → 関連パス revalidate → 統一エラー写像。 */
 async function finish<T>(
-  classId: string,
+  target: EditorTarget,
   build: (tx: TenantTx) => Promise<T>,
 ): Promise<ActionResult<T>> {
   try {
-    const data = await withSession(build);
-    revalidatePath(`/admin/editor/${classId}/ads`);
-    // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
+    // tenantScoped: system_admin を school_admin に降格し system_admin_full_access policy の全校発火を
+    // 止める (ADR-019 §#95 / Issue #197)。本 Action は特定 scope = 特定 school のテナントスコープ書込で、
+    // これが無いと schoolId claim を持つ system_admin の findVisibleTarget が他校の 学科/学年 を可視と
+    // 判定し、別テナントの grade_id/department_id を参照する広告を作れてしまう (cross-tenant write)。
+    const data = await withSession(build, { tenantScoped: true });
+    revalidatePath(adsPath(target));
+    // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。親階層 (学校/学科/学年) 広告は配下全クラスに
+    // 継承表示されるため、動的 signage-preview ページ全体を revalidate する。
     revalidatePath("/admin/signage-preview/[classId]", "page");
     return { ok: true, data };
   } catch (error) {
@@ -119,15 +139,16 @@ function auditView(value: AdInput): Record<string, unknown> {
   };
 }
 
-/** 指定クラスに自クラススコープ広告を 1 件作成する。 */
+/** 指定スコープ (学校全体 / 学科 / 学年 / クラス) に自スコープ広告を 1 件作成する。 */
 export async function createAdAction(
-  rawClassId: unknown,
+  rawScope: unknown,
+  rawTargetId: unknown,
   raw: Parameters<typeof validateAdInput>[0],
 ): Promise<ActionResult<{ id: string }>> {
-  if (!isUuid(rawClassId)) {
-    return invalid("クラスの指定が不正です。");
+  const target = parseEditorTarget(rawScope, rawTargetId);
+  if (!target) {
+    return invalid("編集対象 (スコープ) の指定が不正です。");
   }
-  const classId = rawClassId;
   const v = validateAdInput(raw ?? {});
   if (!v.ok) {
     return invalid(v.message);
@@ -136,18 +157,21 @@ export async function createAdAction(
   if ("ok" in actor) {
     return actor;
   }
+  const cols = targetIdColumns(target);
 
-  return finish(classId, async (tx) => {
-    // 自校で可視なクラスか (他校 id は RLS で不可視 → CrossTenantError)。
-    if (!(await findVisibleClass(tx, classId))) {
-      throw new CrossTenantError("指定されたクラスが見つかりません。");
+  return finish(target, async (tx) => {
+    // 対象 (学科/学年/クラス) が自校で可視か (他校 id は RLS で不可視 → CrossTenantError)。
+    if (!(await findVisibleTarget(tx, cols))) {
+      throw new CrossTenantError("指定された編集対象が見つかりません。");
     }
     const [row] = await tx
       .insert(ads)
       .values({
         schoolId: actor.schoolId,
-        scope: "class",
-        classId,
+        scope: cols.scope,
+        gradeId: cols.gradeId,
+        departmentId: cols.departmentId,
+        classId: cols.classId,
         mediaUrl: v.value.mediaUrl,
         mediaType: v.value.mediaType,
         durationSec: v.value.durationSec,
@@ -172,16 +196,20 @@ export async function createAdAction(
   });
 }
 
-/** 指定クラスの自クラススコープ広告 1 件を更新する。 */
+/** 指定スコープの自スコープ広告 1 件を更新する。 */
 export async function updateAdAction(
-  rawClassId: unknown,
+  rawScope: unknown,
+  rawTargetId: unknown,
   rawAdId: unknown,
   raw: Parameters<typeof validateAdInput>[0],
 ): Promise<ActionResult<{ id: string }>> {
-  if (!isUuid(rawClassId) || !isUuid(rawAdId)) {
-    return invalid("クラス / 広告の指定が不正です。");
+  const target = parseEditorTarget(rawScope, rawTargetId);
+  if (!target) {
+    return invalid("編集対象 (スコープ) の指定が不正です。");
   }
-  const classId = rawClassId;
+  if (!isUuid(rawAdId)) {
+    return invalid("広告の指定が不正です。");
+  }
   const adId = rawAdId;
   const v = validateAdInput(raw ?? {});
   if (!v.ok) {
@@ -191,11 +219,12 @@ export async function updateAdAction(
   if ("ok" in actor) {
     return actor;
   }
+  const cols = targetIdColumns(target);
 
-  return finish(classId, async (tx) => {
-    // 対象広告を自クラススコープ + 自校可視で取得 (継承広告・他校・他クラスは弾く)。
-    const existing = await findClassOwnAd(tx, adId);
-    if (!existing || existing.classId !== classId) {
+  return finish(target, async (tx) => {
+    // 対象広告を「id + 同一スコープ・同一ターゲット」で取得 (継承広告・他校・他対象は弾く)。
+    const existing = await findOwnAd(tx, adId, cols);
+    if (!existing) {
       throw new AdNotFoundError();
     }
     await tx
@@ -211,8 +240,8 @@ export async function updateAdAction(
         updatedBy: actor.userId,
         updatedAt: new Date(),
       })
-      // RLS に加え scope='class' を WHERE で二重に強制 (継承広告は更新不可)。
-      .where(and(eq(ads.id, adId), eq(ads.scope, "class")));
+      // RLS に加え scope を WHERE で二重に強制 (別スコープの行は更新不可)。
+      .where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
     await writeAudit(tx, actor, {
       recordId: adId,
       operation: "update",
@@ -233,27 +262,32 @@ export async function updateAdAction(
   });
 }
 
-/** 指定クラスの自クラススコープ広告 1 件を削除する。 */
+/** 指定スコープの自スコープ広告 1 件を削除する。 */
 export async function deleteAdAction(
-  rawClassId: unknown,
+  rawScope: unknown,
+  rawTargetId: unknown,
   rawAdId: unknown,
 ): Promise<ActionResult<{ id: string }>> {
-  if (!isUuid(rawClassId) || !isUuid(rawAdId)) {
-    return invalid("クラス / 広告の指定が不正です。");
+  const target = parseEditorTarget(rawScope, rawTargetId);
+  if (!target) {
+    return invalid("編集対象 (スコープ) の指定が不正です。");
   }
-  const classId = rawClassId;
+  if (!isUuid(rawAdId)) {
+    return invalid("広告の指定が不正です。");
+  }
   const adId = rawAdId;
   const actor = await authorize();
   if ("ok" in actor) {
     return actor;
   }
+  const cols = targetIdColumns(target);
 
-  return finish(classId, async (tx) => {
-    const existing = await findClassOwnAd(tx, adId);
-    if (!existing || existing.classId !== classId) {
+  return finish(target, async (tx) => {
+    const existing = await findOwnAd(tx, adId, cols);
+    if (!existing) {
       throw new AdNotFoundError();
     }
-    await tx.delete(ads).where(and(eq(ads.id, adId), eq(ads.scope, "class")));
+    await tx.delete(ads).where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
     await writeAudit(tx, actor, {
       recordId: adId,
       operation: "delete",

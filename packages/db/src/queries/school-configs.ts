@@ -1,6 +1,7 @@
-import { type InferSelectModel, and, eq } from "drizzle-orm";
+import { type InferSelectModel, and, eq, isNull } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { schoolConfigs } from "../schema/school-configs.js";
+import type { ScopeColumns } from "./ads.js";
 
 /**
  * 学校設定 (`school_configs`) の読み取り / upsert クエリ層 (#48-J-2)。
@@ -137,6 +138,85 @@ export async function upsertSchoolConfig(
     .values({
       schoolId: params.schoolId,
       scope: "school",
+      kind: params.kind,
+      value: params.value,
+      createdBy: params.actorUserId,
+      updatedBy: params.actorUserId,
+    })
+    .onConflictDoUpdate({
+      target: [
+        schoolConfigs.schoolId,
+        schoolConfigs.scope,
+        schoolConfigs.gradeId,
+        schoolConfigs.departmentId,
+        schoolConfigs.classId,
+        schoolConfigs.kind,
+      ],
+      set: {
+        value: params.value,
+        updatedBy: params.actorUserId,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ id: schoolConfigs.id });
+  return row?.id ?? null;
+}
+
+/** scope + 3 つの id 列を null 安全に突き合わせる WHERE (1 ターゲット = 1 設定行を選ぶ)。 */
+function configScopeWhere(t: ScopeColumns) {
+  return and(
+    eq(schoolConfigs.scope, t.scope),
+    t.gradeId === null ? isNull(schoolConfigs.gradeId) : eq(schoolConfigs.gradeId, t.gradeId),
+    t.departmentId === null
+      ? isNull(schoolConfigs.departmentId)
+      : eq(schoolConfigs.departmentId, t.departmentId),
+    t.classId === null ? isNull(schoolConfigs.classId) : eq(schoolConfigs.classId, t.classId),
+  );
+}
+
+/**
+ * 指定スコープ (school/department/grade/class)・指定 kind の設定 1 行の `value` を取得する。
+ * 行が無ければ null。{@link getClassConfigValue} / {@link getSchoolConfigValue} の scope 汎用版。
+ * `target` は app 層の `targetIdColumns(EditorTarget)` の出力 (scope と id 列が ck を充足)。
+ */
+export async function getScopeConfigValue(
+  tx: TenantTx,
+  target: ScopeColumns,
+  kind: ConfigKind,
+): Promise<unknown | null> {
+  const [row] = await tx
+    .select({ value: schoolConfigs.value })
+    .from(schoolConfigs)
+    .where(and(configScopeWhere(target), eq(schoolConfigs.kind, kind)))
+    .limit(1);
+  return row ? row.value : null;
+}
+
+/**
+ * 指定スコープ・指定 kind の設定を upsert する (1 行 = 1 (school, scope ターゲット, kind))。
+ * {@link upsertClassConfig} / {@link upsertSchoolConfig} の scope 汎用版。競合キー・RLS 強制は同一。
+ * scope と grade/department/class_id 列は `target` (targetIdColumns 由来) から設定し ck を充足する。
+ *
+ * @returns upsert 後の行 id (audit_log の record_id に使う)。
+ */
+export async function upsertScopeConfig(
+  tx: TenantTx,
+  params: {
+    schoolId: string;
+    target: ScopeColumns;
+    kind: ConfigKind;
+    value: object;
+    actorUserId: string;
+  },
+): Promise<string | null> {
+  const [row] = await tx
+    .insert(schoolConfigs)
+    .values({
+      schoolId: params.schoolId,
+      scope: params.target.scope,
+      gradeId: params.target.gradeId,
+      departmentId: params.target.departmentId,
+      classId: params.target.classId,
       kind: params.kind,
       value: params.value,
       createdBy: params.actorUserId,
