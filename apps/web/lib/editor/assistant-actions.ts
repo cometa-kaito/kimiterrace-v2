@@ -19,7 +19,7 @@ import {
 import { auditLog } from "@kimiterrace/db";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { MAX_UPLOAD_BYTES, resolveUploadType } from "../teacher-input/upload-validation";
+import { resolveUploadType } from "../teacher-input/upload-validation";
 import {
   ASSIST_INPUT_MAX,
   type AssistDraftResult,
@@ -68,6 +68,13 @@ function getModel(): ModelClient {
  * 画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) ゆえ本MVPでは非対応 → `unsupported_format`。
  */
 const EDITOR_FILE_EXTS = new Set(["pdf", "docx", "xlsx"]);
+
+/**
+ * エディタファイル入力のサイズ上限 (10MB)。Server Action 経路ゆえ next.config の
+ * `serverActions.bodySizeLimit` (12MB = 本値 + multipart 余白) と整合させる。大容量 (50MB) の
+ * F01 教員アップロードは Route Handler 経路で別管理 (#695 Reviewer High-1)。
+ */
+const ASSIST_FILE_MAX_BYTES = 10 * 1024 * 1024;
 
 /** 監査の record_id（対象の最も具体的な id。school scope は schoolId）。 */
 function auditRecordId(target: EditorTarget, actor: EditorActor): string {
@@ -246,7 +253,7 @@ export async function assistDraftNoticesFromFileAction(
   if (!(file instanceof File) || file.size === 0) {
     return { ok: false, reason: "empty" };
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
+  if (file.size > ASSIST_FILE_MAX_BYTES) {
     return { ok: false, reason: "too_large" };
   }
   // MIME allowlist（ファイル名でなく MIME を一次ソース）。画像/レガシー Office 等は弾く。

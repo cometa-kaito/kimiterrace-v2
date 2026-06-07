@@ -95,15 +95,25 @@ export function EditorAssistant({
     setMsg(null);
     setWarnSurfaces(null);
     startDraft(async () => {
-      let res: AssistDraftResult;
-      if (file) {
-        const fd = new FormData();
-        fd.append("file", file);
-        res = await assistDraftNoticesFromFileAction(scope, targetId, fd, { acknowledgePii });
-      } else {
-        res = await assistDraftNoticesAction(scope, targetId, text, { acknowledgePii });
+      try {
+        let res: AssistDraftResult;
+        if (file) {
+          const fd = new FormData();
+          fd.append("file", file);
+          res = await assistDraftNoticesFromFileAction(scope, targetId, fd, { acknowledgePii });
+        } else {
+          res = await assistDraftNoticesAction(scope, targetId, text, { acknowledgePii });
+        }
+        handleResult(res);
+      } catch {
+        // Server Action の body 上限超過 (413) 等の例外を握りつぶさず案内する。ファイルはサイズが
+        // 最有力（上限 10MB）。本文・内部詳細は出さない（ルール4）。
+        setMsg(
+          file
+            ? "ファイルを送信できませんでした（上限 10MB を超えている可能性があります）。"
+            : "エラーが発生しました。もう一度お試しください。",
+        );
       }
-      handleResult(res);
     });
   }
 
@@ -306,7 +316,7 @@ const MESSAGES: Record<string, string> = {
   pii_leak: "個人情報が含まれる可能性があるため中止しました。",
   empty: "メモを入力するか、ファイルを選んでください。",
   too_long: "入力が長すぎます。短くしてください。",
-  too_large: "ファイルが大きすぎます（上限 50MB）。",
+  too_large: "ファイルが大きすぎます（上限 10MB）。",
   unsupported_format: "対応していない形式です（PDF・Word・Excel のみ。画像は今後対応）。",
   no_text: "ファイルから文字を読み取れませんでした。",
   extract_failed: "ファイルを読み取れませんでした（破損・暗号化の可能性）。",
