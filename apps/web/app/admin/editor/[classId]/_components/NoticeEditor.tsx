@@ -5,7 +5,7 @@ import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { inputStyle, primaryBtnStyle, removeBtnStyle, secondaryBtnStyle } from "./editor-styles";
 import { toEditorTarget } from "./target";
 
@@ -15,8 +15,34 @@ import { toEditorTarget } from "./target";
  * Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
  *
  * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
+ *
+ * #243 (②UI-UX): 各連絡に「表示日数」(入力日を起点に何日間サイネージに出すか) を持たせる。プリセット
+ * (今日のみ/明日まで/3日間/1週間) + カスタム (1..14)。既定は今日のみ (1)。
  */
-type Row = { text: string; isHighlight: boolean };
+type Row = {
+  id: string;
+  text: string;
+  isHighlight: boolean;
+  displayDays: number;
+  custom: boolean;
+};
+
+/** 表示日数のプリセット (入力日を起点に N 日間)。これ以外は「カスタム」で 1..14 を直接指定。 */
+const DISPLAY_DAYS_PRESETS = [
+  { value: 1, label: "今日のみ" },
+  { value: 2, label: "明日まで" },
+  { value: 3, label: "3日間" },
+  { value: 7, label: "1週間" },
+] as const;
+const PRESET_VALUES = new Set<number>(DISPLAY_DAYS_PRESETS.map((p) => p.value));
+const DISPLAY_DAYS_MAX = 14;
+
+function clampDisplayDays(n: number): number {
+  if (!Number.isFinite(n)) {
+    return 1;
+  }
+  return Math.min(DISPLAY_DAYS_MAX, Math.max(1, Math.round(n)));
+}
 
 export function NoticeEditor({
   classId,
@@ -33,15 +59,31 @@ export function NoticeEditor({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i) => ({ text: i.text, isHighlight: i.isHighlight ?? false })),
+    initialItems.map((i, idx) => {
+      const dd = i.displayDays ?? 1;
+      return {
+        id: `r${idx}`,
+        text: i.text,
+        isHighlight: i.isHighlight ?? false,
+        displayDays: dd,
+        custom: !PRESET_VALUES.has(dd),
+      };
+    }),
   );
+  // 新規行の安定キー用カウンタ。初期行は r0.. を使うので length から続け、衝突しない。
+  const nextId = useRef(initialItems.length);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
   function addRow() {
-    setRows((prev) => [...prev, { text: "", isHighlight: false }]);
+    const id = `r${nextId.current}`;
+    nextId.current += 1;
+    setRows((prev) => [
+      ...prev,
+      { id, text: "", isHighlight: false, displayDays: 1, custom: false },
+    ]);
   }
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
@@ -51,6 +93,8 @@ export function NoticeEditor({
     const items: NoticeItem[] = rows.map((r) => ({
       text: r.text,
       ...(r.isHighlight ? { isHighlight: true } : {}),
+      // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
+      ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
     }));
     startTransition(async () => {
       const res = await setNoticesAction(target.scope, targetId(target), date, items);
@@ -64,7 +108,7 @@ export function NoticeEditor({
   }
 
   return (
-    <div style={{ display: "grid", gap: "0.75rem", maxWidth: "640px" }}>
+    <div style={{ display: "grid", gap: "0.75rem", maxWidth: "720px" }}>
       {msg ? (
         <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
           {msg.text}
@@ -73,14 +117,15 @@ export function NoticeEditor({
 
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.5rem" }}>
         {rows.map((r, i) => (
-          // 行は順序が UI 状態なので index key で十分 (連絡は入力順を保持して保存)。
-          // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
-          <li key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <li
+            key={r.id}
+            style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}
+          >
             <input
               value={r.text}
               onChange={(e) => update(i, { text: e.target.value })}
               placeholder="連絡事項"
-              style={{ ...inputStyle, flex: 1 }}
+              style={{ ...inputStyle, flex: 1, minWidth: "12rem" }}
             />
             <label
               style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.85rem" }}
@@ -92,6 +137,54 @@ export function NoticeEditor({
               />
               重要
             </label>
+            <label
+              style={{ display: "flex", alignItems: "center", gap: "0.25rem", fontSize: "0.85rem" }}
+            >
+              表示
+              <select
+                value={r.custom ? "custom" : String(r.displayDays)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "custom") {
+                    update(i, { custom: true });
+                  } else {
+                    update(i, { custom: false, displayDays: Number(v) });
+                  }
+                }}
+                style={inputStyle}
+                aria-label="表示日数"
+              >
+                {DISPLAY_DAYS_PRESETS.map((p) => (
+                  <option key={p.value} value={String(p.value)}>
+                    {p.label}
+                  </option>
+                ))}
+                <option value="custom">カスタム</option>
+              </select>
+            </label>
+            {r.custom ? (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <input
+                  type="number"
+                  min={1}
+                  max={DISPLAY_DAYS_MAX}
+                  value={r.displayDays}
+                  onChange={(e) =>
+                    update(i, { displayDays: clampDisplayDays(Number(e.target.value)) })
+                  }
+                  style={{ ...inputStyle, width: "4rem" }}
+                  aria-label="表示日数 (日)"
+                />
+                日間
+              </label>
+            ) : null}
             <button type="button" onClick={() => removeRow(i)} style={removeBtnStyle}>
               削除
             </button>
