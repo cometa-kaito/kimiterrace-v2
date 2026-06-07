@@ -118,7 +118,7 @@ export function OperatorAdForm({
           type="number"
           min={1}
           max={300}
-          defaultValue={10}
+          defaultValue={30}
           style={inputStyle}
         />
       </FormField>

@@ -298,7 +298,7 @@ function AdForm({
         min={1}
         max={300}
         placeholder="表示秒数"
-        defaultValue={initial?.durationSec ?? 5}
+        defaultValue={initial?.durationSec ?? 30}
         style={narrowInputStyle}
         disabled={pending}
       />
