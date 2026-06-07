@@ -180,7 +180,11 @@ locals {
   #          #690(広告・静粛時間 スコープ化)＝現 main HEAD。schema 変更なし（ads/school_configs の
   #          ck_ads_scope / ck_school_configs_scope は既存で全スコープ対応済）ゆえ migrate 不要・web のみ。
   #          web:5c65a885 を Cloud Build 済・AR push 済。
-  web_image_tag = "5c65a885"
+  # fb51910: #694「時間割」→「予定」表記変更 / #696 広告デフォルト 30 秒 / #695 AI アシスタント PDF/Word/Excel
+  #          入力（段C）/ #693 cloudbuild-web.yaml トラッキング。5c65a885 を内包＋全変更＝現 main HEAD。
+  #          schema 変更なし（live 以降 packages/db/{drizzle,migrations} に .sql 追加なし）ゆえ migrate 不要。
+  #          web:fb51910 を Cloud Build 済・AR push 済。
+  web_image_tag = "fb51910"
 }
 
 module "network" {
