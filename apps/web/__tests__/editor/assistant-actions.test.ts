@@ -134,6 +134,14 @@ describe("assistDraftNoticesAction", () => {
     expect(h.insertValues).toHaveBeenCalledOnce();
   });
 
+  it("基準日を user プロンプトに含めて生成する（相対日付の解決）", async () => {
+    const d = deps();
+    await assistDraftNoticesAction("class", CLASS_ID, "明日は短縮授業", {}, d);
+    const arg = d.model.generate.mock.calls[0]?.[0] as { user?: string } | undefined;
+    expect(arg?.user).toContain("基準日（今日）:");
+    expect(arg?.user).toContain("明日は短縮授業");
+  });
+
   it("モデル応答が壊れていれば no_result", async () => {
     const d = deps({
       generate: vi.fn().mockResolvedValue({ text: "not json", usage: {}, modelVersion: "f" }),

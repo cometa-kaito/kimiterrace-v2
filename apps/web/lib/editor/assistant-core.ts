@@ -41,14 +41,34 @@ export const NOTICE_ASSIST_SYSTEM = [
   '出力は必ず次の JSON のみ: {"notices":[{"text":string,"isHighlight":boolean}]}',
   "- notices は 1〜5 件。各 text は1文・最大120文字程度の簡潔な日本語にする。",
   "- 重要な注意喚起のみ isHighlight:true、通常は false。",
-  "- 入力に無い事実・日付・個人名を創作しない。氏名や電話番号等の個人情報は出力に含めない。",
+  "- 「今日」「明日」「明後日」「昨日」「来週月曜」などの相対的な日付・曜日表現は、ユーザーが与える『基準日（今日）』を用いて具体的な日付（例: 6月8日（月））に変換して出力する。",
+  "- 基準日から計算できない日付・入力に無い事実・個人名は創作しない。氏名や電話番号等の個人情報は出力に含めない。",
   "- マスクトークン（例 {{STAFF_001}}）が入力にあればそのまま保持する。",
   "JSON 以外の文字（説明文・コードフェンス）は一切出力しない。",
 ].join("\n");
 
-/** ユーザープロンプト（マスク済みメモを渡す）。 */
-export function buildNoticeAssistUser(maskedInput: string): string {
-  return `次のメモから連絡を作成してください:\n\n${maskedInput}`;
+/**
+ * ユーザープロンプト（基準日 + マスク済みメモ）。基準日（今日・JST）を明示して渡し、
+ * 「明日」等の相対表現をモデルが具体的な日付へ変換できるようにする。
+ */
+export function buildNoticeAssistUser(maskedInput: string, referenceDateLabel: string): string {
+  return `基準日（今日）: ${referenceDateLabel}\n\n次のメモから連絡を作成してください:\n\n${maskedInput}`;
+}
+
+/**
+ * epoch ミリ秒を JST の「YYYY年M月D日（曜）」表記にする（相対日付解決の基準日ラベル）。
+ * 引数を取るので決定的（`deps.nowMs` 基準でテスト可能）。`new Date(epochMs)` は引数あり＝許容。
+ */
+export function jstDateLabel(epochMs: number): string {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  }).formatToParts(new Date(epochMs));
+  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}年${get("month")}月${get("day")}日（${get("weekday")}）`;
 }
 
 /** 入力長の上限（過大入力を弾く・rate/コスト保護）。 */

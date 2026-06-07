@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseNoticeProposal } from "../../lib/editor/assistant-core";
+import {
+  buildNoticeAssistUser,
+  jstDateLabel,
+  parseNoticeProposal,
+} from "../../lib/editor/assistant-core";
 
 /**
  * 段C: assistant-core の純パース検証（DB/Vertex 非依存）。モデルの生 JSON テキスト → NoticeItem[] の
@@ -29,5 +33,25 @@ describe("parseNoticeProposal", () => {
 
   it("有効な text を持つ要素が皆無なら null（呼び出し側が no_result 判定）", () => {
     expect(parseNoticeProposal('{"notices":[{"foo":"x"}]}')).toBeNull();
+  });
+});
+
+describe("jstDateLabel", () => {
+  it("epoch を JST の YYYY年M月D日（曜）に整形する", () => {
+    // 2026-06-08T00:00:00Z = JST 2026-06-08 09:00（月）
+    expect(jstDateLabel(Date.UTC(2026, 5, 8, 0, 0, 0))).toBe("2026年6月8日（月）");
+  });
+
+  it("UTC 夜は翌日の JST 日付になる（タイムゾーン反映）", () => {
+    // 2026-06-07T20:00:00Z = JST 2026-06-08 05:00（月）
+    expect(jstDateLabel(Date.UTC(2026, 5, 7, 20, 0, 0))).toBe("2026年6月8日（月）");
+  });
+});
+
+describe("buildNoticeAssistUser", () => {
+  it("基準日（今日）とメモを両方含める", () => {
+    const u = buildNoticeAssistUser("明日は短縮授業", "2026年6月8日（月）");
+    expect(u).toContain("基準日（今日）: 2026年6月8日（月）");
+    expect(u).toContain("明日は短縮授業");
   });
 });

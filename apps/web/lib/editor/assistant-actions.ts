@@ -25,6 +25,7 @@ import {
   type AssistDraftResult,
   NOTICE_ASSIST_SYSTEM,
   buildNoticeAssistUser,
+  jstDateLabel,
   parseNoticeProposal,
 } from "./assistant-core";
 import type { NoticeItem } from "./notice-assignment-core";
@@ -167,7 +168,8 @@ async function runNoticeDraft(
   try {
     const res = await deps.model.generate({
       system: NOTICE_ASSIST_SYSTEM,
-      user: buildNoticeAssistUser(masked),
+      // 基準日（今日・JST）を渡し、「明日」等の相対表現をモデルが具体的な日付へ変換できるようにする。
+      user: buildNoticeAssistUser(masked, jstDateLabel(now)),
     });
     const proposal = parseNoticeProposal(res.text);
     if (!proposal || proposal.length === 0) {
