@@ -152,6 +152,31 @@ describe("verifySessionCookie", () => {
     });
     await expect(verify("good-cookie")).resolves.toBeNull();
   });
+
+  it("decoded に email がある → AuthUser.email に伝播", async () => {
+    verifySessionCookie.mockResolvedValue({
+      uid: VALID_UID,
+      role: "teacher",
+      school_id: VALID_SCHOOL,
+      email: "teacher@example.com",
+    });
+    await expect(verify("good-cookie")).resolves.toEqual({
+      uid: VALID_UID,
+      role: "teacher",
+      schoolId: VALID_SCHOOL,
+      email: "teacher@example.com",
+    });
+  });
+
+  it("decoded に email がない → AuthUser に email フィールドなし (既存 toEqual に影響しない)", async () => {
+    verifySessionCookie.mockResolvedValue({
+      uid: VALID_UID,
+      role: "teacher",
+      school_id: VALID_SCHOOL,
+    });
+    const user = await verify("good-cookie");
+    expect(user).not.toHaveProperty("email");
+  });
 });
 
 describe("getCurrentUser", () => {
