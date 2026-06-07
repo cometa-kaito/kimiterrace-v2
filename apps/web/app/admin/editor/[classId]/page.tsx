@@ -8,6 +8,7 @@ import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
 import { EditorBoard } from "./_components/EditorBoard";
 import { NoticeEditor } from "./_components/NoticeEditor";
@@ -64,45 +65,56 @@ export default async function ClassEditorPage({
   const { schedule, notices, assignments } = data;
 
   return (
-    <EditorBoard
-      header={
-        <header style={{ marginBottom: "1rem" }}>
-          <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-            ← 編集対象の選択へ戻る
-          </Link>
-          <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
-          {canManageAds || canManageQuietHours || canIssueMagicLink ? (
-            <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-              {canIssueMagicLink ? (
-                <Link href={`/admin/editor/${classId}/magic-link`} style={{ fontSize: "0.9rem" }}>
-                  サイネージ・生徒リンク →
-                </Link>
-              ) : null}
-              {canManageAds ? (
-                <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-                  広告管理 →
-                </Link>
-              ) : null}
-              {canManageQuietHours ? (
-                <Link href={`/admin/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
-                  静粛時間 →
-                </Link>
-              ) : null}
-            </p>
-          ) : null}
-        </header>
-      }
-      schedule={
-        <ScheduleEditor
-          classId={schedule.classId}
-          date={schedule.date}
-          initialItems={schedule.items}
-        />
-      }
-      notices={<NoticeEditor classId={classId} date={date} initialItems={notices.items} />}
-      assignments={
-        <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
-      }
-    />
+    <>
+      <EditorBoard
+        header={
+          <header style={{ marginBottom: "1rem" }}>
+            <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+              ← 編集対象の選択へ戻る
+            </Link>
+            <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
+            {canManageAds || canManageQuietHours || canIssueMagicLink ? (
+              <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                {canIssueMagicLink ? (
+                  <Link href={`/admin/editor/${classId}/magic-link`} style={{ fontSize: "0.9rem" }}>
+                    サイネージ・生徒リンク →
+                  </Link>
+                ) : null}
+                {canManageAds ? (
+                  <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                    広告管理 →
+                  </Link>
+                ) : null}
+                {canManageQuietHours ? (
+                  <Link
+                    href={`/admin/editor/${classId}/quiet-hours`}
+                    style={{ fontSize: "0.9rem" }}
+                  >
+                    静粛時間 →
+                  </Link>
+                ) : null}
+              </p>
+            ) : null}
+          </header>
+        }
+        schedule={
+          <ScheduleEditor
+            classId={schedule.classId}
+            date={schedule.date}
+            initialItems={schedule.items}
+          />
+        }
+        notices={<NoticeEditor classId={classId} date={date} initialItems={notices.items} />}
+        assignments={
+          <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
+        }
+      />
+      <EditorAssistant
+        scope="class"
+        targetId={classId}
+        date={date}
+        existingNotices={notices.items}
+      />
+    </>
   );
 }

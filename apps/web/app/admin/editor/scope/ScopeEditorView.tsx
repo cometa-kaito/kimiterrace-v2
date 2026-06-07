@@ -1,6 +1,7 @@
 import { AssignmentEditor } from "@/app/admin/editor/[classId]/_components/AssignmentEditor";
 import { EditorBoard } from "@/app/admin/editor/[classId]/_components/EditorBoard";
 import { NoticeEditor } from "@/app/admin/editor/[classId]/_components/NoticeEditor";
+import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { ScheduleEditor } from "@/app/admin/editor/[classId]/_components/ScheduleEditor";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
@@ -40,26 +41,43 @@ export async function ScopeEditorView({
     notFound();
   }
 
+  const assistantTargetId =
+    target.scope === "department"
+      ? target.departmentId
+      : target.scope === "grade"
+        ? target.gradeId
+        : target.scope === "class"
+          ? target.classId
+          : "school";
+
   return (
-    <EditorBoard
-      header={
-        <header style={{ marginBottom: "1rem" }}>
-          <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-            ← 編集対象の選択へ戻る
-          </Link>
-          <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
-          <p style={mutedStyle}>
-            この内容は配下の全クラスのサイネージに共通で表示されます
-            (クラス個別の入力があればそちらが優先)。
-          </p>
-        </header>
-      }
-      schedule={<ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />}
-      notices={<NoticeEditor target={target} date={data.date} initialItems={data.notices} />}
-      assignments={
-        <AssignmentEditor target={target} date={data.date} initialItems={data.assignments} />
-      }
-    />
+    <>
+      <EditorBoard
+        header={
+          <header style={{ marginBottom: "1rem" }}>
+            <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+              ← 編集対象の選択へ戻る
+            </Link>
+            <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
+            <p style={mutedStyle}>
+              この内容は配下の全クラスのサイネージに共通で表示されます
+              (クラス個別の入力があればそちらが優先)。
+            </p>
+          </header>
+        }
+        schedule={<ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />}
+        notices={<NoticeEditor target={target} date={data.date} initialItems={data.notices} />}
+        assignments={
+          <AssignmentEditor target={target} date={data.date} initialItems={data.assignments} />
+        }
+      />
+      <EditorAssistant
+        scope={target.scope}
+        targetId={assistantTargetId}
+        date={data.date}
+        existingNotices={data.notices}
+      />
+    </>
   );
 }
 
