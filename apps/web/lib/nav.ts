@@ -91,21 +91,14 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "掲示物 Q&A", href: "/admin/chat" },
     // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   ],
-  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 掲示物 Q&A (F06)。
+  // 教員: スケジュール/連絡/宿題エディタのみ。
   //
-  // **校務DX原則 (監視系は学校側に持たせない)**: ダッシュボード (F08) / 月次レポート (F09) / センサー管理
-  // (F13) は「自校の運営を見る」監視・閲覧系で、先生に新たな工数を発生させない方針に反する (見る人 = 運営)。
-  // 運営 (system_admin) 専用に集約し teacher の nav からは撤去する。各ページ/API も requireRole(
-  // SYSTEM_ADMIN_ROLES) で URL 直打ち・API 直叩きを 403 にする (UX 撤去 + 認可第一層の二段で締める)。
-  teacher: [
-    { label: "エディタ", href: "/admin/editor" },
-    { label: "音声/チャット入力", href: "/admin/teacher-input" },
-    { label: "コンテンツ", href: "/admin/contents" },
-    // F06 (#370): 教員も使える掲示物 Q&A チャット (/admin/chat → /api/teacher/chat)。teacher も
-    // PUBLISHER_ROLES に含まれるため出す (requireRole(PUBLISHER_ROLES) で許可 → 死リンクにならない)。
-    { label: "掲示物 Q&A", href: "/admin/chat" },
-    // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
-  ],
+  // **校務DX原則 (先生の工数を増やさない)**: 音声/チャット入力 (F02) / コンテンツ (F04) / 掲示物 Q&A (F06)
+  // は機能として残置するが、teacher の nav 導線からは撤去する (2026-06-07 ユーザー判断)。各ページ/API は
+  // requireRole で引き続き teacher に許可されており URL 直打ちは可能。teacher UI は「エディタだけ」に絞り、
+  // 余計な導線で先生を迷わせない。ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は
+  // 校務DX原則で運営専用に撤去済み。MFA は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
+  teacher: [{ label: "エディタ", href: "/admin/editor" }],
 };
 
 /** 管理エリアに入れるロールか (純粋判定、guard から利用)。 */

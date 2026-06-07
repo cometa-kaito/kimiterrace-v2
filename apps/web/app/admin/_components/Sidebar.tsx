@@ -21,15 +21,17 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
 
   return (
     <div className="admin-sidebar-wrap">
-      <button
-        type="button"
-        className="admin-hamburger"
-        aria-expanded={open}
-        aria-controls="admin-nav"
-        onClick={() => setOpen((v) => !v)}
-      >
-        ☰ メニュー
-      </button>
+      {items.length > 1 && (
+        <button
+          type="button"
+          className="admin-hamburger"
+          aria-expanded={open}
+          aria-controls="admin-nav"
+          onClick={() => setOpen((v) => !v)}
+        >
+          ☰ メニュー
+        </button>
+      )}
       <nav
         id="admin-nav"
         className="admin-nav"
