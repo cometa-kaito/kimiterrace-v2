@@ -1,0 +1,1 @@
+ALTER TABLE "schools" ADD COLUMN "teacher_login_enabled" boolean DEFAULT false NOT NULL;

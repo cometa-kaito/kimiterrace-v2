@@ -58,6 +58,8 @@ export * from "./queries/embedding-batch.js";
 export * from "./queries/sensor-devices-status.js";
 // F13 (#391, ADR-020): 1 センサーの来場検知(presence)履歴 読み取り層 (生検知 + JST日別集計 + 総数、RLS 委譲)
 export * from "./queries/presence-history.js";
+// ADR-032: 教員「学校共通パスワード」ログインの DB 層 (有効校列挙 + 共通教員 users 行 provisioning、RLS 委譲)
+export * from "./queries/teacher-login.js";
 // F14 (#128, ADR-021): サイネージ天気予報キャッシュの upsert (取得 Job) / 読み取り (匿名サイネージ) 層
 export * from "./queries/weather-forecasts.js";
 // F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
