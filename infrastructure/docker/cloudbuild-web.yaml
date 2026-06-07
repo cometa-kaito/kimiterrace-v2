@@ -1,0 +1,87 @@
+# infrastructure/docker/cloudbuild-web.yaml
+#
+# staging の web（Next.js 16 / Cloud Run）image を **再現可能に** build & push する Cloud Build 設定。
+#
+# なぜ commit するか:
+#   これまで運用者がデプロイのたびに一時 config を手書きしていた（STATUS-archive の M2/M3 follow-up
+#   「再現性のため cloudbuild config を commit 推奨（今回は一時 config）」が繰り返し残っていた）。
+#   一時 config は clean checkout / fresh worktree に存在せず、隔離 worktree からの deploy build が
+#   `Unable to read file [infrastructure/docker/cloudbuild-web.yaml]` で失敗する事故が起きた。
+#   → 正規 config をリポジトリに固定し、どの clean checkout からも同じ image を build できるようにする
+#   （.gcloudignore / .dockerignore を commit したのと同じ動機＝手書き運用の廃止）。
+#
+# 使い方（monorepo ルートから実行。build context = リポジトリルート）:
+#   gcloud builds submit . \
+#     --project=signage-v2-staging \
+#     --config=infrastructure/docker/cloudbuild-web.yaml \
+#     --service-account=projects/signage-v2-staging/serviceAccounts/33826309713-compute@developer.gserviceaccount.com \
+#     --substitutions=_SHA=<git-sha>,_FIREBASE_API_KEY="$(terraform -chdir=infrastructure/terraform/envs/staging output -raw firebase_api_key)"
+#
+#   その後 infrastructure/terraform/envs/staging/main.tf の local.web_image_tag を <git-sha> に bump し
+#   `terraform ... apply -target=module.cloud_run` で反映する（STATUS.md「最終再デプロイ手順」参照）。
+#
+# substitution の扱い:
+#   _SHA              : image tag（= デプロイ対象の git sha）。terraform の local.web_image_tag と一致させる。必須。
+#   _FIREBASE_API_KEY : NEXT_PUBLIC_FIREBASE_API_KEY。ドメイン制限付きの**公開値**（secret ではない＝ルール5 対象外。
+#                       apps/web/Dockerfile の注記参照）だが、公開値でも yaml に**リテラルで焼き込まず** build 時に
+#                       `terraform output -raw firebase_api_key` から渡す（feedback_staging_deploy_tag_race の方針）。必須。
+#   _AUTH_DOMAIN /    : staging 固定の公開値ゆえ default に埋め込む（毎回渡す必要なし。別環境で build する場合のみ上書き）。
+#   _PROJECT_ID /
+#   _REPO
+
+substitutions:
+  _SHA: ""
+  _FIREBASE_API_KEY: ""
+  _AUTH_DOMAIN: "signage-v2-staging.firebaseapp.com"
+  _PROJECT_ID: "signage-v2-staging"
+  _REPO: "asia-northeast1-docker.pkg.dev/signage-v2-staging/kimiterrace"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 必須 substitution を build 前に検証する。config を commit 化したことで新たに生じる 2 つの silent 事故
+  # （空 _SHA → `web:` という不正/曖昧 tag、空 _FIREBASE_API_KEY → client Firebase 認証が黙って壊れた image）を
+  # loud fail に変える（リポジトリの fail-fast 規律＝.gcloudignore の tsbuildinfo 事故対策・pdfjs の test -f と同方針）。
+  # POSIX sh のみ使用（cloud-builders/docker は alpine ベースで bash 非保証）。
+  - id: validate-substitutions
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "sh"
+    env:
+      - "SHA=${_SHA}"
+      - "FIREBASE_API_KEY=${_FIREBASE_API_KEY}"
+    args:
+      - "-c"
+      - |
+        set -eu
+        if [ -z "$$SHA" ]; then
+          echo "ERROR: _SHA is required (image tag = git sha). e.g. --substitutions=_SHA=<sha>"
+          exit 1
+        fi
+        if [ -z "$$FIREBASE_API_KEY" ]; then
+          echo "ERROR: _FIREBASE_API_KEY is required. Pass: _FIREBASE_API_KEY=\$(terraform -chdir=infrastructure/terraform/envs/staging output -raw firebase_api_key)"
+          exit 1
+        fi
+
+  # apps/web/Dockerfile（monorepo whole-tree COPY → --filter @kimiterrace/web... build）。
+  # NEXT_PUBLIC_* は Next.js が build 時に client bundle へ inline するため build-arg で渡す。
+  - id: build
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-f"
+      - "apps/web/Dockerfile"
+      - "-t"
+      - "${_REPO}/web:${_SHA}"
+      - "--build-arg"
+      - "GIT_COMMIT=${_SHA}"
+      - "--build-arg"
+      - "NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY}"
+      - "--build-arg"
+      - "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${_AUTH_DOMAIN}"
+      - "--build-arg"
+      - "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${_PROJECT_ID}"
+      - "."
+
+images:
+  - "${_REPO}/web:${_SHA}"
