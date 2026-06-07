@@ -232,6 +232,14 @@
   border-radius: var(--radius-sm);
   border-bottom-color: var(--primary-color);
 }
+/* 日付ラベル: 常に全幅を確保し、天気に押し潰されない（flex-shrink:0）。 */
+.scheduleDateLabel {
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 /* 予定列ヘッダー内の天気（アイコン + テキスト）。日付の右側に小さく添える。isToday の白継承で自動対応。 */
 .scheduleWeatherInline {
   display: inline-flex;
