@@ -46,6 +46,16 @@ variable "database_url_secret_id" {
   default     = ""
 }
 
+variable "tv_poll_secret_id" {
+  description = <<-EOT
+    TV_POLL_SECRET を保持する Secret Manager secret の ID（ルール5、F15/ADR-022）。
+    TV ポーリング（/api/tv/config・/api/tv/lp-config）の共有シークレット。空文字なら env / accessor を
+    配線しない（その場合 poll route は fail-closed で 401＝TV を接続させない）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "vpc_connector" {
   description = <<-EOT
     Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。
