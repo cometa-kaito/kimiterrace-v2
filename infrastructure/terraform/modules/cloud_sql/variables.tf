@@ -129,12 +129,15 @@ variable "maintenance_window_hour" {
   }
 }
 
-# Cloud SQL の deletion_protection は env ごとに切替たい:
+# Cloud SQL の削除保護は env ごとに切替たい:
 #   - prod: true（誤削除防止、後方互換のため default=true）
 #   - dev / staging: false（recreate のたびに手動切替を不要化）
-# Issue #70 / PR #66 Reviewer H-2 対応
+# この単一 var で二層の削除保護を連動させる（同時に on/off）:
+#   ① Terraform メタ引数 deletion_protection      — `terraform destroy` を阻止
+#   ② settings.deletion_protection_enabled（API） — gcloud / Console / REST API の delete も阻止
+# Issue #70 / PR #66 Reviewer H-2 / PR #753 Reviewer INFO-1 対応
 variable "deletion_protection" {
-  description = "Cloud SQL instance の deletion_protection。prod は true、dev/staging は false 推奨。"
+  description = "Cloud SQL instance の削除保護（Terraform メタ引数 deletion_protection + API レベル deletion_protection_enabled を連動）。prod は true、dev/staging は false 推奨。"
   type        = bool
   default     = true
 }

@@ -64,8 +64,18 @@ resource "google_sql_database_instance" "main" {
       hour         = var.maintenance_window_hour
       update_track = "stable"
     }
+
+    # GCP ネイティブ（API レベル）の削除保護。下の `deletion_protection`（Terraform メタ引数）は
+    # `terraform destroy` のみを阻止するのに対し、こちらは gcloud / Console / REST API からの
+    # `instances delete` も阻止する（out-of-band な誤操作・侵害時の削除に対する最後の砦）。
+    # 10 年保管要件の生徒データ instance を二層で守る（同じ var で連動。prod=true、
+    # dev/staging=false で recreate 容易性優先）。PR #753 reviewer INFO-1。
+    deletion_protection_enabled = var.deletion_protection
   }
 
+  # Terraform メタ引数の削除保護（`terraform destroy` のみを阻止）。
+  # API レベルの削除保護は上の settings.deletion_protection_enabled（同じ var で連動）で
+  # 別途有効化する（gcloud/Console/API からの delete も阻止する二層防御）。
   deletion_protection = var.deletion_protection
 
   # PSA peering（network モジュール）が無いと private IP only の instance は作成できない。
