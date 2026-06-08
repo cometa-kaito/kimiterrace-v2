@@ -124,8 +124,8 @@ staging-bringup §A と同手順を prod で:
 - [ ] **B4-3. 岐南 TV デバイス seed（次に・この順）**: `kimiterrace-seed-ginan-tv`（`dist/seed-ginan-tv-devices-cli.js`）を実行。前提は B4-2 完了（岐南テナント existence、無ければ fail-loud）。
   - `gcloud run jobs execute kimiterrace-seed-ginan-tv --region asia-northeast1 --project signage-v2-prod`
   - 🔴 **最重要: 実機の本物の device_id を使う**。現行の `packages/db/src/seed-ginan-tv-devices.ts` は **staging 用のプレースホルダ device_id**（`0e1c0001-…` / `0e1c0002-…` / `0e1c0003-…`）をハードコードしている。これは TV が初回起動時に自前生成した値ではない。**プレースホルダのまま prod に seed すると、実機がポーリングしてくる本物の device_id が `unknown` 扱いになり cutover が無効になる**。
-  - ⚠️ 実装注記: タスク前提の env `SEED_GINAN_TV_DEVICES_JSON` は **現コードには未実装**（CLI は配列を env から読まない）。prod 投入は次のいずれか:
-    - (a) **コード変更（推奨）**: `seed-ginan-tv-devices.ts` の `GINAN_ECE_TV_DEVICES` を C で取得した**実 device_id**に差し替える（または env `SEED_GINAN_TV_DEVICES_JSON` を読むよう CLI を拡張する）小 PR を先に land → その sha を含む migrate イメージで Job 実行。
+  - ✅ 実 device_id の投入方法: env **`SEED_GINAN_TV_DEVICES_JSON`（PR #746 で実装済）** を TV seed Job に設定するだけでよい（コード変更不要）。形式は `[{ "grade":1, "deviceId":"<実UUID>", "targetMac":"<実MAC>" }, ...]`（`label` は学年から自動補完=「電子工学科 N年」、`validateGinanTvSeedDevices` で UUID/MAC/重複/長さを検証し不正なら fail-fast）。未設定だと staging プレースホルダ（`0e1c000N-…`）が使われるため、**prod では必ず設定する**。
+    - (a) **推奨**: terraform の `kimiterrace-seed-ginan-tv` Job 定義に env `SEED_GINAN_TV_DEVICES_JSON`（C で取得した実 device_id）を追加 → apply → Job 実行。
     - (b) **管理 UI / 直接登録**: 実 device_id を `/admin/tv-devices` の登録 UI（または migrator DSN で system_admin context を張った直 INSERT）で 3 台登録する。
   - いずれにせよ device_id は **C で確定した実値**であること。`target_mac` / `schedule` の既定は seed 値（平日 08:00–17:00 表示・各教室の実 MAC）を踏襲してよい。
 
