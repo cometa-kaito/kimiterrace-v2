@@ -62,6 +62,8 @@
 | 029 | [公開エンドポイントの URL 内シークレット/トークンのロギング露出方針](029-url-secret-logging-exposure.md)（Cloud Run 自動 request log の URL secret 露出は補償統制下で情報ある受容＋本番はヘッダ優先推奨、ログ除外は NFR04 監査盲目化で不採用。#437 Low-2 / #439 を解決） | Accepted |
 | 030 | [掲示物 authoring 時の生徒/保護者氏名（ロスター無し PII）検出ガード方針](030-authoring-time-pii-gate.md)（匿名設計で roster 源泉が無い生氏名は確定マスク/書式検出の対象外 → authoring 経路に決定論ヒューリスティック soft-gate（warn+override+監査）＋コンテンツポリシー強化。ML-NER は FP/コスト計測後の follow-up、hard-block は FP 阻害で不採用。#426） | Proposed |
 | 031 | [MFA の段階的エンフォース戦略](031-mfa-phased-enforcement.md)（capability＝IdP mfa_config + enrollment フローを MVP で実装、PoC は任意、本番導入ゲートで teacher 以上に強制化して NFR03 充足。即全面強制＝PoC 導入摩擦/全面延期＝NFR03 未達 を不採用。#47） | Accepted |
+| 032 | [教員ログインは学校共通パスワード方式](032-teacher-shared-password-login.md)（教員は per-school 共通 IdP アカウント + サーバ代理 signInWithPassword、個人帰属喪失は受容。個別アカウント運用負荷を不採用） | Accepted |
+| 033 | [エディタ AI 連絡ドラフトは構造化リストのストリーミング + 項目ごと採否 UX](033-streaming-structured-ai-draft-ux.md)（`streamObject` array `elementStream`、可逆プレビュー・refine-in-place・PII/要確認をカード可視化・楽観+Undo。全件一括 apply / prose トークン流し / 自動挿入 を不採用。#243 ②） | Accepted |
 
 ## ルール
 
