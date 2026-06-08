@@ -127,6 +127,13 @@ export function buildNoticeAssistUser(
 }
 
 /**
+ * 自由指示（加筆・部分修正）の最大長（rate/コスト保護）。短い指示文を想定する。
+ * 自由指示は短いディレクティブゆえ書式 PII（電話/メール）の混入を**許さず**（含むと pii_leak）、
+ * 氏名らしき語は soft-gate 対象にする（マスク往復は memo のみ、ルール4）。
+ */
+export const NOTICE_INSTRUCTION_MAX = 200;
+
+/**
  * epoch ミリ秒を JST の「YYYY年M月D日（曜）」表記にする（相対日付解決の基準日ラベル）。
  * 引数を取るので決定的（`deps.nowMs` 基準でテスト可能）。`new Date(epochMs)` は引数あり＝許容。
  */

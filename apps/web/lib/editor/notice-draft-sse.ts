@@ -14,6 +14,7 @@ import { type TenantContext, auditLog, withTenantContext } from "@kimiterrace/db
 import {
   ASSIST_INPUT_MAX,
   NOTICE_ASSIST_STREAM_SYSTEM,
+  NOTICE_INSTRUCTION_MAX,
   NOTICE_TONE_INSTRUCTIONS,
   type NoticeTone,
   buildNoticeAssistUser,
@@ -134,12 +135,23 @@ export async function respondWithNoticeDraftStream(
   let text: string;
   let acknowledgePii: boolean;
   let tone: NoticeTone | null;
+  let instruction: string;
   try {
     const body: unknown = await request.json();
-    const rec = (body ?? {}) as { text?: unknown; acknowledgePii?: unknown; tone?: unknown };
+    const rec = (body ?? {}) as {
+      text?: unknown;
+      acknowledgePii?: unknown;
+      tone?: unknown;
+      instruction?: unknown;
+    };
     text = typeof rec.text === "string" ? rec.text.trim() : "";
     acknowledgePii = rec.acknowledgePii === true;
     tone = parseNoticeTone(rec.tone);
+    // 自由指示（加筆・部分修正）。短いディレクティブに制限（過大は切り詰め）。
+    instruction =
+      typeof rec.instruction === "string"
+        ? rec.instruction.trim().slice(0, NOTICE_INSTRUCTION_MAX)
+        : "";
   } catch {
     return jsonError(400, "invalid_json");
   }
@@ -158,8 +170,9 @@ export async function respondWithNoticeDraftStream(
       const send = (event: string, data: unknown) =>
         controller.enqueue(encoder.encode(sseFrame(event, data)));
       try {
-        // ADR-030 soft-gate: 氏名らしき高確信パターン → 未 override は送信せず警告（surfaces を返す）。
-        const suspects = findSuspectedPersonalNames(text);
+        // ADR-030 soft-gate: 氏名らしき高確信パターン → 未 override は送信せず警告。memo + 自由指示の
+        // 両方を対象にする（指示文に氏名を書いても素通りさせない）。
+        const suspects = findSuspectedPersonalNames(instruction ? `${text}\n${instruction}` : text);
         if (suspects.length > 0 && !acknowledgePii) {
           send("error", {
             status: 409,
@@ -175,9 +188,14 @@ export async function respondWithNoticeDraftStream(
           return;
         }
 
-        // 書式 PII（電話/メール）をマスク。fail-closed: マスク後に残存なら送らず中止（ルール4）。
+        // memo は書式 PII（電話/メール）をマスク。自由指示は短いディレクティブゆえ書式 PII の混入を
+        // **許さない**（含めば pii_leak、マスク往復は memo のみ＝出力逆マスクの dictionary を単純化）。
+        // 両者とも fail-closed: 残存（指示は生）なら送らず中止（ルール4）。
         const { masked, dictionary } = maskPII(text, []);
-        if (findUnmaskedPii(masked, []).length > 0) {
+        if (
+          findUnmaskedPii(masked, []).length > 0 ||
+          (instruction.length > 0 && findUnmaskedPii(instruction, []).length > 0)
+        ) {
           send("error", { status: 422, reason: "pii_leak" });
           return;
         }
@@ -186,13 +204,14 @@ export async function respondWithNoticeDraftStream(
         let count = 0;
         let index = 0;
         try {
+          // 調整指示 = トーン（サーバ定義の固定文）+ 自由指示（PII-free を確認済みの生文）。
+          const adjustParts: string[] = [];
+          if (tone) adjustParts.push(NOTICE_TONE_INSTRUCTIONS[tone]);
+          if (instruction.length > 0) adjustParts.push(instruction);
+          const adjust = adjustParts.length > 0 ? adjustParts.join(" / ") : undefined;
           const result = deps.streamClient.stream({
             system: NOTICE_ASSIST_STREAM_SYSTEM,
-            user: buildNoticeAssistUser(
-              masked,
-              jstDateLabel(now),
-              tone ? NOTICE_TONE_INSTRUCTIONS[tone] : undefined,
-            ),
+            user: buildNoticeAssistUser(masked, jstDateLabel(now), adjust),
           });
           for await (const el of result.elementStream) {
             const unmasked = unmaskPII(el.text, dictionary);

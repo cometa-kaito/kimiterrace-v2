@@ -166,6 +166,25 @@ describe("streamNoticeDraft", () => {
     });
   });
 
+  it("instruction を指定するとボディに載せる", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => sseResponse([frame("done", { count: 0 })]));
+    await collect(
+      streamNoticeDraft({
+        scope: "class",
+        targetId: CLASS_ID,
+        text: "メモ",
+        instruction: "もっとやさしく",
+        fetchImpl,
+      }),
+    );
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      text: "メモ",
+      acknowledgePii: false,
+      instruction: "もっとやさしく",
+    });
+  });
+
   it("school scope は targetId をクエリに載せない", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => sseResponse([frame("done", { count: 0 })]));
     await collect(streamNoticeDraft({ scope: "school", targetId: null, text: "メモ", fetchImpl }));

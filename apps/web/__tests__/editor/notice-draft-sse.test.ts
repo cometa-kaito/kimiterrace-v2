@@ -215,6 +215,36 @@ describe("respondWithNoticeDraftStream", () => {
     expect(d2.streamClient.stream.mock.calls[0]?.[0]?.user).not.toContain("【調整の指示】");
   });
 
+  it("自由指示は user プロンプトに付し、soft-gate は memo+指示の両方を対象にする", async () => {
+    const d = deps();
+    await collectSse(
+      await respondWithNoticeDraftStream(
+        ARGS,
+        req({ text: "メモ", instruction: "部活の連絡も足して" }),
+        d,
+      ),
+    );
+    expect(d.streamClient.stream.mock.calls[0]?.[0]?.user).toContain("部活の連絡も足して");
+    // soft-gate は memo + 自由指示を結合して評価する（指示文の氏名も素通りさせない）。
+    expect(h.findSuspectedPersonalNames).toHaveBeenCalledWith(
+      expect.stringContaining("部活の連絡も足して"),
+    );
+  });
+
+  it("自由指示に書式 PII（電話/メール）が含まれれば pii_leak（送信しない）", async () => {
+    // 1 回目（memo マスク後）は clean、2 回目（自由指示）でヒット。
+    h.findUnmaskedPii.mockReturnValueOnce([]).mockReturnValueOnce([{ kind: "phone" }]);
+    const d = deps();
+    const res = await respondWithNoticeDraftStream(
+      ARGS,
+      req({ text: "メモ", instruction: "電話 09012345678 に連絡" }),
+      d,
+    );
+    const evs = await collectSse(res);
+    expect(evs).toEqual([{ event: "error", data: { status: 422, reason: "pii_leak" } }]);
+    expect(d.streamClient.stream).not.toHaveBeenCalled();
+  });
+
   it("逆マスク後に PII 残存した要素だけ notice_redacted で落とし、他は流す", async () => {
     // 2 件目だけ fail-closed ヒット。
     h.findUnmaskedPii
