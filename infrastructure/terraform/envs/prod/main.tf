@@ -150,10 +150,10 @@ locals {
   seed_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # 岐南工業 電子工学科 設置済 SwitchBot を sensor_devices に登録する seed Job のイメージタグ（F13/#391）。
-  seed_ginan_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+  seed_ginan_image_tag = "17449d2" # bring-up: migrate イメージ（全 seed-cli 同梱）を流用
 
   # 岐南 電子工学科 PoC の実契約サイネージ広告を登録する seed Job のイメージタグ。
-  seed_ginan_ads_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+  seed_ginan_ads_image_tag = "17449d2" # bring-up: migrate イメージ（全 seed-cli 同梱）を流用
 
   # PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ取り込む backfill Job のタグ。
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
@@ -162,7 +162,7 @@ locals {
   jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "17449d2" # bring-up 2026-06-08: prod AR build 済（prod firebase key + prod _REPO/_AUTH_DOMAIN baked）
+  web_image_tag = "bcf09ee" # bring-up 2026-06-08: _APP_URL=app.school-signage.net + prod firebase key baked（reset-link origin 確定）
 }
 
 module "network" {
@@ -185,7 +185,7 @@ module "cloud_sql" {
   region                 = var.region
   env                    = local.env
   enabled                = true                                  # bring-up: 2026-06-08 有効化（パスワード secret 投入後）
-  availability_type      = "REGIONAL"                            # prod は HA（同期スタンバイ・自動 failover、ADR-001）
+  availability_type      = "ZONAL"                               # 2026-06-08 ユーザー判断: PoC 規模ゆえコスト優先で ZONAL（durability は backup/PITR で担保）
   deletion_protection    = true                                  # prod は誤削除防止（10 年保管要件、ルール8 / ADR-001）
   vpc_network_id         = module.network.network_id             # private IP を割り当てる VPC
   private_services_ready = module.network.private_services_ready # PSA peering 実在 signal（順序強制）
@@ -286,7 +286,8 @@ module "cloud_run_job_seed_ginan" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute
+  enabled                = true  # bring-up: 2026-06-08 有効化（岐南センサー seed）
+  deletion_protection    = false # 使い捨て seed runner（データ非保持）
   job_name               = "kimiterrace-seed-ginan"
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_image_tag}"
   command                = ["node", "dist/seed-ginan-sensors-cli.js"] # 岐南センサー seed を起動
@@ -302,7 +303,7 @@ module "ad_media" {
   project_id = var.project_id
   location   = var.region
   env        = local.env
-  enabled    = false # TODO(bring-up ③): asset の器。広告 seed の前に true で可。
+  enabled    = true # bring-up: 2026-06-08 有効化（広告クリエイティブ配信バケット）
   # force_destroy はモジュール既定 false（prod・誤削除防止）
 }
 
@@ -315,7 +316,8 @@ module "cloud_run_job_seed_ginan_ads" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute
+  enabled                = true  # bring-up: 2026-06-08 有効化（岐南 広告 seed）
+  deletion_protection    = false # 使い捨て seed runner（データ非保持）
   job_name               = "kimiterrace-seed-ginan-ads"
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_ads_image_tag}"
   command                = ["node", "dist/seed-ginan-ads-cli.js"] # 岐南 広告 seed を起動
