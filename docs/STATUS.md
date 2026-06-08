@@ -24,9 +24,9 @@
 
 ## 現在地サマリ（2026-06-08）
 
-- **main HEAD**: `4b96a30`（本セッションの 7 改善 #709-#715 を merge）。`chore(staging)` bump 記録は [#718](https://github.com/cometa-kaito/kimiterrace-v2/pull/718)。
-- **staging live**: image `web:4b96a30`（revision `kimiterrace-web-00033-lm9`・2026-06-08 デプロイ）。`web_image_tag`/`migrate_image_tag` ともに `4b96a30` 適用済。`teacher_login_enabled` migration は `kimiterrace-migrate` Job で適用済。実機確認: `/api/health` 200 / `/login` 200 / `/api/auth/teacher-login` 稼働 / security headers 維持。
-- **本セッション（2026-06-08）の 7 改善（全 merge + デプロイ済）**: #709 岐南 電子工学科1-3年 TVデバイス seed（コードのみ・実投入は岐南テナント要）/ #710 TV表示時間・曜日UI / #711 人感センサ履歴ビューア（過去データ全閲覧）/ #712 教員エディタUX（未保存ガード/保存状態/a11y/モバイル）/ #713+#714 教員「学校共通パスワード」ログイン（ADR-032）/ #715 サイネージ識別表示（時刻横に学科/学年/クラス）。
+- **main HEAD**: `476d36e`（#740 学校編集ページ DB エラーバウンダリ修正 + #743 staging bump）。
+- **staging live**: image `web:3db9b38`（2026-06-08 デプロイ）。`/api/health` 200 / `/login` 200 確認済。`migrate_image_tag` は `4b96a30` のまま（schema 変更なし）。
+- **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/admin/system/schools/<id>/edit` で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
 - **Cloud Run URL**: `https://kimiterrace-web-5wkl3il5zq-an.a.run.app`（`/api/health` 200）。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash）。
 - **staging 構成**: network + Cloud SQL（`kimiterrace-pg`・private IP `10.60.0.3`・schema/RLS/トリガ/関数 全投入）+ Identity Platform（email/password）+ Cloud Run web。~$95–105/月（Cloud Run scale-to-zero）。
