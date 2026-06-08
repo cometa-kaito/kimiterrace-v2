@@ -496,7 +496,7 @@ module "report_storage" {
   source                 = "../../modules/report_storage"
   project_id             = var.project_id
   env                    = local.env
-  enabled                = false # TODO(bring-up ③)
+  enabled                = true # bring-up: 2026-06-08 有効化（月次レポート PDF バケット）
   writer_service_account = module.cloud_run_job_reports.runtime_service_account_email != null ? module.cloud_run_job_reports.runtime_service_account_email : ""
 }
 
@@ -522,7 +522,7 @@ module "upload_storage" {
   source     = "../../modules/upload_storage"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(bring-up ③)
+  enabled    = true # bring-up: 2026-06-08 有効化（教員アップロード素材バケット）
 }
 
 module "workload_identity_federation" {
