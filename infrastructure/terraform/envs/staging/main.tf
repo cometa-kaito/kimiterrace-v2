@@ -198,7 +198,9 @@ locals {
   #          PR #727(設計+ADR)/#728(stream client)/#731(SSE route)/#732(client lib)/#734(streaming UI)/
   #          #736(tone) を内包。schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:5ac0622 を
   #          Cloud Build 済・AR push 済。AI_ENABLED=true 下で実 Vertex ストリーミングが効く。
-  web_image_tag = "5ac0622"
+  # 3db9b38: #740 学校編集ページ DB エラーをエラーバウンダリに漏らさない（.catch(→null) + notFound()）。
+  #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:3db9b38 を Cloud Build 済・AR push 済。
+  web_image_tag = "3db9b38"
 }
 
 module "network" {
