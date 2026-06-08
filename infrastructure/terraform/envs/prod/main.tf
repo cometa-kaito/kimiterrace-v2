@@ -438,10 +438,18 @@ module "cloud_run" {
   # min_instances = 0  # TODO(prod hardening): 本番要件で確定（既定 scale-to-zero）
 
   # カスタムドメイン: 本番 cutover では v1 と同一 FQDN `app.school-signage.net` を流用しフィルタ再申請ゼロ
-  #   （docs/discovery/wifi-filter-method.md 制約 C01・県教委 Wi-Fi FQDN 許可リスト維持）。apex の所有権検証 +
-  #   v1 からの切替手順（DNS / TLS）は cutover runbook（docs/runbooks/cutover.md）で人間ゲート。
-  # TODO(bring-up ⑤後 / cutover): custom_domain = "app.school-signage.net"（apex 所有権検証 + cutover 完了後に有効化）
-  custom_domain = ""
+  #   （docs/discovery/wifi-filter-method.md 制約 C01・県教委 Wi-Fi FQDN 許可リスト維持）。サイネージ表示 URL
+  #   （signage_url = https://app.school-signage.net/signage/<magic-link token>）は県教委 Wi-Fi の FQDN 許可
+  #   リスト上この 1 ドメインからのみ実機 TV から到達できる（.run.app は遮断）。ゆえに実機 TV cutover の前提として
+  #   本マッピングを有効化する。
+  # 切替手順（docs/runbooks/prod-bringup-cutover.md D/E）: apply で domain mapping 作成 → output
+  #   custom_domain_dns_records（CNAME → ghs.googlehosted.com）を取得 → Vercel DNS（school-signage.net は
+  #   Vercel nameserver に委譲済）で app の CNAME を school-signage-2026.web.app（v1 Firebase）→ ghs に変更 →
+  #   Google マネージド TLS 証明書が自動発行。ロールバック = CNAME を Firebase に戻す。
+  # 前提: apex（school-signage.net）が Search Console で所有権検証済みであること（未検証だと当該リソースのみ
+  #   apply 失敗・他は無傷。検証は Vercel DNS に TXT 追加）。v1 Firebase 表示はこの CNAME 切替時に当該 FQDN から
+  #   外れる（= 表示 cutover 本体）。
+  custom_domain = "app.school-signage.net"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
