@@ -119,12 +119,12 @@ locals {
   # アプリ DB ユーザー（app）のパスワードを保持する Secret Manager secret ID（ルール5）。
   # 値（パスワード）は人間が `gcloud secrets versions add prod-db-app-password --data-file=-` で投入する。
   # 同じ ID を secret_manager（コンテナ作成）と cloud_sql（data source で参照）の両方に渡す。
-  db_app_password_secret_id = "prod-db-app-password"
+  db_app_password_secret_id = "prod-db-app-password" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
   # migration（M3）用の secret ID（ルール5・値は人間投入）。
   # - migrator のパスワード（raw）: cloud_sql の google_sql_user.migrator が data source で読む。
   # - migrator の DSN（full）: migration Cloud Run Job が DATABASE_URL env として Secret Manager から注入。
-  db_migrator_password_secret_id = "prod-db-migrator-password"
+  db_migrator_password_secret_id = "prod-db-migrator-password" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
   db_url_migrator_secret_id      = "prod-db-url-migrator"
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
