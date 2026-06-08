@@ -143,7 +143,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+  migrate_image_tag = "17449d2" # bring-up 2026-06-08: prod AR build 済（全スキーマ+seed CLI+#746 env-param 同梱）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -162,7 +162,7 @@ locals {
   jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+  web_image_tag = "17449d2" # bring-up 2026-06-08: prod AR build 済（prod firebase key + prod _REPO/_AUTH_DOMAIN baked）
 }
 
 module "network" {
@@ -170,7 +170,7 @@ module "network" {
   project_id        = var.project_id
   region            = var.region
   env               = local.env
-  enabled           = false       # TODO(bring-up ③-1): true に切替
+  enabled           = true        # bring-up: 2026-06-08 有効化（ユーザー承認の prod 構築）
   psa_range_address = "10.60.0.0" # connector_cidr 10.8.0.0/28 と非重複（PR #493 enable-time 対応・staging と同方針）
 }
 
@@ -184,7 +184,7 @@ module "cloud_sql" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false                                 # TODO(bring-up ③-2): true に切替
+  enabled                = true                                  # bring-up: 2026-06-08 有効化（パスワード secret 投入後）
   availability_type      = "REGIONAL"                            # prod は HA（同期スタンバイ・自動 failover、ADR-001）
   deletion_protection    = true                                  # prod は誤削除防止（10 年保管要件、ルール8 / ADR-001）
   vpc_network_id         = module.network.network_id             # private IP を割り当てる VPC
@@ -212,7 +212,7 @@ module "secret_manager" {
   source     = "../../modules/secret_manager"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(bring-up ③-3): true に切替（④ Phase 1 で -target して器を先に作る）
+  enabled    = true # bring-up: 2026-06-08 有効化（Phase 1 で -target・器を先に作り値を投入）
   secrets = {
     (local.db_app_password_secret_id) = {
       description = "Cloud SQL アプリ DB ユーザー（app）のパスワード。値は人間が投入（ルール5・Terraform は値を扱わない）。"
@@ -239,7 +239,7 @@ module "artifact_registry" {
   project_id    = var.project_id
   region        = var.region
   env           = local.env
-  enabled       = false # TODO(bring-up ③): image push の器。早期に true で可。
+  enabled       = true # bring-up: 2026-06-08 有効化（image push の器）
   repository_id = "kimiterrace"
 }
 
@@ -253,7 +253,8 @@ module "cloud_run_job_migrate" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③-6): true に切替
+  enabled                = true  # bring-up: 2026-06-08 有効化（migrate Job）
+  deletion_protection    = false # 使い捨て runner（データ非保持）ゆえ recreate 容易性優先（staging と同方針）
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
   database_url_secret_id = local.db_url_migrator_secret_id
   vpc_connector          = module.network.vpc_connector_id
@@ -328,11 +329,12 @@ module "cloud_run_job_seed_ginan_ads" {
 # 実行: `gcloud run jobs execute kimiterrace-seed-ginan-sch --region asia-northeast1 --project signage-v2-prod`。
 # 冪等（school は SELECT→INSERT、dept/grade は ON CONFLICT、class は事前 SELECT）。再実行安全。
 module "cloud_run_job_seed_ginan_school" {
-  source     = "../../modules/cloud_run_job_migrate"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(bring-up ③/⑤): true に切替して **最初に** execute
+  source              = "../../modules/cloud_run_job_migrate"
+  project_id          = var.project_id
+  region              = var.region
+  env                 = local.env
+  enabled             = true  # bring-up: 2026-06-08 有効化（岐南テナント seed・最初に execute）
+  deletion_protection = false # 使い捨て seed runner（データ非保持）ゆえ recreate 容易性優先
   # 注: job_name は派生 runtime SA account_id（`<job_name>-sa`）が GCP 上限 30 文字を超えないよう短縮する
   # （"kimiterrace-seed-ginan-school" だと SA が 32 文字で plan error）。"-sch" に縮めて 26+3=29 文字に収める。
   job_name               = "kimiterrace-seed-ginan-sch"
@@ -354,7 +356,8 @@ module "cloud_run_job_seed_ginan_tv" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute（sch の後）
+  enabled                = true  # bring-up: 2026-06-08 有効化（TV seed Job 作成。execute は cutover 時に実 device_id で）
+  deletion_protection    = false # 使い捨て seed runner（データ非保持）ゆえ recreate 容易性優先
   job_name               = "kimiterrace-seed-ginan-tv"
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
   command                = ["node", "dist/seed-ginan-tv-devices-cli.js"] # 岐南 TV デバイス seed を起動
@@ -387,7 +390,7 @@ module "identity_platform" {
   source     = "../../modules/identity_platform"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(bring-up ③-4): true に切替
+  enabled    = true # bring-up: 2026-06-08 有効化（Identity Platform email/password）
   # create_tenant = false（既定・claims-based）/ mfa_state = DISABLED（既定。本番導入時に ENABLED を検討、ADR-031）
 }
 
@@ -414,7 +417,7 @@ module "cloud_run" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③-5): true に切替
+  enabled                = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
   image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
   database_url_secret_id = local.db_url_app_secret_id
   tv_poll_secret_id      = local.tv_poll_secret_id
