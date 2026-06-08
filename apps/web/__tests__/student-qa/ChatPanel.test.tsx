@@ -53,10 +53,12 @@ describe("ChatPanel (F06 汎用チャット UI, #370/#371)", () => {
 
     expect(await screen.findByText("文化祭は10時集合です。")).toBeInTheDocument();
     // endpoint が teacher 経路で渡る (生徒経路と取り違えない)。
-    expect(mockStreamChat).toHaveBeenCalledWith({
-      question: "文化祭の集合時間は？",
-      endpoint: "/api/teacher/chat",
-    });
+    expect(mockStreamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        question: "文化祭の集合時間は？",
+        endpoint: "/api/teacher/chat",
+      }),
+    );
   });
 
   it("教員経路の forbidden/unauthenticated は magic_link 文言でなくアクセス権限エラーを表示する (#370 nit)", async () => {
@@ -85,10 +87,42 @@ describe("ChatPanel (F06 汎用チャット UI, #370/#371)", () => {
     fireEvent.change(input, { target: { value: "やあ" } });
     fireEvent.submit(input.closest("form") as HTMLFormElement);
     await waitFor(() =>
-      expect(mockStreamChat).toHaveBeenCalledWith({
-        question: "やあ",
-        endpoint: "/api/student/chat",
-      }),
+      expect(mockStreamChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          question: "やあ",
+          endpoint: "/api/student/chat",
+        }),
+      ),
+    );
+  });
+
+  it("生成中は停止ボタンを出し、押すと streamChat の signal を abort する", async () => {
+    // 1 delta 出した後に保留して streaming を継続させる（停止ボタンが出ている状態を作る）。
+    let release: () => void = () => {};
+    const hang = new Promise<void>((r) => {
+      release = r;
+    });
+    mockStreamChat.mockReturnValue(
+      (async function* () {
+        yield { type: "delta", text: "途中まで" } as ChatEvent;
+        await hang;
+      })(),
+    );
+    render(<ChatPanel {...TEACHER_PROPS} />);
+    const input = screen.getByLabelText("質問を入力") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "質問" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("途中まで")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+
+    const arg = mockStreamChat.mock.calls[0]?.[0] as { signal?: AbortSignal } | undefined;
+    expect(arg?.signal?.aborted).toBe(true);
+
+    // クリーンアップ: 保留を解いてストリームを閉じ、停止ボタンが消えるまで待つ。
+    release();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument(),
     );
   });
 });
