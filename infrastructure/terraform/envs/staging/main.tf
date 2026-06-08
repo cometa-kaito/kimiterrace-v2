@@ -193,7 +193,12 @@ locals {
   #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
   # 09b7cc40: #701 管理ヘッダーにログイン中のメールアドレスを表示。
   #           schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:09b7cc40 を Cloud Build 済・AR push 済。
-  web_image_tag = "2912a3e"
+  # 5ac0622: #243 ②UI-UX エディタ AI 連絡ドラフトの UX 再設計（ADR-033）。Notion/Docs/ChatGPT に学んだ
+  #          「項目ごとに確定ストリーミング → 採用/削除/編集 → 反映」+ トーン/長さ調整 + 全部作り直す。
+  #          PR #727(設計+ADR)/#728(stream client)/#731(SSE route)/#732(client lib)/#734(streaming UI)/
+  #          #736(tone) を内包。schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:5ac0622 を
+  #          Cloud Build 済・AR push 済。AI_ENABLED=true 下で実 Vertex ストリーミングが効く。
+  web_image_tag = "5ac0622"
 }
 
 module "network" {
