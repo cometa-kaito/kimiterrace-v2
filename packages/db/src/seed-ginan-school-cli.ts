@@ -18,7 +18,8 @@ import {
  * ## RLS（ルール2） / 冪等性
  * migrator DSN（FORCE RLS・非 BYPASSRLS）で接続し、tx 内で `app.current_user_role='system_admin'` を張って
  * `system_admin_full_access` policy 経由で書く（BYPASSRLS 不使用）。各 upsert は ON CONFLICT / 事前 SELECT で
- * **再実行安全**（既存は温存し UI 手編集を壊さない）。
+ * **再実行安全**（既存は温存し UI 手編集を壊さない）。クラスは **学年ごとに既存クラスが 0 件のときだけ** 作成し、
+ * 事前に存在するテナント（手入力済み等）に重複「A組」を足さない（重複は TV のクラス一意解決を曖昧化するため）。
  *
  * ## 監査（ルール1） / 秘密（ルール5） / PII（ルール4）
  * created_by/updated_by は省略 = NULL（システム作成）。DATABASE_URL はログ・エラーに出さない。
@@ -95,14 +96,16 @@ async function main(): Promise<void> {
         }
         const gradeAction = gradeRows.length ? "ensured" : "created";
 
-        // クラス: name に UNIQUE が無いため (school_id, grade_id, name, academic_year) を SELECT→INSERT で冪等化。
-        const classRows = await tx<{ id: string }[]>`
-          SELECT id FROM classes
-          WHERE school_id = ${schoolId} AND grade_id = ${gradeId}
-            AND name = ${g.className} AND academic_year = ${ACADEMIC_YEAR}
-          LIMIT 1`;
+        // クラス: 既存テナント（staging で岐南が事前に存在し各学年にクラスを持つ場合）と衝突して
+        // 重複「A組」を作らないため、(school_id, grade_id) に **クラスが 1 件でもあれば INSERT しない**。
+        // 重複クラスは TV/センサーの「電子工学科 × 学年」一意解決を曖昧化し class_id を NULL にしてしまう
+        // （staging 実踏: 重複 A組 → class_id NULL）。className 完全一致でなく学年に既存クラスが在るかで判定する。
+        const existingClasses = await tx<{ count: string }[]>`
+          SELECT count(*)::text AS count FROM classes
+          WHERE school_id = ${schoolId} AND grade_id = ${gradeId}`;
+        const existingCount = Number(existingClasses[0]?.count ?? "0");
         let classAction: string;
-        if (classRows.length === 0) {
+        if (existingCount === 0) {
           await tx`
             INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
             VALUES (${schoolId}, ${gradeId}, ${ACADEMIC_YEAR}, ${g.className}, ${g.grade})`;

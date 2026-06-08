@@ -6,6 +6,7 @@ import {
   GINAN_SCHOOL_NAME,
   GINAN_TV_DEFAULT_SCHEDULE,
   type GinanTvSeedDevice,
+  resolveGinanTvDevices,
   validateGinanTvSeedDevices,
 } from "../../src/seed-ginan-tv-devices.js";
 
@@ -122,5 +123,113 @@ describe("解決キー定数", () => {
   it("学校名・学科名は sensor シードと共有のユーザー確定値", () => {
     expect(GINAN_SCHOOL_NAME).toBe("岐阜県立岐南工業高等学校");
     expect(GINAN_ECE_DEPARTMENT_NAME).toBe("電子工学科");
+  });
+});
+
+describe("resolveGinanTvDevices", () => {
+  it("undefined なら既定の GINAN_ECE_TV_DEVICES をそのまま返す（staging 既定）", () => {
+    expect(resolveGinanTvDevices(undefined)).toBe(GINAN_ECE_TV_DEVICES);
+  });
+
+  it("空文字 / 空白のみなら既定を返す（env 未設定相当）", () => {
+    expect(resolveGinanTvDevices("")).toBe(GINAN_ECE_TV_DEVICES);
+    expect(resolveGinanTvDevices("   ")).toBe(GINAN_ECE_TV_DEVICES);
+  });
+
+  it("妥当な JSON 上書き: prod 実機 device_id / target_mac に差し替え、label は学年ごと既定を再利用", () => {
+    const json = JSON.stringify([
+      {
+        grade: 1,
+        deviceId: "a1b2c3d4-1111-4aaa-8bbb-000000000001",
+        targetMac: "AA:BB:CC:DD:EE:01",
+      },
+      {
+        grade: 2,
+        deviceId: "a1b2c3d4-2222-4aaa-8bbb-000000000002",
+        targetMac: "AA:BB:CC:DD:EE:02",
+      },
+      {
+        grade: 3,
+        deviceId: "a1b2c3d4-3333-4aaa-8bbb-000000000003",
+        targetMac: "AA:BB:CC:DD:EE:03",
+      },
+    ]);
+    const result = resolveGinanTvDevices(json);
+    expect(result).toHaveLength(3);
+    const byGrade = new Map(result.map((d) => [d.grade, d]));
+    expect(byGrade.get(1)?.deviceId).toBe("a1b2c3d4-1111-4aaa-8bbb-000000000001");
+    expect(byGrade.get(1)?.targetMac).toBe("AA:BB:CC:DD:EE:01");
+    // label は env から受け取らず既定（学年ごと）を再利用して一貫させる。
+    expect(byGrade.get(1)?.label).toBe("電子工学科 1年");
+    expect(byGrade.get(2)?.label).toBe("電子工学科 2年");
+    expect(byGrade.get(3)?.label).toBe("電子工学科 3年");
+  });
+
+  it("1 台だけの上書きも妥当（学年は 1〜3 で重複しなければ可）", () => {
+    const json = JSON.stringify([
+      {
+        grade: 2,
+        deviceId: "b2c3d4e5-2222-4aaa-8bbb-000000000002",
+        targetMac: "AA:BB:CC:DD:EE:0F",
+      },
+    ]);
+    const result = resolveGinanTvDevices(json);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.grade).toBe(2);
+    expect(result[0]?.label).toBe("電子工学科 2年");
+  });
+
+  it("不正な JSON は [seed-ginan-tv] エラーで throw", () => {
+    expect(() => resolveGinanTvDevices("{not json")).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("配列でない JSON は throw", () => {
+    expect(() => resolveGinanTvDevices('{"grade":1}')).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("未知の学年（4 など）は throw", () => {
+    const json = JSON.stringify([
+      {
+        grade: 4,
+        deviceId: "c3d4e5f6-4444-4aaa-8bbb-000000000004",
+        targetMac: "AA:BB:CC:DD:EE:04",
+      },
+    ]);
+    expect(() => resolveGinanTvDevices(json)).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("要素の形が欠ける（deviceId 欠落）と throw", () => {
+    const json = JSON.stringify([{ grade: 1, targetMac: "AA:BB:CC:DD:EE:01" }]);
+    expect(() => resolveGinanTvDevices(json)).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("上書き内の device_id 重複は validate 経由で throw", () => {
+    const json = JSON.stringify([
+      {
+        grade: 1,
+        deviceId: "d4e5f6a7-5555-4aaa-8bbb-000000000005",
+        targetMac: "AA:BB:CC:DD:EE:01",
+      },
+      {
+        grade: 2,
+        deviceId: "d4e5f6a7-5555-4aaa-8bbb-000000000005",
+        targetMac: "AA:BB:CC:DD:EE:02",
+      },
+    ]);
+    expect(() => resolveGinanTvDevices(json)).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("上書きの device_id が UUID 形式でなければ validate 経由で throw", () => {
+    const json = JSON.stringify([
+      { grade: 1, deviceId: "not-a-uuid", targetMac: "AA:BB:CC:DD:EE:01" },
+    ]);
+    expect(() => resolveGinanTvDevices(json)).toThrow(/\[seed-ginan-tv\]/);
+  });
+
+  it("上書きの target_mac が 6 オクテット MAC でなければ throw", () => {
+    const json = JSON.stringify([
+      { grade: 1, deviceId: "e5f6a7b8-6666-4aaa-8bbb-000000000006", targetMac: "ZZ:ZZ" },
+    ]);
+    expect(() => resolveGinanTvDevices(json)).toThrow(/\[seed-ginan-tv\]/);
   });
 });

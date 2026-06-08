@@ -1,10 +1,9 @@
 import postgres from "postgres";
 import {
   GINAN_ECE_DEPARTMENT_NAME,
-  GINAN_ECE_TV_DEVICES,
   GINAN_SCHOOL_NAME,
   GINAN_TV_DEFAULT_SCHEDULE,
-  validateGinanTvSeedDevices,
+  resolveGinanTvDevices,
 } from "./seed-ginan-tv-devices.js";
 
 /**
@@ -33,6 +32,13 @@ import {
  * department_id / grade_id / class_id は 電子工学科 × 学年で一意に解決できた場合のみ紐づけ、0 件 / 複数件は
  * **NULL**（label が教室文脈を保持）。後から UI / 別シードで紐づけ可能。
  *
+ * ## device_id の env 上書き（prod cutover）
+ * 既定は staging のプレースホルダ device_id（{@link ./seed-ginan-tv-devices.ts} の GINAN_ECE_TV_DEVICES）。
+ * 本番（prod）は LP 実機が自前生成した **本物の device_id** を登録する必要があるため、env
+ * `SEED_GINAN_TV_DEVICES_JSON` に `[{ "grade":1, "deviceId":"...", "targetMac":"..." }, ...]` を渡すと
+ * コード編集なしで差し替えられる（{@link resolveGinanTvDevices}。label は学年ごとの既定値を再利用）。
+ * 未指定なら既定配列を使う（staging 互換）。device_id / target_mac は PII でも秘密でもないため env 投入で可。
+ *
  * ## 監査（ルール1） / 秘密（ルール5）
  * created_by/updated_by は省略 = NULL（システム作成）。signage_url / webhook_url（秘密を含みうる）は
  * 設定せず NULL（運用者が後から UI / Secret 経由で設定）。schedule_json は既定値を投入し UI で変更可。
@@ -53,8 +59,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // DB に触れる前に配列の自己整合性を検証（device_id 形式・一意・MAC 形式・ラベル長）。
-  validateGinanTvSeedDevices(GINAN_ECE_TV_DEVICES);
+  // 投入対象を解決（env SEED_GINAN_TV_DEVICES_JSON があれば上書き、無ければ staging 既定）。
+  // resolveGinanTvDevices は内部で validateGinanTvSeedDevices を実行するため DB 接触前に fail-fast。
+  const devices = resolveGinanTvDevices(process.env.SEED_GINAN_TV_DEVICES_JSON);
 
   const sql = postgres(url, { max: 1, onnotice: () => {} });
 
@@ -94,7 +101,7 @@ async function main(): Promise<void> {
 
       const scheduleJson = JSON.stringify(GINAN_TV_DEFAULT_SCHEDULE);
 
-      for (const d of GINAN_ECE_TV_DEVICES) {
+      for (const d of devices) {
         // 教室コンテキスト（class_id / grade_id）は best-effort: 電子工学科（departments）→ 学年（grades）→
         // クラス（classes）を辿り、当該学年のクラスが一意に決まる時のみ class_id / grade_id を紐づける。
         // 0/複数件は NULL（label が文脈を保持。seed-ginan-sensors-cli と同規律）。
@@ -163,7 +170,7 @@ async function main(): Promise<void> {
         department: DEPARTMENT_NAME,
         inserted,
         skipped,
-        total: GINAN_ECE_TV_DEVICES.length,
+        total: devices.length,
         devices: perDevice,
       }),
     );

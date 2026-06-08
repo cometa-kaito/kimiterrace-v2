@@ -149,3 +149,88 @@ export function validateGinanTvSeedDevices(
     seenGrade.add(d.grade);
   }
 }
+
+/** 学年 → 既定ラベルの写像（env override 時にラベルを既定値から再利用し一貫させる）。 */
+const DEFAULT_LABEL_BY_GRADE: ReadonlyMap<number, string> = new Map(
+  GINAN_ECE_TV_DEVICES.map((d) => [d.grade, d.label]),
+);
+
+/** env override JSON の 1 要素の期待形（label はサーバ側で学年から導出するため受け取らない）。 */
+interface TvDeviceOverrideEntry {
+  grade: 1 | 2 | 3;
+  deviceId: string;
+  targetMac: string;
+}
+
+/** override 要素が期待形（grade 1〜3 / deviceId・targetMac が非空文字列）かを検証する。 */
+function isOverrideEntry(value: unknown): value is TvDeviceOverrideEntry {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  return (
+    (v.grade === 1 || v.grade === 2 || v.grade === 3) &&
+    typeof v.deviceId === "string" &&
+    v.deviceId.length > 0 &&
+    typeof v.targetMac === "string" &&
+    v.targetMac.length > 0
+  );
+}
+
+/**
+ * 投入対象の TV デバイス一覧を解決する（純関数・副作用なし）。
+ *
+ * 本番（prod）では LP 実機が自前生成した **本物の device_id** を登録する必要があり、
+ * staging のプレースホルダ（`0e1c000N…`）は使えない。env `SEED_GINAN_TV_DEVICES_JSON` を渡せば
+ * コード編集なしで device_id / target_mac を差し替えられる（ルール5 の秘密ではなく、PII でもない
+ * device 識別子なので env 投入で可）。
+ *
+ *  - `json` が undefined / 空文字 → 既定の {@link GINAN_ECE_TV_DEVICES} をそのまま返す（staging 既定）。
+ *  - それ以外 → JSON.parse し、`Array<{ grade:1|2|3, deviceId:string, targetMac:string }>` を期待。
+ *    `label` は受け取らず、学年ごとの既定ラベルを再利用して一貫させる（{@link DEFAULT_LABEL_BY_GRADE}）。
+ *
+ * 構築後は {@link validateGinanTvSeedDevices}（UUID / MAC / 重複 / ラベル長を検査）で必ず検証してから返す。
+ * 不正な JSON / 未知の学年は `[seed-ginan-tv]` 付きの明示エラーで throw する（DB 接触前に fail-fast）。
+ */
+export function resolveGinanTvDevices(json: string | undefined): readonly GinanTvSeedDevice[] {
+  if (json === undefined || json.trim().length === 0) {
+    return GINAN_ECE_TV_DEVICES;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`[seed-ginan-tv] SEED_GINAN_TV_DEVICES_JSON is not valid JSON: ${reason}`);
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("[seed-ginan-tv] SEED_GINAN_TV_DEVICES_JSON must be a JSON array");
+  }
+
+  const devices: GinanTvSeedDevice[] = parsed.map((entry, index) => {
+    if (!isOverrideEntry(entry)) {
+      throw new Error(
+        `[seed-ginan-tv] SEED_GINAN_TV_DEVICES_JSON[${index}] must be { grade: 1|2|3, deviceId: string, targetMac: string }`,
+      );
+    }
+    const label = DEFAULT_LABEL_BY_GRADE.get(entry.grade);
+    if (label === undefined) {
+      // grade は 1|2|3 に絞り込み済みだが、既定配列に該当学年が無い場合の防御（未知の学年）。
+      throw new Error(
+        `[seed-ginan-tv] SEED_GINAN_TV_DEVICES_JSON[${index}]: unknown grade ${entry.grade} (no default label)`,
+      );
+    }
+    return {
+      grade: entry.grade,
+      deviceId: entry.deviceId,
+      label,
+      targetMac: entry.targetMac,
+    };
+  });
+
+  // 既定経路と同じ自己整合性チェック（UUID / MAC / 重複 / ラベル長 / 学年範囲）を override にも適用。
+  validateGinanTvSeedDevices(devices);
+  return devices;
+}
