@@ -103,6 +103,16 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/guide-internal")).toBe(true);
   });
 
+  it("パスワード設定/リセット /reset-password はゲート対象外 (除外)", () => {
+    // 利用者は未ログインで発行リンクから開くため除外必須。可否は client SDK の oobCode 検証が担う。
+    expect(gated.test("/reset-password")).toBe(false);
+  });
+
+  it("reset-password 除外は reset-password(?:/|$) で厳格、look-alike /reset-passwords 等は過剰除外しない", () => {
+    expect(gated.test("/reset-passwords")).toBe(true);
+    expect(gated.test("/reset-password-internal")).toBe(true);
+  });
+
   it("既存の認証不要パスも除外のまま (bare とサブパスの両方)", () => {
     expect(gated.test("/login")).toBe(false);
     expect(gated.test("/student")).toBe(false);

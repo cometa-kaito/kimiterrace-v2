@@ -114,7 +114,7 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + パスワード変更（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
@@ -125,8 +125,15 @@ describe("navItemsForRole", () => {
       "/admin/tv-devices",
       "/admin/system/reports",
       "/admin/system/feedback",
+      "/admin/account/password",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
+  });
+
+  it("パスワード変更 (/admin/account/password) は個人 email/password アカウント (system_admin/school_admin) のみ。teacher (学校共通PW・ADR-032) には出さない (死リンク防止 / PASSWORD_CHANGE_ROLES と整合)", () => {
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/account/password");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/account/password");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/account/password");
   });
 
   it("センサー管理 (/admin/sensors) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /admin/system/sensors を使う)", () => {

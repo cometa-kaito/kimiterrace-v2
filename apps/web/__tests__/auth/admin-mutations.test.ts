@@ -34,6 +34,12 @@ vi.mock("../../lib/auth/adminApp", () => ({
   }),
 }));
 
+// createIdpUser は generatePasswordResetLink の既定リンクを自前 /reset-password に載せ替えるため
+// `getRequestOrigin` (→ next/headers) を読む。既定は空 Headers = origin 解決不能で **既定リンクに
+// フォールバック** させ、既存アサーション (raw link) を不変に保つ。in-app 載せ替えは専用テストで host を与える。
+const { getHeaders } = vi.hoisted(() => ({ getHeaders: vi.fn() }));
+vi.mock("next/headers", () => ({ headers: () => getHeaders() }));
+
 import {
   changeIdpUserRole,
   createIdpUser,
@@ -54,6 +60,8 @@ beforeEach(() => {
   createUser.mockResolvedValue(undefined);
   generatePasswordResetLink.mockResolvedValue("https://idp/reset-link");
   deleteUser.mockResolvedValue(undefined);
+  // 既定: 空 Headers = origin 解決不能 → createIdpUser は既定リンクにフォールバックする。
+  getHeaders.mockResolvedValue(new Headers());
 });
 
 describe("deactivateIdpUser (ADR-026 D1)", () => {
@@ -174,7 +182,25 @@ describe("createIdpUser (#508 発行 seam)", () => {
       schoolId: SCHOOL_ID,
     });
     expect(generatePasswordResetLink).toHaveBeenCalledWith("t@example.com");
+    // origin 解決不能 (空 Headers) のため既定リンクにフォールバックする (発行を壊さない)。
     expect(out).toEqual({ setupLink: "https://idp/reset-link" });
+  });
+
+  it("リクエスト origin が解決できれば setupLink を自前 /reset-password に載せ替える (fix #1)", async () => {
+    getHeaders.mockResolvedValue(
+      new Headers({ "x-forwarded-host": "app.example", "x-forwarded-proto": "https" }),
+    );
+    generatePasswordResetLink.mockResolvedValue(
+      "https://signage.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=OOB123&apiKey=K",
+    );
+    const out = await createIdpUser({
+      uid: UID,
+      email: "t@example.com",
+      displayName: "山田",
+      role: "teacher",
+      schoolId: SCHOOL_ID,
+    });
+    expect(out).toEqual({ setupLink: "https://app.example/reset-password?oobCode=OOB123" });
   });
 
   it("createUser → claims → link の順 (createUser 失敗で claims/link に到達しない)", async () => {
