@@ -143,7 +143,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "17449d2" # bring-up 2026-06-08: prod AR build 済（全スキーマ+seed CLI+#746 env-param 同梱）
+  migrate_image_tag = "ebceda1" # cutover 2026-06-08: 全スキーマ+seed CLI（#746 env-param + #760 seed-ginan-signage 同梱）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -364,6 +364,28 @@ module "cloud_run_job_seed_ginan_tv" {
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
   command                = ["node", "dist/seed-ginan-tv-devices-cli.js"] # 岐南 TV デバイス seed を起動
   database_url_secret_id = local.db_url_migrator_secret_id               # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# F15 / F05 (#760, ADR-022 / ADR-019): 岐南 電子工学科1〜3年の各クラスにサイネージ表示用 magic link を発行し、
+# 対応する tv_devices.signage_url を v2 形（https://app.school-signage.net/signage/<token>）に設定する on-demand seed Job。
+# command 上書きで `dist/seed-ginan-signage-cli.js` を起動。image は migrate イメージ（全 seed-cli 同梱・#760 込み）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-sig --region asia-northeast1 --project signage-v2-prod`。
+# 前提: kimiterrace-seed-ginan-sch（テナント）+ kimiterrace-seed-ginan-tv（device 行・class_id 紐づけ）実行済。
+# 冪等: 既に v2 signage 設定済みデバイスは skip（トークン churn 防止）。token は DB に hash のみ・ログ非出力（ルール5）。
+# 注: job_name は派生 SA account_id（`<job_name>-sa`）が GCP 上限 30 文字を超えないよう "-sig" に短縮
+#   （"kimiterrace-seed-ginan-signage" だと 30+3=33 文字で plan error。seed-ginan-sch と同じ短縮規律）。
+module "cloud_run_job_seed_ginan_signage" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true  # cutover: 2026-06-08 有効化（signage seed Job。execute は signage_url 焼込時）
+  deletion_protection    = false # 使い捨て seed runner（データ非保持）ゆえ recreate 容易性優先
+  job_name               = "kimiterrace-seed-ginan-sig"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  command                = ["node", "dist/seed-ginan-signage-cli.js"] # 岐南 サイネージ magic link + signage_url seed
+  database_url_secret_id = local.db_url_migrator_secret_id            # migrator DSN（system_admin context で seed）
   vpc_connector          = module.network.vpc_connector_id
 }
 
