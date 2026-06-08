@@ -143,6 +143,78 @@
   color: #166534;
 }
 
+/* 段C+ ストリーミング・カード UI（ADR-033）。 */
+.proposalHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.count {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+.card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.4rem;
+  background: #fff;
+}
+.cardOff {
+  opacity: 0.55;
+  background: #f9fafb;
+}
+.cardText {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.acceptOn {
+  padding: 0.35rem 0.7rem;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.hiOn {
+  padding: 0.35rem 0.7rem;
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.pulse {
+  color: #ea580c;
+  font-weight: 600;
+  animation: ktPulse 1.2s ease-in-out infinite;
+}
+@keyframes ktPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
 /* スマホ: 下部に大きいシートで出す（操作しやすく）。 */
 @media (max-width: 768px) {
   .fab {
