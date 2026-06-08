@@ -9,7 +9,9 @@
 - `data-migration.md` — Firestore → PostgreSQL データ移行
 - `db-migrations.md` — DB スキーマ/RLS マイグレーション適用（SECURITY DEFINER オーナー固定）
 - `dependency-upgrades.md` — dependabot bump の安全な取り込み（minimumReleaseAge / チョークポイント / 統合）
+- `staging-bringup.md` — staging 環境のゼロからの構築（Terraform enabled 化 / 2 段 apply）
 - `cutover.md` — 本番切替（DNS切替含む）
+- `prod-bringup-cutover.md` — 本番(prod)構築 + 岐南工業 実機TV の LP→v2 cutover（端末操作ゼロ）の機械的チェックリスト
 - `incident-response.md` — 障害対応フロー
 - `disaster-recovery.md` — 災害復旧（リージョン障害等）
 - `secret-rotation.md` — シークレットローテーション
