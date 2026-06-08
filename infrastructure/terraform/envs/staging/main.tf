@@ -193,7 +193,12 @@ locals {
   #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
   # 09b7cc40: #701 管理ヘッダーにログイン中のメールアドレスを表示。
   #           schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:09b7cc40 を Cloud Build 済・AR push 済。
-  web_image_tag = "4b96a30"
+  # 2912a3e: 4b96a30→現 main HEAD。#730 パスワード設定/リセットの自前ページ + ログイン後パスワード変更、
+  #          #731/#732/#734 エディタ AI 連絡ドラフト SSE、#733 LP互換 TV ポーリング 等を内包。
+  #          4b96a30..2912a3e に packages/db/{migrations,drizzle,src/schema} 変更なし＝web-only、migrate 不要
+  #          （migrate_image_tag=fc21f81 据置）。web:2912a3e を Cloud Build 済・AR push 済（NEXT_PUBLIC_APP_URL
+  #          ＝Cloud Run URL を build-arg で注入＝#730 のリセットリンク正準 origin 対応）。
+  web_image_tag = "2912a3e"
 }
 
 module "network" {
