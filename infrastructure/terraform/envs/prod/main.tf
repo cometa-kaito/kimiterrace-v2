@@ -483,10 +483,11 @@ module "cloud_run_job_weather" {
 # 公開ルート（magic-link / webhook）の秘匿値が載る request log の閲覧を運用者へ限定する。
 # enabled 化時に var.log_viewer_members（運用者グループ + breakglass）を設定すること。
 module "logging_iam" {
-  source     = "../../modules/logging_iam"
-  project_id = var.project_id
-  env        = local.env
-  enabled    = false # TODO(bring-up ③): true + log_viewer_members を設定
+  source             = "../../modules/logging_iam"
+  project_id         = var.project_id
+  env                = local.env
+  enabled            = true # bring-up: 2026-06-08 有効化（運用ログ閲覧 最小権限）
+  log_viewer_members = ["user:20051215kaito@gmail.com"]
 }
 
 # 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。prod は force_destroy 既定 false。
