@@ -200,7 +200,10 @@ locals {
   #          Cloud Build 済・AR push 済。AI_ENABLED=true 下で実 Vertex ストリーミングが効く。
   # 3db9b38: #740 学校編集ページ DB エラーをエラーバウンダリに漏らさない（.catch(→null) + notFound()）。
   #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:3db9b38 を Cloud Build 済・AR push 済。
-  web_image_tag = "3db9b38"
+  # 8d8b8a1: #243 ② エディタ AI UX 再設計の続き — 自由指示（加筆・部分修正, #742）+ F06 チャット停止ボタン
+  #          /考え中表示（横断統一, #744）。3db9b38 を内包＋両機能。schema 変更なし（apps/web のみ）ゆえ
+  #          migrate 不要。web:8d8b8a1 を Cloud Build 済・AR push 済。AI_ENABLED=true 下で実 Vertex が効く。
+  web_image_tag = "8d8b8a1"
 }
 
 module "network" {
