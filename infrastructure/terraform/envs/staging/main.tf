@@ -114,6 +114,10 @@ locals {
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
   db_url_app_secret_id = "staging-db-url-app"
 
+  # TV ポーリング共有シークレット（TV_POLL_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
+  # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
+  tv_poll_secret_id = "staging-tv-poll-secret"
+
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
   # a6463f5: 全ルートにセキュリティレスポンスヘッダを付与（live DAST 検証で欠落検出）。
@@ -249,6 +253,9 @@ module "secret_manager" {
     }
     (local.db_url_app_secret_id) = {
       description = "app の DATABASE_URL（DSN）。Cloud Run web service が DATABASE_URL env で注入。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.tv_poll_secret_id) = {
+      description = "TV ポーリング共有シークレット（TV_POLL_SECRET、F15/ADR-022）。Cloud Run web service が /api/tv/config・/api/tv/lp-config の認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
@@ -450,6 +457,7 @@ module "cloud_run" {
   enabled                = true
   image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
   database_url_secret_id = local.db_url_app_secret_id
+  tv_poll_secret_id      = local.tv_poll_secret_id
   vpc_connector          = module.network.vpc_connector_id
   vertex_location        = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)

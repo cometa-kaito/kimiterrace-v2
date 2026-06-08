@@ -35,6 +35,17 @@ resource "google_secret_manager_secret_iam_member" "runtime_database_url" {
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# TV_POLL_SECRET secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
+# F15/ADR-022: TV ポーリング（/api/tv/config・/api/tv/lp-config）の共有シークレット。空文字なら配線しない。
+resource "google_secret_manager_secret_iam_member" "runtime_tv_poll_secret" {
+  count = var.enabled && var.tv_poll_secret_id != "" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.tv_poll_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # Vertex AI 呼び出し（F03 抽出 / F06 生徒 Q&A / F08 効果コメントの Gemini）。project レベル
 # roles/aiplatform.user。送信前 PII マスキングは app 側（ルール4）。
 resource "google_project_iam_member" "runtime_vertex_user" {
@@ -98,6 +109,21 @@ resource "google_cloud_run_v2_service" "web" {
           value_source {
             secret_key_ref {
               secret  = var.database_url_secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # TV_POLL_SECRET = TV ポーリング共有シークレット（Secret Manager 注入、ルール5）。
+      # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未設定なら poll route は fail-closed(401)。
+      dynamic "env" {
+        for_each = var.tv_poll_secret_id != "" ? [1] : []
+        content {
+          name = "TV_POLL_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = var.tv_poll_secret_id
               version = "latest"
             }
           }
