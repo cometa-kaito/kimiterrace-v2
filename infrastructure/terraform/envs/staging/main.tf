@@ -203,7 +203,10 @@ locals {
   # 8d8b8a1: #243 ② エディタ AI UX 再設計の続き — 自由指示（加筆・部分修正, #742）+ F06 チャット停止ボタン
   #          /考え中表示（横断統一, #744）。3db9b38 を内包＋両機能。schema 変更なし（apps/web のみ）ゆえ
   #          migrate 不要。web:8d8b8a1 を Cloud Build 済・AR push 済。AI_ENABLED=true 下で実 Vertex が効く。
-  web_image_tag = "8d8b8a1"
+  # 6c85195: #243 ② 横断統一 — 効果コメント / teacher-input に共通の「考え中…」即時フィードバック（#751）。
+  #          F06 チャットの未スタイルだった thinking も同 1 クラスで整える。8d8b8a1 を内包＋本変更。
+  #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:6c85195 を Cloud Build 済・AR push 済。
+  web_image_tag = "6c85195"
 }
 
 module "network" {
