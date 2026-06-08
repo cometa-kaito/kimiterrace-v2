@@ -111,4 +111,26 @@ describe("TeacherInputComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: "🎤 音声入力" }));
     expect(hookState.start).toHaveBeenCalledOnce();
   });
+
+  it("送信中は共通の「考え中…」明滅ラベル（横断統一 .kt-thinking）を出す", async () => {
+    // 解決しない fetch で submitting 状態を保持する。
+    let resolveFetch: (r: Response) => void = () => {};
+    mockFetch(
+      () =>
+        new Promise<Response>((r) => {
+          resolveFetch = r;
+        }),
+    );
+    render(<TeacherInputComposer />);
+    fireEvent.change(screen.getByLabelText("連絡内容"), {
+      target: { value: "明日10時から説明会" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "送信" }));
+
+    expect(await screen.findByText("● 送信中…")).toBeInTheDocument();
+
+    // クリーンアップ: 解決して done に遷移、明滅ラベルが消えるまで待つ。
+    resolveFetch({ ok: true, status: 201, json: async () => ({ id: "x" }) } as Response);
+    await waitFor(() => expect(screen.queryByText("● 送信中…")).not.toBeInTheDocument());
+  });
 });

@@ -62,7 +62,8 @@ export function EffectCommentPanel() {
 
       {/* 結果・エラーは aria-live 領域で通知する (生成は非同期、ボタンと別領域)。 */}
       <div aria-live="polite" style={liveRegionStyle}>
-        {pending ? <p style={pendingStyle}>生成中です。しばらくお待ちください。</p> : null}
+        {/* 横断統一: AI が働いている間は共通の「考え中…」明滅ラベル（globals.css .kt-thinking）。 */}
+        {pending ? <p className="kt-thinking">● AI が考え中です…（少しお待ちください）</p> : null}
         {!pending && result ? <ResultView result={result} /> : null}
       </div>
     </section>
@@ -121,7 +122,6 @@ const btnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 const liveRegionStyle: React.CSSProperties = { marginTop: "0.9rem" };
-const pendingStyle: React.CSSProperties = { color: "#6b7280", fontSize: "0.9rem", margin: 0 };
 const commentFigureStyle: React.CSSProperties = { margin: 0 };
 const monthCaptionStyle: React.CSSProperties = {
   color: "#6b7280",

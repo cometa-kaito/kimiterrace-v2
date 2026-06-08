@@ -242,3 +242,34 @@ body {
     padding: 1rem;
   }
 }
+
+/*
+ * 横断統一: AI 処理中の「考え中…」即時フィードバック（ADR-033 §3-④ / #243 ②UI-UX）。
+ * 動かないスピナーは「失敗」と読まれ二重送信（Vertex 課金/レート）を招くため、AI が働いている間は
+ * 共通の合図（明滅するブランド色のラベル）を出す。エディタ（CSS Module の pulse）に加え、効果コメント・
+ * teacher-input・F06 チャット（chat-panel__thinking は従来未スタイル）でこの 1 クラスを共有する。
+ */
+@keyframes kt-think {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.kt-thinking,
+.chat-panel__thinking {
+  margin: 0;
+  color: var(--brand-primary, #ea580c);
+  font-weight: 600;
+  font-size: 0.85rem;
+  animation: kt-think 1.2s ease-in-out infinite;
+}
+/* a11y: モーション低減設定では明滅を止める（色＋文言で意味は伝わる、NFR05）。 */
+@media (prefers-reduced-motion: reduce) {
+  .kt-thinking,
+  .chat-panel__thinking {
+    animation: none;
+  }
+}
