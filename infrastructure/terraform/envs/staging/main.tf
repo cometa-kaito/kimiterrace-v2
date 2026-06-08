@@ -254,6 +254,9 @@ module "secret_manager" {
     (local.db_url_app_secret_id) = {
       description = "app の DATABASE_URL（DSN）。Cloud Run web service が DATABASE_URL env で注入。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
+    (local.tv_poll_secret_id) = {
+      description = "TV ポーリング共有シークレット（TV_POLL_SECRET、F15/ADR-022）。Cloud Run web service が /api/tv/config・/api/tv/lp-config の認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
   }
 }
 
