@@ -255,6 +255,18 @@
   gap: 0.35rem;
   margin-top: 0.35rem;
 }
+.instructionInput {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.instructionInput:disabled {
+  opacity: 0.6;
+}
 
 /* スマホ: 下部に大きいシートで出す（操作しやすく）。 */
 @media (max-width: 768px) {

@@ -112,6 +112,29 @@ describe("EditorAssistant（ストリーミング・カード UI）", () => {
     });
   });
 
+  it("自由指示は instruction 付きで再生成する", async () => {
+    h.streamNoticeDraft.mockImplementation(() =>
+      gen([
+        { type: "notice", index: 0, text: "連絡A", isHighlight: false },
+        { type: "done", count: 1 },
+      ]),
+    );
+    renderPanel();
+    openAndGenerate();
+    await screen.findByDisplayValue("連絡A");
+
+    fireEvent.change(screen.getByLabelText("加筆・修正の指示"), {
+      target: { value: "部活も足して" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "この指示で作り直す" }));
+
+    await waitFor(() => expect(h.streamNoticeDraft).toHaveBeenCalledTimes(2));
+    expect(h.streamNoticeDraft.mock.calls[1]?.[0]).toMatchObject({
+      text: "明日は短縮授業",
+      instruction: "部活も足して",
+    });
+  });
+
   it("反映すると既存連絡 + 採用カードで setNoticesAction を呼ぶ", async () => {
     h.streamNoticeDraft.mockReturnValue(
       gen([

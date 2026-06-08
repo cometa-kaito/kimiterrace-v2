@@ -45,6 +45,8 @@ export interface StreamNoticeDraftParams {
   acknowledgePii?: boolean;
   /** 再生成時のトーン/長さ調整（任意。サーバ定義の固定指示に写像される）。 */
   tone?: NoticeTone;
+  /** 自由指示（加筆・部分修正、任意）。サーバ側で書式 PII を不許可・氏名 soft-gate。 */
+  instruction?: string;
   /** 中断用シグナル（停止ボタン・ページ離脱で fetch を abort）。 */
   signal?: AbortSignal;
   /** テスト用の fetch 差し替え（既定はグローバル `fetch`）。 */
@@ -81,6 +83,7 @@ export async function* streamNoticeDraft(
         text: params.text,
         acknowledgePii: params.acknowledgePii === true,
         ...(params.tone ? { tone: params.tone } : {}),
+        ...(params.instruction ? { instruction: params.instruction } : {}),
       }),
       credentials: "same-origin",
       signal: params.signal,

@@ -79,6 +79,7 @@ export function EditorAssistant({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [instruction, setInstruction] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [cards, setCards] = useState<DraftCard[]>([]);
   const [redactedCount, setRedactedCount] = useState(0);
@@ -146,9 +147,12 @@ export function EditorAssistant({
 
   /**
    * テキスト経路: SSE で 1 件ずつカードに反映する（停止可・エラー時も入力/既送出カードを保持）。
-   * `tone` を渡すと同じメモを指定トーン/長さで再生成する（調整して作り直す）。
+   * `opts.tone`（プリセット）/ `opts.instruction`（自由指示）を渡すと同じメモを調整して再生成する。
    */
-  async function runTextStream(acknowledgePii: boolean, tone?: NoticeTone) {
+  async function runTextStream(
+    acknowledgePii: boolean,
+    opts: { tone?: NoticeTone; instruction?: string } = {},
+  ) {
     const memo = text.trim();
     if (memo.length === 0) {
       setMsg(message("empty"));
@@ -164,7 +168,8 @@ export function EditorAssistant({
         targetId,
         text: memo,
         acknowledgePii,
-        tone,
+        tone: opts.tone,
+        instruction: opts.instruction,
         signal: controller.signal,
       })) {
         if (ev.type === "notice") {
@@ -451,7 +456,7 @@ export function EditorAssistant({
                       type="button"
                       className={styles.tone}
                       disabled={streaming}
-                      onClick={() => runTextStream(false, t.key)}
+                      onClick={() => runTextStream(false, { tone: t.key })}
                     >
                       {t.label}
                     </button>
@@ -465,13 +470,35 @@ export function EditorAssistant({
                           type="button"
                           className={styles.tone}
                           disabled={streaming}
-                          onClick={() => runTextStream(false, t.key)}
+                          onClick={() => runTextStream(false, { tone: t.key })}
                         >
                           {t.label}
                         </button>
                       ))}
                     </div>
                   </details>
+                </div>
+              ) : null}
+              {text.trim().length > 0 ? (
+                <div className={styles.toneBar} aria-label="加筆・部分修正の指示">
+                  <input
+                    type="text"
+                    className={styles.instructionInput}
+                    value={instruction}
+                    onChange={(e) => setInstruction(e.target.value)}
+                    placeholder="例: 部活の連絡も足して / もっとやさしく"
+                    maxLength={200}
+                    disabled={streaming}
+                    aria-label="加筆・修正の指示"
+                  />
+                  <button
+                    type="button"
+                    className={styles.tone}
+                    disabled={streaming || instruction.trim().length === 0}
+                    onClick={() => runTextStream(false, { instruction: instruction.trim() })}
+                  >
+                    この指示で作り直す
+                  </button>
                 </div>
               ) : null}
               <div className={styles.row}>
