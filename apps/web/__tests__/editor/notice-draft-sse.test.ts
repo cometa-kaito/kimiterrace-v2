@@ -33,7 +33,10 @@ vi.mock("@kimiterrace/ai", () => ({
   createVertexNoticeStreamClient: () => ({ stream: () => ({}) }),
 }));
 
-import { NOTICE_ASSIST_STREAM_SYSTEM } from "../../lib/editor/assistant-core";
+import {
+  NOTICE_ASSIST_STREAM_SYSTEM,
+  NOTICE_TONE_INSTRUCTIONS,
+} from "../../lib/editor/assistant-core";
 import { respondWithNoticeDraftStream } from "../../lib/editor/notice-draft-sse";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
@@ -194,6 +197,22 @@ describe("respondWithNoticeDraftStream", () => {
     expect(h.insertValues).toHaveBeenCalledOnce();
     // system はストリーミング用プロンプト（JSON エンベロープを指示しない版）。
     expect(d.streamClient.stream.mock.calls[0]?.[0]?.system).toBe(NOTICE_ASSIST_STREAM_SYSTEM);
+  });
+
+  it("既知の tone は user プロンプトに固定の調整指示を付す（未知 tone は付さない）", async () => {
+    const d = deps();
+    await collectSse(
+      await respondWithNoticeDraftStream(ARGS, req({ text: "メモ", tone: "short" }), d),
+    );
+    expect(d.streamClient.stream.mock.calls[0]?.[0]?.user).toContain(
+      NOTICE_TONE_INSTRUCTIONS.short,
+    );
+
+    const d2 = deps();
+    await collectSse(
+      await respondWithNoticeDraftStream(ARGS, req({ text: "メモ", tone: "evil" }), d2),
+    );
+    expect(d2.streamClient.stream.mock.calls[0]?.[0]?.user).not.toContain("【調整の指示】");
   });
 
   it("逆マスク後に PII 残存した要素だけ notice_redacted で落とし、他は流す", async () => {

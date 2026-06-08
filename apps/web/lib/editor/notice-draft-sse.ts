@@ -14,8 +14,11 @@ import { type TenantContext, auditLog, withTenantContext } from "@kimiterrace/db
 import {
   ASSIST_INPUT_MAX,
   NOTICE_ASSIST_STREAM_SYSTEM,
+  NOTICE_TONE_INSTRUCTIONS,
+  type NoticeTone,
   buildNoticeAssistUser,
   jstDateLabel,
+  parseNoticeTone,
 } from "./assistant-core";
 import type { EditorActor, EditorTarget } from "./schedule-core";
 
@@ -126,14 +129,17 @@ export async function respondWithNoticeDraftStream(
     return jsonError(503, "ai_disabled");
   }
 
-  // 1) ボディ検証。JSON 不正・空・過大は 200 を開く前に実 HTTP で弾く。
+  // 1) ボディ検証。JSON 不正・空・過大は 200 を開く前に実 HTTP で弾く。tone は再生成時の調整（任意・
+  //    未知キーは無視＝外部入力を信用しない）。tone 指示はサーバ定義の固定文ゆえ新たな PII 面を作らない。
   let text: string;
   let acknowledgePii: boolean;
+  let tone: NoticeTone | null;
   try {
     const body: unknown = await request.json();
-    const rec = (body ?? {}) as { text?: unknown; acknowledgePii?: unknown };
+    const rec = (body ?? {}) as { text?: unknown; acknowledgePii?: unknown; tone?: unknown };
     text = typeof rec.text === "string" ? rec.text.trim() : "";
     acknowledgePii = rec.acknowledgePii === true;
+    tone = parseNoticeTone(rec.tone);
   } catch {
     return jsonError(400, "invalid_json");
   }
@@ -182,7 +188,11 @@ export async function respondWithNoticeDraftStream(
         try {
           const result = deps.streamClient.stream({
             system: NOTICE_ASSIST_STREAM_SYSTEM,
-            user: buildNoticeAssistUser(masked, jstDateLabel(now)),
+            user: buildNoticeAssistUser(
+              masked,
+              jstDateLabel(now),
+              tone ? NOTICE_TONE_INSTRUCTIONS[tone] : undefined,
+            ),
           });
           for await (const el of result.elementStream) {
             const unmasked = unmaskPII(el.text, dictionary);

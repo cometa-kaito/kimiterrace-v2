@@ -147,6 +147,25 @@ describe("streamNoticeDraft", () => {
     expect(init?.credentials).toBe("same-origin");
   });
 
+  it("tone を指定するとボディに載せる", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => sseResponse([frame("done", { count: 0 })]));
+    await collect(
+      streamNoticeDraft({
+        scope: "class",
+        targetId: CLASS_ID,
+        text: "メモ",
+        tone: "short",
+        fetchImpl,
+      }),
+    );
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      text: "メモ",
+      acknowledgePii: false,
+      tone: "short",
+    });
+  });
+
   it("school scope は targetId をクエリに載せない", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => sseResponse([frame("done", { count: 0 })]));
     await collect(streamNoticeDraft({ scope: "school", targetId: null, text: "メモ", fetchImpl }));

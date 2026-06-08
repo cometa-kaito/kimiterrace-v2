@@ -67,11 +67,63 @@ export const NOTICE_ASSIST_STREAM_SYSTEM = [
 ].join("\n");
 
 /**
- * ユーザープロンプト（基準日 + マスク済みメモ）。基準日（今日・JST）を明示して渡し、
- * 「明日」等の相対表現をモデルが具体的な日付へ変換できるようにする。一括/ストリーミング両経路で共有する。
+ * トーン/長さ調整プリセット（ADR-033 / 設計 §2.4）。再生成時に user プロンプトへ調整指示を付す。
+ * 日本語の敬語は独立軸として一級扱い（ていねいに/かしこまった）。**値はすべてサーバ定義の固定文**で、
+ * ユーザー自由入力を含まない（＝新たな PII 面を作らない、ルール4）。
  */
-export function buildNoticeAssistUser(maskedInput: string, referenceDateLabel: string): string {
-  return `基準日（今日）: ${referenceDateLabel}\n\n次のメモから連絡を作成してください:\n\n${maskedInput}`;
+export type NoticeTone =
+  | "short"
+  | "detailed"
+  | "polite"
+  | "soft"
+  | "concise"
+  | "formal"
+  | "rephrase"
+  | "bullet"
+  | "plain";
+
+/** トーンキー → モデルへの調整指示文（固定）。 */
+export const NOTICE_TONE_INSTRUCTIONS: Record<NoticeTone, string> = {
+  short: "各連絡をできるだけ短く、要点だけにする。",
+  detailed: "各連絡に必要な補足を加えて、ややくわしくする。",
+  polite: "ていねいな敬体（です・ます）でやわらげる。",
+  soft: "保護者にも伝わるよう、やわらかく温かい言い回しにする。",
+  concise: "事実を落とさずに簡潔に締める。",
+  formal: "かしこまった丁寧な表現にする。",
+  rephrase: "意味を保ったまま言い換える。",
+  bullet: "各連絡を1文で端的にする（箇条書き的に）。",
+  plain: "やさしい日本語（簡単な語・短い文）にする。",
+};
+
+const NOTICE_TONES: readonly NoticeTone[] = [
+  "short",
+  "detailed",
+  "polite",
+  "soft",
+  "concise",
+  "formal",
+  "rephrase",
+  "bullet",
+  "plain",
+];
+
+/** 任意入力が既知のトーンキーなら返す（未知は null。外部入力を信用しない）。 */
+export function parseNoticeTone(value: unknown): NoticeTone | null {
+  return NOTICE_TONES.find((t) => t === value) ?? null;
+}
+
+/**
+ * ユーザープロンプト（基準日 + マスク済みメモ + 任意の調整指示）。基準日（今日・JST）を明示して渡し、
+ * 「明日」等の相対表現をモデルが具体的な日付へ変換できるようにする。一括/ストリーミング両経路で共有する。
+ * `adjust` は再生成時のトーン/長さ調整文（{@link NOTICE_TONE_INSTRUCTIONS} の固定文）で、無ければ付さない。
+ */
+export function buildNoticeAssistUser(
+  maskedInput: string,
+  referenceDateLabel: string,
+  adjust?: string,
+): string {
+  const base = `基準日（今日）: ${referenceDateLabel}\n\n次のメモから連絡を作成してください:\n\n${maskedInput}`;
+  return adjust && adjust.length > 0 ? `${base}\n\n【調整の指示】${adjust}` : base;
 }
 
 /**
