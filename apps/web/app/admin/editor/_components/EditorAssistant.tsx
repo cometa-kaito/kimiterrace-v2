@@ -1,19 +1,26 @@
 "use client";
 
-import {
-  assistDraftNoticesAction,
-  assistDraftNoticesFromFileAction,
-} from "@/lib/editor/assistant-actions";
+import { assistDraftNoticesFromFileAction } from "@/lib/editor/assistant-actions";
 import type { AssistDraftResult } from "@/lib/editor/assistant-core";
-import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
+import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
+import { streamNoticeDraft } from "@/lib/editor/notice-draft-client";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import styles from "./editor-assistant.module.css";
 
-/** 提案リストの安定キー用に id を付与した連絡（保存時は id を無視して text/isHighlight のみ採用）。 */
-type ProposedNotice = NoticeItem & { id: string };
+/** 採用前にその場で編集できるドラフトカード（採用するまで保存に触れない＝可逆プレビュー, ADR-033）。 */
+type DraftCard = {
+  /** 安定キー。 */
+  id: string;
+  /** 連絡本文（採用前にその場で編集可）。 */
+  text: string;
+  /** 重要マーク。 */
+  isHighlight: boolean;
+  /** 反映対象に含めるか（既定 true。Notion/Docs 流の項目ごと採否）。 */
+  accepted: boolean;
+};
 
 /** ファイル入力で受理する MIME（PDF / Word / Excel。画像 OCR は未配線ゆえ非対応）。 */
 const FILE_ACCEPT = [
@@ -26,11 +33,22 @@ const FILE_ACCEPT = [
 ].join(",");
 
 /**
- * 段C: エディタの **AI アシスタント浮遊UI**（ユーザー要望 2026-06-07）。編集画面の右下に常駐するボタンを
- * 押すと浮遊パネルが開き、**話す（音声）/ 打つ（テキスト）/ ファイル（PDF・Word・Excel）→ AI が「連絡」を
- * 下書き → 確認 → 反映（保存）** できる。保存は段A-2 の `setNoticesAction`（自校 RLS・監査）に委譲。AI 下書きは
- * `assistDraftNoticesAction` / `assistDraftNoticesFromFileAction`（PII マスク/soft-gate/監査/AI_ENABLED gate 済）。
- * 本MVP は連絡のみ（時間割/提出物は後続）。画像はサーバ側 OCR 配線後に対応。
+ * 段C+（#243 ②UI-UX, ADR-033）: エディタ AI アシスタントの **ストリーミング再設計**。
+ *
+ * 旧 UI（「作成中…」スピナー → チェックボックスのフラットなリスト → 全件一括 apply）を、Notion AI /
+ * Google Docs「Help me write」/ ChatGPT に学んだ **「項目ごとに確定ストリーミング → 採用/削除/編集 →
+ * 反映」** へ作り替える（設計 docs/design/ai-editor-assist-ux.md）。
+ *
+ * - **テキスト経路**: `streamNoticeDraft`（SSE）で連絡を **1 件ずつカードに反映**（送信直後に作成中表示、
+ *   完成項目から個別に採否）。**停止** で中断しても既に届いたカードは保持する。
+ * - **ファイル経路（PDF/Word/Excel）**: 現状は既存 Server Action（非ストリーミング）の結果を同じカード UI に
+ *   流し込む（ストリーミング化は後続スライス）。
+ * - **採用前に編集可・可逆プレビュー**: 採用するまで保存（`setNoticesAction`）に触れない。1 件の不採用が
+ *   他の良い項目を壊さない（全件一括 apply の廃止）。
+ * - **PII soft-gate（ADR-030）**: 氏名らしき語を検出したら警告し、「承知して続ける」で override 再実行。
+ *   個人情報を含む可能性で除外された項目（`notice_redacted`）は件数を表示する。
+ *
+ * トーン調整 / 項目ごと作り直し / ファイルのストリーミング化 / キーボード操作は後続スライス（PR-4/5）。
  */
 export function EditorAssistant({
   scope,
@@ -46,16 +64,23 @@ export function EditorAssistant({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const [drafting, startDraft] = useTransition();
-  const [saving, startSave] = useTransition();
-  const [proposed, setProposed] = useState<ProposedNotice[] | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [streaming, setStreaming] = useState(false);
+  const [cards, setCards] = useState<DraftCard[]>([]);
+  const [redactedCount, setRedactedCount] = useState(0);
   const [warnSurfaces, setWarnSurfaces] = useState<string[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const idRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const speech = useSpeechToText("ja-JP");
+
+  function nextId(): string {
+    idRef.current += 1;
+    return `c${idRef.current}`;
+  }
 
   function toggleMic() {
     if (speech.listening) {
@@ -78,74 +103,152 @@ export function EditorAssistant({
     }
   }
 
-  function handleResult(res: AssistDraftResult) {
+  /** 新規生成の開始時に提案・警告・件数表示をリセットする（入力テキストは残す）。 */
+  function resetProposal() {
+    setMsg(null);
+    setWarnSurfaces(null);
+    setRedactedCount(0);
+    setCards([]);
+  }
+
+  /** AssistDraftResult（ファイル経路・非ストリーミング）をカード UI に流し込む。 */
+  function applyResultToCards(res: AssistDraftResult) {
     if (res.ok) {
-      setProposed(res.notices.map((n, i) => ({ ...n, id: `${i}-${n.text}` })));
-      setSelected(new Set(res.notices.map((_, i) => i)));
+      setCards(
+        res.notices.map((n) => ({
+          id: nextId(),
+          text: n.text,
+          isHighlight: n.isHighlight === true,
+          accepted: true,
+        })),
+      );
     } else if (res.reason === "pii_warning") {
       setWarnSurfaces(res.suspectedSurfaces);
     } else {
-      setMsg(MESSAGES[res.reason] ?? "うまくいきませんでした。");
+      setMsg(message(res.reason));
     }
   }
 
-  /** fileArg を渡せばファイル経路、未指定なら現在の pendingFile（無ければテキスト経路）。 */
-  function runDraft(acknowledgePii: boolean, fileArg?: File | null) {
-    const file = fileArg !== undefined ? fileArg : pendingFile;
-    setMsg(null);
-    setWarnSurfaces(null);
-    startDraft(async () => {
-      try {
-        let res: AssistDraftResult;
-        if (file) {
-          const fd = new FormData();
-          fd.append("file", file);
-          res = await assistDraftNoticesFromFileAction(scope, targetId, fd, { acknowledgePii });
-        } else {
-          res = await assistDraftNoticesAction(scope, targetId, text, { acknowledgePii });
+  /** テキスト経路: SSE で 1 件ずつカードに反映する（停止可・エラー時も入力/既送出カードを保持）。 */
+  async function runTextStream(acknowledgePii: boolean) {
+    const memo = text.trim();
+    if (memo.length === 0) {
+      setMsg(message("empty"));
+      return;
+    }
+    resetProposal();
+    setStreaming(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      for await (const ev of streamNoticeDraft({
+        scope,
+        targetId,
+        text: memo,
+        acknowledgePii,
+        signal: controller.signal,
+      })) {
+        if (ev.type === "notice") {
+          setCards((prev) => [
+            ...prev,
+            { id: nextId(), text: ev.text, isHighlight: ev.isHighlight, accepted: true },
+          ]);
+        } else if (ev.type === "notice_redacted") {
+          setRedactedCount((n) => n + 1);
+        } else if (ev.type === "error") {
+          if (ev.reason === "pii_warning") {
+            setWarnSurfaces(ev.suspectedSurfaces ?? []);
+          } else {
+            setMsg(message(ev.reason));
+          }
         }
-        handleResult(res);
-      } catch {
-        // Server Action の body 上限超過 (413) 等の例外を握りつぶさず案内する。ファイルはサイズが
-        // 最有力（上限 10MB）。本文・内部詳細は出さない（ルール4）。
-        setMsg(
-          file
-            ? "ファイルを送信できませんでした（上限 10MB を超えている可能性があります）。"
-            : "エラーが発生しました。もう一度お試しください。",
-        );
+        // done: ループ終了で確定（下記 finally）。
       }
-    });
+    } catch {
+      // abort（停止）は AbortError で来るが、既送出カードは保持し、エラー文言は出さない。
+      if (!controller.signal.aborted) {
+        setMsg(message("network"));
+      }
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
+    }
+  }
+
+  /** ファイル経路: 既存 Server Action（非ストリーミング）→ カード UI。 */
+  async function runFile(acknowledgePii: boolean, file: File) {
+    resetProposal();
+    setStreaming(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await assistDraftNoticesFromFileAction(scope, targetId, fd, { acknowledgePii });
+      applyResultToCards(res);
+    } catch {
+      setMsg("ファイルを送信できませんでした（上限 10MB を超えている可能性があります）。");
+    } finally {
+      setStreaming(false);
+    }
+  }
+
+  /** 「承知して続ける」: 直前の入力経路（ファイル優先、無ければテキスト）を override で再実行。 */
+  function acknowledgeAndRetry() {
+    if (pendingFile) {
+      runFile(true, pendingFile);
+    } else {
+      runTextStream(true);
+    }
   }
 
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     setPendingFile(f);
     if (f) {
-      runDraft(false, f);
+      runFile(false, f);
     }
   }
 
-  function apply() {
-    if (!proposed) return;
-    const picked = proposed.filter((_, i) => selected.has(i));
+  function stop() {
+    abortRef.current?.abort();
+  }
+
+  function updateCard(id: string, patch: Partial<DraftCard>) {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }
+  function removeCard(id: string) {
+    setCards((prev) => prev.filter((c) => c.id !== id));
+  }
+  function setAllAccepted(v: boolean) {
+    setCards((prev) => prev.map((c) => ({ ...c, accepted: v })));
+  }
+
+  async function apply() {
+    const picked = cards.filter((c) => c.accepted && c.text.trim().length > 0);
     if (picked.length === 0) {
       setMsg("反映する連絡を1つ以上選んでください。");
       return;
     }
-    startSave(async () => {
-      const merged = [...existingNotices, ...picked];
-      const res = await setNoticesAction(scope, targetId, date, merged);
-      if (res.ok) {
-        setMsg("連絡に反映しました。");
-        setProposed(null);
-        setText("");
-        clearFile();
-        router.refresh();
-      } else {
-        setMsg(res.error.message);
-      }
-    });
+    setSaving(true);
+    const items: NoticeItem[] = picked.map((c) =>
+      c.isHighlight ? { text: c.text.trim(), isHighlight: true } : { text: c.text.trim() },
+    );
+    const merged = [...existingNotices, ...items];
+    const res = await setNoticesAction(scope, targetId, date, merged);
+    setSaving(false);
+    if (res.ok) {
+      setMsg(`連絡に反映しました（${items.length}件）。`);
+      setCards([]);
+      setText("");
+      setRedactedCount(0);
+      clearFile();
+      router.refresh();
+    } else {
+      setMsg(res.error.message);
+    }
   }
+
+  const acceptedCount = cards.filter((c) => c.accepted).length;
+  const canGenerate = !streaming && text.trim().length > 0;
 
   return (
     <>
@@ -172,8 +275,8 @@ export function EditorAssistant({
           </div>
 
           <p className={styles.hint}>
-            話す・入力する・ファイル（PDF / Word / Excel）から、AI
-            が「連絡」の下書きを作ります。確認して反映してください。
+            話す・入力する・ファイル（PDF / Word / Excel）から、AI が「連絡」の下書きを作ります。
+            完成した順に確認し、採用するものだけ反映してください。
           </p>
 
           <textarea
@@ -182,6 +285,7 @@ export function EditorAssistant({
             onChange={(e) => setText(e.target.value)}
             placeholder="例: 明日は短縮授業で午後は部活なし。図書室の返却は金曜まで。"
             rows={3}
+            disabled={streaming}
           />
 
           <div className={styles.row}>
@@ -190,6 +294,7 @@ export function EditorAssistant({
                 type="button"
                 className={speech.listening ? styles.micOn : styles.ghost}
                 onClick={toggleMic}
+                disabled={streaming}
               >
                 {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
               </button>
@@ -197,22 +302,28 @@ export function EditorAssistant({
             <button
               type="button"
               className={styles.ghost}
-              disabled={drafting}
+              disabled={streaming}
               onClick={() => fileInputRef.current?.click()}
             >
               📄 ファイルから
             </button>
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={drafting || text.trim().length === 0}
-              onClick={() => {
-                clearFile();
-                runDraft(false, null);
-              }}
-            >
-              {drafting ? "作成中…" : "AIで連絡を作る"}
-            </button>
+            {streaming ? (
+              <button type="button" className={styles.ghost} onClick={stop}>
+                ■ 停止
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={!canGenerate}
+                onClick={() => {
+                  clearFile();
+                  runTextStream(false);
+                }}
+              >
+                AIで連絡を作る
+              </button>
+            )}
           </div>
           <input
             ref={fileInputRef}
@@ -224,11 +335,18 @@ export function EditorAssistant({
           />
           {pendingFile ? (
             <p className={styles.interim}>
-              {drafting ? "ファイルを読み取り中… " : "選択中: "}
+              {streaming ? "ファイルを読み取り中… " : "選択中: "}
               {pendingFile.name}
             </p>
           ) : null}
           {speech.listening ? <p className={styles.interim}>{speech.interim}</p> : null}
+
+          {/* ストリーミング状況（aria-live で逐次読み上げ, NFR05）。 */}
+          <div aria-live="polite" className={styles.interim}>
+            {streaming ? (
+              <span className={styles.pulse}>● AI が連絡を作成中…（完成した順に表示されます）</span>
+            ) : null}
+          </div>
 
           {warnSurfaces ? (
             <div className={styles.warn}>
@@ -238,10 +356,10 @@ export function EditorAssistant({
                 <button
                   type="button"
                   className={styles.primary}
-                  disabled={drafting}
-                  onClick={() => runDraft(true)}
+                  disabled={streaming}
+                  onClick={acknowledgeAndRetry}
                 >
-                  {drafting ? "作成中…" : "承知して続ける"}
+                  承知して続ける
                 </button>
                 <button
                   type="button"
@@ -254,45 +372,84 @@ export function EditorAssistant({
             </div>
           ) : null}
 
-          {proposed ? (
+          {cards.length > 0 ? (
             <div className={styles.proposal}>
-              <strong>AI の下書き（反映するものを選択）</strong>
+              <div className={styles.proposalHead}>
+                <strong>AI の下書き</strong>
+                <span className={styles.count}>
+                  採用 {acceptedCount} / {cards.length} 件
+                </span>
+              </div>
               <ul className={styles.list}>
-                {proposed.map((n, i) => (
-                  <li key={n.id} className={styles.item}>
-                    <label className={styles.itemLabel}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(i)}
-                        onChange={(e) => {
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) {
-                              next.add(i);
-                            } else {
-                              next.delete(i);
-                            }
-                            return next;
-                          });
-                        }}
-                      />
-                      <span>
-                        {n.isHighlight ? "⚠ " : ""}
-                        {n.text}
-                      </span>
-                    </label>
+                {cards.map((c) => (
+                  <li key={c.id} className={`${styles.card} ${c.accepted ? "" : styles.cardOff}`}>
+                    <textarea
+                      className={styles.cardText}
+                      value={c.text}
+                      rows={2}
+                      aria-label="連絡本文（編集できます）"
+                      onChange={(e) => updateCard(c.id, { text: e.target.value })}
+                    />
+                    <div className={styles.cardActions}>
+                      <button
+                        type="button"
+                        className={c.accepted ? styles.acceptOn : styles.ghost}
+                        aria-pressed={c.accepted}
+                        onClick={() => updateCard(c.id, { accepted: !c.accepted })}
+                      >
+                        {c.accepted ? "✓ 採用" : "採用する"}
+                      </button>
+                      <button
+                        type="button"
+                        className={c.isHighlight ? styles.hiOn : styles.ghost}
+                        aria-pressed={c.isHighlight}
+                        onClick={() => updateCard(c.id, { isHighlight: !c.isHighlight })}
+                      >
+                        {c.isHighlight ? "⚠ 重要" : "重要にする"}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        onClick={() => removeCard(c.id)}
+                      >
+                        削除
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
+              {redactedCount > 0 ? (
+                <p className={styles.interim}>
+                  個人情報を含む可能性のある {redactedCount} 件を除外しました。
+                </p>
+              ) : null}
               <div className={styles.row}>
                 <button type="button" className={styles.primary} disabled={saving} onClick={apply}>
-                  {saving ? "反映中…" : "連絡に反映する"}
+                  {saving ? "反映中…" : `連絡に反映する（${acceptedCount}）`}
                 </button>
                 <button
                   type="button"
                   className={styles.ghost}
+                  disabled={streaming}
+                  onClick={() => setAllAccepted(true)}
+                >
+                  すべて採用
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  disabled={streaming}
+                  onClick={() => setAllAccepted(false)}
+                >
+                  すべて解除
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  disabled={streaming || saving}
                   onClick={() => {
-                    setProposed(null);
+                    setCards([]);
+                    setRedactedCount(0);
                     clearFile();
                   }}
                 >
@@ -302,16 +459,24 @@ export function EditorAssistant({
             </div>
           ) : null}
 
-          {msg ? <p className={styles.msg}>{msg}</p> : null}
+          {msg ? (
+            <p className={styles.msg} role="status">
+              {msg}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </>
   );
 }
 
+/** 表示文言（ストリーム error.reason / 旧 action reason の両方を写像）。本文/内部詳細は出さない（ルール4）。 */
 const MESSAGES: Record<string, string> = {
-  forbidden: "権限がありません。",
+  ai_disabled: "AI 機能が現在無効です。",
   disabled: "AI 機能が現在無効です。",
+  forbidden: "権限がありません。",
+  unauthenticated: "ログインが必要です。再度ログインしてお試しください。",
+  invalid_target: "編集対象が不正です。",
   rate_limited: "短時間に使いすぎました。少し待って再度お試しください。",
   pii_leak: "個人情報が含まれる可能性があるため中止しました。",
   empty: "メモを入力するか、ファイルを選んでください。",
@@ -321,5 +486,12 @@ const MESSAGES: Record<string, string> = {
   no_text: "ファイルから文字を読み取れませんでした。",
   extract_failed: "ファイルを読み取れませんでした（破損・暗号化の可能性）。",
   no_result: "うまく作成できませんでした。言い換えて再度お試しください。",
-  error: "エラーが発生しました。もう一度お試しください。",
+  stream_failed: "応答の生成に失敗しました。もう一度お試しください。",
+  network: "通信に失敗しました。電波の良い場所でもう一度お試しください。",
+  request_failed: "うまくいきませんでした。もう一度お試しください。",
 };
+
+/** reason を表示文言に写像する（未知 reason は汎用文言。noUncheckedIndexedAccess 下で必ず string）。 */
+function message(reason: string): string {
+  return MESSAGES[reason] ?? "うまくいきませんでした。もう一度お試しください。";
+}
