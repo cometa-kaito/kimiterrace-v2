@@ -89,6 +89,16 @@ export type {
   ChatStreamResult,
 } from "./model/chat-stream.js";
 
+// #243 ②UI-UX (ADR-033) エディタ AI 連絡ドラフトの構造化リスト・ストリーミングクライアント
+// （streamObject array elementStream で連絡を 1 件ずつ確定ストリーミング）
+export { createVertexNoticeStreamClient } from "./model/notice-draft-stream.js";
+export type {
+  VertexNoticeStreamClient,
+  VertexNoticeStreamConfig,
+  NoticeDraftElement,
+  NoticeDraftStreamResult,
+} from "./model/notice-draft-stream.js";
+
 // F06 (#365, ADR-007) Vertex テキスト embedding アダプタ（RAG: コンテンツ/質問の embedding 生成、768 次元）
 export { EMBEDDING_DIM, EmbeddingError, createVertexEmbeddingClient } from "./model/embed.js";
 export type { EmbeddingClient, VertexEmbeddingConfig } from "./model/embed.js";
