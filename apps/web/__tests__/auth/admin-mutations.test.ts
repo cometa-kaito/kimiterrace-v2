@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * F11 (#324, ADR-026): IdP エンフォース seam (deactivate / reactivate) の配線テスト。
@@ -62,6 +62,12 @@ beforeEach(() => {
   deleteUser.mockResolvedValue(undefined);
   // 既定: 空 Headers = origin 解決不能 → createIdpUser は既定リンクにフォールバックする。
   getHeaders.mockResolvedValue(new Headers());
+  // getRequestOrigin は NEXT_PUBLIC_APP_URL を最優先するため、ヘッダ経路を試すテストでは未設定に固定する。
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("deactivateIdpUser (ADR-026 D1)", () => {

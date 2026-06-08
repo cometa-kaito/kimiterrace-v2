@@ -34,6 +34,8 @@ export function ChangePasswordForm({ email }: { email: string | null }) {
       </p>
     );
   }
+  // ここで email は string に narrowing 済。const に束ねて onSubmit クロージャでも cast なしで使う (ルール3)。
+  const verifiedEmail: string = email;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,10 +47,10 @@ export function ChangePasswordForm({ email }: { email: string | null }) {
     }
     setSubmitting(true);
     try {
-      // 現在のパスワードで再認証 (currentUser に依存しない確実な資格取得)。email は上の guard で非 null。
+      // 現在のパスワードで再認証 (currentUser に依存しない確実な資格取得)。verifiedEmail は guard 後の string。
       const credential = await signInWithEmailAndPassword(
         getClientAuth(),
-        email as string,
+        verifiedEmail,
         currentPassword,
       );
       await updatePassword(credential.user, password);
