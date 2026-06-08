@@ -22,7 +22,7 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
   if (!isUuid(id)) {
     notFound();
   }
-  const advertiser = await withSession((tx) => getAdvertiserDetail(tx, id));
+  const advertiser = await withSession((tx) => getAdvertiserDetail(tx, id)).catch(() => null);
   if (!advertiser) {
     notFound();
   }
