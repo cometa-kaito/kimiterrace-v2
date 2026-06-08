@@ -193,7 +193,7 @@ locals {
   #          schema 変更なし（JSONB・apps/web のみ）ゆえ migrate 不要。web:0571d00 を Cloud Build 済・AR push 済。
   # 09b7cc40: #701 管理ヘッダーにログイン中のメールアドレスを表示。
   #           schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:09b7cc40 を Cloud Build 済・AR push 済。
-  web_image_tag = "4b96a30"
+  web_image_tag = "2912a3e"
 }
 
 module "network" {
