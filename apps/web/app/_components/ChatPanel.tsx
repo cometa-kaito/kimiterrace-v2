@@ -26,6 +26,8 @@ const STR = {
   inputLabel: "質問を入力",
   send: "送信",
   sending: "送信中…",
+  stop: "停止",
+  thinking: "考え中…",
   roleUser: "あなた",
   roleAssistant: "アシスタント",
   errors: {
@@ -81,6 +83,7 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const idRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const headingId = useId();
   const inputId = useId();
 
@@ -100,9 +103,11 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
       setMessages((prev) => [...prev, { id: nextId(), role: "user", text: question }]);
       setIsStreaming(true);
 
+      const controller = new AbortController();
+      abortRef.current = controller;
       let accumulated = "";
       try {
-        for await (const ev of streamChat({ question, endpoint })) {
+        for await (const ev of streamChat({ question, endpoint, signal: controller.signal })) {
           if (ev.type === "delta") {
             accumulated += ev.text;
             setStreamingText(accumulated);
@@ -112,17 +117,26 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
           // done: ループ終了で確定 (下記 finally)。
         }
       } catch {
-        setError(STR.errors.network);
+        // 停止 (abort) は AbortError で来る。利用者の意図ゆえエラー文言は出さず、既出の部分応答は確定する。
+        if (!controller.signal.aborted) {
+          setError(STR.errors.network);
+        }
       } finally {
         if (accumulated !== "") {
           setMessages((prev) => [...prev, { id: nextId(), role: "assistant", text: accumulated }]);
         }
         setStreamingText("");
         setIsStreaming(false);
+        abortRef.current = null;
       }
     },
     [endpoint, input, isStreaming, nextId],
   );
+
+  /** 生成を中断する (停止)。fetch を abort し、既に届いた部分応答は確定する (ChatGPT/Claude の Stop と同方針)。 */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   const sendDisabled = isStreaming || input.trim() === "";
 
@@ -147,6 +161,10 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
 
       {/* ストリーミング中の部分応答。aria-live で逐次読み上げ (WCAG 2.2 AA)。 */}
       <div aria-live="polite" aria-atomic="false" className="chat-panel__streaming">
+        {/* 最初の token 前は「考え中…」を出す (動かないスピナーは失敗に読まれるため即時フィードバック)。 */}
+        {isStreaming && streamingText === "" ? (
+          <p className="chat-panel__thinking">{STR.thinking}</p>
+        ) : null}
         {isStreaming && streamingText !== "" ? (
           <p className="chat-panel__msg chat-panel__msg--assistant">
             <span className="chat-panel__role">{STR.roleAssistant}</span>
@@ -177,6 +195,11 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
         <button type="submit" disabled={sendDisabled} aria-busy={isStreaming}>
           {isStreaming ? STR.sending : STR.send}
         </button>
+        {isStreaming ? (
+          <button type="button" className="chat-panel__stop" onClick={stop}>
+            {STR.stop}
+          </button>
+        ) : null}
       </form>
     </section>
   );

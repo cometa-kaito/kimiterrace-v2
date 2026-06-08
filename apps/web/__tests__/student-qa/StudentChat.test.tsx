@@ -63,10 +63,13 @@ describe("StudentChat (#371 生徒チャット UI)", () => {
     expect(await screen.findByText("体育祭の持ち物は？")).toBeInTheDocument();
     expect(await screen.findByText("体育祭の持ち物は体操服です。")).toBeInTheDocument();
     // streamChat が生徒エンドポイントで呼ばれる (トークンは渡さない、cookie 認証経路 #371)。
-    expect(mockStreamChat).toHaveBeenCalledWith({
-      question: "体育祭の持ち物は？",
-      endpoint: "/api/student/chat",
-    });
+    // signal (停止用 AbortSignal) も渡るため objectContaining で endpoint/question を確認する。
+    expect(mockStreamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        question: "体育祭の持ち物は？",
+        endpoint: "/api/student/chat",
+      }),
+    );
     // 送信後に入力欄はクリアされる。
     await waitFor(() => expect(ui().input.value).toBe(""));
   });
