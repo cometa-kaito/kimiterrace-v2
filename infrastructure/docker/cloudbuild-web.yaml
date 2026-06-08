@@ -35,6 +35,10 @@ substitutions:
   _AUTH_DOMAIN: "signage-v2-staging.firebaseapp.com"
   _PROJECT_ID: "signage-v2-staging"
   _REPO: "asia-northeast1-docker.pkg.dev/signage-v2-staging/kimiterrace"
+  # アプリ公開オリジン。パスワード設定リンク（oobCode を載せ共有）の宛先を詐称可能なヘッダに依存させず
+  # 固定するため build 時に焼き込む（#730 Reviewer High、lib/http/request-origin.ts）。staging 固定の公開値
+  # ゆえ default に埋め込む（別環境で build する場合のみ上書き）。
+  _APP_URL: "https://kimiterrace-web-5wkl3il5zq-an.a.run.app"
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -81,6 +85,8 @@ steps:
       - "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${_AUTH_DOMAIN}"
       - "--build-arg"
       - "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${_PROJECT_ID}"
+      - "--build-arg"
+      - "NEXT_PUBLIC_APP_URL=${_APP_URL}"
       - "."
 
 images:
