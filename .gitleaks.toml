@@ -1,0 +1,21 @@
+# gitleaks 設定（CLAUDE.md ルール5 の secret scan・CI "Secret Scan"）。
+# デフォルトルールを **全継承**（useDefault = true）した上で、誤検知のみ allowlist する。
+# 実際の秘密値はコード/環境変数に置かず Secret Manager のみ（ルール5）。本ファイルが弱める範囲は
+# 「Secret Manager の secret コンテナ **ID**（= 値ではない識別子）」に限定する。
+
+title = "kimiterrace gitleaks config"
+
+[extend]
+useDefault = true
+
+# --- 誤検知 allowlist ---------------------------------------------------------
+# hashicorp-tf-password ルールが terraform の `*_password_secret_id = "<env>-db-<role>-password"`
+# を秘密値と誤検知する。これは Secret Manager の **コンテナ ID**（名前）であり値ではない（値は人間が
+# `gcloud secrets versions add` で投入＝ルール5）。env(prod/staging/dev) × role(app/migrator) の
+# 既知 ID パターンに限定して line マッチで除外する（実秘密はこの形に合致しない）。
+[allowlist]
+description = "Secret Manager secret container IDs (identifiers, not values) — Rule 5 keeps values in Secret Manager only"
+regexTarget = "line"
+regexes = [
+  '''_password_secret_id\s*=\s*"(prod|staging|dev)-db-(app|migrator)-password"''',
+]
