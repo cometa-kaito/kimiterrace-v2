@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  NOTICE_TONE_INSTRUCTIONS,
   buildNoticeAssistUser,
   jstDateLabel,
   parseNoticeProposal,
+  parseNoticeTone,
 } from "../../lib/editor/assistant-core";
 
 /**
@@ -53,5 +55,37 @@ describe("buildNoticeAssistUser", () => {
     const u = buildNoticeAssistUser("明日は短縮授業", "2026年6月8日（月）");
     expect(u).toContain("基準日（今日）: 2026年6月8日（月）");
     expect(u).toContain("明日は短縮授業");
+  });
+
+  it("adjust 指示があれば【調整の指示】として付す（無ければ付さない）", () => {
+    expect(buildNoticeAssistUser("メモ", "2026年6月8日（月）")).not.toContain("【調整の指示】");
+    const u = buildNoticeAssistUser("メモ", "2026年6月8日（月）", "短くする。");
+    expect(u).toContain("【調整の指示】短くする。");
+  });
+});
+
+describe("parseNoticeTone / NOTICE_TONE_INSTRUCTIONS", () => {
+  it("既知のトーンキーのみ受理し、未知/非文字列は null（外部入力を信用しない）", () => {
+    expect(parseNoticeTone("short")).toBe("short");
+    expect(parseNoticeTone("polite")).toBe("polite");
+    expect(parseNoticeTone("evil")).toBeNull();
+    expect(parseNoticeTone(42)).toBeNull();
+    expect(parseNoticeTone(undefined)).toBeNull();
+  });
+
+  it("全トーンキーに固定指示文が定義されている", () => {
+    for (const key of [
+      "short",
+      "detailed",
+      "polite",
+      "soft",
+      "concise",
+      "formal",
+      "rephrase",
+      "bullet",
+      "plain",
+    ] as const) {
+      expect(NOTICE_TONE_INSTRUCTIONS[key].length).toBeGreaterThan(0);
+    }
   });
 });

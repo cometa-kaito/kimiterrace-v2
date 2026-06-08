@@ -1,7 +1,7 @@
 "use client";
 
 import { assistDraftNoticesFromFileAction } from "@/lib/editor/assistant-actions";
-import type { AssistDraftResult } from "@/lib/editor/assistant-core";
+import type { AssistDraftResult, NoticeTone } from "@/lib/editor/assistant-core";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import { streamNoticeDraft } from "@/lib/editor/notice-draft-client";
@@ -31,6 +31,21 @@ const FILE_ACCEPT = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ].join(",");
+
+/** トーン/長さ調整チップ（主・副）。key は NoticeTone、label は UI 文言（設計 §2.4・日本語の敬語を一級扱い）。 */
+const PRIMARY_TONES: { key: NoticeTone; label: string }[] = [
+  { key: "short", label: "短く" },
+  { key: "detailed", label: "くわしく" },
+  { key: "polite", label: "ていねいに" },
+  { key: "soft", label: "やわらかく" },
+];
+const SECONDARY_TONES: { key: NoticeTone; label: string }[] = [
+  { key: "concise", label: "簡潔に" },
+  { key: "formal", label: "かしこまった表現に" },
+  { key: "rephrase", label: "言い換え" },
+  { key: "bullet", label: "箇条書き的に" },
+  { key: "plain", label: "やさしい日本語" },
+];
 
 /**
  * 段C+（#243 ②UI-UX, ADR-033）: エディタ AI アシスタントの **ストリーミング再設計**。
@@ -129,8 +144,11 @@ export function EditorAssistant({
     }
   }
 
-  /** テキスト経路: SSE で 1 件ずつカードに反映する（停止可・エラー時も入力/既送出カードを保持）。 */
-  async function runTextStream(acknowledgePii: boolean) {
+  /**
+   * テキスト経路: SSE で 1 件ずつカードに反映する（停止可・エラー時も入力/既送出カードを保持）。
+   * `tone` を渡すと同じメモを指定トーン/長さで再生成する（調整して作り直す）。
+   */
+  async function runTextStream(acknowledgePii: boolean, tone?: NoticeTone) {
     const memo = text.trim();
     if (memo.length === 0) {
       setMsg(message("empty"));
@@ -146,6 +164,7 @@ export function EditorAssistant({
         targetId,
         text: memo,
         acknowledgePii,
+        tone,
         signal: controller.signal,
       })) {
         if (ev.type === "notice") {
@@ -423,8 +442,45 @@ export function EditorAssistant({
                   個人情報を含む可能性のある {redactedCount} 件を除外しました。
                 </p>
               ) : null}
+              {text.trim().length > 0 ? (
+                <div className={styles.toneBar} aria-label="トーン・長さの調整">
+                  <span className={styles.toneLabel}>調整して作り直す:</span>
+                  {PRIMARY_TONES.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className={styles.tone}
+                      disabled={streaming}
+                      onClick={() => runTextStream(false, t.key)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                  <details className={styles.toneMore}>
+                    <summary className={styles.toneSummary}>他の調整</summary>
+                    <div className={styles.toneMoreRow}>
+                      {SECONDARY_TONES.map((t) => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          className={styles.tone}
+                          disabled={streaming}
+                          onClick={() => runTextStream(false, t.key)}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                </div>
+              ) : null}
               <div className={styles.row}>
-                <button type="button" className={styles.primary} disabled={saving} onClick={apply}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={saving || streaming}
+                  onClick={apply}
+                >
                   {saving ? "反映中…" : `連絡に反映する（${acceptedCount}）`}
                 </button>
                 <button
@@ -443,6 +499,16 @@ export function EditorAssistant({
                 >
                   すべて解除
                 </button>
+                {text.trim().length > 0 ? (
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    disabled={streaming}
+                    onClick={() => runTextStream(false)}
+                  >
+                    ↻ 全部作り直す
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={styles.ghost}

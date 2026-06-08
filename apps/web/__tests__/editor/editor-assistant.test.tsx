@@ -91,6 +91,27 @@ describe("EditorAssistant（ストリーミング・カード UI）", () => {
     expect(screen.getByText("採用 2 / 2 件")).toBeInTheDocument();
   });
 
+  it("トーンチップは同じメモを tone 付きで再生成する", async () => {
+    // 生成 + 再生成で 2 回ストリームするため、呼び出しごとに新しいジェネレータを返す。
+    h.streamNoticeDraft.mockImplementation(() =>
+      gen([
+        { type: "notice", index: 0, text: "連絡A", isHighlight: false },
+        { type: "done", count: 1 },
+      ]),
+    );
+    renderPanel();
+    openAndGenerate();
+    await screen.findByDisplayValue("連絡A");
+
+    fireEvent.click(screen.getByRole("button", { name: "短く" }));
+
+    await waitFor(() => expect(h.streamNoticeDraft).toHaveBeenCalledTimes(2));
+    expect(h.streamNoticeDraft.mock.calls[1]?.[0]).toMatchObject({
+      text: "明日は短縮授業",
+      tone: "short",
+    });
+  });
+
   it("反映すると既存連絡 + 採用カードで setNoticesAction を呼ぶ", async () => {
     h.streamNoticeDraft.mockReturnValue(
       gen([

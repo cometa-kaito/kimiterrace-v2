@@ -215,6 +215,47 @@
   }
 }
 
+/* トーン/長さ調整チップ（再生成）。 */
+.toneBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 0.2rem;
+}
+.toneLabel {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-right: 0.2rem;
+}
+.tone {
+  padding: 0.3rem 0.6rem;
+  background: #fff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.tone:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.toneMore {
+  font-size: 0.8rem;
+}
+.toneSummary {
+  cursor: pointer;
+  color: #374151;
+  padding: 0.3rem 0.4rem;
+}
+.toneMoreRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
 /* スマホ: 下部に大きいシートで出す（操作しやすく）。 */
 @media (max-width: 768px) {
   .fab {

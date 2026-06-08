@@ -16,6 +16,8 @@
  * 関連: notice-draft-sse.ts（SSE 契約）, chat-client.ts（先行実装）, ADR-006（SSE）。
  */
 
+import type { NoticeTone } from "./assistant-core";
+
 /** UI が受け取る型付きイベント。route の SSE フレームと 1:1 対応。 */
 export type NoticeDraftEvent =
   | { type: "notice"; index: number; text: string; isHighlight: boolean }
@@ -41,6 +43,8 @@ export interface StreamNoticeDraftParams {
   text: string;
   /** soft-gate 警告を承知して続行する場合 true。 */
   acknowledgePii?: boolean;
+  /** 再生成時のトーン/長さ調整（任意。サーバ定義の固定指示に写像される）。 */
+  tone?: NoticeTone;
   /** 中断用シグナル（停止ボタン・ページ離脱で fetch を abort）。 */
   signal?: AbortSignal;
   /** テスト用の fetch 差し替え（既定はグローバル `fetch`）。 */
@@ -73,7 +77,11 @@ export async function* streamNoticeDraft(
     res = await doFetch(`${NOTICE_DRAFT_ENDPOINT}?${qs.toString()}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: params.text, acknowledgePii: params.acknowledgePii === true }),
+      body: JSON.stringify({
+        text: params.text,
+        acknowledgePii: params.acknowledgePii === true,
+        ...(params.tone ? { tone: params.tone } : {}),
+      }),
       credentials: "same-origin",
       signal: params.signal,
     });
