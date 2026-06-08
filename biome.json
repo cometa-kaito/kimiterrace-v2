@@ -101,6 +101,7 @@
         "**/packages/db/src/seed-ginan-tv-devices-cli.ts",
         "**/packages/db/src/seed-ginan-school-cli.ts",
         "**/packages/db/src/seed-ginan-ads-cli.ts",
+        "**/packages/db/src/seed-ginan-signage-cli.ts",
         "**/packages/db/src/backfill-presence-cli.ts",
         "**/*.config.ts",
         "**/*.config.mts",
