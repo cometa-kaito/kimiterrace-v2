@@ -26,7 +26,7 @@ export default async function SystemSchoolEditPage({
   if (!isUuid(id)) {
     notFound();
   }
-  const school = await withSession((tx) => getSchool(tx, id));
+  const school = await withSession((tx) => getSchool(tx, id)).catch(() => null);
   if (!school) {
     notFound();
   }
