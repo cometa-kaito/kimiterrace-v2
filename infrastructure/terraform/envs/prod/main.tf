@@ -1,5 +1,60 @@
 # prod 環境ルート
-# 雛形のみ。実体生成は各モジュールの enabled = true に切替後、Phase 開発で実行する。
+# staging（envs/staging/main.tf）と **構造（wiring）パリティ** を保った雛形。
+# 実体生成は各モジュールの enabled = true に切替後、本番 bring-up で実行する。
+#
+# ★ 重要: 本ファイルは「authoring（配線記述）のみ」で、すべてのモジュールが enabled = false である。
+#   ＝ どの apply を打っても **リソースは 0 個**（誤 apply は no-op）。本番リソースは下記
+#   「本番 bring-up シーケンス」を人間が踏むまで一切作られない。これにより本番 bring-up は
+#   「terraform を書く」ではなく「enabled=true に倒す + イメージタグを実値に + secret を投入 + apply」
+#   の運用作業に縮約される（ルール8: すべて Terraform 管理、設定漂流ゼロ）。
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 本番 bring-up シーケンス（この順で人間が実行する。各ステップは客観検証ゲートあり）
+# ─────────────────────────────────────────────────────────────────────────────
+# ① イメージタグ locals を **実ビルド済みタグ** に置換する
+#    - locals.migrate_image_tag / web_image_tag / seed_*_image_tag / backfill_presence_image_tag /
+#      jobs_image_tag の "REPLACE_AT_BRINGUP" を、prod 用に Cloud Build 済 + Artifact Registry push 済の
+#      実 sha タグに置き換える（staging で実証済みの版を昇格させる）。
+#    - 置換漏れ（"REPLACE_AT_BRINGUP" のまま）は enabled=true 化後の plan precondition / Job 実行で
+#      fail-fast するので、本番に誤った image が出ることはない。
+#
+# ② prod-* secret の **値（中身）を人間が投入** する（ルール5: Terraform は値を扱わない）
+#    - まず ④ の 2-phase apply の前半で secret コンテナだけ作る（下記）。
+#    - その後、各 prod-* secret に値を投入する:
+#        gcloud secrets versions add prod-db-app-password      --data-file=- --project=signage-v2-prod
+#        gcloud secrets versions add prod-db-migrator-password --data-file=- --project=signage-v2-prod
+#        gcloud secrets versions add prod-db-url-migrator      --data-file=- --project=signage-v2-prod
+#        gcloud secrets versions add prod-db-url-app           --data-file=- --project=signage-v2-prod
+#        gcloud secrets versions add prod-tv-poll-secret       --data-file=- --project=signage-v2-prod
+#      DSN（prod-db-url-migrator / prod-db-url-app）は cloud_sql 作成後に確定する private IP を使う
+#      （postgresql://<user>:<pw>@<private-ip>:5432/kimiterrace?sslmode=require）。
+#      prod-tv-poll-secret は v1 LP の TV_POLL_SECRET 現値と一致させる（cutover で LP 互換ポーリング維持）。
+#
+# ③ モジュール enabled を **依存順** に true へ倒す（下から順に効く）:
+#      1. network          （VPC / connector / PSA peering / Cloud NAT）
+#      2. cloud_sql        （private IP は network の PSA peering 上に割り当て。DB user は ② の secret 値が前提）
+#      3. secret_manager   （secret コンテナ作成。値投入の器）
+#      4. identity_platform（職員 email/password 認証 + web SDK apiKey）
+#      5. cloud_run        （web service。DATABASE_URL / TV_POLL_SECRET secret を runtime 注入）
+#      6. jobs            （cloud_run_job_migrate + 各 seed Job。migrate → seed の順で実行）
+#    artifact_registry / ad_media / workload_identity_federation は image/asset の器ゆえ早期に true で可。
+#
+# ④ **2-phase apply**（chicken-and-egg 回避。data source が読む secret 値を先に投入する）:
+#      Phase 1: terraform -chdir=infrastructure/terraform/envs/prod apply -target=module.secret_manager
+#               （secret コンテナだけ作成）
+#      → ② で全 prod-* secret に値を投入
+#      Phase 2: terraform -chdir=infrastructure/terraform/envs/prod apply
+#               （残り全リソース。cloud_sql の DB user data source が ② の最新版を読める）
+#
+# ⑤ migrate Job → seed Job の順で実行する（DB スキーマ → テナント → 端末/広告データ）:
+#      gcloud run jobs execute kimiterrace-migrate         --region asia-northeast1 --project signage-v2-prod
+#      gcloud run jobs execute kimiterrace-seed-ginan-sch  --region asia-northeast1 --project signage-v2-prod
+#      gcloud run jobs execute kimiterrace-seed-ginan-tv   --region asia-northeast1 --project signage-v2-prod
+#    岐南 TV 端末の実 device_id / target_mac は packages/db/src/seed-ginan-tv-devices.ts の
+#    GINAN_ECE_TV_DEVICES（コンパイル時同梱・稼働中 LP の tv_devices 由来）を真実とする。本番の実 device_id に
+#    差し替える場合は当該ソースを更新して migrate イメージを再ビルド → ① の migrate_image_tag を bump する
+#    （CLI は env で device 一覧を受けない＝改竄面を増やさない設計。SEED_GINAN_SCHOOL_NAME /
+#    SEED_GINAN_DEPARTMENT_NAME のみ env 上書き可）。冪等（ON CONFLICT (device_id) DO NOTHING）ゆえ再実行安全。
 
 terraform {
   required_version = ">= 1.9.0, < 2.0.0"
@@ -24,11 +79,20 @@ terraform {
 provider "google" {
   project = var.project_id
   region  = var.region
+
+  # apikeys / identitytoolkit など一部 API は user ADC 利用時に quota/billing project の明示が要る
+  # （未指定だと 403 "requires a quota project, which is not set by default"）。当該 project を
+  # billing/quota project として各リクエストに送る。state バケット等の既存リソースには影響なし。
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 provider "google-beta" {
   project = var.project_id
   region  = var.region
+
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 variable "project_id" {
@@ -51,68 +115,363 @@ variable "repository" {
 
 locals {
   env = "prod"
+
+  # アプリ DB ユーザー（app）のパスワードを保持する Secret Manager secret ID（ルール5）。
+  # 値（パスワード）は人間が `gcloud secrets versions add prod-db-app-password --data-file=-` で投入する。
+  # 同じ ID を secret_manager（コンテナ作成）と cloud_sql（data source で参照）の両方に渡す。
+  db_app_password_secret_id = "prod-db-app-password" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # migration（M3）用の secret ID（ルール5・値は人間投入）。
+  # - migrator のパスワード（raw）: cloud_sql の google_sql_user.migrator が data source で読む。
+  # - migrator の DSN（full）: migration Cloud Run Job が DATABASE_URL env として Secret Manager から注入。
+  db_migrator_password_secret_id = "prod-db-migrator-password" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+  db_url_migrator_secret_id      = "prod-db-url-migrator"
+
+  # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
+  # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
+  db_url_app_secret_id = "prod-db-url-app"
+
+  # TV ポーリング共有シークレット（TV_POLL_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
+  # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
+  # cutover では v1 LP の TV_POLL_SECRET 現値と一致させる（LP 互換ポーリングを切らさない）。
+  tv_poll_secret_id = "prod-tv-poll-secret"
+
+  # ── イメージタグ（placeholder）─────────────────────────────────────────────
+  # TODO(bring-up ①): "REPLACE_AT_BRINGUP" を、prod 用に Cloud Build 済 + Artifact Registry push 済の
+  #   実 sha タグに置き換える（staging で実証済みの版を昇格させる）。置換漏れは enabled=true 化後の
+  #   plan precondition / Job 実行で fail-fast するため、誤 image が本番に出ることはない。
+  #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
+
+  # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
+  migrate_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
+  # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
+  seed_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # 岐南工業 電子工学科 設置済 SwitchBot を sensor_devices に登録する seed Job のイメージタグ（F13/#391）。
+  seed_ginan_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # 岐南 電子工学科 PoC の実契約サイネージ広告を登録する seed Job のイメージタグ。
+  seed_ginan_ads_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ取り込む backfill Job のタグ。
+  backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
+  jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+
+  # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
+  web_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 }
 
 module "network" {
-  source     = "../../modules/network"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(Phase 開発): true に切替
+  source            = "../../modules/network"
+  project_id        = var.project_id
+  region            = var.region
+  env               = local.env
+  enabled           = false       # TODO(bring-up ③-1): true に切替
+  psa_range_address = "10.60.0.0" # connector_cidr 10.8.0.0/28 と非重複（PR #493 enable-time 対応・staging と同方針）
 }
 
+# Cloud SQL for PostgreSQL 16 + pgvector（ADR-001 / ADR-007）。
+# prod は private IP only + SSL 強制 + pgvector + 自動バックアップ/PITR + REGIONAL（HA = 同期スタンバイで
+# 自動 failover、10 年保管要件 ADR-001）。private IP は network の PSA peering 上に割り当てられるため、
+# network_id と private_services_ready を配線し peering -> instance の順序を強制する。
+# DB ユーザー（google_sql_user.app / migrator）は Secret Manager 値投入後に有効化（2-phase apply、④）。
 module "cloud_sql" {
-  source     = "../../modules/cloud_sql"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(Phase 開発): true に切替
-  tier       = "db-custom-2-7680"
+  source                 = "../../modules/cloud_sql"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false                                 # TODO(bring-up ③-2): true に切替
+  availability_type      = "REGIONAL"                            # prod は HA（同期スタンバイ・自動 failover、ADR-001）
+  deletion_protection    = true                                  # prod は誤削除防止（10 年保管要件、ルール8 / ADR-001）
+  vpc_network_id         = module.network.network_id             # private IP を割り当てる VPC
+  private_services_ready = module.network.private_services_ready # PSA peering 実在 signal（順序強制）
+
+  # TODO(prod hardening): tier は本番 bring-up 時の確定事項。ここでは staging 同等値を仮置きする
+  #   （アグレッシブな tier を当てずっぽうで指定しない）。実負荷見積り後に db-custom-N-M を確定すること。
+  #   HA（REGIONAL）/ バックアップ世代数 / PITR 保持日数 / メンテナンスウィンドウもあわせて見直す
+  #   （backup_retained_count / transaction_log_retention_days / maintenance_window_* はモジュール既定を流用）。
+  tier = "db-custom-1-3840" # TODO(prod hardening): 本番 tier 確定（staging 同等の仮値）
+
+  # アプリ DB ユーザー（app）のパスワード secret（secret_manager が作成・人間が値を投入）。
+  # 2-phase apply（④）: ① -target=module.secret_manager で secret コンテナ作成 → ② 値投入 → ③ full apply で user 作成。
+  app_db_password_secret_id = local.db_app_password_secret_id
+
+  # migrator DB ユーザー（migration 実行・テーブル所有）のパスワード secret（同じ 2-phase apply）。
+  migrator_db_password_secret_id = local.db_migrator_password_secret_id
 }
 
+# Secret Manager（ルール5）。Terraform はコンテナのみ作成し、値（パスワード/DSN/共有シークレット）は
+# 人間が投入する（2-phase apply の前半で器を作り、②で値を入れる）。
+#   gcloud secrets versions add prod-db-app-password --data-file=- --project=signage-v2-prod
+# accessor SA は cloud_run / 各 Job の runtime SA 生成後（enabled 化時）にモジュール内で配線される。
 module "secret_manager" {
   source     = "../../modules/secret_manager"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  enabled    = false # TODO(bring-up ③-3): true に切替（④ Phase 1 で -target して器を先に作る）
+  secrets = {
+    (local.db_app_password_secret_id) = {
+      description = "Cloud SQL アプリ DB ユーザー（app）のパスワード。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.db_migrator_password_secret_id) = {
+      description = "Cloud SQL migrator DB ユーザー（migration 実行・テーブル所有）のパスワード（raw）。値は人間が投入（ルール5）。"
+    }
+    (local.db_url_migrator_secret_id) = {
+      description = "migrator の DATABASE_URL（DSN）。migration Cloud Run Job が DATABASE_URL env で注入。値は人間が投入（ルール5）。"
+    }
+    (local.db_url_app_secret_id) = {
+      description = "app の DATABASE_URL（DSN）。Cloud Run web service が DATABASE_URL env で注入。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.tv_poll_secret_id) = {
+      description = "TV ポーリング共有シークレット（TV_POLL_SECRET、F15/ADR-022）。Cloud Run web service が /api/tv/config・/api/tv/lp-config の認証に使う。cutover では v1 LP 現値と一致させる。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+  }
 }
 
+# Artifact Registry（Docker）— migration Cloud Run Job + Cloud Run app(B5) の image 置き場（ルール8 / ADR-002）。
+# イメージは `<region>-docker.pkg.dev/<project>/kimiterrace/<image>:<tag>` で push する（output image_repo_url 参照）。
+module "artifact_registry" {
+  source        = "../../modules/artifact_registry"
+  project_id    = var.project_id
+  region        = var.region
+  env           = local.env
+  enabled       = false # TODO(bring-up ③): image push の器。早期に true で可。
+  repository_id = "kimiterrace"
+}
+
+# DB migration Cloud Run Job（M3, #243）。private-IP-only な Cloud SQL へ migration を適用する on-demand Job。
+# 実行: `gcloud run jobs execute kimiterrace-migrate --region asia-northeast1 --project signage-v2-prod`。
+# image = AR の migrate:<tag>。DATABASE_URL = migrator DSN secret。VPC connector で private IP 到達。
+# migrator user / DSN secret は人間の値投入（ルール5）が前提ゆえ、secret 未投入のうちは Job 実行が失敗する。
+# prod は deletion_protection = true（モジュール既定。誤削除防止）。
+module "cloud_run_job_migrate" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③-6): true に切替
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  database_url_secret_id = local.db_url_migrator_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  grant_app_role_member  = "app" # migration 後 GRANT kimiterrace_app TO app（app login が SET ROLE できるように）
+  # deletion_protection はモジュール既定 true（prod）
+}
+
+# app 層 E2E 用テストフィクスチャ seed Job（on-demand）。migrate と同モジュール/イメージを command 上書きで
+# 再利用し `dist/seed-staging-cli.js` を起動する。prod では本番テナント seed を別途行うため通常未使用（雛形）。
+module "cloud_run_job_seed" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③): prod では通常未使用（必要時のみ true）
+  job_name               = "kimiterrace-seed"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_image_tag}"
+  command                = ["node", "dist/seed-staging-cli.js"] # migrate-cli でなく seed-cli を起動
+  database_url_secret_id = local.db_url_migrator_secret_id      # migrator DSN（BYPASSRLS で cross-tenant seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# F13 (#391, ADR-020): 岐南工業 電子工学科1〜3年 設置済 SwitchBot を sensor_devices に登録する on-demand seed Job。
+# command 上書きで `dist/seed-ginan-sensors-cli.js` を起動。migrator DSN で system_admin context を張って冪等 INSERT。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan --region asia-northeast1 --project signage-v2-prod`。
+# 前提: 岐南テナント（学校 + 電子工学科 + 1〜3年）が既存（無ければ fail-loud）。再実行は ON CONFLICT で安全。
+module "cloud_run_job_seed_ginan" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute
+  job_name               = "kimiterrace-seed-ginan"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_image_tag}"
+  command                = ["node", "dist/seed-ginan-sensors-cli.js"] # 岐南センサー seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id            # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# サイネージ広告クリエイティブの公開配信バケット（#46/#48-F）。サイネージ端末が ads.media_url を直接 GET する。
+# 広告は公開掲示物（PII なし）ゆえ公開 read。prod は force_destroy = false（モジュール既定。誤削除防止）。
+# 画像実体（オブジェクト）は content ゆえ Terraform 管理外（gcloud storage cp で upload）。
+module "ad_media" {
+  source     = "../../modules/ad_media"
+  project_id = var.project_id
+  location   = var.region
+  env        = local.env
+  enabled    = false # TODO(bring-up ③): asset の器。広告 seed の前に true で可。
+  # force_destroy はモジュール既定 false（prod・誤削除防止）
+}
+
+# 岐南 電子工学科 PoC の実契約サイネージ広告（advertisers + 学校スコープ ads）を登録する on-demand seed Job。
+# command 上書きで `dist/seed-ginan-ads-cli.js` を起動。migrator DSN で system_admin context を張って固定 id 冪等 upsert。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-ads --region asia-northeast1 --project signage-v2-prod`。
+# 前提: 岐南テナントが既存（無ければ fail-loud）+ ad_media バケットに広告画像 upload 済。
+module "cloud_run_job_seed_ginan_ads" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute
+  job_name               = "kimiterrace-seed-ginan-ads"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_ads_image_tag}"
+  command                = ["node", "dist/seed-ginan-ads-cli.js"] # 岐南 広告 seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id        # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# 岐南工業テナント（学校 + 電子工学科 + 1〜3年 grades + 各1クラス）を prod に用意する on-demand seed Job。
+# 他の岐南 seed（センサー/広告/TV）が「岐南テナント既存」を前提に fail-loud するため、本 Job を**先に**実行する。
+# command 上書きで `dist/seed-ginan-school-cli.js` を起動。image は migrate イメージ（全 seed-cli を同梱）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-sch --region asia-northeast1 --project signage-v2-prod`。
+# 冪等（school は SELECT→INSERT、dept/grade は ON CONFLICT、class は事前 SELECT）。再実行安全。
+module "cloud_run_job_seed_ginan_school" {
+  source     = "../../modules/cloud_run_job_migrate"
+  project_id = var.project_id
+  region     = var.region
+  env        = local.env
+  enabled    = false # TODO(bring-up ③/⑤): true に切替して **最初に** execute
+  # 注: job_name は派生 runtime SA account_id（`<job_name>-sa`）が GCP 上限 30 文字を超えないよう短縮する
+  # （"kimiterrace-seed-ginan-school" だと SA が 32 文字で plan error）。"-sch" に縮めて 26+3=29 文字に収める。
+  job_name               = "kimiterrace-seed-ginan-sch"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  command                = ["node", "dist/seed-ginan-school-cli.js"] # 岐南テナント seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id           # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# 岐南工業 電子工学科1〜3年の TV サイネージ端末を tv_devices に登録する on-demand seed Job（#709）。
+# command 上書きで `dist/seed-ginan-tv-devices-cli.js` を起動。image は migrate イメージ（全 seed-cli を同梱）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-tv --region asia-northeast1 --project signage-v2-prod`。
+# 前提: kimiterrace-seed-ginan-sch 実行済（岐南テナント existence）。冪等（ON CONFLICT(device_id) DO NOTHING）。
+# 実 device_id / target_mac は packages/db/src/seed-ginan-tv-devices.ts の GINAN_ECE_TV_DEVICES（コンパイル時
+# 同梱・稼働中 LP の tv_devices 由来）を真実とする。本番の実 device に差し替える場合は当該ソースを更新して
+# migrate イメージを再ビルド → migrate_image_tag を bump する（env で device 一覧は受けない設計＝改竄面を増やさない）。
+module "cloud_run_job_seed_ginan_tv" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③/⑤): true に切替して execute（sch の後）
+  job_name               = "kimiterrace-seed-ginan-tv"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  command                = ["node", "dist/seed-ginan-tv-devices-cli.js"] # 岐南 TV デバイス seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id               # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# F13 (#391, ADR-020): PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ
+# 取り込む on-demand backfill Job。command 上書きで `dist/backfill-presence-cli.js` を起動。
+# migrator DSN で system_admin context を張り、device_mac→school_id 解決 + ON CONFLICT DO NOTHING で冪等取り込み。
+# 実行: `gcloud run jobs execute kimiterrace-bf-presence --region asia-northeast1 --project signage-v2-prod`。
+# 前提: sensor_devices に対象 device が登録済（kimiterrace-seed-ginan 実行済）。再実行・cutover 後の再取り込みも安全。
+module "cloud_run_job_backfill_presence" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③/⑤): 必要時に true で execute
+  job_name               = "kimiterrace-bf-presence"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.backfill_presence_image_tag}"
+  command                = ["node", "dist/backfill-presence-cli.js"] # 来場検知履歴 backfill を起動
+  database_url_secret_id = local.db_url_migrator_secret_id           # migrator DSN（system_admin context で書込）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# Identity Platform（ADR-003）。職員 email/password サインイン + claims-based（tenant 非使用）
+# + web SDK apiKey。web config（apiKey/authDomain/projectId）は output で app build arg に渡す。
+# MFA は本番導入ゲートで ENABLED にしうる（ADR-031）。雛形は既定 DISABLED。
 module "identity_platform" {
   source     = "../../modules/identity_platform"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  enabled    = false # TODO(bring-up ③-4): true に切替
+  # create_tenant = false（既定・claims-based）/ mfa_state = DISABLED（既定。本番導入時に ENABLED を検討、ADR-031）
 }
 
+# Vertex AI API（#289 PR-2）。実 Vertex 呼び出し（F03 抽出 / F06 Q&A / F08 効果コメント）の前提。
+# disable_on_destroy=false: destroy（コスト停止）時も API を無効化しない（無効化は破壊的・enable は無料）。
+# 本 enable は実 Vertex 利用の前提を満たすだけで、実際の呼び出しは app の AI_ENABLED kill-switch で別途 gate
+# される（既定 OFF）。staging と同じく当該 API のみを Terraform 管理下に置く（ルール8、残り API は follow-up）。
+# 注: 本リソースは count を持たないため enabled スイッチに依らず常に管理対象になる。bring-up で当該 project の
+#   API を Terraform 管理に編入する段で apply する（それまでは plan に現れても apply は人間ゲート、ルール8）。
+resource "google_project_service" "aiplatform" {
+  project                    = var.project_id
+  service                    = "aiplatform.googleapis.com"
+  disable_on_destroy         = false
+  disable_dependent_services = false
+}
+
+# Cloud Run web service（B5 / app デプロイ。ADR-002 / ADR-008）。apps/web を公開する。
+# image = AR の web:<tag>。DATABASE_URL = app DSN secret / TV_POLL_SECRET = tv-poll secret（Secret Manager 注入）。
+# VPC connector で Cloud SQL private IP に到達（Vertex / Identity Platform は既定 egress）。runtime SA に
+# Vertex user + Identity Platform admin + 各 secret accessor を付与。app が自前認証ゆえ未認証 invoker（allUsers）許可。
+# 2-phase apply（④）: ① secret コンテナ作成 → ② app DSN / tv-poll 値投入 → ③ full apply で service 作成。
 module "cloud_run" {
-  source     = "../../modules/cloud_run"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  source                 = "../../modules/cloud_run"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③-5): true に切替
+  image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id = local.db_url_app_secret_id
+  tv_poll_secret_id      = local.tv_poll_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  vertex_location        = var.region
+
+  # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
+  # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
+  ai_enabled          = false # TODO(prod hardening): 検証完了後に true へ flip（停止は false に戻して apply で即 OFF）
+  memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
+  deletion_protection = true  # prod は誤削除防止（モジュール既定 true・明示）
+
+  # TODO(prod hardening): min_instances は本番 bring-up 時の確定事項。既定は 0（scale-to-zero）。本番でコールド
+  #   スタートを許容できない場合は min_instances を 1 以上に上げる（アイドル課金とのトレードオフ）。当てずっぽうで
+  #   倒さず、実トラフィック/サイネージ・ポーリング頻度を見て確定する。max_instances もあわせて見直す。
+  # min_instances = 0  # TODO(prod hardening): 本番要件で確定（既定 scale-to-zero）
+
+  # カスタムドメイン: 本番 cutover では v1 と同一 FQDN `app.school-signage.net` を流用しフィルタ再申請ゼロ
+  #   （docs/discovery/wifi-filter-method.md 制約 C01・県教委 Wi-Fi FQDN 許可リスト維持）。apex の所有権検証 +
+  #   v1 からの切替手順（DNS / TLS）は cutover runbook（docs/runbooks/cutover.md）で人間ゲート。
+  # TODO(bring-up ⑤後 / cutover): custom_domain = "app.school-signage.net"（apex 所有権検証 + cutover 完了後に有効化）
+  custom_domain = ""
 }
 
-# F06 embedding バッチの Cloud Run Job + Scheduler（#416）。
+# F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
+# AI kill-switch は二重ゲート: ① enabled=false で Job 実体未生成、② ai_enabled=false で（Job 活性化後も）
+# バッチが実 Vertex を呼ばない（#593、ルール4 / ADR-030、web cloud_run と同方針）。enabled=true へ flip する
+# 際は image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定し、PII マスキング設計 +
+# aiplatform API 有効化の検証が済んでから ai_enabled=true に上げる（停止/巻き戻しは ai_enabled=false で即 OFF）。
 module "cloud_run_job" {
   source     = "../../modules/cloud_run_job"
   project_id = var.project_id
   region     = var.region
   env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  enabled    = false # TODO(bring-up ③): true に切替
+  ai_enabled = false # 実 Vertex kill-switch（既定 OFF）。検証完了後に true へ flip（#593）。
+  # deletion_protection はモジュール既定 true（prod）
 }
 
-# F14 天気取得 Cloud Run Job + Scheduler + egress（#128, ADR-021）。
-# enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定。
-# 外部 egress(JMA) は本 Job 経路のみ（閉域原則、ADR-021）。external_egress_ready で network の Cloud NAT 実在を強制
-# （NAT 無しで enabled=true にすると plan が fail-fast）。Sentry を使うなら sentry_dsn_secret_id を設定（ADR-013）。
-# prod は deletion_protection 既定 true（モジュール側既定）。
+# F14 天気取得 Cloud Run Job + Scheduler + egress（#128, ADR-021）。サイネージ天気を実描画する。
+# image = jobs:<tag>（jobs.Dockerfile build/push 済）。container_args で weather-job を起動。DATABASE_URL は
+# 既存 app DSN secret（kimiterrace_app、書込みは run.ts が system_admin context）。vpc_connector で Cloud SQL
+# private IP 到達 + 外部 egress(JMA) を VPC 経由に集約し Cloud NAT で出す（閉域原則・出口1経路）。
+# external_egress_ready=network.egress_ready（NAT 実在＝true）で plan 時 fail-fast を満たす。Scheduler は
+# モジュール既定で毎時起動（鮮度 6h 内に再取得、F14 §2）。prod は deletion_protection 既定 true。
 module "cloud_run_job_weather" {
-  source                = "../../modules/cloud_run_job_weather"
-  project_id            = var.project_id
-  region                = var.region
-  env                   = local.env
-  enabled               = false                       # TODO(Phase 開発)
-  external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+  source                 = "../../modules/cloud_run_job_weather"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # TODO(bring-up ③): true に切替
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/weather/weather-job.js"] # ビルド済み weather-job（WORKDIR=/app/apps/jobs）
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+  # deletion_protection はモジュール既定 true（prod）
 }
 
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。
@@ -122,44 +481,43 @@ module "logging_iam" {
   source     = "../../modules/logging_iam"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(Phase 開発): true + log_viewer_members を設定
+  enabled    = false # TODO(bring-up ③): true + log_viewer_members を設定
 }
 
 # 月次レポート PDF の Cloud Storage バケット（F09 / #430）。90 日後コールド移送。prod は force_destroy 既定 false。
 # writer_service_account に reports Job runtime SA を渡し、当該バケット限定で objectAdmin を付与（ルール5 最小権限）。
 # 雛形段階は両モジュール enabled=false ＝ SA 未生成（output null）→ "" にフォールバックして付与なし。
-# Job の REPORT_BUCKET には report_storage.bucket_name を cloud_run_job_reports 側で配線（DL 導線は follow-up）。
 module "report_storage" {
   source                 = "../../modules/report_storage"
   project_id             = var.project_id
   env                    = local.env
-  enabled                = false # TODO(Phase 開発)
+  enabled                = false # TODO(bring-up ③)
   writer_service_account = module.cloud_run_job_reports.runtime_service_account_email != null ? module.cloud_run_job_reports.runtime_service_account_email : ""
 }
 
-# F09 月次レポート生成 Cloud Run Job + Scheduler（#430, #45）。
+# F09 月次レポート生成 Cloud Run Job + Scheduler（#430, #45）。雛形段階は enabled = false。
 # enabled 化時: image / vpc_connector(network) / database_url_secret_id(secret_manager) /
 #   report_bucket(report_storage.bucket_name) を設定。外部 egress は不要（Cloud SQL + GCS のみ、embedding と同設計）。
-# Scheduler は月初 04:00 JST（前月分を生成）。prod は deletion_protection 既定 true（モジュール側既定）。
+# Scheduler は月初 04:00 JST（前月分を生成）。prod は deletion_protection 既定 true。
 # runtime SA の email は report_storage.writer_service_account に配線済。
 module "cloud_run_job_reports" {
   source        = "../../modules/cloud_run_job_reports"
   project_id    = var.project_id
   region        = var.region
   env           = local.env
-  enabled       = false # TODO(Phase 開発)
+  enabled       = false # TODO(bring-up ③)
   report_bucket = module.report_storage.bucket_name
 }
 
 # 教員アップロード素材の Cloud Storage バケット（F01 / #509 / #37, ADR-024）。90 日後コールド移送。
-# enabled 化時に upload 受口 runtime SA を writer_service_account に設定し、Cloud Run の env に
-# 出力 bucket_name を渡す。生徒 PII 素材のため CMEK 推奨（kms_key_name に KMS key を設定、
+# prod は force_destroy 既定 false。enabled 化時に upload 受口 runtime SA を writer_service_account に設定し、
+# Cloud Run の env に出力 bucket_name を渡す。生徒 PII 素材のため CMEK 推奨（kms_key_name に KMS key を設定、
 # 鍵 + IAM は KMS module follow-up）。取得監査が要れば log_bucket を設定（アップロード導線は follow-up）。
 module "upload_storage" {
   source     = "../../modules/upload_storage"
   project_id = var.project_id
   env        = local.env
-  enabled    = false # TODO(Phase 開発)
+  enabled    = false # TODO(bring-up ③)
 }
 
 module "workload_identity_federation" {
@@ -168,6 +526,29 @@ module "workload_identity_federation" {
   project_id = var.project_id
   repository = var.repository
   env_name   = local.env
+}
+
+output "image_repo_url" {
+  description = "コンテナイメージ push 先 prefix（docker tag/push に使う）。例: <prefix>/migrate:<sha>"
+  value       = module.artifact_registry.image_repo_url
+}
+
+# app build 用 Firebase web config（NEXT_PUBLIC_*・公開値）。`terraform output -raw firebase_api_key` 等で取得し
+# app image build の --build-arg に渡す（NEXT_PUBLIC は build 時 inline）。
+output "firebase_api_key" {
+  description = "NEXT_PUBLIC_FIREBASE_API_KEY（公開値だが provider sensitive 扱い）"
+  value       = module.identity_platform.web_api_key
+  sensitive   = true
+}
+
+output "firebase_auth_domain" {
+  description = "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
+  value       = module.identity_platform.auth_domain
+}
+
+output "firebase_project_id" {
+  description = "NEXT_PUBLIC_FIREBASE_PROJECT_ID"
+  value       = module.identity_platform.project_id
 }
 
 output "wif_provider_name" {
@@ -183,4 +564,20 @@ output "wif_deploy_sa_email" {
 output "wif_plan_sa_email" {
   description = "Pass to GitHub Actions vars as WIF_SA_PLAN."
   value       = module.workload_identity_federation.plan_sa_email
+}
+
+# Cloud Run web service の URL（B5）。smoke: `<uri>/login` を curl（200・HTML）。
+output "cloud_run_service_uri" {
+  description = "Cloud Run web service の URL（未生成なら null）。smoke 用。"
+  value       = module.cloud_run.service_uri
+}
+
+output "custom_domain" {
+  description = "マッピング済みカスタムドメイン（未設定なら null）。"
+  value       = module.cloud_run.custom_domain
+}
+
+output "custom_domain_dns_records" {
+  description = "カスタムドメインが要求する DNS レコード。apply 後 DNS に登録する（未設定なら空）。"
+  value       = module.cloud_run.custom_domain_dns_records
 }
