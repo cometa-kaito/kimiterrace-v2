@@ -34,7 +34,7 @@ export default async function SystemSchoolDetailPage({
   if (!isUuid(id)) {
     notFound();
   }
-  const detail = await withSession((tx) => getSchoolDetail(tx, id));
+  const detail = await withSession((tx) => getSchoolDetail(tx, id)).catch(() => null);
   if (!detail) {
     notFound();
   }
