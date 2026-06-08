@@ -87,10 +87,10 @@ describe("EffectCommentPanel (#44 AI 効果コメント UI)", () => {
     render(<EffectCommentPanel />);
     clickGenerate();
 
-    // pending: ボタンは「生成中…」で disabled、aria-live に進行文言。
+    // pending: ボタンは「生成中…」で disabled、aria-live に共通の「考え中…」明滅ラベル（横断統一）。
     const pendingBtn = await screen.findByRole("button", { name: "生成中…" });
     expect(pendingBtn).toBeDisabled();
-    expect(screen.getByText("生成中です。しばらくお待ちください。")).toBeInTheDocument();
+    expect(screen.getByText(/AI が考え中です…/)).toBeInTheDocument();
 
     // resolve すると非 pending に戻り、ボタン名が元へ。
     resolveFn({ ok: false, reason: "error" });

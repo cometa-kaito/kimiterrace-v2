@@ -105,6 +105,12 @@ export function FileUploadForm() {
           {pending ? "アップロード中…" : "アップロード"}
         </button>
       </div>
+      {/* 横断統一: アップロード中は共通の「考え中…」明滅ラベル（globals.css .kt-thinking）。 */}
+      {pending ? (
+        <p className="kt-thinking" style={{ marginTop: "0.5rem" }}>
+          ● アップロード中…
+        </p>
+      ) : null}
       {error && (
         <p role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0.5rem 0 0" }}>
           {error}

@@ -151,6 +151,13 @@ export function TeacherInputComposer() {
         </button>
       </div>
 
+      {/* 横断統一: 送信中は共通の「考え中…」明滅ラベル（globals.css .kt-thinking）で即時フィードバック。 */}
+      {submit.kind === "submitting" ? (
+        <p className="kt-thinking" style={{ marginTop: "0.5rem" }}>
+          ● 送信中…
+        </p>
+      ) : null}
+
       {submit.kind === "done" ? (
         <output
           style={{ display: "block", color: "#15803d", fontSize: "0.9rem", marginTop: "0.6rem" }}
