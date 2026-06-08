@@ -352,6 +352,43 @@ module "cloud_run_job_seed_ginan_ads" {
   deletion_protection    = false
 }
 
+# 岐南工業テナント（学校 + 電子工学科 + 1〜3年 grades + 各1クラス）を staging に用意する on-demand seed Job。
+# 他の岐南 seed（センサー/広告/TV）が「岐南テナント既存」を前提に fail-loud するため、本 Job を**先に**実行する。
+# command 上書きで `dist/seed-ginan-school-cli.js` を起動。image は migrate イメージ（全 seed-cli を同梱）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-school --region asia-northeast1 --project signage-v2-staging`。
+# 冪等（school は SELECT→INSERT、dept/grade は ON CONFLICT、class は事前 SELECT）。再実行安全。
+module "cloud_run_job_seed_ginan_school" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-seed-ginan-school"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  command                = ["node", "dist/seed-ginan-school-cli.js"] # 岐南テナント seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id           # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
+}
+
+# 岐南工業 電子工学科1〜3年の TV サイネージ端末を tv_devices に登録する on-demand seed Job（#709）。
+# command 上書きで `dist/seed-ginan-tv-devices-cli.js` を起動。image は migrate イメージ（全 seed-cli を同梱）。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-tv --region asia-northeast1 --project signage-v2-staging`。
+# 前提: kimiterrace-seed-ginan-school 実行済（岐南テナント existence）。冪等（ON CONFLICT(device_id) DO NOTHING）。
+module "cloud_run_job_seed_ginan_tv" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true
+  job_name               = "kimiterrace-seed-ginan-tv"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.migrate_image_tag}"
+  command                = ["node", "dist/seed-ginan-tv-devices-cli.js"] # 岐南 TV デバイス seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id               # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+  deletion_protection    = false
+}
+
 # F13 (#391, ADR-020): PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ
 # 取り込む on-demand backfill Job。cloud_run_job_seed_ginan と同モジュール/イメージを **command 上書き** で
 # 再利用し `dist/backfill-presence-cli.js` を起動する。migrator DSN で system_admin context を張り、
