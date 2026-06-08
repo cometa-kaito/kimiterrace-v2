@@ -1,5 +1,7 @@
 import type { TenantRole } from "@kimiterrace/db";
+import { getRequestOrigin } from "../http/request-origin";
 import { getAdminAuth } from "./adminApp";
+import { buildInAppResetLink } from "./reset-link";
 
 /**
  * F11 (#324, ADR-026): アカウント無効化 / ロール変更の **Identity Platform エンフォース seam**。
@@ -85,6 +87,12 @@ export async function changeIdpUserRole(
  * 「初回パスワード設定リンク」を生成して返し、呼出側 (action) が発行者へ提示する (email infra 非依存、
  * 発行者が利用者へ共有)。email/password プロバイダはログイン (signInWithEmailAndPassword) 既設。
  *
+ * **リンクの宛先 (自前リセットページ)**: 既定の Firebase action ハンドラ
+ * (`<project>.firebaseapp.com/__/auth/action`) は英語の「Password changed」表示でログイン導線が無いため、
+ * `oobCode` を取り出して自前の `{origin}/reset-password` に載せ替える (`buildInAppResetLink`)。origin は
+ * 現リクエストヘッダから解決する (`getRequestOrigin`)。本 seam は **Server Action (リクエストスコープ) から
+ * のみ呼ばれる**前提で、origin が解決できない場合は既定リンクにフォールバックする (発行を壊さない)。
+ *
  * **部分失敗**: いずれかのステップが throw した場合、呼出側は {@link deleteIdpUser} で孤児 IdP user を
  * 補償削除すること (DB mirror 失敗時も同様、IdP=単一ソースだが DB 行の無い user は管理不能なため roll back)。
  *
@@ -105,7 +113,10 @@ export async function createIdpUser(args: {
   try {
     // claims は role / school_id のみ (uid は localId で claim ではない、ADR-003)。
     await auth.setCustomUserClaims(args.uid, { role: args.role, school_id: args.schoolId });
-    const setupLink = await auth.generatePasswordResetLink(args.email);
+    const firebaseLink = await auth.generatePasswordResetLink(args.email);
+    // 自前リセットページに載せ替える (origin 解決不能なら既定リンクのまま = 安全側)。
+    const origin = await getRequestOrigin();
+    const setupLink = buildInAppResetLink(firebaseLink, origin ?? "");
     return { setupLink };
   } catch (error) {
     // createUser 成功後の部分失敗は **claims 無しの孤児 IdP user** (認証は normalizeClaims が role 欠落で

@@ -70,6 +70,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 自校の月次サマリービュー (/admin/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
     { label: "月次レポート", href: "/admin/system/reports" },
     { label: "フィードバック", href: "/admin/system/feedback" },
+    // 自分のパスワード変更 (個人 email/password アカウント)。ログイン後にここから再設定できる。
+    // 対象ロールは PASSWORD_CHANGE_ROLES (system_admin / school_admin) と揃える (password-policy.ts)。
+    { label: "パスワード変更", href: "/admin/account/password" },
     // 二要素認証 (MFA) は意図的に nav から外す (上記 NAV_BY_ROLE の注記参照。機能は残置)。
   ],
   // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開。
@@ -89,6 +92,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F06 (#370): 教員も使える掲示物 Q&A チャット。/admin/chat も /api/teacher/chat も
     // requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止で publisher のみ。
     { label: "掲示物 Q&A", href: "/admin/chat" },
+    // 自分のパスワード変更 (個人 email/password アカウント)。teacher は学校共通パスワード (ADR-032) で
+    // 個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES = school_admin / system_admin と整合)。
+    { label: "パスワード変更", href: "/admin/account/password" },
     // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   ],
   // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 掲示物 Q&A (F06)。

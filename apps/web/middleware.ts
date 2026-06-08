@@ -40,6 +40,9 @@ export function middleware(request: NextRequest): NextResponse {
 /**
  * matcher: 認証不要なパスを除外する。
  * - /login: ログイン画面そのもの
+ * - /reset-password: パスワード設定/リセットの自前ページ (oobCode で本人確認)。利用者は **未ログイン**で
+ *   開く (発行リンク経由) ため除外しないと /login に弾かれリセットできない。保護データは出さず、可否は
+ *   client SDK の `verifyPasswordResetCode`/`confirmPasswordReset` が oobCode で判定する。
  * - /api/auth/*: session 発行・破棄 (未ログインでも叩ける必要がある)
  * - /api/health: 監視用 liveness (ADR: 認証不要)
  * - /s/*: F05 生徒の匿名アクセス入口 (`/s/{token}`)。生徒は `__session` を持たないため
@@ -82,6 +85,6 @@ export function middleware(request: NextRequest): NextResponse {
  */
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|reset-password(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
