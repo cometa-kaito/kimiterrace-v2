@@ -40,6 +40,13 @@ ENV NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY}
 ENV NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
 ENV NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
 
+# アプリの正準公開オリジン。パスワード設定リンク（oobCode を載せ第三者へ共有）の宛先を **詐称可能な
+# リクエストヘッダに依存させず**ここで固定する（PR #730 Reviewer High、lib/http/request-origin.ts）。
+# 未指定でもビルドは通り、runtime は host ヘッダ（形検証つき）にフォールバックする。デプロイ時に自環境の
+# URL を渡す（staging: Cloud Run サービス URL、prod: 公開ドメイン）。
+ARG NEXT_PUBLIC_APP_URL=""
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+
 # `...` で web の workspace 依存（ai / db / observability）も含めて build する。pnpm は recursive run を
 # 依存順（deps 先）で実行するので、ai/db/observability の dist が先に生成され web が解決できる
 # （`...` 無しだと web だけ build → `@kimiterrace/ai` の dist 不在で "Module not found")。
