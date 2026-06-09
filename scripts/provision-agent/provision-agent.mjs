@@ -373,7 +373,12 @@ async function processJob(secret, job) {
     log(`ジョブ ${jobId} 完了 (succeeded)`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    err(`ジョブ ${jobId} 失敗: ${msg}`);
+    // e.message は env(V2_BASE_URL) 由来の URL を含みうるため、ローカルの clear-text ログには種別のみ出す
+    // （ルール5 / CodeQL clear-text-logging）。詳細は下の reportStatus で server 側 status(error) に記録し、
+    // admin UI のライブ進捗で確認する。
+    err(
+      `ジョブ ${jobId} 失敗 [${e instanceof Error ? e.name : "error"}]（詳細はサーバ進捗 status に記録）`,
+    );
     await reportStatus(secret, jobId, { status: "failed", error: msg });
   }
 }
@@ -387,7 +392,9 @@ async function main() {
     return;
   }
   const secret = resolveAgentSecret();
-  log(`agentId=${AGENT_ID} base=${V2_BASE_URL} once=${RUN_ONCE}`);
+  // env 由来値（V2_BASE_URL / AGENT_ID）は clear-text ログに出さない（ルール5 / CodeQL clear-text-logging）。
+  // once は argv 由来（非 env）。設定は README/env で運用者が把握している前提。
+  log(`provision-agent 起動 (once=${RUN_ONCE})`);
 
   // claim → 処理 → 次を claim。ジョブが無ければ終了（--once は 1 件処理しても終了）。
   for (;;) {
@@ -395,7 +402,10 @@ async function main() {
     try {
       job = await claimJob(secret);
     } catch (e) {
-      err(`claim エラー: ${e instanceof Error ? e.message : String(e)}`);
+      // e.message は env(V2_BASE_URL) 由来の URL を含みうるため種別のみ（ルール5 / clear-text-logging）。
+      err(
+        `claim 失敗 [${e instanceof Error ? e.name : "error"}]（V2_BASE_URL / PROVISION_AGENT_SECRET / 接続を確認）`,
+      );
       if (RUN_ONCE) {
         process.exitCode = 1;
         return;
