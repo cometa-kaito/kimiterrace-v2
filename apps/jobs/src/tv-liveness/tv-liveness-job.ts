@@ -25,6 +25,8 @@ import { deliverTvLivenessAlerts } from "./slack.js";
  * - `SLACK_WEBHOOK_URL`: Slack Incoming Webhook（Secret Manager 経由）。未設定なら配信 no-op（ルール5）。
  * - `TV_LIVENESS_HEARTBEAT`: "1"/"true" のとき日次ハートビート（✅ 監視稼働中）を 1 件足す（dead-man's-switch）。
  *   毎分起動でこれを常時立てるとスパムになるため、日次起動の Scheduler でのみ立てる想定。
+ * - `TV_ALERT_ON_RECOVERY`: "1"/"true" のとき復帰(🟢)も Slack 通知する。**既定 false = 立ち下がり down(🔴)
+ *   のみ通知**（F16 §9）。down→ok の状態遷移は checker が記録するため、🟢 抑制でも down エッジは正しく発火。
  * - `TV_DOWN_THRESHOLD_SEC`: down 閾値（秒、既定 120 = 24/7 タイト）。
  * - `TV_OFF_HOURS_THRESHOLD_SEC`: OFF 時間帯の閾値（秒、既定 120 = 緩和撤廃で通常と同値）。
  *
@@ -97,9 +99,15 @@ async function main(): Promise<void> {
     }),
   );
 
-  // state 反転エッジ（down / recover）を Slack へ配信し、env flag が立っていれば日次ハートビートを足す。
+  // state 反転エッジを Slack へ配信する。**既定は立ち下がり down(🔴) のみ**通知（F16 §9・運用方針。
+  // TV_ALERT_ON_RECOVERY=1 で復帰🟢 も opt-in）。env flag が立っていれば日次ハートビートを足す。
   // SLACK_WEBHOOK_URL 未設定なら no-op（CI / 未注入環境でも緑、ルール5）。配信失敗で Job は落とさない。
-  await deliverTvLivenessAlerts(summary, now, boolEnv("TV_LIVENESS_HEARTBEAT"));
+  await deliverTvLivenessAlerts(
+    summary,
+    now,
+    boolEnv("TV_LIVENESS_HEARTBEAT"),
+    boolEnv("TV_ALERT_ON_RECOVERY"),
+  );
 }
 
 main().catch((err) => {

@@ -125,5 +125,59 @@ describe("tv-liveness slack: 純フォーマッタ", () => {
       ).resolves.toBeUndefined();
       expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    const recoveredBase = {
+      deviceId: "ffff0000-ef56-4abc-8def-0123456789ab",
+      schoolId: "school-A",
+      label: "職員室",
+      lastSeenAt: NOW,
+    };
+
+    it("既定は down(🔴) のみ配信し復帰(🟢) は送らない（立ち下がりのみ・F16 §9）", async () => {
+      vi.stubEnv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/XXX");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+      await deliverTvLivenessAlerts(
+        {
+          scanned: 2,
+          newlyDown: 1,
+          recovered: 1,
+          downDevices: [downBase],
+          recoveredDevices: [recoveredBase],
+        },
+        NOW,
+        false,
+      );
+      // down の 1 件だけ POST、復帰(🟢) は抑制される。
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const text = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body ?? "{}")).text;
+      expect(text).toContain("🔴");
+      expect(text).not.toContain("🟢");
+    });
+
+    it("第4引数 true（TV_ALERT_ON_RECOVERY 相当）で復帰(🟢) も配信する（opt-in）", async () => {
+      vi.stubEnv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/XXX");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response(null, { status: 200 }));
+      await deliverTvLivenessAlerts(
+        {
+          scanned: 2,
+          newlyDown: 1,
+          recovered: 1,
+          downDevices: [downBase],
+          recoveredDevices: [recoveredBase],
+        },
+        NOW,
+        false,
+        true,
+      );
+      // down + 復帰の 2 件 POST。
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const texts = fetchSpy.mock.calls.map((c) => JSON.parse(String(c[1]?.body ?? "{}")).text);
+      expect(texts.some((t: string) => t.includes("🔴"))).toBe(true);
+      expect(texts.some((t: string) => t.includes("🟢"))).toBe(true);
+    });
   });
 });
