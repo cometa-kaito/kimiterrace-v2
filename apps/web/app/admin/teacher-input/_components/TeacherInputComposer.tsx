@@ -162,13 +162,13 @@ export function TeacherInputComposer() {
         <output
           style={{ display: "block", color: "#15803d", fontSize: "0.9rem", marginTop: "0.6rem" }}
         >
-          入力を受け付けました。AI が内容を整理しています。{" "}
-          {/* 送信後に状況を追える導線（旧: 確認メッセージのみで宙ぶらり）。履歴で AI 整理の進捗を確認できる。 */}
+          入力を受け付けました。{" "}
+          {/* 送信後の受け皿。履歴の各入力から「編集して公開」で掲示の草稿を作成し、エディタで仕上げる。 */}
           <Link
             href="/admin/teacher-input/history"
             style={{ color: "#2563eb", textDecoration: "underline" }}
           >
-            入力履歴で状況を確認できます
+            入力履歴から編集して草稿を作成できます
           </Link>
           。
         </output>

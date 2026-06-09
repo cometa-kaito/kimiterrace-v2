@@ -32,9 +32,9 @@ export default async function TeacherInputPage() {
         </Link>
       </div>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
-        「明日 10 時から体育館で説明会」のように話しかける、または入力すると、AI
-        が日時・場所・対象・本文を整理して
-        コンテンツ草稿にします。音声は端末内で文字起こしし、サーバーには文字だけを送ります。
+        「明日 10 時から体育館で説明会」のように話しかける、または入力すると、その内容から
+        編集できる掲示の草稿を作成します。草稿はエディタで確認・修正してから公開できます。
+        音声は端末内で文字起こしし、サーバーには文字だけを送ります。
       </p>
       <TeacherInputComposer />
       <div style={{ marginTop: "1.5rem" }}>
