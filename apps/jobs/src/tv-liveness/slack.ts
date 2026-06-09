@@ -72,12 +72,12 @@ export function formatTvRecoveredMessage(device: RecoveredDevice): string {
 }
 
 /**
- * ✅ 日次ハートビート（dead-man's-switch）メッセージ（純関数）。監視が生きていること + 現在 down 台数を示す。
- * `down N台` は scanned ベースではなく「未復帰として今回検出した down 台数」ではなく、サマリの down 件数の
- * 単純表示にとどめる（ハートビートは「監視プロセスが動いている」ことの提示が主目的）。
+ * ✅ 日次ハートビート（dead-man's-switch）メッセージ（純関数）。**チェッカ自体が生きている**ことを示すのが
+ * 主目的（✅ が届かなくなったら監視プロセスの死を疑う）。数値は「今回サイクルで新規 down 検出した台数」で
+ * あり、標準の「現在継続 down 中の台数」ではない点に注意（継続 down 数は summary に持たないため）。
  */
 export function formatHeartbeatMessage(summary: TvLivenessCheckSummary): string {
-  return `✅ TV監視稼働中 / down ${summary.newlyDown}台`;
+  return `✅ TV監視稼働中 / 今回新規down ${summary.newlyDown}台`;
 }
 
 /**
