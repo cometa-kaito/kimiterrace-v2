@@ -152,7 +152,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "ebceda1" # cutover 2026-06-08: 全スキーマ+seed CLI（#746 env-param + #760 seed-ginan-signage 同梱）
+  migrate_image_tag = "3f067e9" # C方式 deploy 2026-06-09: tv_provisioning_jobs migration(0021+drizzle, PR1 #762) 同梱
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -171,7 +171,7 @@ locals {
   jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "bcf09ee" # bring-up 2026-06-08: _APP_URL=app.school-signage.net + prod firebase key baked（reset-link origin 確定）
+  web_image_tag = "3f067e9" # C方式 deploy 2026-06-09: provision UI/API(PR2-4) + PROVISION_AGENT_SECRET 配線。_APP_URL=app.school-signage.net 維持
 }
 
 module "network" {
