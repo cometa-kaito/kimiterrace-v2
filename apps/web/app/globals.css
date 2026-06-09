@@ -273,3 +273,152 @@ body {
     animation: none;
   }
 }
+
+/*
+ * F06 掲示物 Q&A チャット（ChatPanel）の本体スタイル（#243 ②UI-UX / 多ロール巡回 student 改善）。
+ * 従来 className フックは揃っていたが未スタイルで、生徒のスマホでは素の HTML（箇条書き＋既定 input）
+ * として描画され「壊れている／信用できない」見え方になっていた。生徒(/api/student/chat)と
+ * 教員(/api/teacher/chat)が共有する単一実装ゆえ globals に置く。モバイルファースト: 吹き出し・
+ * 44px タップ領域・16px 入力（iOS の自動ズーム抑止）・focus 可視化。色はブランドトークンを使う。
+ */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.chat-panel > h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--brand-ink);
+}
+.chat-panel__log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.chat-panel__hint {
+  color: var(--brand-muted);
+  font-size: 0.9rem;
+  background: var(--brand-bg-soft);
+  border: 1px solid var(--brand-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem;
+}
+.chat-panel__msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 85%;
+  padding: 0.55rem 0.8rem;
+  border-radius: 1rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-panel__msg--user {
+  align-self: flex-end;
+  background: var(--brand-primary);
+  color: #fff;
+  border-bottom-right-radius: 0.25rem;
+}
+.chat-panel__msg--assistant {
+  align-self: flex-start;
+  background: var(--brand-bg-soft);
+  color: var(--brand-ink);
+  border: 1px solid var(--brand-border);
+  border-bottom-left-radius: 0.25rem;
+}
+.chat-panel__role {
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.chat-panel__text {
+  font-size: 1rem;
+}
+.chat-panel__streaming {
+  display: flex;
+  flex-direction: column;
+}
+.chat-panel__streaming .chat-panel__msg {
+  margin: 0;
+}
+.chat-panel__error {
+  margin: 0;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+}
+.chat-panel__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding-top: 0.5rem;
+}
+/* ラベルはスクリーンリーダー用に残しつつ視覚的に隠す（placeholder が視覚的役割を担う、NFR05）。 */
+.chat-panel__form label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.chat-panel__form input {
+  flex: 1 1 12rem;
+  min-height: 44px;
+  /* 16px 未満だと iOS Safari が input フォーカス時にズームする。16px 固定で抑止。 */
+  font-size: 16px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--brand-border);
+  border-radius: 0.6rem;
+  color: var(--brand-ink);
+}
+.chat-panel__form input:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+.chat-panel__form button {
+  min-height: 44px;
+  min-width: 64px;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--brand-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.chat-panel__form button:hover:not(:disabled) {
+  background: var(--brand-primary-hover);
+}
+.chat-panel__form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+/* 停止ボタンは送信と区別（二次操作）。具体度を上げて上の button 規則を上書きする。 */
+.chat-panel__form button.chat-panel__stop {
+  background: transparent;
+  color: var(--brand-muted);
+  border: 1px solid var(--brand-border);
+}
+.chat-panel__counter {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--brand-muted);
+}
