@@ -176,6 +176,13 @@
       "when": 1780850850504,
       "tag": "20260607164730_round_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780993285328,
+      "tag": "20260609082125_green_satana",
+      "breakpoints": true
     }
   ]
 }
