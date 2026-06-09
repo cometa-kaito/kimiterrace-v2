@@ -7,8 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `enqueueTvCommand` だけ差し替えて呼び出し / device_not_found 分岐 / 結線を検証する。
  * `withSession` は callback を fake tx で実行する。
  *
- * 重点: 認可 (TV_CONFIG_EDIT_ROLES / forbidden)、入力検証で DB に到達しないこと（不正 id / 不正コマンド）、
- * device_not_found → not_found 写像、tenantScoped 指定、enqueueTvCommand への引数結線。
+ * 重点: 認可 (TV_CONFIG_EDIT_ROLES)、入力検証で DB に到達しないこと（不正 id / 不正コマンド）、
+ * device_not_found → not_found 写像、allowedRoles 指定、enqueueTvCommand への引数結線。**school 未所属の
+ * system_admin も発行でき**（cross-tenant 運用者）、actorUserId=null + actorIdentityUid=uid を結線する。
  */
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -72,11 +73,18 @@ describe("enqueueTvCommandAction", () => {
     expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
   });
 
-  it("schoolId 無し（テナント未選択 system_admin）は forbidden、DB に到達しない", async () => {
+  it("school 未所属 system_admin も発行できる（cross-tenant）: actorUserId=null + actorIdentityUid=uid を結線", async () => {
     requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "system_admin", schoolId: null });
     const res = await enqueueTvCommandAction(ROW_ID, "signage_reload");
-    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true, data: { id: "cmd-1" } });
+    expect(enqueueTvCommandMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        deviceRowId: ROW_ID,
+        actorUserId: null,
+        actorIdentityUid: USER_ID,
+      }),
+    );
   });
 
   it("device_not_found は not_found に写像する", async () => {
@@ -91,12 +99,15 @@ describe("enqueueTvCommandAction", () => {
     expect(enqueueTvCommandMock).toHaveBeenCalledTimes(1);
   });
 
-  it("tenantScoped: true で実行する（system_admin の全校発火を止める）", async () => {
+  it("allowedRoles で role 境界を tx 層でも強制する（tenantScoped は使わない＝system_admin は cross-tenant）", async () => {
     await enqueueTvCommandAction(ROW_ID, "signage_reload");
-    expect(lastSessionOptions).toMatchObject({ tenantScoped: true });
+    expect(lastSessionOptions).toMatchObject({
+      allowedRoles: ["school_admin", "system_admin"],
+    });
+    expect(lastSessionOptions).not.toHaveProperty("tenantScoped");
   });
 
-  it("enqueue の引数: deviceRowId / command / actor を結線する", async () => {
+  it("enqueue の引数: deviceRowId / command / actor を結線する（school_admin は actorUserId=uid）", async () => {
     await enqueueTvCommandAction(ROW_ID, "signage_open");
     expect(enqueueTvCommandMock).toHaveBeenCalledWith(
       expect.anything(),
@@ -104,7 +115,7 @@ describe("enqueueTvCommandAction", () => {
         deviceRowId: ROW_ID,
         command: "signage_open",
         actorUserId: USER_ID,
-        actorSchoolId: SCHOOL_ID,
+        actorIdentityUid: USER_ID,
       }),
     );
   });

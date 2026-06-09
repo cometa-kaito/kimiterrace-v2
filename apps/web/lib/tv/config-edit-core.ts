@@ -54,18 +54,36 @@ export function notFound(message: string): ActionError {
  */
 export const TV_CONFIG_EDIT_ROLES = ["school_admin", "system_admin"] as const;
 
-/** mutation の実行者。`schoolId` は監査・テナント整合に使う（テナント未選択 system_admin は不可）。 */
-export type TvConfigEditActor = { userId: string; schoolId: string };
+/**
+ * TV デバイス mutation（設定編集 / コマンド発行）の実行者。
+ *
+ * - `userId`: **users.id**（テナントロール = school_admin）。**system_admin は `users` 行でなく
+ *   `system_admins` 行**（`uid = system_admins.id`）なので、users(id) FK を持つ列
+ *   （`tv_devices.updated_by` / `tv_device_commands.issued_by` / `audit_log.created_by` 等、
+ *   migration 0016/0019/0004）に uid を入れると FK 違反になる → **null**（システム操作扱い、
+ *   `createTvDevice` / onboarding-actions と同じ cross-tenant 監査パターン）。
+ * - `identityUid`: Identity Platform UID（常に存在）。FK を持たない `audit_log.actor_identity_uid` に
+ *   残し、system_admin 操作でも「誰が」を追跡可能にする（NFR04 / ルール1）。
+ */
+export type TvConfigEditActor = { userId: string | null; identityUid: string };
 
 /**
- * AuthUser を mutation actor に変換する。school に属さない（school_id null = テナント未選択の
- * system_admin）場合は null。呼出側が forbidden に変換する。
+ * AuthUser を TV mutation actor に変換する。`TV_CONFIG_EDIT_ROLES`（school_admin / system_admin）で
+ * gate された後に呼ぶ前提（role 境界は呼出側 `requireRole` が強制する＝ルール2 多層防御の第一層。
+ * `tv_devices` の RLS は school 境界のみで role を見ないため、role gate はアプリ層が担う）。
+ *
+ * - **system_admin**: school に属さない cross-tenant 運用者（ADR-019: 全テナント横断アクセスが必要）。
+ *   `users` 行でないため FK 列に入れる `userId` は null、IdP uid を `identityUid` に載せる。書き込みは
+ *   `system_admin_full_access` policy が任意校に許可する（新規登録 = onboarding と同じ cross-tenant 経路。
+ *   「設定編集だけ自校未選択だと不可」という非対称＝本バグを解消する）。
+ * - **school_admin**: `uid` は `users` 行。`schoolId` は `normalizeClaims` が UUID を保証済（テナントロールは
+ *   school_id 必須）。RLS の `tenant_isolation` が自校に限定する（従来どおり）。
  */
-export function toTvConfigEditActor(user: AuthUser): TvConfigEditActor | null {
-  if (!user.schoolId) {
-    return null;
+export function toTvConfigEditActor(user: AuthUser): TvConfigEditActor {
+  if (user.role === "system_admin") {
+    return { userId: null, identityUid: user.uid };
   }
-  return { userId: user.uid, schoolId: user.schoolId };
+  return { userId: user.uid, identityUid: user.uid };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

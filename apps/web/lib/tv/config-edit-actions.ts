@@ -11,7 +11,6 @@ import {
   type TvConfigEditPatch,
   TV_CONFIG_EDIT_ROLES,
   conflict,
-  forbidden,
   invalid,
   isUuid,
   notFound,
@@ -22,10 +21,11 @@ import {
 /**
  * F15 §4.2 (ADR-022 / ADR-008 — 画面 mutation は Server Actions): TV デバイス設定編集の Server Action。
  *
- * 操作: 入力検証 → 認可 (`requireRole(TV_CONFIG_EDIT_ROLES)`) → actor 解決 → `withSession` の自校 RLS tx
+ * 操作: 入力検証 → 認可 (`requireRole(TV_CONFIG_EDIT_ROLES)`) → actor 解決 → `withSession` の RLS tx
  * 内で **オペレーター編集可能フィールドのみ UPDATE + version +1（ADR-022）** + `audit_log` 追記 →
- * `revalidatePath`。`tv_devices` は手書き WHERE school_id を持たず、RLS (`tenant_isolation`) が自校を
- * 強制する（ルール2）。0 行（他校 / 不可視 / 退役 TV）は `not_found` に写像する。
+ * `revalidatePath`。`tv_devices` は手書き WHERE school_id を持たず、RLS が可視範囲を強制する（ルール2）:
+ * school_admin=自校 (`tenant_isolation`) / system_admin=全校 (`system_admin_full_access`)。0 行（他校 /
+ * 不可視 / 退役 TV）は `not_found` に写像する。
  *
  * **version バンプ（ADR-022）**: TV は応答 `version` の差分でのみ設定を反映する。設定変更時に version を
  * 上げないと TV が変更を検知できないため、`updateTvDeviceConfig` が同一 UPDATE で `version+1` する。
@@ -33,12 +33,19 @@ import {
  * **監査（ルール1 / NFR04）**: 設定変更は `audit_log` に 1 件残す（誰がいつ何を変更したか）。`updated_at`
  * は query 層が明示的に進める（[[updatedat-explicit-on-update]]）。心拍 touch（pollTvConfig）とは別経路。
  *
- * **system_admin の降格 (ADR-019 §#95 / Issue #226)**: 本 Action は特定デバイス（= 特定 school）対象の
- * テナントスコープ操作のため `withSession(..., { tenantScoped: true })` で実行する。TV_CONFIG_EDIT_ROLES は
- * system_admin を含むが、school_id claim を持つ system_admin の tx では `system_admin_full_access` policy が
- * 全校発火し他校デバイスも UPDATE 可能になりうる（cross-tenant 越権）。tenantScoped で role を school_admin
- * に降格すると当該 policy が止まり `tenant_isolation` だけが残るため他校行は不可視（0 行 → not_found）。
- * schoolId 無しの system_admin は降格されず toTvConfigEditActor が null → forbidden。
+ * **認可と cross-tenant（ADR-019 / 新規登録 onboarding-actions と同方針）**: school_admin は自校デバイスのみ
+ * （RLS `tenant_isolation`）、system_admin は全校デバイスを編集できる（RLS `system_admin_full_access`、
+ * 全テナント横断の運用者）。後者は新規登録 (`createTvDeviceAction`) と同じ cross-tenant 経路で、`withSession`
+ * は `tenantScoped` を **使わない**（降格すると system_admin が full_access を失い、かつ users 行でない
+ * system_admin の actor で監査の actor 制約に矛盾する）。`tv_devices` の編集パッチは school_id 等の FK を
+ * 一切持たず（下記「システム管理列の遮断」）、対象は行 PK 1 件なので、ハブ/広告のような cross-tenant な
+ * 子参照付け替え (Issue #226 で降格が防ぐ越権) は構造的に発生しない。**旧実装は schoolId 無しの system_admin
+ * を forbidden にしていたが、これは「登録はできるが設定編集はできない」非対称＝バグであり、本 Action で解消する。**
+ *
+ * **監査 actor（ルール1 / NFR04, onboarding-actions と同パターン）**: system_admin は `users` 行でなく
+ * `system_admins` 行のため、users(id) FK を持つ `tv_devices.updated_by` / `audit_log.actor_user_id` 等に uid を
+ * 入れられない → FK 列は **null**、「誰が」は FK 無しの `actor_identity_uid` に IdP uid を残す。audit の school_id
+ * は更新対象デバイスの school（actor 由来でなくデバイス由来）を記録する。
  *
  * **システム管理列の遮断**: `validateTvConfigEdit` は編集可能フィールドのみ受け取り、`device_id` /
  * `school_id` / `version` / `last_seen_at` / `alert_state` 等は型レベルで入ってこない（クライアント自由入力
@@ -54,15 +61,23 @@ function isConstraintViolation(error: unknown): boolean {
   return code === "23505" || code === "23514";
 }
 
-/** audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。 */
+/**
+ * audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。
+ *
+ * `schoolId` は更新対象デバイスの school（呼出側が UPDATE の RETURNING から渡す）。FK 列
+ * （actor_user_id / created_by / updated_by）は system_admin だと null、「誰が」は FK 無しの
+ * actor_identity_uid に IdP uid を残す（audit_log_insert policy: role=system_admin は actor=null / 任意
+ * school 許可、テナントロールは actor=自分の user_id 完全一致、migration 0005）。
+ */
 async function writeAudit(
   tx: TenantTx,
   actor: TvConfigEditActor,
-  params: { recordId: string; diff: unknown },
+  params: { recordId: string; schoolId: string; diff: unknown },
 ): Promise<void> {
   await tx.insert(auditLog).values({
     actorUserId: actor.userId,
-    schoolId: actor.schoolId,
+    actorIdentityUid: actor.identityUid,
+    schoolId: params.schoolId,
     tableName: "tv_devices",
     recordId: params.recordId,
     operation: "update",
@@ -73,14 +88,14 @@ async function writeAudit(
   });
 }
 
-/** 認可 + actor 解決。teacher / テナント未選択は forbidden。 */
-async function authorize(): Promise<TvConfigEditActor | ActionResult<never>> {
+/**
+ * 認可 + actor 解決。teacher は `requireRole` が /forbidden へ（role 境界の第一層）。残る
+ * school_admin / system_admin はどちらも編集できる（後者は school 未所属でも cross-tenant 運用者として
+ * 可、`toTvConfigEditActor` が null を返さない＝旧「テナント未選択 system_admin は forbidden」を解消）。
+ */
+async function authorize(): Promise<TvConfigEditActor> {
   const user = await requireRole(TV_CONFIG_EDIT_ROLES);
-  const actor = toTvConfigEditActor(user);
-  if (!actor) {
-    return forbidden("学校に属さないユーザーは TV 設定を編集できません。");
-  }
-  return actor;
+  return toTvConfigEditActor(user);
 }
 
 /** 監査 diff: 設定の各フィールド（PII は含まない設置情報）と version 遷移を要約して残す。 */
@@ -107,9 +122,6 @@ export async function updateTvDeviceConfigAction(
     return invalid(v.message);
   }
   const actor = await authorize();
-  if ("ok" in actor) {
-    return actor;
-  }
 
   try {
     // ⚠️ SSRF: ここで保存する `patch.signageUrl` / `patch.webhookUrl` は将来も**サーバ側で fetch しない**
@@ -117,8 +129,9 @@ export async function updateTvDeviceConfigAction(
     // キャプチャ等でサーバ側 fetch を追加する場合は、保存時の `checkEditableUrl`（config-edit-core.ts）
     // 検証に依存せず、**fetch 時に解決済み IP を `isBlockedInternalHost` で再検証**すること
     // （DNS-rebinding 対策。公開ホスト名が解決時に 169.254.169.254 等の内部 IP へ化けうる）。
-    // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
-    // (ADR-019 §#95 / Issue #226)。本 Action は特定デバイス = 特定 school のテナントスコープ操作。
+    // tenantScoped は使わない: school_admin は tenant_isolation で自校に限定され、system_admin は
+    // full_access で全校編集できる（cross-tenant 運用者、onboarding と同じ経路）。allowedRoles で role 境界を
+    // tx 層でも二重化する（多層防御、ルール2）。
     const updated = await withSession(
       async (tx) => {
         const ref = await updateTvDeviceConfig(tx, {
@@ -132,11 +145,12 @@ export async function updateTvDeviceConfigAction(
         }
         await writeAudit(tx, actor, {
           recordId: ref.id,
+          schoolId: ref.schoolId,
           diff: auditView(v.value, ref.version),
         });
         return ref;
       },
-      { tenantScoped: true },
+      { allowedRoles: TV_CONFIG_EDIT_ROLES },
     );
 
     if (!updated) {
