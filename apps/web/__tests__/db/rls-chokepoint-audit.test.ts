@@ -46,6 +46,10 @@ const CHOKEPOINT_MODULE = "lib/db.ts";
  *   越境防止は解決キー `device_mac` の**グローバル UNIQUE**で担保（system_admin_full_access policy）。
  * - `pollTvConfig` / `pollPendingTvCommands` / `ackTvCommand`: TV デバイス poll（ADR-022）。device_id→school を
  *   **system_admin 文脈**で解決し BYPASSRLS 不使用。共有シークレット検証は route 側（poll-secret.ts）。
+ * - `claimNextProvisioningJob` / `reportProvisioningStatus`: C方式 TV プロビジョニングのエージェント API
+ *   （セッション無し、PR4）。内部で **system_admin role 文脈**（withTenantContext）を張り BYPASSRLS 不使用
+ *   （pollTvConfig と同型）。claim は最古 pending を FOR UPDATE SKIP LOCKED、status 報告は `claimed_by`
+ *   一致必須で状態詐称防止。専用シークレット検証は route 側（provision-agent-secret.ts、TV_POLL とは別鍵）。
  * - `isTeacherLoginEnabled` / `listTeacherLoginSchools`: 教員「学校共通パスワード」ログイン（ADR-032）の
  *   公開（セッション無し）学校解決。内部で **system_admin role 文脈**（withTenantContext）を張り
  *   BYPASSRLS 不使用（pollTvConfig と同型）。読み取りは学校 id/名のみで秘密は返さない。総当たり抑止は
@@ -60,6 +64,8 @@ const RLS_DOOR_FUNCTIONS = [
   "pollTvConfig",
   "pollPendingTvCommands",
   "ackTvCommand",
+  "claimNextProvisioningJob",
+  "reportProvisioningStatus",
   "isTeacherLoginEnabled",
   "listTeacherLoginSchools",
 ] as const;
