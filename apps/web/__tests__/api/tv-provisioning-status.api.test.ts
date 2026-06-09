@@ -9,20 +9,25 @@ import { PROVISION_AGENT_LIMIT, provisionAgentRateLimiter } from "../../lib/tv/r
  * `lib/db` の `getDb` をモックし、「レート制限 → 専用シークレット検証 → agentId 必須 / status 値域 →
  * 報告 → 応答（updated:200 / not_found:404）」の配線を検証する。報告の実挙動は packages/db 実 PG で担保。
  */
-const reportProvisioningStatus = vi.fn();
-// status 値域チェックの単一ソース（route が tvProvisioningStatus.enumValues を参照）。実 enum と同値域。
-const tvProvisioningStatus = {
-  enumValues: [
-    "pending",
-    "claimed",
-    "preflight",
-    "awaiting_physical",
-    "provisioning",
-    "succeeded",
-    "failed",
-    "canceled",
-  ] as const,
-};
+// vi.mock はファイル先頭へホイストされるため、factory が**値として**参照するシンボルは vi.hoisted で
+// 先に初期化する（素の top-level const を factory 内で参照すると TDZ:
+// "Cannot access 'tvProvisioningStatus' before initialization" でスイートが load 失敗する）。
+const { reportProvisioningStatus, tvProvisioningStatus } = vi.hoisted(() => ({
+  reportProvisioningStatus: vi.fn(),
+  // status 値域チェックの単一ソース（route が tvProvisioningStatus.enumValues を参照）。実 enum と同値域。
+  tvProvisioningStatus: {
+    enumValues: [
+      "pending",
+      "claimed",
+      "preflight",
+      "awaiting_physical",
+      "provisioning",
+      "succeeded",
+      "failed",
+      "canceled",
+    ] as const,
+  },
+}));
 vi.mock("@kimiterrace/db", () => ({
   reportProvisioningStatus: (...args: unknown[]) => reportProvisioningStatus(...args),
   tvProvisioningStatus,
