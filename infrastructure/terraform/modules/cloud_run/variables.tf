@@ -56,6 +56,17 @@ variable "tv_poll_secret_id" {
   default     = ""
 }
 
+variable "provision_agent_secret_id" {
+  description = <<-EOT
+    PROVISION_AGENT_SECRET を保持する Secret Manager secret の ID（ルール5、C方式 TV プロビジョニング）。
+    /api/tv/provisioning/* の agent 認証用 専用 共有シークレット（TV_POLL_SECRET とは別 secret）。
+    tv_poll_secret_id と同じパターンで配線する。空文字なら env / accessor を配線しない
+    （その場合 agent route は fail-closed＝未認証エージェントを到達させない）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "vpc_connector" {
   description = <<-EOT
     Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。

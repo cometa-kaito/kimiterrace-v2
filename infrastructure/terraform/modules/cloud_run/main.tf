@@ -46,6 +46,17 @@ resource "google_secret_manager_secret_iam_member" "runtime_tv_poll_secret" {
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# PROVISION_AGENT_SECRET secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
+# C方式 TV プロビジョニング: /api/tv/provisioning/* の agent 認証用 専用 secret（PR4）。空文字なら配線しない。
+resource "google_secret_manager_secret_iam_member" "runtime_provision_agent_secret" {
+  count = var.enabled && var.provision_agent_secret_id != "" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.provision_agent_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # Vertex AI 呼び出し（F03 抽出 / F06 生徒 Q&A / F08 効果コメントの Gemini）。project レベル
 # roles/aiplatform.user。送信前 PII マスキングは app 側（ルール4）。
 resource "google_project_iam_member" "runtime_vertex_user" {
@@ -124,6 +135,21 @@ resource "google_cloud_run_v2_service" "web" {
           value_source {
             secret_key_ref {
               secret  = var.tv_poll_secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # PROVISION_AGENT_SECRET = TV プロビジョニング agent 認証 共有シークレット（Secret Manager 注入、ルール5）。
+      # C方式: /api/tv/provisioning/* の agent 認証（PR4）。未設定なら agent route は fail-closed。
+      dynamic "env" {
+        for_each = var.provision_agent_secret_id != "" ? [1] : []
+        content {
+          name = "PROVISION_AGENT_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = var.provision_agent_secret_id
               version = "latest"
             }
           }
