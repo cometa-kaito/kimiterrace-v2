@@ -103,10 +103,12 @@ export async function postSlack(webhookUrl: string, text: string): Promise<void>
     });
     if (!res.ok) {
       // 非 200 はログのみ（再試行しない・throw しない）。次サイクルで状態は再評価される。
+      // biome-ignore lint/suspicious/noConsole: Cloud Run Job の構造化運用ログ（Cloud Logging へ出力）。debug 用途でない。
       console.warn(JSON.stringify({ event: "tv.health_check.slack_non_2xx", status: res.status }));
     }
   } catch (err) {
     // ネットワーク例外も握りつぶす（throw すると Job が落ちる）。message に URL を載せない。
+    // biome-ignore lint/suspicious/noConsole: Cloud Run Job の構造化運用ログ（Cloud Logging へ出力）。debug 用途でない。
     console.warn(
       JSON.stringify({
         event: "tv.health_check.slack_error",
@@ -133,6 +135,7 @@ export async function deliverTvLivenessAlerts(
   const webhookUrl = getSlackWebhookUrl();
   if (webhookUrl === null) {
     // URL 未注入（CI / 未設定環境）。配信せず、配信すべきだった件数だけ可視化する（PII 非含み）。
+    // biome-ignore lint/suspicious/noConsole: Cloud Run Job の構造化運用ログ（Cloud Logging へ出力）。debug 用途でない。
     console.info(
       JSON.stringify({
         event: "tv.health_check.slack_skipped",
