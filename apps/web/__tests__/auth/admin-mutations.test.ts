@@ -45,6 +45,7 @@ import {
   createIdpUser,
   deactivateIdpUser,
   deleteIdpUser,
+  generateSetupLinkForExistingUser,
   isEmailAlreadyExistsError,
   reactivateIdpUser,
 } from "../../lib/auth/admin-mutations";
@@ -259,6 +260,33 @@ describe("createIdpUser (#508 発行 seam)", () => {
     ).rejects.toMatchObject({ code: "auth/email-already-exists" });
     expect(deleteUser).not.toHaveBeenCalled();
     expect(setCustomUserClaims).not.toHaveBeenCalled();
+  });
+});
+
+describe("generateSetupLinkForExistingUser (#324 follow-up B1 再発行 seam)", () => {
+  it("対象 email で reset リンクを生成する (新規発行と共有のロジック)", async () => {
+    const out = await generateSetupLinkForExistingUser("t@example.com");
+    expect(generatePasswordResetLink).toHaveBeenCalledWith("t@example.com");
+    // origin 解決不能 (空 Headers) のため既定リンクにフォールバックする (再発行を壊さない)。
+    expect(out).toEqual({ setupLink: "https://idp/reset-link" });
+  });
+
+  it("origin が解決できれば oobCode を自前 /reset-password に載せ替える", async () => {
+    getHeaders.mockResolvedValue(
+      new Headers({ "x-forwarded-host": "app.example", "x-forwarded-proto": "https" }),
+    );
+    generatePasswordResetLink.mockResolvedValue(
+      "https://signage.firebaseapp.com/__/auth/action?mode=resetPassword&oobCode=OOB9&apiKey=K",
+    );
+    const out = await generateSetupLinkForExistingUser("t@example.com");
+    expect(out).toEqual({ setupLink: "https://app.example/reset-password?oobCode=OOB9" });
+  });
+
+  it("IdP が失敗したら握り潰さず throw する (mirror 不整合を隠さない)", async () => {
+    generatePasswordResetLink.mockRejectedValue(new Error("user-not-found"));
+    await expect(generateSetupLinkForExistingUser("t@example.com")).rejects.toThrow(
+      "user-not-found",
+    );
   });
 });
 

@@ -8,6 +8,7 @@ import {
   createIdpUser,
   deactivateIdpUser,
   deleteIdpUser,
+  generateSetupLinkForExistingUser,
   isEmailAlreadyExistsError,
   reactivateIdpUser,
 } from "../auth/admin-mutations";
@@ -22,7 +23,7 @@ import {
   isUuid,
   notFound,
 } from "../system-admin/schools-core";
-import { type RoleActor, canDisableAccount } from "./policy";
+import { type RoleActor, canDisableAccount, canModifyTargetUser } from "./policy";
 import { MEMBER_ADMIN_ROLES } from "./roles";
 import { validateStaffCreate } from "./staff-create-core";
 
@@ -265,4 +266,123 @@ export async function createStaffAction(raw: {
 
   revalidatePath("/admin/school/members");
   return { ok: true, data: { id: newUid, setupLink } };
+}
+
+/**
+ * F11 (#324 follow-up B1): school_admin が **自校 teacher の初回パスワード設定リンクを再発行**する Server Action。
+ *
+ * `createStaffAction` の setupLink は発行時に一度だけ画面表示される。教員がそれを紛失/失効すると、従来は
+ * IdP user の削除→再作成しか復旧手段が無く運用の行き止まりだった (多ロール UI follow-up B1)。本 action は
+ * **アカウントを保ったまま新しい設定リンクを発行**して復旧する。`setMemberActiveAction` と同じ多層防御
+ * (requireRole + RLS read + policy role gate) を踏襲する。
+ *
+ * ## 実行順
+ * 1. 入力検証 (uuid) → `requireRole(MEMBER_ADMIN_ROLES)` (school_admin 限定。teacher / system_admin は
+ *    /forbidden に redirect)。
+ * 2. RLS read tx で対象の role / email / is_active を読む (自校外は 0 行 = not_found)。`canModifyTargetUser`
+ *    で role 境界を強制 (自校 teacher のみ。RLS は school 境界しか守らない [[rls-tenant-not-role-boundary]]
+ *    ため app 層で role を強制する。school_admin 自身/同僚は target_not_teacher で弾かれる)。**無効化済みは
+ *    弾く** (再有効化を促す。無効アカウントへ新リンクを撒かない = 安全側)。email 未登録も弾く。read tx は
+ *    短く閉じ、外部 IdP 呼び出しを **跨がない** (DB 接続を外部往復中に保持しない、既存規律)。
+ * 3. read tx の **外**で IdP からリンクを生成する (`generateSetupLinkForExistingUser`、createStaffAction と
+ *    同一ロジックを共有)。
+ * 4. `audit_log` に再発行を記録する (ルール1 / NFR04)。**生のリンク (oobCode を含む secret 相当) と email
+ *    (PII) は焼き込まない** (ルール5 / ルール4) — 監査には「誰が・いつ・どの教員に再発行したか」のみ残す。
+ * 5. `{id, setupLink}` を返す。呼出側 UI が発行者へ提示し、発行者が本人へ共有する (email 自動送信なし)。
+ *
+ * DB の状態 (is_active 等) は変えないため `revalidatePath` はしない (一覧の表示は不変)。
+ */
+export async function reissueStaffSetupLinkAction(raw: {
+  userId?: unknown;
+}): Promise<ActionResult<{ id: string; setupLink: string }>> {
+  if (!isUuid(raw.userId)) {
+    return invalid("ユーザーの指定が不正です。");
+  }
+  const userId = raw.userId;
+
+  // 認可: school_admin のみ。未認証→/login, 権限不足→/forbidden の redirect 副作用はここで起きる。
+  await requireRole(MEMBER_ADMIN_ROLES);
+
+  // 1) RLS tx: 対象の role / email / 状態を読み、role 境界・前提条件を強制する (IdP 呼び出しを跨がない短い read)。
+  const gate = await withSession(
+    async (tx, user) => {
+      const [row] = await tx
+        .select({ role: users.role, email: users.email, isActive: users.isActive })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!row) {
+        return { kind: "not_found" as const };
+      }
+      const roleActor: RoleActor = { role: user.role, schoolId: user.schoolId };
+      const decision = canModifyTargetUser(roleActor, {
+        targetCurrentRole: row.role,
+        // RLS で自校に絞られているため対象校 = 自校 (user.schoolId)。手書き WHERE ではなく RLS が境界。
+        targetSchoolId: user.schoolId,
+      });
+      if (!decision.allowed) {
+        return { kind: "forbidden" as const };
+      }
+      if (!row.isActive) {
+        return { kind: "inactive" as const };
+      }
+      if (!row.email) {
+        return { kind: "no_email" as const };
+      }
+      return { kind: "ok" as const, email: row.email };
+    },
+    { allowedRoles: MEMBER_ADMIN_ROLES },
+  );
+
+  if (gate.kind === "not_found") {
+    return notFound("指定されたユーザーが見つかりません。");
+  }
+  if (gate.kind === "forbidden") {
+    return forbidden("このユーザーの設定リンクを再発行する権限がありません。");
+  }
+  if (gate.kind === "inactive") {
+    // 無効アカウントへ新リンクを撒かない。先に再有効化させる (状態の競合 = conflict)。
+    return conflict("無効化されたアカウントです。先に再有効化してから再発行してください。");
+  }
+  if (gate.kind === "no_email") {
+    // email mirror が無い行 (移行データ等) はリンク生成できない (状態の競合 = conflict)。
+    return conflict("メールアドレスが登録されていないため、設定リンクを再発行できません。");
+  }
+
+  // 2) IdP からリンク生成 (read tx の外)。createStaffAction と同一の生成ロジックを共有する単一ソース。
+  const { setupLink } = await generateSetupLinkForExistingUser(gate.email);
+
+  // 3) 監査を記録する (ルール1 / NFR04)。生のリンク / email は焼き込まない (ルール5 / ルール4)。
+  await withSession(
+    async (tx, user) => {
+      await writeReissueSetupLinkAudit(tx, user, userId);
+    },
+    { allowedRoles: MEMBER_ADMIN_ROLES },
+  );
+
+  return { ok: true, data: { id: userId, setupLink } };
+}
+
+/**
+ * 設定リンク再発行を `audit_log` に追記する (ルール1 / NFR04)。`diff` には**操作の事実のみ**を残し、生成した
+ * 設定リンク (oobCode を含む secret 相当) と email (PII) は記録しない (ルール5 / ルール4)。再発行はアカウント
+ * 行の列を変えない操作だが、認証経路に直結するため `operation: "update"` で記録対象に含める。自校テナント
+ * 操作なので `school_id` = actor の自校、actor 系は school_admin の users 行。
+ */
+async function writeReissueSetupLinkAudit(
+  tx: TenantTx,
+  user: AuthUser,
+  userId: string,
+): Promise<void> {
+  await tx.insert(auditLog).values({
+    actorUserId: user.uid,
+    schoolId: user.schoolId,
+    tableName: "users",
+    recordId: userId,
+    operation: "update",
+    diff: { action: "reissue_setup_link" },
+    rowHash: "",
+    createdBy: user.uid,
+    updatedBy: user.uid,
+  });
 }

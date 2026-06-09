@@ -5,6 +5,7 @@ import { MEMBER_ADMIN_ROLES } from "@/lib/role-management/roles";
 import { type TenantRole, listSchoolMembers } from "@kimiterrace/db";
 import Link from "next/link";
 import { MemberActiveToggle } from "./_components/MemberActiveToggle";
+import { ReissueSetupLinkButton } from "./_components/ReissueSetupLinkButton";
 
 /**
  * F11 (#47) 第2スライス: 自校 **教職員一覧** (`/admin/school/members`)。**Server Component**。
@@ -55,7 +56,7 @@ export default async function SchoolMembersPage() {
       </header>
       <p style={subtitleStyle}>
         自校の教職員のロール状況です。「管理可」の行ではアカウントの無効化 /
-        再有効化を行えます（無効化は認証を即時停止します）。ロールの変更は順次追加します。
+        再有効化と、初回パスワード設定リンクの再発行を行えます（無効化は認証を即時停止します）。ロールの変更は順次追加します。
       </p>
 
       {members.length === 0 ? (
@@ -96,11 +97,17 @@ export default async function SchoolMembersPage() {
                   </td>
                   <td style={tdStyle}>
                     {decision.allowed ? (
-                      <MemberActiveToggle
-                        userId={m.id}
-                        isActive={m.isActive}
-                        displayName={m.displayName}
-                      />
+                      <span style={actionsStyle}>
+                        <MemberActiveToggle
+                          userId={m.id}
+                          isActive={m.isActive}
+                          displayName={m.displayName}
+                        />
+                        {/* 設定リンク再発行は稼働中アカウントのみ (無効アカウントは先に再有効化が必要)。 */}
+                        {m.isActive ? (
+                          <ReissueSetupLinkButton userId={m.id} displayName={m.displayName} />
+                        ) : null}
+                      </span>
                     ) : (
                       // 自分自身・他の管理者は対象外。理由が分からず「壊れている」と誤解されるため明示する (B5)。
                       <span
@@ -207,3 +214,9 @@ const inactiveBadgeStyle: React.CSSProperties = {
   color: "#6b7280",
 };
 const notManageableStyle: React.CSSProperties = { fontSize: "0.8rem", color: "#9ca3af" };
+const actionsStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  flexWrap: "wrap",
+};

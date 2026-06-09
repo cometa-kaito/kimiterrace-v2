@@ -19,6 +19,7 @@ vi.mock("../../lib/auth/admin-mutations", () => ({
   reactivateIdpUser: vi.fn(),
   createIdpUser: vi.fn(),
   deleteIdpUser: vi.fn(),
+  generateSetupLinkForExistingUser: vi.fn(),
   // 純関数は実装相当を提供 (conflict 経路を決定的にする)。
   isEmailAlreadyExistsError: (e: unknown) =>
     typeof e === "object" &&
@@ -32,11 +33,16 @@ import {
   createIdpUser,
   deactivateIdpUser,
   deleteIdpUser,
+  generateSetupLinkForExistingUser,
   reactivateIdpUser,
 } from "../../lib/auth/admin-mutations";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
-import { createStaffAction, setMemberActiveAction } from "../../lib/role-management/member-actions";
+import {
+  createStaffAction,
+  reissueStaffSetupLinkAction,
+  setMemberActiveAction,
+} from "../../lib/role-management/member-actions";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
@@ -45,6 +51,7 @@ const deactivateMock = vi.mocked(deactivateIdpUser);
 const reactivateMock = vi.mocked(reactivateIdpUser);
 const createIdpUserMock = vi.mocked(createIdpUser);
 const deleteIdpUserMock = vi.mocked(deleteIdpUser);
+const generateSetupLinkMock = vi.mocked(generateSetupLinkForExistingUser);
 
 const SCHOOL_ID = "55555555-5555-4555-8555-555555555555";
 const ADMIN_UID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -52,7 +59,7 @@ const TEACHER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const schoolAdmin = { uid: ADMIN_UID, role: "school_admin" as const, schoolId: SCHOOL_ID };
 
 // fakeTx の振る舞いを各テストで差し替えるための状態。
-let selectRows: { role: string; isActive: boolean }[];
+let selectRows: { role: string; isActive: boolean; email?: string | null }[];
 let updateRows: { id: string }[];
 let updateValues: Record<string, unknown> | null;
 let auditValues: Record<string, unknown> | null;
@@ -94,6 +101,9 @@ beforeEach(() => {
   reactivateMock.mockResolvedValue(undefined);
   createIdpUserMock.mockResolvedValue({ setupLink: "https://idp/reset-link" });
   deleteIdpUserMock.mockResolvedValue(undefined);
+  generateSetupLinkMock.mockResolvedValue({
+    setupLink: "https://app.example/reset-password?oobCode=REISSUED",
+  });
   selectRows = [{ role: "teacher", isActive: true }];
   updateRows = [{ id: TEACHER_ID }];
   updateValues = null;
@@ -301,5 +311,105 @@ describe("createStaffAction (#508 新規 teacher 発行)", () => {
     const createdUid = createIdpUserMock.mock.calls[0]?.[0]?.uid;
     expect(deleteIdpUserMock).toHaveBeenCalledWith(createdUid);
     expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("reissueStaffSetupLinkAction (#324 follow-up B1 設定リンク再発行)", () => {
+  it("userId が UUID でないと invalid、認可も IdP も DB も走らせない", async () => {
+    const res = await reissueStaffSetupLinkAction({ userId: "not-a-uuid" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("requireRole を school_admin のみで呼ぶ", async () => {
+    selectRows = [{ role: "teacher", isActive: true, email: "t@example.com" }];
+    await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin"]);
+  });
+
+  it("非 school_admin は requireRole が redirect (throw) し DB/IdP に到達しない", async () => {
+    requireRoleMock.mockRejectedValue(new Error("NEXT_REDIRECT:/forbidden"));
+    await expect(reissueStaffSetupLinkAction({ userId: TEACHER_ID })).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("対象が見つからない (RLS 不可視/不存在) と not_found、IdP を呼ばない", async () => {
+    selectRows = [];
+    const res = await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+    // read tx だけ実行され、監査 tx には到達しない。
+    expect(withSessionMock).toHaveBeenCalledTimes(1);
+    expect(auditValues).toBeNull();
+  });
+
+  it("対象が teacher 以外 (school_admin/自分) は role 境界で forbidden、IdP を呼ばない", async () => {
+    selectRows = [{ role: "school_admin", isActive: true, email: "admin@example.com" }];
+    const res = await reissueStaffSetupLinkAction({ userId: ADMIN_UID });
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+    expect(auditValues).toBeNull();
+  });
+
+  it("無効化済みアカウントは conflict (再有効化を促す)、IdP を呼ばない", async () => {
+    selectRows = [{ role: "teacher", isActive: false, email: "t@example.com" }];
+    const res = await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+    expect(withSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("email 未登録 (mirror 欠落) は conflict、IdP を呼ばない", async () => {
+    selectRows = [{ role: "teacher", isActive: true, email: null }];
+    const res = await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+    expect(generateSetupLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("正常系: read → (read tx の外で) IdP リンク生成 → 監査 → setupLink 返却", async () => {
+    selectRows = [{ role: "teacher", isActive: true, email: "teacher@example.com" }];
+    const res = await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(res).toEqual({
+      ok: true,
+      data: { id: TEACHER_ID, setupLink: "https://app.example/reset-password?oobCode=REISSUED" },
+    });
+    // 対象 email でリンク生成 (createStaffAction と共有の seam)。
+    expect(generateSetupLinkMock).toHaveBeenCalledWith("teacher@example.com");
+    // read tx + 監査 tx の 2 回。リンク生成はその間 (read tx の外)。
+    expect(withSessionMock).toHaveBeenCalledTimes(2);
+    // 状態変更は無いので revalidate しない。
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
+  it("監査: table=users / op=update / 自校 / actor=自分。生のリンク・email は焼き込まない (ルール5/4)", async () => {
+    selectRows = [{ role: "teacher", isActive: true, email: "teacher@example.com" }];
+    await reissueStaffSetupLinkAction({ userId: TEACHER_ID });
+    expect(auditValues).toMatchObject({
+      actorUserId: ADMIN_UID,
+      schoolId: SCHOOL_ID,
+      tableName: "users",
+      recordId: TEACHER_ID,
+      operation: "update",
+    });
+    expect(auditValues?.diff).toEqual({ action: "reissue_setup_link" });
+    // secret (oobCode 入りリンク) と PII (email) が監査値に一切現れないこと。
+    const serialized = JSON.stringify(auditValues);
+    expect(serialized).not.toContain("REISSUED");
+    expect(serialized).not.toContain("reset-password");
+    expect(serialized).not.toContain("teacher@example.com");
+  });
+
+  it("IdP 失敗は read tx の外で起き、監査に到達しない (throw 伝播・安全側)", async () => {
+    selectRows = [{ role: "teacher", isActive: true, email: "teacher@example.com" }];
+    generateSetupLinkMock.mockRejectedValue(new Error("idp down"));
+    await expect(reissueStaffSetupLinkAction({ userId: TEACHER_ID })).rejects.toThrow("idp down");
+    // read tx は実行されるが、IdP 失敗で監査 tx には到達しない。
+    expect(withSessionMock).toHaveBeenCalledTimes(1);
+    expect(auditValues).toBeNull();
   });
 });
