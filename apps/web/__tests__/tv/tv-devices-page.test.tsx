@@ -55,6 +55,11 @@ function arrangeRole(role: string) {
     Promise.resolve(fn({}, { uid: "u1", role, schoolId: "s1" }))) as typeof withSession);
 }
 
+/** ページの props（Server Component が受ける searchParams Promise）。status 未指定 = 絞り込みなし。 */
+function pageProps(status?: string) {
+  return { searchParams: Promise.resolve(status === undefined ? {} : { status }) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   listMock.mockResolvedValue([DEVICE] as never);
@@ -63,7 +68,7 @@ beforeEach(() => {
 describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
   it("一覧自体は ADMIN_ROLES（teacher 含む）で要求する", async () => {
     arrangeRole("teacher");
-    await TvDevicesPage();
+    await TvDevicesPage(pageProps());
     expect(requireRoleMock).toHaveBeenCalledWith(ADMIN_ROLES);
     // 死リンク回避の前提: teacher は編集可ロールに含まれない。
     expect(TV_CONFIG_EDIT_ROLES).not.toContain("teacher");
@@ -71,7 +76,7 @@ describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
 
   it("teacher には「履歴」リンクは出すが「編集」リンクは出さない（履歴は閲覧専用、編集は死リンク防止）", async () => {
     arrangeRole("teacher");
-    render(await TvDevicesPage());
+    render(await TvDevicesPage(pageProps()));
     // 行自体は見える（一覧は閲覧可）。
     expect(screen.getByText("1年A組")).toBeInTheDocument();
     // 稼働履歴は ADMIN_ROLES 全員に出る（行 PK の履歴ページ、F16 §5）。
@@ -84,7 +89,7 @@ describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
 
   it("school_admin には「編集」リンク（行 PK の編集ページ）と「履歴」リンクを出す", async () => {
     arrangeRole("school_admin");
-    render(await TvDevicesPage());
+    render(await TvDevicesPage(pageProps()));
     const link = screen.getByRole("link", { name: EDIT_LINK_NAME });
     expect(link).toHaveAttribute("href", `/admin/tv-devices/${DEVICE.id}/edit`);
     expect(screen.getByRole("link", { name: HISTORY_LINK_NAME })).toHaveAttribute(
@@ -96,8 +101,53 @@ describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
 
   it("system_admin にも「編集」リンクを出す", async () => {
     arrangeRole("system_admin");
-    render(await TvDevicesPage());
+    render(await TvDevicesPage(pageProps()));
     expect(screen.getByRole("link", { name: EDIT_LINK_NAME })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: HISTORY_LINK_NAME })).toBeInTheDocument();
+  });
+});
+
+describe("TvDevicesPage 稼働ステータス絞り込み（?status=）", () => {
+  // DEVICE は lastSeenAt:null → "never"。判定基準はリクエスト時刻なので相対時刻で online/down を作る。
+  const DOWN = {
+    ...DEVICE,
+    id: "00000000-0000-0000-0000-000000000002",
+    label: "応答なし組",
+    deviceId: "dev-down",
+    lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2h 前 → down（>1h）
+  };
+  const ONLINE = {
+    ...DEVICE,
+    id: "00000000-0000-0000-0000-000000000003",
+    label: "稼働中組",
+    deviceId: "dev-online",
+    lastSeenAt: new Date(), // 直近 → online（<=5min）
+  };
+
+  it("?status=down は応答なしの端末だけ表示する", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([DEVICE, DOWN, ONLINE] as never);
+    render(await TvDevicesPage(pageProps("down")));
+    expect(screen.getByText("応答なし組")).toBeInTheDocument();
+    expect(screen.queryByText("稼働中組")).toBeNull();
+    expect(screen.queryByText("1年A組")).toBeNull(); // never は対象外
+  });
+
+  it("status 未指定は全件表示する", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([DEVICE, DOWN, ONLINE] as never);
+    render(await TvDevicesPage(pageProps()));
+    expect(screen.getByText("応答なし組")).toBeInTheDocument();
+    expect(screen.getByText("稼働中組")).toBeInTheDocument();
+    expect(screen.getByText("1年A組")).toBeInTheDocument();
+  });
+
+  it("不正な status は全件表示にフォールバックする（CWE-20 防御・URL 改竄耐性）", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([DEVICE, DOWN, ONLINE] as never);
+    render(await TvDevicesPage(pageProps("garbage")));
+    expect(screen.getByText("応答なし組")).toBeInTheDocument();
+    expect(screen.getByText("稼働中組")).toBeInTheDocument();
+    expect(screen.getByText("1年A組")).toBeInTheDocument();
   });
 });
