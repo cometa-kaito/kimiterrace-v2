@@ -81,6 +81,37 @@ export const tvCommandStatus = pgEnum("tv_command_status", [
 // 将来値を足すなら末尾追加（ADD VALUE、非破壊）。
 export const tvDowntimeCause = pgEnum("tv_downtime_cause", ["unknown", "reboot", "network"]);
 
+// C方式 TV プロビジョニング（v2 クラウド UI でジョブ作成 → 現地ローカルエージェントが claim → adb 実行）の
+// ジョブ状態機械。`tv_provisioning_jobs.status` の値域を DB で固定する（ルール3）。段階ワークフロー
+// （読取 → 物理作業依頼 → 設定実行。破壊的操作の前に必ずキャプチャ）を表す:
+//   pending           … 作成直後・未 claim。ローカルエージェントの claim 対象。
+//   claimed           … エージェントが claim 済み（実行開始）。
+//   preflight         … adb 接続・機種判定・県Wi-Fi設定キャプチャ中（破壊的操作前の読取）。
+//   awaiting_physical … 人手の物理作業（工場リセット → 県Wi-Fi 再設定）を依頼し待機中。
+//   provisioning      … install / Device Owner / オフタイマー無効 / prefs 注入 / 起動 を自動実行中。
+//   succeeded         … 表示確認まで完了。
+//   failed            … 途中失敗（error / steps_json に詳細）。
+//   canceled          … 運用者が中止。
+// 将来値を足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊）。
+export const tvProvisioningStatus = pgEnum("tv_provisioning_status", [
+  "pending",
+  "claimed",
+  "preflight",
+  "awaiting_physical",
+  "provisioning",
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
+/**
+ * TV プロビジョニングジョブ状態の型（単一ソース）。アプリ層 (apps/web) は client-safe な
+ * `@kimiterrace/db/schema` から `import type` で引き込み、UI のステップ表示・許可遷移が enum と
+ * ズレないことを `satisfies` でコンパイル時に強制する（`TvCommandType` と同方針）。型のみなので
+ * Next バンドルに enum のランタイム値を持ち込まない。
+ */
+export type TvProvisioningStatus = (typeof tvProvisioningStatus.enumValues)[number];
+
 // F14 (ADR-021): サイネージ天気予報のデータソース。現状 気象庁 (JMA) 無料 API のみ。
 // `weather_forecasts.source` の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。
 // 将来 JMA 障害時の商用 API フォールバックを採る場合は末尾に値を足す（ADD VALUE、非破壊）。

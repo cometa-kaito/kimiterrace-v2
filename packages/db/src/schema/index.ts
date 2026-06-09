@@ -19,6 +19,8 @@ export * from "./tv-devices.js";
 export * from "./tv-device-downtime.js";
 // F15 (ADR-022): TV リモートコマンドキュー（enqueue + ポーリング配信 + ack、send-once）
 export * from "./tv-device-commands.js";
+// C方式 TV プロビジョニング: クラウド UI で作成し現地ローカルエージェントが claim/実行するジョブ（段階WF）
+export * from "./tv-provisioning-jobs.js";
 // F14 (#128, ADR-021): サイネージ天気予報の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
 export * from "./weather-forecasts.js";
 export * from "./ai-extractions.js";
