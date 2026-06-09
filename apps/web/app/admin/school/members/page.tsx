@@ -102,7 +102,13 @@ export default async function SchoolMembersPage() {
                         displayName={m.displayName}
                       />
                     ) : (
-                      <span style={notManageableStyle}>管理対象外</span>
+                      // 自分自身・他の管理者は対象外。理由が分からず「壊れている」と誤解されるため明示する (B5)。
+                      <span
+                        style={notManageableStyle}
+                        title="自分自身および他の管理者アカウントは、この画面からは無効化・管理できません（誤操作・ロックアウト防止）。"
+                      >
+                        管理対象外
+                      </span>
                     )}
                   </td>
                 </tr>

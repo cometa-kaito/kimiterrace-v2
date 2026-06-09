@@ -7,7 +7,7 @@ import {
   hasStaffCreateFieldErrors,
 } from "@/lib/role-management/staff-create-core";
 import { FormField } from "@kimiterrace/ui";
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useRef, useState, useTransition } from "react";
 
 /**
  * F11 (#508): 新規 teacher 発行フォーム。**Client Component** — `createStaffAction` を呼ぶ。
@@ -26,7 +26,10 @@ export function StaffCreateForm() {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ setupLink: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<StaffCreateFieldErrors>({});
+  // clipboard 失敗時に readonly 入力を選択状態へ誘導するための参照。
+  const linkInputRef = useRef<HTMLInputElement>(null);
 
   // 入力中はその項目のエラーを消す (修正に追従)。
   function clearError(field: keyof StaffCreateFieldErrors) {
@@ -68,9 +71,15 @@ export function StaffCreateForm() {
     try {
       await navigator.clipboard.writeText(created.setupLink);
       setCopied(true);
+      setCopyFailed(false);
     } catch {
-      // clipboard 不可環境では readonly 入力からの手動選択にフォールバック (下記 input)。
+      // clipboard 不可環境 (非 HTTPS / 権限拒否 / 旧ブラウザ)。従来は setCopied(false) のみで導線が無く
+      // 「コピーできたのか分からない」詰まりになっていた。readonly 入力を選択状態にして手動コピーへ
+      // 確実に誘導し、その旨を明示する (B2)。
       setCopied(false);
+      setCopyFailed(true);
+      linkInputRef.current?.focus();
+      linkInputRef.current?.select();
     }
   }
 
@@ -82,10 +91,14 @@ export function StaffCreateForm() {
           教員アカウントを発行しました。下記の「初回パスワード設定リンク」を本人へ共有してください
           （リンクからパスワードを設定するとログインできます）。
         </output>
+        <p style={warnNoteStyle}>
+          ⚠ このリンクは<strong>この画面でのみ表示</strong>
+          されます。今コピーして本人へ共有してください （メール自動送信は行いません）。
+        </p>
         <label style={labelStyle}>
           初回パスワード設定リンク
           {/* 包む label がラベル付けするため aria-label は冗長 (SR 二重読み防止、#515 Low-1)。 */}
-          <input readOnly value={created.setupLink} style={inputStyle} />
+          <input ref={linkInputRef} readOnly value={created.setupLink} style={inputStyle} />
         </label>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <button type="button" onClick={copyLink} style={btnStyle}>
@@ -95,6 +108,11 @@ export function StaffCreateForm() {
             一覧へ戻る
           </a>
         </div>
+        {copyFailed ? (
+          <p role="status" style={copyHintStyle}>
+            自動コピーできませんでした。上のリンクが選択されています。手動でコピー（Ctrl/⌘＋C）してください。
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -176,4 +194,14 @@ const successStyle: React.CSSProperties = {
   color: "#065f46",
   fontSize: "0.9rem",
 };
+const warnNoteStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.85rem",
+  color: "#92400e",
+  background: "#fffbeb",
+  border: "1px solid #fcd34d",
+  borderRadius: "6px",
+  padding: "0.5rem 0.7rem",
+};
+const copyHintStyle: React.CSSProperties = { margin: 0, fontSize: "0.82rem", color: "#92400e" };
 const noteStyle: React.CSSProperties = { fontSize: "0.8rem", color: "#6b7280", margin: 0 };
