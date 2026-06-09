@@ -21,6 +21,9 @@ import { type FormEvent, useCallback, useId, useRef, useState } from "react";
  * 関連: chat-client.ts, sse-handler.ts, ADR-006 (SSE), ADR-028 (回答ポリシー), NFR05 (a11y)。
  */
 
+/** 質問の最大文字数。サーバ (scope.ts) の上限と一致させ、超過前にクライアントで気づけるようにする。 */
+const MAX_QUESTION_LEN = 500;
+
 /** 共有 UI 文言 (ロール/操作/エラー)。経路非依存。 */
 const STR = {
   inputLabel: "質問を入力",
@@ -37,6 +40,10 @@ const STR = {
     accessDenied: "アクセス権限がありません。お手数ですが、再度ログインしてからお試しください。",
     invalidBody: "質問を入力してください。",
     network: "通信に失敗しました。電波の良い場所でもう一度お試しください。",
+    // #289 kill-switch (AI_ENABLED=false) の request-level 503。従来は default の「もう一度お試しください」に
+    // 落ちて transient な失敗に見せ、無限リトライを誘発していた (多ロール巡回 student 改善)。AI 停止中である
+    // 事実を正直に伝え、リトライではなく待機/別手段へ誘導する。生徒・教員どちらでも成立する中立文言にする。
+    aiDisabled: "ただいまAIによる回答を停止しています。しばらく経ってから再度お試しください。",
     generic: "応答できませんでした。もう一度お試しください。",
   },
 } as const;
@@ -60,6 +67,8 @@ function errorMessage(ev: Extract<ChatEvent, { type: "error" }>): string {
     case "invalid_body":
     case "invalid_json":
       return STR.errors.invalidBody;
+    case "ai_disabled":
+      return STR.errors.aiDisabled;
     default:
       return STR.errors.generic;
   }
@@ -190,7 +199,7 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
           placeholder={placeholder}
           disabled={isStreaming}
           autoComplete="off"
-          maxLength={500}
+          maxLength={MAX_QUESTION_LEN}
         />
         <button type="submit" disabled={sendDisabled} aria-busy={isStreaming}>
           {isStreaming ? STR.sending : STR.send}
@@ -199,6 +208,12 @@ export function ChatPanel({ endpoint, heading, placeholder, emptyHint }: ChatPan
           <button type="button" className="chat-panel__stop" onClick={stop}>
             {STR.stop}
           </button>
+        ) : null}
+        {/* 上限が近づいたら残量を表示 (上限で無言ブロックされる困惑を防ぐ)。aria-live で読み上げ。 */}
+        {input.length >= MAX_QUESTION_LEN - 100 ? (
+          <span className="chat-panel__counter" aria-live="polite">
+            {input.length} / {MAX_QUESTION_LEN}
+          </span>
         ) : null}
       </form>
     </section>
