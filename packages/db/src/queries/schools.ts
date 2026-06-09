@@ -74,6 +74,21 @@ export async function listSchools(db: Selectable): Promise<SchoolSummary[]> {
     .orderBy(asc(schools.prefecture), asc(schools.name), asc(schools.id));
 }
 
+/** プロビジョニング/登録フォームの「設置クラス」セレクト用 1 件 (id + 名称 + 所属校 id)。 */
+export type ClassWithSchool = { id: string; name: string; schoolId: string };
+
+/**
+ * 全クラスを **所属校 id つき**で列挙する (school→class カスケードのドロップダウン用、C方式 TV プロビジョニング)。
+ * 可視範囲は RLS が決める (system_admin=全校 / テナント=自校のみ、`classes` の tenant_isolation /
+ * system_admin_full_access)。手書き WHERE school_id は書かない (ルール2)。校 → クラス名 → id で決定的に並べる。
+ */
+export async function listClassesWithSchool(db: Selectable): Promise<ClassWithSchool[]> {
+  return db
+    .select({ id: classes.id, name: classes.name, schoolId: classes.schoolId })
+    .from(classes)
+    .orderBy(asc(classes.schoolId), asc(classes.name), asc(classes.id));
+}
+
 /**
  * 学校 1 件を編集用に取得する。RLS で不可視 (他校 / 不存在) なら `undefined`。
  * `id` は対象特定の条件であってテナント境界ではない (越権は RLS が弾く、上記参照)。
