@@ -1,0 +1,16 @@
+{
+  "name": "@kimiterrace/provision-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "C方式 TV プロビジョニング ローカルエージェント (PR5) — 現地ノート PC で手動起動し adb で TV を構築する",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
+  }
+}

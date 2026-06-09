@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # C方式 TV プロビジョニング ローカルエージェント (PR5)。ソースは scripts 配下だが v2 CI・
+  # 規約 (biome / vitest) に乗せるため workspace パッケージとして登録する (純粋ヘルパーの単体テスト
+  # が `pnpm test` / turbo で確実に走るようにする)。他の scripts/* は package.json 無しなので含めない。
+  - "scripts/provision-agent"
 
 # 推移的依存の脆弱性を patched バージョンへ固定 (Dependabot moderate)。
 # どちらも同一メジャー / pre-1.0 minor 内の引き上げで親パッケージの API 互換を維持。
