@@ -12,6 +12,9 @@ import type { TvLivenessCheckSummary } from "@kimiterrace/db";
  * チェッカの状態機械が「新規 down に反転した TV だけ」を `downDevices`、「復帰した TV だけ」を
  * `recoveredDevices` に積む（down→down 継続は no-op）。本層はそれをそのまま 1 件 1 POST するだけで、
  * 既に down 中の TV を再通知しない（多重通知防止は state machine 側に委ねる）。
+ * **既定では down(🔴) のみ配信し、復帰(🟢) は送らない**（F16 §9: 立ち下がりのみ通知する運用方針。
+ * `alert_state` の down→ok 遷移自体は checker が DB に記録するため、🟢 を抑制しても次の down エッジは
+ * 正しく発火する。`TV_ALERT_ON_RECOVERY=1` で復帰通知を opt-in できる）。
  *
  * ## シークレット規律（ルール5）
  * Webhook URL は `SLACK_WEBHOOK_URL` env からのみ読む（Secret Manager 経由で Cloud Run Job に注入）。
@@ -126,11 +129,14 @@ export async function postSlack(webhookUrl: string, text: string): Promise<void>
  * @param summary    チェッカの集計（エッジ配列を含む）。
  * @param now        判定基準時刻（経過分の算出に使う。entrypoint の now と揃える）。
  * @param heartbeat  日次ハートビートを送るか（env `TV_LIVENESS_HEARTBEAT` で gate、毎分は送らない）。
+ * @param alertOnRecovery  復帰(🟢)通知を送るか（既定 false = 立ち下がり down のみ通知。env
+ *   `TV_ALERT_ON_RECOVERY` で opt-in、F16 §9）。down→ok の状態遷移は checker が記録するため通知抑制と独立。
  */
 export async function deliverTvLivenessAlerts(
   summary: TvLivenessCheckSummary,
   now: Date,
   heartbeat: boolean,
+  alertOnRecovery = false,
 ): Promise<void> {
   const webhookUrl = getSlackWebhookUrl();
   if (webhookUrl === null) {
@@ -142,19 +148,24 @@ export async function deliverTvLivenessAlerts(
         reason: "SLACK_WEBHOOK_URL unset",
         downDevices: summary.downDevices.length,
         recoveredDevices: summary.recoveredDevices.length,
+        alertOnRecovery,
         heartbeat,
       }),
     );
     return;
   }
 
-  // エッジ 1 件 1 POST（down → 🔴、recover → 🟢）。順次送る（件数は通常 0〜数件で並列化不要、
-  // Slack のレート制限にも優しい）。
+  // down エッジは常に 1 件 1 POST（🔴）。順次送る（件数は通常 0〜数件で並列化不要、Slack のレート制限にも優しい）。
   for (const device of summary.downDevices) {
     await postSlack(webhookUrl, formatTvDownMessage(device, now));
   }
-  for (const device of summary.recoveredDevices) {
-    await postSlack(webhookUrl, formatTvRecoveredMessage(device));
+  // 復帰エッジ（🟢）は既定で送らない（F16 §9: 立ち下がり = down のみ通知する運用方針）。alert_state の
+  // down→ok 遷移は checker（applyTransitions）が DB に記録するため、🟢 を送らなくても次の down エッジは
+  // 正しく発火する（通知抑制と状態機械は独立）。`TV_ALERT_ON_RECOVERY=1` で復帰通知を opt-in できる。
+  if (alertOnRecovery) {
+    for (const device of summary.recoveredDevices) {
+      await postSlack(webhookUrl, formatTvRecoveredMessage(device));
+    }
   }
 
   // 日次ハートビート（dead-man's-switch）。env flag が立っているときだけ（毎分はスパムになるため送らない）。
