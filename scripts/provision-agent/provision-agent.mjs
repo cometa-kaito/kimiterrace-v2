@@ -425,6 +425,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  err(e instanceof Error ? (e.stack ?? e.message) : String(e));
+  // e.stack/e.message は env(V2_BASE_URL / secret 名) 由来値を含みうるため種別のみログ（ルール5 / clear-text-logging）。
+  err(`致命的エラー [${e instanceof Error ? e.name : "error"}]（設定 / 接続 / gcloud 認証を確認）`);
   process.exitCode = 1;
 });
