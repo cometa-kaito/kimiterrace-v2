@@ -7,8 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `updateTvDeviceConfig` だけ差し替えて version バンプ呼び出し / not_found 分岐 / 監査配線を検証する。
  * `withSession` は callback を fake tx で実行する。
  *
- * 重点: 認可 (TV_CONFIG_EDIT_ROLES / forbidden)、入力検証で DB に到達しないこと（不正 id / URL / 長さ /
- * schedule）、0 行 → not_found 写像、audit が tv_devices に operation=update で 1 件、tenantScoped 指定。
+ * 重点: 認可 (TV_CONFIG_EDIT_ROLES)、入力検証で DB に到達しないこと（不正 id / URL / 長さ / schedule）、
+ * 0 行 → not_found 写像、audit が tv_devices に operation=update で 1 件、allowedRoles 指定。**school 未所属の
+ * system_admin も編集でき**（cross-tenant 運用者）、その監査は actor_user_id=null + actor_identity_uid=uid +
+ * 対象デバイスの school_id で残る（onboarding-actions と同パターン）。
  */
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -70,7 +72,7 @@ beforeEach(() => {
   auditValues = undefined;
   lastSessionOptions = undefined;
   requireRoleMock.mockResolvedValue(admin);
-  updateTvDeviceConfigMock.mockResolvedValue({ id: ROW_ID, version: 6 });
+  updateTvDeviceConfigMock.mockResolvedValue({ id: ROW_ID, version: 6, schoolId: SCHOOL_ID });
   withSessionMock.mockImplementation(((
     fn: (tx: unknown, user: unknown) => unknown,
     options: unknown,
@@ -120,11 +122,23 @@ describe("updateTvDeviceConfigAction", () => {
     expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
   });
 
-  it("schoolId 無し（テナント未選択 system_admin）は forbidden、DB に到達しない", async () => {
+  it("school 未所属 system_admin も編集できる（cross-tenant）: FK 列 null + actor_identity_uid に uid + 対象デバイスの school", async () => {
     requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "system_admin", schoolId: null });
     const res = await updateTvDeviceConfigAction(ROW_ID, VALID_INPUT);
-    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
-    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true, data: { id: ROW_ID, version: 6 } });
+    // DB に到達し、update の actorUserId は null（system_admin は users 行でないため FK 違反回避）。
+    expect(updateTvDeviceConfigMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: ROW_ID, actorUserId: null }),
+    );
+    // 監査: users FK 列は null、誰がは actor_identity_uid、school は更新対象デバイス由来（RETURNING）。
+    expect(auditValues).toMatchObject({
+      tableName: "tv_devices",
+      operation: "update",
+      actorUserId: null,
+      actorIdentityUid: USER_ID,
+      schoolId: SCHOOL_ID,
+    });
   });
 
   it("0 行（他校 / 不可視 / 退役）は not_found に写像し、audit を書かない", async () => {
@@ -145,12 +159,16 @@ describe("updateTvDeviceConfigAction", () => {
       recordId: ROW_ID,
       schoolId: SCHOOL_ID,
       actorUserId: USER_ID,
+      actorIdentityUid: USER_ID,
     });
   });
 
-  it("tenantScoped: true で実行する（system_admin の全校発火を止める）", async () => {
+  it("allowedRoles で role 境界を tx 層でも強制する（tenantScoped は使わない＝system_admin は cross-tenant）", async () => {
     await updateTvDeviceConfigAction(ROW_ID, VALID_INPUT);
-    expect(lastSessionOptions).toMatchObject({ tenantScoped: true });
+    expect(lastSessionOptions).toMatchObject({
+      allowedRoles: ["school_admin", "system_admin"],
+    });
+    expect(lastSessionOptions).not.toHaveProperty("tenantScoped");
   });
 
   it("update の引数: 編集パッチ + actorUserId を結線（システム管理列は含まない）", async () => {

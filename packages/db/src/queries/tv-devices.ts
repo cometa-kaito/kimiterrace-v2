@@ -249,21 +249,25 @@ export type TvDeviceConfigPatch = {
  *   `updatedAt: new Date()` を**明示**しないと作成時刻のまま残り監査不整合になる
  *   ([[updatedat-explicit-on-update]] の既知トラップ)。`updatedBy` も actor を明示設定する。設定変更の
  *   `audit_log` 追記は呼び出し側 Action が同一 tx で行う（F15 §1、心拍 touch とは別経路）。
- * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。RLS（tenant_isolation）が自校に
- *   スコープするため、他校 / 不可視デバイスへの UPDATE は **0 行**になる（→ undefined → 呼び出し側で
+ * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は RLS が決める:
+ *   `tenant_isolation`（school_admin = 自校のみ）/ `system_admin_full_access`（system_admin = 全校、
+ *   cross-tenant 運用者）。他校 / 不可視デバイスへの UPDATE は **0 行**になる（→ undefined → 呼び出し側で
  *   not_found）。ソフトデリート済（`deleted_at IS NOT NULL`）も対象外（退役 TV は編集不可）。
  *
  * @param db        非 BYPASSRLS の Drizzle クライアント / tx（RLS context 下で呼ぶこと）。
- * @param params    対象 `id` / 編集パッチ / 監査 actor（`updatedBy`）。
- * @returns         更新後の `{ id, version }`（version は +1 後）。0 行（不可視 / 退役）なら `undefined`。
+ * @param params    対象 `id` / 編集パッチ / 監査 actor（`updatedBy`、**system_admin は null**＝users 行でない
+ *                  ため FK 違反回避、createTvDevice と同パターン）。
+ * @returns         更新後の `{ id, version, schoolId }`（version は +1 後、schoolId は監査の対象 school 記録
+ *                  用に返す）。0 行（不可視 / 退役）なら `undefined`。
  */
 export type UpdateTvDeviceConfigParams = {
   id: string;
   patch: TvDeviceConfigPatch;
-  actorUserId: string;
+  /** 監査 actor（`updated_by` = users.id FK）。system_admin は `users` 行でないため **null**。 */
+  actorUserId: string | null;
 };
 
-type TvDeviceUpdatedRef = Pick<TvDeviceRow, "id" | "version">;
+type TvDeviceUpdatedRef = Pick<TvDeviceRow, "id" | "version" | "schoolId">;
 
 export async function updateTvDeviceConfig(
   db: Updatable,
@@ -282,7 +286,7 @@ export async function updateTvDeviceConfig(
       updatedBy: actorUserId,
     })
     .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
-    .returning({ id: tvDevices.id, version: tvDevices.version });
+    .returning({ id: tvDevices.id, version: tvDevices.version, schoolId: tvDevices.schoolId });
   return rows[0];
 }
 

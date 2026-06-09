@@ -11,9 +11,10 @@ import { tvDevices } from "../schema/tv-devices.js";
  * F15 (ADR-022): TV リモートコマンドキューのクエリ層。3 経路:
  *
  *  1. **発行（管理セッション）**: `enqueueTvCommand`。`/admin/tv-devices/:id` の Server Action から
- *     `withSession({ tenantScoped: true })` の自校 RLS tx 内で呼ぶ。device 行 PK から device_id +
- *     school_id を RLS スコープで解決し、`tv_device_commands` に pending を 1 件 INSERT + `audit_log`
- *     追記（同 tx・原子的）。手書き WHERE school_id は書かず RLS（tenant_isolation）に委譲（ルール2）。
+ *     `withSession` の RLS tx 内で呼ぶ。device 行 PK から device_id + school_id を RLS スコープで解決し、
+ *     `tv_device_commands` に pending を 1 件 INSERT + `audit_log` 追記（同 tx・原子的）。手書き WHERE
+ *     school_id は書かず RLS に委譲（ルール2）: school_admin は `tenant_isolation` で自校のみ、system_admin は
+ *     `system_admin_full_access` で全校（cross-tenant 運用者）。
  *  2. **配信（ポーリング・セッション無し）**: `pollPendingTvCommands`。`GET /api/tv/config` から呼ばれ、
  *     `device_id` で cross-tenant 解決して自分宛の pending コマンドを返す。`pollTvConfig` と同じ
  *     `system_admin` role context（`system_admin_full_access` policy、BYPASSRLS 不使用、ルール2）。
@@ -50,10 +51,13 @@ export type EnqueueTvCommandParams = {
   command: TvCommandType;
   /** コマンド引数（任意・機械メタのみ、PII 非格納）。 */
   params?: Record<string, unknown> | null;
-  /** 発行者 `users.id`（監査 actor）。 */
-  actorUserId: string;
-  /** 監査の school_id（actor の所属。INSERT 行の school_id とも一致）。 */
-  actorSchoolId: string;
+  /**
+   * 発行者 `users.id`（監査 actor、`issued_by` / `created_by` / `updated_by` = users(id) FK、migration 0019）。
+   * **system_admin は `users` 行でないため null**（FK 違反回避、createTvDevice と同パターン）。
+   */
+  actorUserId: string | null;
+  /** 発行者の Identity Platform UID（FK なし `audit_log.actor_identity_uid`、system_admin 操作の追跡用）。 */
+  actorIdentityUid: string;
   /** 失効期限（任意）。null/未指定は無期限。 */
   expiresAt?: Date | null;
 };
@@ -66,20 +70,23 @@ export type EnqueueTvCommandResult =
  * 発行: 指定 TV デバイスへ pending コマンドを 1 件キューイングする（RLS スコープ + 監査）。
  *
  * - **device 解決（RLS 委譲、ルール2）**: 行 PK から device_id / school_id を引く。手書き WHERE school_id は
- *   書かず RLS（tenant_isolation）が自校に絞る。他校 / 不可視 / ソフトデリート済（退役 TV）は 0 行 →
+ *   書かず、可視範囲は RLS が決める: `tenant_isolation`（school_admin = 自校）/ `system_admin_full_access`
+ *   （system_admin = 全校、cross-tenant 運用者）。他校 / 不可視 / ソフトデリート済（退役 TV）は 0 行 →
  *   `device_not_found`（呼び出し側で not_found に写像）。
- * - **INSERT**: 解決した device_id / school_id を明示して pending を作る。`issued_by`=actor、`issued_at`は
- *   DB 既定 now()。
+ * - **INSERT**: 解決した device_id / school_id を明示して pending を作る。`issued_by`=actor（system_admin は
+ *   null＝users 行でないため）、`issued_at`は DB 既定 now()。
  * - **監査（ルール1 / NFR04）**: コマンド発行は `audit_log` に 1 件残す（誰がいつどの TV に何を、F15 §1）。
+ *   school_id は対象デバイスの school、actor は `actor_user_id`（users）+ `actor_identity_uid`（IdP uid）。
  *   row_hash は BEFORE INSERT トリガが計算（"" を上書き）。
  *
- * @param tx RLS context 下のトランザクション（Server Action の `withSession({ tenantScoped: true })`）。
+ * @param tx RLS context 下のトランザクション（Server Action の `withSession`）。school_admin は自校に、
+ *           system_admin は全校に発行できる（後者は新規登録 = onboarding と同じ cross-tenant 経路）。
  */
 export async function enqueueTvCommand(
   tx: TenantTx,
   params: EnqueueTvCommandParams,
 ): Promise<EnqueueTvCommandResult> {
-  const { deviceRowId, command, actorUserId, actorSchoolId } = params;
+  const { deviceRowId, command, actorUserId, actorIdentityUid } = params;
 
   // 1. device 解決（RLS スコープ）。ソフトデリート済（退役 TV）はコマンド発行不可。
   const devRows = await tx
@@ -92,7 +99,8 @@ export async function enqueueTvCommand(
     return { status: "device_not_found" };
   }
 
-  // 2. pending を 1 件 INSERT（解決した device_id / school_id を明示）。
+  // 2. pending を 1 件 INSERT（解決した device_id / school_id を明示）。issued_by / created_by / updated_by は
+  //    users(id) FK のため system_admin（actorUserId=null）はシステム発行扱いで null（FK 違反回避）。
   const inserted = await tx
     .insert(tvDeviceCommands)
     .values({
@@ -112,10 +120,14 @@ export async function enqueueTvCommand(
     throw new Error("enqueueTvCommand: tv_device_commands INSERT が行を返しませんでした");
   }
 
-  // 3. 監査（ルール1）: 発行を 1 件残す。actor = 発行者。
+  // 3. 監査（ルール1）: 発行を 1 件残す。school_id は解決した対象デバイスの school（cross-tenant な
+  //    system_admin 発行でも対象校が正しく残る）。actor_user_id（users FK）は system_admin だと null、
+  //    「誰が」は FK 無しの actor_identity_uid に IdP uid を残す（audit_log_insert policy: role=system_admin は
+  //    actor=null / 任意 school を許可、migration 0005）。
   await tx.insert(auditLog).values({
     actorUserId,
-    schoolId: actorSchoolId,
+    actorIdentityUid,
+    schoolId: dev.schoolId,
     tableName: "tv_device_commands",
     recordId: id,
     operation: "insert",

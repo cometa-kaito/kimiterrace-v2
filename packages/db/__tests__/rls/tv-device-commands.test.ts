@@ -85,7 +85,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -94,16 +94,25 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
     expect(await countCommandsAs(fx.schoolA)).toBe(1);
     expect(await countCommandsAs(fx.schoolB)).toBe(0);
 
-    // 監査が 1 件残る（actor=A, school=A, operation=insert、ルール1）。
+    // 監査が 1 件残る（actor=A, identity_uid=A, school=A=対象デバイス由来, operation=insert、ルール1）。
     const audit = await sql.begin(async (tx) => {
       await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
       await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
-      return await tx<{ actor_user_id: string; school_id: string; operation: string }[]>`
-        SELECT actor_user_id, school_id, operation FROM audit_log WHERE table_name = 'tv_device_commands'
+      return await tx<
+        {
+          actor_user_id: string | null;
+          actor_identity_uid: string | null;
+          school_id: string;
+          operation: string;
+        }[]
+      >`
+        SELECT actor_user_id, actor_identity_uid, school_id, operation
+        FROM audit_log WHERE table_name = 'tv_device_commands'
       `;
     });
     expect(audit.length).toBe(1);
     expect(audit[0].actor_user_id).toBe(fx.userA);
+    expect(audit[0].actor_identity_uid).toBe(fx.userA);
     expect(audit[0].school_id).toBe(fx.schoolA);
     expect(audit[0].operation).toBe("insert");
   });
@@ -117,13 +126,56 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowB, // B 校の device を A 校 context で指す
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
     expect(r.status).toBe("device_not_found");
     expect(await countCommandsAs(fx.schoolA)).toBe(0);
     expect(await countCommandsAs(fx.schoolB)).toBe(0);
+  });
+
+  it("system_admin（school 未所属）は任意校(B)のデバイスに発行できる（cross-tenant、issued_by / actor_user_id は null）", async () => {
+    // system_admins.id 相当（actor_identity_uid は varchar で users FK ではない。発行者追跡用）。
+    const SYS_UID = "f1500000-0000-4000-8000-0000000000aa";
+    const r = await withTenantContext(
+      db,
+      { role: "system_admin" }, // school 未所属の cross-tenant 運用者（app.current_school_id 未設定）
+      (tx) =>
+        enqueueTvCommand(tx, {
+          deviceRowId: rowB,
+          command: "service_restart",
+          actorUserId: null, // users 行でないため null（FK 違反回避）
+          actorIdentityUid: SYS_UID,
+        }),
+      APP,
+    );
+    expect(r.status).toBe("enqueued");
+    if (r.status === "enqueued") expect(r.deviceId).toBe(DEV_B);
+
+    // コマンド行: issued_by は null、school_id は対象デバイス(B)。
+    const cmd = await sql<{ issued_by: string | null; school_id: string }[]>`
+      SELECT issued_by, school_id FROM tv_device_commands WHERE device_id = ${DEV_B}
+    `;
+    expect(cmd.length).toBe(1);
+    expect(cmd[0].issued_by).toBeNull();
+    expect(cmd[0].school_id).toBe(fx.schoolB);
+
+    // 監査: actor_user_id は null、誰がは actor_identity_uid、school_id は対象デバイス(B)。
+    const audit = await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_user_role', 'system_admin', true)`;
+      return await tx<
+        { actor_user_id: string | null; actor_identity_uid: string | null; school_id: string }[]
+      >`
+        SELECT actor_user_id, actor_identity_uid, school_id
+        FROM audit_log WHERE table_name = 'tv_device_commands'
+      `;
+    });
+    expect(audit.length).toBe(1);
+    expect(audit[0].actor_user_id).toBeNull();
+    expect(audit[0].actor_identity_uid).toBe(SYS_UID);
+    expect(audit[0].school_id).toBe(fx.schoolB);
   });
 
   it("生 INSERT で他校 school_id を書くと WITH CHECK で拒否される", async () => {
@@ -150,7 +202,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -174,7 +226,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -186,7 +238,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "service_restart",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -198,7 +250,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowB,
           command: "signage_exit",
           actorUserId: fx.userB,
-          actorSchoolId: fx.schoolB,
+          actorIdentityUid: fx.userB,
         }),
       APP,
     );
@@ -222,7 +274,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -243,7 +295,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -273,7 +325,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -302,7 +354,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "signage_reload",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );
@@ -314,7 +366,7 @@ describeOrSkip("RLS: F15 tv_device_commands", () => {
           deviceRowId: rowA,
           command: "service_restart",
           actorUserId: fx.userA,
-          actorSchoolId: fx.schoolA,
+          actorIdentityUid: fx.userA,
         }),
       APP,
     );

@@ -33,10 +33,13 @@ describeOrSkip("RLS: F15 tv_devices config edit", () => {
   const DEV_A = "f15ed17a-0000-4000-8000-0000000000a1";
   const DEV_B = "f15ed17b-0000-4000-8000-0000000000b2";
   const DEV_DEL = "f15ed17d-0000-4000-8000-0000000000d3";
+  // system_admin cross-tenant 編集の専用デバイス（B 校）。他テストの不変アサートを汚さないよう独立させる。
+  const DEV_SA = "f15ed175-0000-4000-8000-0000000000a5";
   // 編集対象の行 PK（id）。RETURNING で受けて再利用する。
   let rowIdA = "";
   let rowIdB = "";
   let rowIdDel = "";
+  let rowIdSa = "";
 
   beforeAll(async () => {
     fx = await seedBaseFixture(sql);
@@ -65,6 +68,13 @@ describeOrSkip("RLS: F15 tv_devices config edit", () => {
       RETURNING id
     `;
     rowIdDel = del.id;
+    // B 校に system_admin cross-tenant 編集用の独立デバイス（他テストの不変アサートと干渉しない）。
+    const [saDev] = await sql<{ id: string }[]>`
+      INSERT INTO tv_devices (school_id, device_id, label, version)
+      VALUES (${fx.schoolB}, ${DEV_SA}, 'SA 編集対象', 3)
+      RETURNING id
+    `;
+    rowIdSa = saDev.id;
   });
 
   beforeEach(async () => {
@@ -147,6 +157,35 @@ describeOrSkip("RLS: F15 tv_devices config edit", () => {
     `;
     expect(b[0].label).toBe("職員室");
     expect(b[0].version).toBe(2);
+  });
+
+  it("system_admin（school 未所属）は任意校のデバイスを編集できる（cross-tenant、updated_by は null）", async () => {
+    // school 未所属の cross-tenant 運用者 context（app.current_school_id 未設定 + role=system_admin）で
+    // B 校の専用デバイスを編集する。system_admin_full_access policy が全校 UPDATE を許可する。
+    const ref = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) =>
+        updateTvDeviceConfig(tx, {
+          id: rowIdSa,
+          patch: { label: "SA が cross-tenant 編集" },
+          // system_admin は users 行でないため updated_by(FK) は null（FK 違反回避、createTvDevice と同パターン）。
+          actorUserId: null,
+        }),
+      APP,
+    );
+    expect(ref).toBeDefined();
+    expect(ref?.version).toBe(4); // 3 → +1
+    // RETURNING は対象デバイスの school を返す（監査の school_id 記録用）。
+    expect(ref?.schoolId).toBe(fx.schoolB);
+
+    // 反映 + updated_by が null（FK 違反せず編集できている）。
+    const after = await sql<{ label: string | null; version: number; updated_by: string | null }[]>`
+      SELECT label, version, updated_by FROM tv_devices WHERE id = ${rowIdSa}
+    `;
+    expect(after[0].label).toBe("SA が cross-tenant 編集");
+    expect(after[0].version).toBe(4);
+    expect(after[0].updated_by).toBeNull();
   });
 
   it("getTvDeviceConfig: 自校は取得、他校は不可視 → undefined", async () => {
