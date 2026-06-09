@@ -34,7 +34,23 @@ import Link from "next/link";
  * **色 + テキストの両方**で示す（NFR05 / WCAG 2.2 AA、色のみに依存しない）。`target_mac` は末尾 4 桁
  * のみ表示（F15 §5、フル値は将来の system_admin 詳細画面のみ）。device_id も先頭のみ短縮表示。
  */
-export default async function TvDevicesPage() {
+/** 稼働ステータス絞り込みのタブ順。「応答なし→未接続」を先頭寄りにして要対応を素早く拾えるようにする。 */
+const STATUS_FILTERS = ["all", "down", "never", "quiet", "online"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+/** searchParams の `status` を既知のステータスへ正規化する（不正値・undefined は "all" に倒す）。
+ *  許可集合は STATUS_FILTERS を単一ソースにして、将来ステータスが増えても取りこぼさない。 */
+function parseStatusFilter(raw: string | undefined): StatusFilter {
+  return (STATUS_FILTERS as readonly string[]).includes(raw ?? "") ? (raw as StatusFilter) : "all";
+}
+
+export default async function TvDevicesPage({
+  searchParams,
+}: {
+  // `?status=down|never|quiet|online` で稼働状況による絞り込み（既定 = 全件）。Server Component の
+  // まま URL クエリで状態を持つ（クライアント JS 不要・ブックマーク/共有可能）。
+  searchParams: Promise<{ status?: string }>;
+}) {
   const user = await requireRole(ADMIN_ROLES);
   // 設定編集は school_admin / system_admin 限定。teacher には 403 に終わる「編集」リンクを出さない
   // （死リンク防止、#494 Reviewer Low-2）。実体の認可は編集ページの requireRole + RLS が担保する。
@@ -49,8 +65,16 @@ export default async function TvDevicesPage() {
     device: d,
     status: classifyTvLiveness(d.lastSeenAt, now),
   }));
-  const onlineCount = rows.filter((r) => r.status === "online").length;
-  const downCount = rows.filter((r) => r.status === "down").length;
+  const counts: Record<StatusFilter, number> = {
+    all: rows.length,
+    online: rows.filter((r) => r.status === "online").length,
+    quiet: rows.filter((r) => r.status === "quiet").length,
+    down: rows.filter((r) => r.status === "down").length,
+    never: rows.filter((r) => r.status === "never").length,
+  };
+  const selected = parseStatusFilter((await searchParams).status);
+  // 選択中ステータスだけに絞る（"all" は全件）。運用者の「いま応答なしの TV はどれ？」を 1 クリックで。
+  const visibleRows = selected === "all" ? rows : rows.filter((r) => r.status === selected);
 
   return (
     <section>
@@ -58,7 +82,7 @@ export default async function TvDevicesPage() {
         <h1 style={titleStyle}>TV デバイス</h1>
         <span style={headerRightStyle}>
           <span style={countStyle}>
-            稼働中 {onlineCount} / 応答なし {downCount} / 全 {devices.length} 台
+            稼働中 {counts.online} / 応答なし {counts.down} / 全 {devices.length} 台
           </span>
           {canOnboard && (
             <Link href="/admin/tv-devices/provision" style={onboardLinkStyle}>
@@ -76,8 +100,37 @@ export default async function TvDevicesPage() {
         各 TV は 60 秒ごとにサーバへ設定を取りに来ます。最終ポーリング時刻から稼働状況を判定します。
       </p>
 
+      {/* 稼働ステータスで絞り込むタブ（Server Component のまま `?status=` で状態を持つ）。要対応
+          （応答なし / 未接続）を素早く拾えるよう先頭寄りに並べる。件数 0 のタブも出して全体像を保つ。 */}
+      {devices.length > 0 ? (
+        <nav aria-label="稼働ステータスで絞り込み" style={filterRowStyle}>
+          {STATUS_FILTERS.map((s) => {
+            const isActive = s === selected;
+            const label = s === "all" ? "すべて" : `${TV_STATUS_ICON[s]} ${TV_STATUS_LABEL[s]}`;
+            const href = s === "all" ? "/admin/tv-devices" : `/admin/tv-devices?status=${s}`;
+            return (
+              <Link
+                key={s}
+                href={href}
+                aria-current={isActive ? "page" : undefined}
+                style={isActive ? chipActiveStyle : chipStyle}
+              >
+                {label}（{counts[s]}）
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
+
       {devices.length === 0 ? (
         <p style={emptyStyle}>登録されている TV デバイスがありません。</p>
+      ) : visibleRows.length === 0 ? (
+        <p style={emptyStyle}>
+          この稼働ステータスに該当する TV はありません。
+          <Link href="/admin/tv-devices" style={{ marginLeft: "0.5rem", ...editLinkStyle }}>
+            すべて表示
+          </Link>
+        </p>
       ) : (
         <table style={tableStyle}>
           <caption style={captionStyle}>TV デバイスの稼働一覧</caption>
@@ -87,7 +140,7 @@ export default async function TvDevicesPage() {
                 教室ラベル
               </th>
               <th scope="col" style={thLeftStyle}>
-                device_id
+                端末ID
               </th>
               <th scope="col" style={thLeftStyle}>
                 センサー MAC
@@ -110,7 +163,7 @@ export default async function TvDevicesPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ device, status }) => (
+            {visibleRows.map(({ device, status }) => (
               <DeviceRow
                 key={device.id}
                 device={device}
@@ -215,7 +268,32 @@ const onboardLinkStyle: React.CSSProperties = {
   fontSize: "0.9rem",
   whiteSpace: "nowrap",
 };
-const subtitleStyle: React.CSSProperties = { color: "#6b7280", margin: "0.35rem 0 1.25rem" };
+const subtitleStyle: React.CSSProperties = { color: "#6b7280", margin: "0.35rem 0 0.75rem" };
+const filterRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.4rem",
+  margin: "0 0 1.25rem",
+};
+const chipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "0.3rem 0.7rem",
+  borderRadius: "999px",
+  border: "1px solid #e5e7eb",
+  background: "#fff",
+  color: "#374151",
+  fontSize: "0.82rem",
+  fontWeight: 600,
+  textDecoration: "none",
+  whiteSpace: "nowrap",
+};
+const chipActiveStyle: React.CSSProperties = {
+  ...chipStyle,
+  background: "#1f2937",
+  borderColor: "#1f2937",
+  color: "#fff",
+};
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const tableStyle: React.CSSProperties = {
   width: "100%",

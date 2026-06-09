@@ -27,21 +27,34 @@ const TERMINAL = new Set(["succeeded", "failed", "canceled"]);
 export function ProvisionProgress({ jobId }: { jobId: string }) {
   const [view, setView] = useState<ProvisioningJobStatusView>(null);
   const [done, setDone] = useState(false);
+  const [pollError, setPollError] = useState(false);
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function poll() {
-      const v = await getProvisioningJobStatusAction(jobId);
-      if (!active) {
-        return;
+      try {
+        const v = await getProvisioningJobStatusAction(jobId);
+        if (!active) {
+          return;
+        }
+        setPollError(false);
+        setView(v);
+        if (v && TERMINAL.has(v.status)) {
+          setDone(true);
+          return;
+        }
+        timer = setTimeout(poll, 3000);
+      } catch {
+        // 一時的な取得失敗（ネットワーク瞬断等）でポーリング連鎖を止めない。従来は例外で setTimeout が
+        // 二度と積まれず「（自動更新中…）」表示のまま凍結していた（物理作業中に進捗が死んだように見える）。
+        // 少し間隔を空けて自動で再試行し、失敗中である旨を運用者に明示する。
+        if (!active) {
+          return;
+        }
+        setPollError(true);
+        timer = setTimeout(poll, 5000);
       }
-      setView(v);
-      if (v && TERMINAL.has(v.status)) {
-        setDone(true);
-        return;
-      }
-      timer = setTimeout(poll, 3000);
     }
     poll();
     return () => {
@@ -53,7 +66,11 @@ export function ProvisionProgress({ jobId }: { jobId: string }) {
   }, [jobId]);
 
   if (!view) {
-    return <p style={mutedStyle}>進捗を取得中…</p>;
+    return (
+      <p style={mutedStyle}>
+        {pollError ? "進捗の取得に失敗しました。再試行中…" : "進捗を取得中…"}
+      </p>
+    );
   }
 
   const steps = Array.isArray(view.steps)
@@ -64,7 +81,11 @@ export function ProvisionProgress({ jobId }: { jobId: string }) {
     <div style={progressStyle}>
       <p style={{ margin: 0, fontWeight: 700 }}>
         現在の状態: {STATUS_LABELS[view.status] ?? view.status}
-        {done ? null : <span style={mutedStyle}>（自動更新中…）</span>}
+        {done ? null : (
+          <span style={mutedStyle}>
+            {pollError ? "（更新に失敗・再試行中…）" : "（自動更新中…）"}
+          </span>
+        )}
       </p>
       {view.currentStep ? (
         <p style={{ margin: "0.3rem 0 0", fontSize: "0.9rem" }}>ステップ: {view.currentStep}</p>
