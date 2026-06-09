@@ -171,7 +171,7 @@ locals {
   jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "3f067e9" # C方式 deploy 2026-06-09: provision UI/API(PR2-4) + PROVISION_AGENT_SECRET 配線。_APP_URL=app.school-signage.net 維持
+  web_image_tag = "0f015a0" # deploy 2026-06-09: system_admin(学校未所属)が TV 設定編集/コマンド発行できないバグ修正(#770)。_APP_URL=app.school-signage.net 維持
 }
 
 module "network" {
