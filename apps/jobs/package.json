@@ -19,7 +19,7 @@
     "pdfkit": "^0.18.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.2",
     "@types/pdfkit": "^0.17.6",
     "pdfjs-dist": "^6.0.227",
     "postgres": "^3.4.5",
