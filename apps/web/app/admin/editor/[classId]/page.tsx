@@ -73,6 +73,29 @@ export default async function ClassEditorPage({
               ← 編集対象の選択へ戻る
             </Link>
             <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
+            {/*
+              編集中の内容が「生徒のサイネージに今どう出るか」をその場で確認する導線 (#48-E1 の
+              signage-preview への入口)。盤面を見ずに編集する死角を解消する。EDITOR_ROLES ⊂ ADMIN_ROLES
+              ゆえ teacher でも 403 にならない (preview は ADMIN_ROLES ガード)。別タブで開き、編集を続けながら
+              プレビューを再読込できるようにする。
+            */}
+            <p style={{ margin: "0 0 0.25rem" }}>
+              <Link
+                href={`/admin/signage-preview/${classId}?date=${date}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                  color: "#c2410c",
+                }}
+              >
+                サイネージ表示を確認（別タブ） →
+              </Link>
+            </p>
             {canManageAds || canManageQuietHours || canIssueMagicLink ? (
               <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
                 {canIssueMagicLink ? (
