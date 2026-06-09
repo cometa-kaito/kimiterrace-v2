@@ -10,7 +10,8 @@
 #   - SLACK_WEBHOOK_URL は Secret Manager 経由で注入（任意、ルール5）。未設定なら Slack 送信は no-op
 #     （PR7 のコードが空をハンドルし、構造化ログのみ）。SENTRY_DSN と同じ optional パターン。
 #   - 閾値（TV_DOWN_THRESHOLD_SEC / TV_OFF_HOURS_THRESHOLD_SEC）は任意 override。未設定なら Job コードの
-#     既定（180 = 3 分 / 1800 = OFF 時 30 分、packages/db DEFAULT_TV_LIVENESS_THRESHOLDS）が効く。
+#     既定が効く（Job entrypoint tv-liveness-job.ts は TIGHT_THRESHOLD_SEC=120 を両閾値に渡す＝**実効
+#     120/120 秒** = F16 §9 の 24/7 tight。packages/db DEFAULT_TV_LIVENESS_THRESHOLDS 180/1800 は本 Job 経路では不到達）。
 #   - Scheduler は **毎分**（"* * * * *"）24/7 起動（ADR-023 / F16 §2 の 1 分間隔ポーリング前提）。
 
 variable "project_id" {
@@ -95,8 +96,8 @@ variable "slack_webhook_url_secret_id" {
 
 variable "tv_down_threshold_sec" {
   description = <<-EOT
-    通常の down 閾値（秒）の override。空文字なら env を設定せず、Job コードの既定 180（3 分）が効く
-    （packages/db DEFAULT_TV_LIVENESS_THRESHOLDS.downThresholdSec）。number ではなく string で受け、
+    通常の down 閾値（秒）の override。空文字なら env を設定せず、Job entrypoint(tv-liveness-job.ts) の
+    既定 **120 秒**が効く（F16 §9 24/7 tight。packages/db の 180 は本 Job 経路では不到達）。number ではなく string で受け、
     空文字 = 未設定と区別する（"" のとき env を生成しない）。
   EOT
   type        = string
@@ -105,8 +106,8 @@ variable "tv_down_threshold_sec" {
 
 variable "tv_off_hours_threshold_sec" {
   description = <<-EOT
-    OFF 時間帯の緩い down 閾値（秒）の override。空文字なら env を設定せず、Job コードの既定 1800（30 分）が
-    効く（packages/db DEFAULT_TV_LIVENESS_THRESHOLDS.offHoursThresholdSec）。string で受け、空文字 = 未設定。
+    OFF 時間帯の down 閾値（秒）の override。空文字なら env を設定せず、Job entrypoint の既定 **120 秒**が
+    効く（F16 §9 で OFF 緩和は撤廃済＝24/7 同一 tight。packages/db の 1800 は本 Job 経路では不到達）。string、空文字 = 未設定。
   EOT
   type        = string
   default     = ""

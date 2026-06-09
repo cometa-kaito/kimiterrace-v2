@@ -145,7 +145,7 @@ resource "google_cloud_run_v2_job" "tv_liveness" {
             }
           }
         }
-        # 閾値 override（任意）。空文字なら env を設定せず Job コードの既定（180 / 1800）が効く。
+        # 閾値 override（任意）。空文字なら env を設定せず Job entrypoint の既定 120/120（F16 §9 24/7 tight）が効く。
         # secret ではない平文の運用パラメータゆえ value で直接渡す。
         dynamic "env" {
           for_each = var.tv_down_threshold_sec != "" ? [1] : []
