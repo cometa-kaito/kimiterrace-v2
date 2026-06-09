@@ -48,6 +48,17 @@ export * from "./queries/tv-devices.js";
 export * from "./queries/tv-device-commands.js";
 // C方式 TV プロビジョニング: ジョブの作成(+監査) / claim(FOR UPDATE SKIP LOCKED) / 状態報告 / 一覧・単件
 export * from "./queries/tv-provisioning-jobs.js";
+// C方式 TV プロビジョニング / サイネージ: magic link トークン純ロジック（seed CLI と web Server Action で共有・ルール5 hash 保存）
+export {
+  DEFAULT_SIGNAGE_BASE_URL,
+  DEFAULT_SIGNAGE_TTL_DAYS,
+  buildSignageUrl,
+  generateToken,
+  hashToken,
+  isV2SignageUrl,
+  resolveSignageBaseUrl,
+  resolveSignageTtlDays,
+} from "./seed-ginan-signage.js";
 // F16 (ADR-023): TV 死活ギャップチェッカの純粋判定ロジック (last_seen ギャップ → down/recover 遷移)
 export * from "./queries/tv-liveness.js";
 // F16 (ADR-023): TV 死活チェックの DB 反映層 (alert_state 反転 + tv_device_downtime 記録、RLS 委譲)
