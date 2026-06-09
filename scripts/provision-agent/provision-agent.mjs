@@ -80,7 +80,11 @@ function run(cmd, args, opts = {}) {
   const code = r.status ?? (r.error ? 1 : 0);
   const out = { ok: code === 0, code, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
   if (!out.ok && opts.allowFail !== true) {
-    err(`コマンド失敗 (${code}): ${cmd} ${args.join(" ")}\n${out.stderr.trim()}`);
+    // secret が args / stderr に乗りうる（prefs 注入は poll-secret を config_endpoint に埋める）ため、生の
+    // 引数・出力・env 由来の実行パスはログに残さない（ルール5 / CodeQL js/clear-text-logging）。コマンドは
+    // 固定リテラルラベルに正規化する（env 値の taint を断つ）。詳細が要る箇所は呼出側が安全な context で扱う。
+    const cmdLabel = cmd === ADB ? "adb" : cmd === GCLOUD ? "gcloud" : "cmd";
+    err(`コマンド失敗 (code=${code}): ${cmdLabel} [${args.length} args]`);
   }
   return out;
 }
