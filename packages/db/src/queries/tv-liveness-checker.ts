@@ -34,7 +34,13 @@ import {
  * 書込」の結線と直列化・RLS のみを担う（`weather/run.ts` の DI 分離と同じ思想）。
  */
 
-/** チェッカ 1 回分の集計（Cloud Logging に構造化ログとして残す。PII を含めない）。 */
+/**
+ * チェッカ 1 回分の集計（Cloud Logging に構造化ログとして残す。`label` は PII 非含み = 教室名のみ、
+ * F16 §5）。`downDevices` / `recoveredDevices` は **state 反転エッジ**でのみ要素を持ち、それぞれ
+ * `newlyDown` / `recovered` の件数と厳密に一致する（実書込みが起きた TV だけを積む。下記
+ * `applyTransitions` 参照）。エントリ（`apps/jobs`）はこれを使って **エッジ 1 回だけ** Slack へ通知し、
+ * 既に down 中の TV を再通知しない（状態機械が send-once を保証する）。
+ */
 export interface TvLivenessCheckSummary {
   /** 走査した TV 台数。 */
   scanned: number;
@@ -42,10 +48,34 @@ export interface TvLivenessCheckSummary {
   newlyDown: number;
   /** 復帰として締めた台数（ダウンタイム行を UPDATE）。 */
   recovered: number;
+  /**
+   * 今回 up→down に反転した TV（ダウンタイム行を実際に INSERT した分のみ）。`newlyDown` と件数一致。
+   * Slack 🔴 アラートの素材（device ラベル・学校・最終観測時刻）。型は inline（新規 export 型を増やさない）。
+   */
+  downDevices: {
+    deviceId: string;
+    schoolId: string;
+    label: string | null;
+    lastSeenAt: Date | null;
+    wentDownAt: Date;
+  }[];
+  /**
+   * 今回 down→up に反転した TV（未解決行を実際に締めた分のみ）。`recovered` と件数一致。
+   * Slack 🟢 復帰通知の素材。型は inline（新規 export 型を増やさない）。
+   */
+  recoveredDevices: {
+    deviceId: string;
+    schoolId: string;
+    label: string | null;
+    lastSeenAt: Date | null;
+  }[];
 }
 
-/** 走査対象 1 行の内部表現（schema 由来 + 未解決行有無）。 */
-type DeviceStateRow = TvLivenessInput;
+/** 走査対象 1 行の内部表現（schema 由来 + 未解決行有無 + 表示ラベル）。 */
+type DeviceStateRow = TvLivenessInput & {
+  /** 表示用ラベル（教室名等、PII 非含み）。Slack 通知文に使う。 */
+  label: string | null;
+};
 
 /**
  * 死活チェックを 1 回実行する（RLS context 内トランザクションで呼ぶ）。
@@ -68,10 +98,13 @@ export async function runTvLivenessCheck(
   // 同一 TV を newlyDown と分類しうる（双方が INSERT 前に hasOpenDowntime=false を見るタイミング）。
   // 直列化点（親行 FOR UPDATE）で DB の未解決行は 1 行に保たれるが、サマリを classification 長で
   // 数えると「スキップした 2 本目」も計上され newlyDown 合計が 2 になる非決定（#517）。実書込件数を
-  // 返せば、勝者が 1・敗者が 0 で timing 非依存に合計 1 となる。
+  // 返せば、勝者が 1・敗者が 0 で timing 非依存に合計 1 となる。downDevices / recoveredDevices も
+  // applyTransitions 内で「実際に書き込んだ TV」だけを積むため、件数と配列長は常に一致する。
+  // 通知文に要る label / lastSeenAt は事前読取（states）から device 単位で引く（同一 tx 内の値）。
+  const stateByDevice = new Map(states.map((s) => [s.deviceId, s] as const));
   return {
     scanned: states.length,
-    ...(await applyTransitions(tx, classification)),
+    ...(await applyTransitions(tx, classification, stateByDevice)),
   };
 }
 
@@ -85,6 +118,8 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
     .select({
       deviceId: tvDevices.deviceId,
       schoolId: tvDevices.schoolId,
+      // 表示用ラベル（教室名等、PII 非含み）。Slack 通知文に載せる（F16 §4）。
+      label: tvDevices.label,
       lastSeenAt: tvDevices.lastSeenAt,
       lastBootAt: tvDevices.lastBootAt,
       alertState: tvDevices.alertState,
@@ -114,6 +149,7 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
   return rows.map((r) => ({
     deviceId: r.deviceId,
     schoolId: r.schoolId,
+    label: r.label,
     lastSeenAt: r.lastSeenAt,
     lastBootAt: r.lastBootAt,
     alertState: r.alertState,
@@ -134,9 +170,14 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
 async function applyTransitions(
   tx: TenantTx,
   classification: TvLivenessClassification,
-): Promise<{ newlyDown: number; recovered: number }> {
+  stateByDevice: ReadonlyMap<string, DeviceStateRow>,
+): Promise<
+  Pick<TvLivenessCheckSummary, "newlyDown" | "recovered" | "downDevices" | "recoveredDevices">
+> {
   let newlyDown = 0;
   let recovered = 0;
+  const downDevices: TvLivenessCheckSummary["downDevices"] = [];
+  const recoveredDevices: TvLivenessCheckSummary["recoveredDevices"] = [];
   for (const down of classification.newlyDown) {
     // 直列化点（device 単位）: 親 tv_devices 行を FOR UPDATE でロックする。FK で必ず 1 行存在するため、
     // 「初回 down（未解決行がまだ 0 件）」でも空集合にならず、同時実行の 2 本目はこのロック解放まで
@@ -175,6 +216,16 @@ async function applyTransitions(
       .set({ alertState: "down", updatedAt: new Date() })
       .where(eq(tvDevices.deviceId, down.deviceId));
     newlyDown += 1; // 実際に INSERT した時のみ計上（スキップ経路は continue 済みで非計上）。
+    // 実 INSERT したエッジだけ通知素材を積む（newlyDown と配列長を一致させる。同時発火の敗者は
+    // 上の continue 経路で非計上 = 非 push なので二重通知しない）。label / lastSeenAt は事前読取から引く。
+    const st = stateByDevice.get(down.deviceId);
+    downDevices.push({
+      deviceId: down.deviceId,
+      schoolId: down.schoolId,
+      label: st?.label ?? null,
+      lastSeenAt: st?.lastSeenAt ?? null,
+      wentDownAt: down.wentDownAt,
+    });
   }
 
   for (const rec of classification.recovered) {
@@ -199,8 +250,17 @@ async function applyTransitions(
       .where(eq(tvDevices.deviceId, rec.deviceId));
     if (closed.length > 0) {
       recovered += 1; // 実際に未解決行を締めた時のみ計上（別チェッカが先に締めていれば 0 行更新で非計上）。
+      // 実際に締めたエッジだけ通知素材を積む（recovered と配列長を一致させる）。lastSeenAt は復帰後の
+      // 鮮度 OK な値（事前読取）。
+      const st = stateByDevice.get(rec.deviceId);
+      recoveredDevices.push({
+        deviceId: rec.deviceId,
+        schoolId: rec.schoolId,
+        label: st?.label ?? null,
+        lastSeenAt: st?.lastSeenAt ?? null,
+      });
     }
   }
 
-  return { newlyDown, recovered };
+  return { newlyDown, recovered, downDevices, recoveredDevices };
 }

@@ -1,26 +1,41 @@
 import { env, exit } from "node:process";
 import { type RunTvLivenessConfig, resolveThresholds, runTvLivenessCheckBatch } from "./run.js";
+import { deliverTvLivenessAlerts } from "./slack.js";
 
 /**
- * F16 (ADR-023): TV 死活チェックの Cloud Run Job エントリ。
+ * F16 (ADR-023, §9): TV 死活チェックの Cloud Run Job エントリ。
  *
  * 使い方: `node src/tv-liveness/tv-liveness-job.ts`（Cloud Run Job のコンテナ起動コマンド）。Cloud Scheduler
  * から **1 分間隔** で起動する想定（ADR-023 / F16 §2）。ロジックは `run.ts`（`runTvLivenessCheckBatch`、
  * フェイク無しでも実 PG で検証可能）と `packages/db` の純関数（`classifyTvLiveness`）に置き、本ファイルは
- * env 読取・構造化ログ・終了コードの I/O 結線のみに徹する（`weather/weather-job.ts` と同じ分離）。
+ * env 読取・構造化ログ・Slack 配信結線・終了コードの I/O 結線のみに徹する（`weather/weather-job.ts` と同じ分離）。
+ *
+ * ## 24/7 タイト監視（F16 §9、OFF 時間帯緩和の撤廃）
+ * TV は夜間も黒画面のまま 60 秒ポーリングを続ける（スリープしない）ため、**夜間の無音 = 実障害**。よって
+ * OFF 時間帯に閾値を緩める旧仕様（30 分）を撤廃し、**24/7 単一のタイト閾値 ≈120 秒**（= 60 秒ポーリング 2 回
+ * 欠落、瞬断耐性あり）を適用する。実装は本エントリで `{ downThresholdSec: 120, offHoursThresholdSec: 120 }`
+ * を渡し、純判定側（`classifyTvLiveness` の `isStale`）が OFF 時間帯でも同じ閾値を使うようにする
+ * （`tv-liveness.ts` に OFF 時間帯の「アラート skip」分岐は無く、閾値を揃えれば緩和は完全に消える）。
+ * env `TV_DOWN_THRESHOLD_SEC` / `TV_OFF_HOURS_THRESHOLD_SEC` での上書きは引き続き可能だが、既定を 120/120 に倒す。
  *
  * 必須 env:
  * - `DATABASE_URL`: **kimiterrace_app ロール**（非 BYPASSRLS）。Secret Manager 経由で注入し、コード/
  *   コミットされる env にハードコードしない（ルール5）。
  * 任意 env:
- * - `TV_DOWN_THRESHOLD_SEC`: 通常の down 閾値（秒、既定 180 = 3 分）。
- * - `TV_OFF_HOURS_THRESHOLD_SEC`: OFF 時間帯の緩い閾値（秒、既定 1800 = 30 分）。
+ * - `SLACK_WEBHOOK_URL`: Slack Incoming Webhook（Secret Manager 経由）。未設定なら配信 no-op（ルール5）。
+ * - `TV_LIVENESS_HEARTBEAT`: "1"/"true" のとき日次ハートビート（✅ 監視稼働中）を 1 件足す（dead-man's-switch）。
+ *   毎分起動でこれを常時立てるとスパムになるため、日次起動の Scheduler でのみ立てる想定。
+ * - `TV_DOWN_THRESHOLD_SEC`: down 閾値（秒、既定 120 = 24/7 タイト）。
+ * - `TV_OFF_HOURS_THRESHOLD_SEC`: OFF 時間帯の閾値（秒、既定 120 = 緩和撤廃で通常と同値）。
  *
  * ## 非スコープ（follow-up）
- * - Cloud Run Job 定義 + Cloud Scheduler（1 分間隔）+ dead man's switch（チェッカ自体の死活、ADR-014）は
- *   Terraform で管理する（ルール8、ADR-009 未作成 #94）。本 Job をスケジュール起動する配線は含めない。
- * - アラート配信（Sentry / メール / Slack、F16 §4）。現状は遷移件数を INFO ログに残すのみ。
+ * - Cloud Run Job 定義 + Cloud Scheduler（毎分化）+ Slack シークレットコンテナは Terraform で管理する
+ *   （ルール8、別 PR）。本 Job をスケジュール起動する配線・シークレット定義は含めない。
+ * - Sentry / メール配信（F16 §4）。本 PR は Slack 配信のみ。
  */
+
+/** 24/7 タイト監視の既定閾値（秒）。OFF 緩和を撤廃し通常/OFF を同値に揃える（F16 §9）。 */
+const TIGHT_THRESHOLD_SEC = 120;
 
 /** 必須 env を取得する（未設定は throw）。 */
 function requireEnv(name: string): string {
@@ -41,6 +56,12 @@ function optionalIntEnv(name: string): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/** 真偽 env を取得する（"1"/"true"（大小無視）のみ true、それ以外/未設定は false）。 */
+function boolEnv(name: string): boolean {
+  const raw = env[name]?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
 /**
  * エラーメッセージから接続文字列（DSN）を伏せる（ルール5: secret をログに出さない）。
  */
@@ -49,19 +70,36 @@ function redactDsn(s: string): string {
 }
 
 async function main(): Promise<void> {
-  // 片方だけ指定もあり得るため、指定があるものだけ上書きする（未指定は既定が効く）。閾値の確定は
+  // 24/7 タイト監視（F16 §9）: 既定を 120/120 に倒し OFF 緩和を撤廃する。env 指定があればそれを優先する
+  // （運用での微調整余地は残す）。通常 / OFF を同値に揃えることで `isStale` が OFF 時間帯でも同じ閾値を使い、
+  // 緩和は完全に消える（`tv-liveness.ts` 側に OFF 時間帯のアラート skip 分岐は無い）。閾値の確定は
   // resolveThresholds（純関数 seam）に委ね、env 読取だけここで行う。
+  const now = new Date();
   const config: RunTvLivenessConfig = {
     databaseUrl: requireEnv("DATABASE_URL"),
+    now,
     thresholds: resolveThresholds({
-      downThresholdSec: optionalIntEnv("TV_DOWN_THRESHOLD_SEC"),
-      offHoursThresholdSec: optionalIntEnv("TV_OFF_HOURS_THRESHOLD_SEC"),
+      downThresholdSec: optionalIntEnv("TV_DOWN_THRESHOLD_SEC") ?? TIGHT_THRESHOLD_SEC,
+      offHoursThresholdSec: optionalIntEnv("TV_OFF_HOURS_THRESHOLD_SEC") ?? TIGHT_THRESHOLD_SEC,
     }),
   };
 
   const summary = await runTvLivenessCheckBatch(config);
-  // 件数サマリのみ info ログに（Cloud Logging の構造化ログ）。secret / PII は出さない。
-  console.info(JSON.stringify({ event: "tv.health_check.done", summary }));
+  // 件数サマリのみ info ログに（Cloud Logging の構造化ログ）。secret / PII は出さない（label は教室名で非 PII）。
+  console.info(
+    JSON.stringify({
+      event: "tv.health_check.done",
+      summary: {
+        scanned: summary.scanned,
+        newlyDown: summary.newlyDown,
+        recovered: summary.recovered,
+      },
+    }),
+  );
+
+  // state 反転エッジ（down / recover）を Slack へ配信し、env flag が立っていれば日次ハートビートを足す。
+  // SLACK_WEBHOOK_URL 未設定なら no-op（CI / 未注入環境でも緑、ルール5）。配信失敗で Job は落とさない。
+  await deliverTvLivenessAlerts(summary, now, boolEnv("TV_LIVENESS_HEARTBEAT"));
 }
 
 main().catch((err) => {
