@@ -15,7 +15,6 @@ import type { TvCommandType } from "@kimiterrace/db/schema";
 export {
   type ActionResult,
   type TvConfigEditActor as TvCommandActor,
-  forbidden,
   invalid,
   notFound,
   isUuid,
