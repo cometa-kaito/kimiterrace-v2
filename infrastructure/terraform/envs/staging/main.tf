@@ -116,7 +116,16 @@ locals {
 
   # TV ポーリング共有シークレット（TV_POLL_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
   # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
-  tv_poll_secret_id = "staging-tv-poll-secret"
+  tv_poll_secret_id = "staging-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
+  # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
+  # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
+  provision_agent_secret_id = "staging-provision-agent-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # TV 死活監視の Slack incoming webhook URL の Secret Manager secret ID（ルール5・値は別途投入）。
+  # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
+  slack_webhook_url_secret_id = "staging-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
@@ -269,6 +278,12 @@ module "secret_manager" {
     }
     (local.tv_poll_secret_id) = {
       description = "TV ポーリング共有シークレット（TV_POLL_SECRET、F15/ADR-022）。Cloud Run web service が /api/tv/config・/api/tv/lp-config の認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.provision_agent_secret_id) = {
+      description = "TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET、C方式/PR4）。Cloud Run web service が /api/tv/provisioning/* の agent 認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.slack_webhook_url_secret_id) = {
+      description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
@@ -463,16 +478,17 @@ resource "google_project_service" "aiplatform" {
 }
 
 module "cloud_run" {
-  source                 = "../../modules/cloud_run"
-  project_id             = var.project_id
-  region                 = var.region
-  env                    = local.env
-  enabled                = true
-  image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id = local.db_url_app_secret_id
-  tv_poll_secret_id      = local.tv_poll_secret_id
-  vpc_connector          = module.network.vpc_connector_id
-  vertex_location        = var.region
+  source                    = "../../modules/cloud_run"
+  project_id                = var.project_id
+  region                    = var.region
+  env                       = local.env
+  enabled                   = true
+  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id    = local.db_url_app_secret_id
+  tv_poll_secret_id         = local.tv_poll_secret_id
+  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
+  vpc_connector             = module.network.vpc_connector_id
+  vertex_location           = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
   # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
   # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。
@@ -521,6 +537,29 @@ module "cloud_run_job_weather" {
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+}
+
+# F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。
+# staging で有効化（weather と同じ jobs:<tag> イメージを共有・command/args だけ差し替え）。container_args で
+# tv-liveness-job を起動。DATABASE_URL は既存 app DSN secret（kimiterrace_app、down/recover 反映は run.ts が
+# system_admin context）。vpc_connector で Cloud SQL private IP 到達 + 外部 egress(Slack) を VPC 経由に集約し
+# Cloud NAT で出す（閉域原則・出口1経路）。external_egress_ready=network.egress_ready（NAT 実在＝true）で plan
+# 時 fail-fast を満たす。SLACK_WEBHOOK_URL は staging-slack-webhook-url secret（PR7 §9）。**値未投入のうちは
+# Slack 送信は no-op**（PR7 のコードが空をハンドル・構造化ログのみ）。Scheduler は毎分起動（ADR-023 / F16 §2）。
+module "cloud_run_job_tv_liveness" {
+  source                      = "../../modules/cloud_run_job_tv_liveness"
+  project_id                  = var.project_id
+  region                      = var.region
+  env                         = local.env
+  enabled                     = true
+  deletion_protection         = false       # staging は recreate 容易性優先（Issue #70）
+  schedule                    = "* * * * *" # 毎分（24/7、ADR-023 / F16 §2 の 1 分間隔ポーリング前提）
+  image                       = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args              = ["dist/tv-liveness/tv-liveness-job.js"] # ビルド済み tv-liveness-job
+  database_url_secret_id      = local.db_url_app_secret_id
+  slack_webhook_url_secret_id = local.slack_webhook_url_secret_id # PR7 §9: device_down/recovered 配信（値は人間投入）
+  vpc_connector               = module.network.vpc_connector_id
+  external_egress_ready       = module.network.egress_ready # network の Cloud NAT 実在 signal（Slack 外部 egress、ADR-021）
 }
 
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。

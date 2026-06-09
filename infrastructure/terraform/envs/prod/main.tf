@@ -134,7 +134,16 @@ locals {
   # TV ポーリング共有シークレット（TV_POLL_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
   # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
   # cutover では v1 LP の TV_POLL_SECRET 現値と一致させる（LP 互換ポーリングを切らさない）。
-  tv_poll_secret_id = "prod-tv-poll-secret"
+  tv_poll_secret_id = "prod-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
+  # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
+  # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
+  provision_agent_secret_id = "prod-provision-agent-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # TV 死活監視の Slack incoming webhook URL の Secret Manager secret ID（ルール5・値は別途投入）。
+  # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
+  slack_webhook_url_secret_id = "prod-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
   # ── イメージタグ（placeholder）─────────────────────────────────────────────
   # TODO(bring-up ①): "REPLACE_AT_BRINGUP" を、prod 用に Cloud Build 済 + Artifact Registry push 済の
@@ -228,6 +237,12 @@ module "secret_manager" {
     }
     (local.tv_poll_secret_id) = {
       description = "TV ポーリング共有シークレット（TV_POLL_SECRET、F15/ADR-022）。Cloud Run web service が /api/tv/config・/api/tv/lp-config の認証に使う。cutover では v1 LP 現値と一致させる。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.provision_agent_secret_id) = {
+      description = "TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET、C方式/PR4）。Cloud Run web service が /api/tv/provisioning/* の agent 認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.slack_webhook_url_secret_id) = {
+      description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
@@ -437,16 +452,17 @@ resource "google_project_service" "aiplatform" {
 # Vertex user + Identity Platform admin + 各 secret accessor を付与。app が自前認証ゆえ未認証 invoker（allUsers）許可。
 # 2-phase apply（④）: ① secret コンテナ作成 → ② app DSN / tv-poll 値投入 → ③ full apply で service 作成。
 module "cloud_run" {
-  source                 = "../../modules/cloud_run"
-  project_id             = var.project_id
-  region                 = var.region
-  env                    = local.env
-  enabled                = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
-  image                  = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id = local.db_url_app_secret_id
-  tv_poll_secret_id      = local.tv_poll_secret_id
-  vpc_connector          = module.network.vpc_connector_id
-  vertex_location        = var.region
+  source                    = "../../modules/cloud_run"
+  project_id                = var.project_id
+  region                    = var.region
+  env                       = local.env
+  enabled                   = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
+  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id    = local.db_url_app_secret_id
+  tv_poll_secret_id         = local.tv_poll_secret_id
+  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
+  vpc_connector             = module.network.vpc_connector_id
+  vertex_location           = var.region
 
   # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
@@ -506,6 +522,32 @@ module "cloud_run_job_weather" {
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+  # deletion_protection はモジュール既定 true（prod）
+}
+
+# F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。
+# image = jobs:<tag>（weather と同じ jobs イメージを共有・command/args だけ差し替え）。container_args で
+# tv-liveness-job を起動。DATABASE_URL は既存 app DSN secret（kimiterrace_app、down/recover 反映は run.ts が
+# system_admin context）。vpc_connector で Cloud SQL private IP 到達 + 外部 egress(Slack) を VPC 経由に集約し
+# Cloud NAT で出す（閉域原則・出口1経路）。SLACK_WEBHOOK_URL は prod-slack-webhook-url secret（PR7 §9・人間投入）。
+#
+# ★ prod は **enabled = false**（雛形）。jobs イメージ未ビルド（jobs_image_tag = "REPLACE_AT_BRINGUP"）+
+#   prod-slack-webhook-url 値未投入のため、enabled=true で placeholder image を本番に出さない（規律）。
+# TODO(bring-up): jobs イメージを build/push し jobs_image_tag を実 sha に置換 + prod-provision-agent-secret /
+#   prod-slack-webhook-url の値を投入 → enabled = true に倒し schedule "* * * * *"（毎分）で apply する。
+module "cloud_run_job_tv_liveness" {
+  source                      = "../../modules/cloud_run_job_tv_liveness"
+  project_id                  = var.project_id
+  region                      = var.region
+  env                         = local.env
+  enabled                     = false       # TODO(bring-up): jobs イメージ build + slack secret 投入後に true（毎分起動）
+  schedule                    = "* * * * *" # 毎分（24/7）。enabled=true 化時に効く（ADR-023 / F16 §2）
+  image                       = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args              = ["dist/tv-liveness/tv-liveness-job.js"] # ビルド済み tv-liveness-job
+  database_url_secret_id      = local.db_url_app_secret_id
+  slack_webhook_url_secret_id = local.slack_webhook_url_secret_id # PR7 §9: device_down/recovered 配信（値は人間投入）
+  vpc_connector               = module.network.vpc_connector_id
+  external_egress_ready       = module.network.egress_ready # network の Cloud NAT 実在 signal（Slack 外部 egress、ADR-021）
   # deletion_protection はモジュール既定 true（prod）
 }
 
