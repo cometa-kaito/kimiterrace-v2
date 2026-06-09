@@ -1,0 +1,61 @@
+# infrastructure/docker/cloudbuild-jobs.yaml
+#
+# apps/jobs（Cloud Run Jobs: F14 天気取得 / F16 §9 TV 死活監視 等）の runner image を **再現可能に**
+# build & push する Cloud Build 設定。`jobs.Dockerfile` を build し `<repo>/jobs:<sha>` を Artifact
+# Registry へ push する。各 Job は Cloud Run Job 定義の command/args 上書きでエントリを切替える
+# （既定 = weather = dist/weather/weather-job.js、tv-liveness = dist/tv-liveness/tv-liveness-job.js）。
+#
+# なぜ commit するか: cloudbuild-migrate.yaml / cloudbuild-web.yaml と同じ理由 — 一時 config をやめ、
+# どの clean checkout / fresh worktree からも同じ image を build できるようにする（手書き運用の廃止）。
+# これまで jobs image は prod 未 build（bring-up placeholder）で、本 config が初の正規 jobs ビルド設定。
+#
+# 使い方（monorepo ルートから実行。build context = リポジトリルート）:
+#   gcloud builds submit . \
+#     --project=signage-v2-staging \
+#     --config=infrastructure/docker/cloudbuild-jobs.yaml \
+#     --service-account=projects/signage-v2-staging/serviceAccounts/33826309713-compute@developer.gserviceaccount.com \
+#     --substitutions=_SHA=<git-sha>
+#   （prod は _REPO / --project / --service-account を prod のものへ上書きする。）
+#
+#   その後 main.tf の local.jobs_image_tag を <git-sha> に bump → terraform apply（weather / tv-liveness Job）。
+#
+# substitution の扱い:
+#   _SHA  : image tag（= デプロイ対象の git sha）。terraform の local.jobs_image_tag と一致させる。必須。
+#   _REPO : push 先 Artifact Registry リポジトリ。別環境（prod）で build する場合のみ上書き。
+
+substitutions:
+  _SHA: ""
+  _REPO: "asia-northeast1-docker.pkg.dev/signage-v2-staging/kimiterrace"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # 空 _SHA → `jobs:` という不正/曖昧 tag を loud fail にする（cloudbuild-migrate.yaml と同方針）。
+  - id: validate-substitutions
+    name: "gcr.io/cloud-builders/docker"
+    entrypoint: "sh"
+    env:
+      - "SHA=${_SHA}"
+    args:
+      - "-c"
+      - |
+        set -eu
+        if [ -z "$$SHA" ]; then
+          echo "ERROR: _SHA is required (image tag = git sha). e.g. --substitutions=_SHA=<sha>"
+          exit 1
+        fi
+
+  # jobs.Dockerfile（monorepo whole-tree COPY → @kimiterrace/jobs... build = weather/tv-liveness 等）。
+  - id: build
+    name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-f"
+      - "infrastructure/docker/jobs.Dockerfile"
+      - "-t"
+      - "${_REPO}/jobs:${_SHA}"
+      - "."
+
+images:
+  - "${_REPO}/jobs:${_SHA}"

@@ -83,6 +83,15 @@ resource "google_secret_manager_secret_iam_member" "runtime_slack_webhook_url" {
 resource "google_cloud_run_v2_job" "tv_liveness" {
   count = var.enabled ? 1 : 0
 
+  # secret accessor IAM を job 作成前に確定させる（IAM 伝播レース回避）。depends_on が無いと terraform が
+  # job と IAM を並行作成し、Cloud Run の作成時 secret アクセス検証が IAM 伝播前に走って
+  # SecretsAccessCheckFailed → job が error state で taint される（2026-06-09 prod 点灯時に実際に発生）。
+  depends_on = [
+    google_secret_manager_secret_iam_member.runtime_database_url,
+    google_secret_manager_secret_iam_member.runtime_sentry_dsn,
+    google_secret_manager_secret_iam_member.runtime_slack_webhook_url,
+  ]
+
   project  = var.project_id
   location = var.region
   name     = var.job_name

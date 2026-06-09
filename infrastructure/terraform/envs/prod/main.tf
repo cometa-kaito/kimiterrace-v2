@@ -168,7 +168,7 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
+  jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   web_image_tag = "3f067e9" # C方式 deploy 2026-06-09: provision UI/API(PR2-4) + PROVISION_AGENT_SECRET 配線。_APP_URL=app.school-signage.net 維持
@@ -540,7 +540,7 @@ module "cloud_run_job_tv_liveness" {
   project_id                  = var.project_id
   region                      = var.region
   env                         = local.env
-  enabled                     = false       # TODO(bring-up): jobs イメージ build + slack secret 投入後に true（毎分起動）
+  enabled                     = true        # 2026-06-09 点灯: jobs image build 済 + prod-slack-webhook-url 投入済（毎分・down-only 🔴）
   schedule                    = "* * * * *" # 毎分（24/7）。enabled=true 化時に効く（ADR-023 / F16 §2）
   image                       = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args              = ["dist/tv-liveness/tv-liveness-job.js"] # ビルド済み tv-liveness-job
