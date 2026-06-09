@@ -61,6 +61,11 @@ export default async function TvDevicesPage() {
             稼働中 {onlineCount} / 応答なし {downCount} / 全 {devices.length} 台
           </span>
           {canOnboard && (
+            <Link href="/admin/tv-devices/provision" style={onboardLinkStyle}>
+              ＋ プロビジョン
+            </Link>
+          )}
+          {canOnboard && (
             <Link href="/admin/tv-devices/new" style={onboardLinkStyle}>
               ＋ 新規登録
             </Link>
