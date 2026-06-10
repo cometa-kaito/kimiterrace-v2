@@ -5,6 +5,7 @@ import {
   type TenantTx,
   getEffectiveAdsForClass,
   getSignageClassContext,
+  getTodayPresenceCount,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
@@ -89,6 +90,12 @@ export type SignagePayload = {
    * ヘッダーの時刻横に表示する。階層モードにより学科・学年は null になりうる。RLS で自校に限定。
    */
   classContext: SignageClassContext;
+  /**
+   * パターン2「人感センサカウンタ」用、このクラスの**本日（JST）の presence 検知件数**（PIR 人感センサーの
+   * 検知回数）。pattern1 は使わない。センサー未設置・検知ゼロは `0`、取得失敗は `null`（ウィジェットは
+   * 「計測なし」表示＝fail-soft、盤面を壊さない）。
+   */
+  presenceCount: number | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -148,6 +155,10 @@ export async function getSignageDisplayData(
     // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
     // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
     const classContext = await getSignageClassContext(tx, cls.classId);
+    // パターン2「人感センサカウンタ」: このクラスの本日(JST=`date`)の presence 検知件数。同一 tx・RLS
+    // 自校限定（ルール2）。pattern2 でのみ使うが、payload は両パターン共通なので常に解決する。取得失敗は
+    // **fail-soft** で null に倒し、ウィジェットは「計測なし」表示にする（盤面の他要素は壊さない）。
+    const presenceCount = await getTodayPresenceCount(tx, cls.classId, date).catch(() => null);
     return {
       date,
       designPattern,
@@ -156,6 +167,7 @@ export async function getSignageDisplayData(
       ads,
       weather,
       classContext,
+      presenceCount,
     } satisfies SignagePayload;
   });
 }

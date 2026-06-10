@@ -354,7 +354,7 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
             <Pattern2Weather weather={data.weather ?? null} />
             <Pattern2Placeholder title="来校者一覧" />
             <Pattern2Placeholder title="生徒呼び出し" />
-            <Pattern2Placeholder title="人感センサカウンタ" />
+            <Pattern2SensorCount count={data.presenceCount} />
             <Pattern2Placeholder title="鉄道" />
           </div>
         </main>
@@ -442,8 +442,31 @@ function Pattern2Weather({ weather }: { weather: SignageWeather | null }) {
 }
 
 /**
- * パターン2の未実装ウィジェット枠（来校者一覧 / 生徒呼び出し / 人感センサカウンタ / 鉄道）。後続スライスで
- * 中身を実装するまで盤面骨格を見せつつ「準備中」を明示する（端末別切替の検証を妨げない）。
+ * パターン2の人感センサカウンタ（F13 / ADR-020）。このクラスの **本日の検知回数（累計）** を表示する。
+ * PIR は瞬間検知で滞在時間を測れない（ADR-020）ため「在室人数」ではなく「本日何回検知したか」を出す
+ * （2026-06-10 ユーザー確定）。件数は `getTodayPresenceCount`（RLS 自校限定）由来。取得失敗（`null`）は
+ * 「計測なし」表示に倒す（fail-soft）。検知ゼロは `0 回` を出す（センサーは在るが今日まだ反応なし）。
+ */
+function Pattern2SensorCount({ count }: { count: number | null }) {
+  return (
+    <section aria-label="人感センサカウンタ" className={styles.card}>
+      <h2 className={styles.cardTitle}>人感センサカウンタ</h2>
+      {count == null ? (
+        <p className={styles.p2Muted}>計測なし</p>
+      ) : (
+        <div className={styles.p2SensorCount}>
+          <span className={styles.p2SensorNum}>{count.toLocaleString("ja-JP")}</span>
+          <span className={styles.p2SensorUnit}>回</span>
+          <span className={styles.p2SensorLabel}>本日の検知</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の未実装ウィジェット枠（来校者一覧 / 生徒呼び出し / 鉄道）。後続スライスで中身を実装するまで
+ * 盤面骨格を見せつつ「準備中」を明示する（端末別切替の検証を妨げない）。
  */
 function Pattern2Placeholder({ title }: { title: string }) {
   return (

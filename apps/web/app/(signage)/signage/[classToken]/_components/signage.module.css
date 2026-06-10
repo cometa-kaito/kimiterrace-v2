@@ -698,6 +698,37 @@
   white-space: nowrap;
   max-width: 100%;
 }
+/* 人感センサカウンタ: 大きな件数 + 単位「回」+ 「本日の検知」ラベル。 */
+.p2SensorCount {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  align-content: center;
+  gap: 0.2rem 0.3rem;
+}
+.p2SensorNum {
+  font-size: clamp(2rem, 6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--primary-color);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.p2SensorUnit {
+  font-size: clamp(1rem, 2vw, 1.6rem);
+  font-weight: 700;
+  color: var(--primary-color);
+}
+.p2SensorLabel {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: clamp(0.7rem, 1vw, 0.9rem);
+  font-weight: 600;
+  color: var(--text-muted);
+}
 
 /* ===================== 12. レスポンシブ ===================== */
 /* 大型モニタ（フル HD） */
