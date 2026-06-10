@@ -120,7 +120,9 @@ export function TvConfigEditForm({
       ) : null}
 
       <div style={fieldStyle}>
-        <span style={labelTextStyle}>デバイス ID（編集不可・プロビジョニング/設定でコピーして使用）</span>
+        <span style={labelTextStyle}>
+          デバイス ID（編集不可・プロビジョニング/設定でコピーして使用）
+        </span>
         <div style={copyRowStyle}>
           <code style={codeStyle}>{deviceId}</code>
           <button type="button" onClick={() => copyText(deviceId, "deviceId")} style={copyBtnStyle}>
