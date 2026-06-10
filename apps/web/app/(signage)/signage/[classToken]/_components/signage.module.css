@@ -785,6 +785,12 @@
   color: var(--text-muted);
   font-weight: 600;
 }
+/* 生徒呼び出しの「→ 呼び出し先」。氏名の後ろに添える。 */
+.p2CalloutTo {
+  color: var(--accent-color);
+  font-weight: 700;
+  margin-left: 0.3rem;
+}
 
 /* ===================== 12. レスポンシブ ===================== */
 /* 大型モニタ（フル HD） */
