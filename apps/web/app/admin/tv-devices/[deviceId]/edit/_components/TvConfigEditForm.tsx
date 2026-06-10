@@ -43,16 +43,24 @@ type InitialConfig = {
 
 export function TvConfigEditForm({
   deviceRowId,
+  deviceId,
   initial,
   currentVersion,
 }: {
   deviceRowId: string;
+  deviceId: string;
   initial: InitialConfig;
   currentVersion: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  function copyText(text: string, key: string) {
+    void navigator.clipboard?.writeText(text);
+    setCopied(key);
+    window.setTimeout(() => setCopied(null), 1500);
+  }
 
   const [label, setLabel] = useState(initial.label ?? "");
   // サイネージ URL は **素の URL**（design を除いた base）をフォームに見せ、デザインは下のドロップダウンが
@@ -110,6 +118,16 @@ export function TvConfigEditForm({
           {msg.text}
         </output>
       ) : null}
+
+      <div style={fieldStyle}>
+        <span style={labelTextStyle}>デバイス ID（編集不可・プロビジョニング/設定でコピーして使用）</span>
+        <div style={copyRowStyle}>
+          <code style={codeStyle}>{deviceId}</code>
+          <button type="button" onClick={() => copyText(deviceId, "deviceId")} style={copyBtnStyle}>
+            {copied === "deviceId" ? "コピー済 ✓" : "コピー"}
+          </button>
+        </div>
+      </div>
 
       <label style={fieldStyle}>
         <span style={labelTextStyle}>教室ラベル</span>
@@ -328,6 +346,26 @@ const weekdayItemCheckedStyle: React.CSSProperties = {
   fontWeight: 600,
 };
 const hintStyle: React.CSSProperties = { fontSize: "0.78rem", color: "#6b7280" };
+const copyRowStyle: React.CSSProperties = { display: "flex", gap: "0.5rem", alignItems: "center" };
+const codeStyle: React.CSSProperties = {
+  flex: 1,
+  fontFamily: "monospace",
+  fontSize: "0.85rem",
+  background: "#f3f4f6",
+  padding: "0.35rem 0.5rem",
+  borderRadius: "4px",
+  userSelect: "all",
+  overflowWrap: "anywhere",
+};
+const copyBtnStyle: React.CSSProperties = {
+  padding: "0.35rem 0.7rem",
+  borderRadius: "4px",
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  cursor: "pointer",
+  fontSize: "0.8rem",
+  whiteSpace: "nowrap",
+};
 const submitStyle: React.CSSProperties = {
   padding: "0.5rem 1.25rem",
   background: "#1d4ed8",
