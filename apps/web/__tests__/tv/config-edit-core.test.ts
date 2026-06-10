@@ -178,3 +178,42 @@ describe("validateTvConfigEdit: SSRF 内部ホストガード", () => {
     expect(validateTvConfigEdit({ webhookUrl: url }).ok).toBe(true);
   });
 });
+
+/**
+ * 端末別デザインパターン（`tv_devices.signage_url` の `?design=patternN` に合成・スキーマ非変更）。
+ * 編集フォームの design ドロップダウン値が、検証済み signageUrl に正しく合成されることを確認する。
+ * pattern1（既定）は後方互換のため `?design` を付けない。未知値は既定に倒す（fail-soft）。
+ */
+describe("validateTvConfigEdit: 端末別デザイン（?design 合成）", () => {
+  const url = "https://sig.example/signage/tok";
+
+  it("design=pattern2 は signageUrl に ?design=pattern2 を合成", () => {
+    const r = validateTvConfigEdit({ signageUrl: url, design: "pattern2" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.signageUrl).toBe("https://sig.example/signage/tok?design=pattern2");
+    }
+  });
+
+  it("design 未指定 / pattern1 は ?design を付けない（後方互換）", () => {
+    const r1 = validateTvConfigEdit({ signageUrl: url });
+    if (r1.ok) expect(r1.value.signageUrl).toBe(url);
+    const r2 = validateTvConfigEdit({ signageUrl: url, design: "pattern1" });
+    if (r2.ok) expect(r2.value.signageUrl).toBe(url);
+  });
+
+  it("未知の design は既定 pattern1 に倒す（?design を付けない）", () => {
+    const r = validateTvConfigEdit({ signageUrl: url, design: "bogus" });
+    if (r.ok) expect(r.value.signageUrl).toBe(url);
+  });
+
+  it("既存 ?design はドロップダウン値で置換（二重に付かない）", () => {
+    const r = validateTvConfigEdit({ signageUrl: `${url}?design=pattern1`, design: "pattern2" });
+    if (r.ok) expect(r.value.signageUrl).toBe("https://sig.example/signage/tok?design=pattern2");
+  });
+
+  it("signageUrl が空（クリア）なら design は無視（合成先が無い）", () => {
+    const r = validateTvConfigEdit({ signageUrl: "", design: "pattern2" });
+    if (r.ok) expect(r.value.signageUrl).toBeNull();
+  });
+});

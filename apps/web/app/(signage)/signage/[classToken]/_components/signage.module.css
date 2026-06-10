@@ -564,6 +564,141 @@
   display: none;
 }
 
+/* ===================== 11b. パターン2 盤面（予定/来校者/呼び出し/センサ/天気/鉄道） =====================
+   左カラム（infoArea）を 2 列グリッドで分割し、予定は横幅いっぱい・他は枠で並べる。右の広告（adArea）と
+   ヘッダー帯（adHeader）はパターン1と共有する。本 PR は予定・天気を実描画し、残りは「準備中」プレースホルダー。 */
+.p2Grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: var(--content-gap);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.p2Wide {
+  grid-column: 1 / -1;
+}
+/* 未実装ウィジェットの「準備中」枠（破線で“ここに来る”ことを明示しつつ盤面を壊さない）。 */
+.p2Placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.3vw, 1.15rem);
+  letter-spacing: 0.08em;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  margin-top: 0.2rem;
+}
+.p2Muted {
+  color: var(--text-muted);
+  font-size: clamp(0.8rem, 1.2vw, 1rem);
+  font-weight: 600;
+  padding: 0.3rem 0;
+}
+.p2Hint {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
+}
+/* 予定: 今後3平日を 3 列で（パターン1の grid を簡素化した list 版）。 */
+.p2ScheduleScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5vmin;
+}
+.p2ScheduleDay {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.4vmin;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.p2ScheduleDate {
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.3vw, 1.15rem);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.1rem 0.3rem;
+  margin-bottom: 0.2rem;
+  flex-shrink: 0;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+.p2ScheduleToday .p2ScheduleDate {
+  background: var(--primary-color);
+  color: #fff;
+  border-radius: var(--radius-sm);
+}
+.p2ScheduleRows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.p2ScheduleItem {
+  font-size: clamp(0.72rem, 1.1vw, 1rem);
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px dotted var(--border-color);
+}
+/* 天気予報: 日付ごとの小カードを横並び。 */
+.p2WeatherRow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0.5vmin;
+  overflow: hidden;
+}
+.p2WeatherDay {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.3vmin;
+  min-width: 0;
+}
+.p2WeatherDate {
+  font-size: clamp(0.6rem, 0.9vw, 0.8rem);
+  font-weight: 700;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+.p2WeatherGlyph {
+  font-size: clamp(1.1rem, 2.2vw, 1.8rem);
+  line-height: 1;
+}
+.p2WeatherText {
+  font-size: clamp(0.6rem, 0.9vw, 0.8rem);
+  font-weight: 600;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 /* ===================== 12. レスポンシブ ===================== */
 /* 大型モニタ（フル HD） */
 @media (min-width: 1800px) and (min-height: 1000px) {
@@ -677,5 +812,20 @@
     font-size: clamp(0.7rem, 2vw, 0.85rem);
     color: var(--text-muted);
     letter-spacing: 0.02em;
+  }
+}
+
+/* パターン2 のモバイル: 2 列 → 1 列に積み、予定の 3 列も 1 列にしてスクロールで見せる。 */
+@media (max-width: 899px) {
+  .p2Grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    overflow: visible;
+  }
+  .p2ScheduleScroll {
+    grid-template-columns: 1fr;
+  }
+  .p2WeatherRow {
+    flex-wrap: wrap;
   }
 }

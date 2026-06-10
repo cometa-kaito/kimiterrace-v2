@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  SIGNAGE_DESIGN_PATTERNS,
+  SIGNAGE_DESIGN_PATTERN_LABELS,
+  type SignageDesignPattern,
+  getDesignPatternFromUrl,
+  stripDesignParam,
+} from "@/lib/signage/design-pattern";
 import { updateTvDeviceConfigAction } from "@/lib/tv/config-edit-actions";
 import {
   type TvScheduleFormState,
@@ -47,7 +55,12 @@ export function TvConfigEditForm({
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [label, setLabel] = useState(initial.label ?? "");
-  const [signageUrl, setSignageUrl] = useState(initial.signageUrl ?? "");
+  // サイネージ URL は **素の URL**（design を除いた base）をフォームに見せ、デザインは下のドロップダウンが
+  // 持つ。保存時に Server Action 側で `?design=` を base に合成する（design-pattern.ts）。
+  const [signageUrl, setSignageUrl] = useState(stripDesignParam(initial.signageUrl));
+  const [design, setDesign] = useState<SignageDesignPattern>(
+    getDesignPatternFromUrl(initial.signageUrl) ?? DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  );
   const [webhookUrl, setWebhookUrl] = useState(initial.webhookUrl ?? "");
   const [targetMac, setTargetMac] = useState(initial.targetMac ?? "");
   const [notes, setNotes] = useState(initial.notes ?? "");
@@ -79,6 +92,7 @@ export function TvConfigEditForm({
         notes,
         monitoringEnabled,
         schedule: scheduleInput,
+        design,
       });
       if (res.ok) {
         setMsg({ ok: true, text: `保存しました（設定版 v${res.data.version}）。` });
@@ -120,6 +134,26 @@ export function TvConfigEditForm({
           placeholder="https://app.school-signage.net/?..."
           style={inputStyle}
         />
+      </label>
+
+      <label style={fieldStyle}>
+        <span style={labelTextStyle}>サイネージ デザイン</span>
+        <select
+          value={design}
+          onChange={(e) => setDesign(e.target.value as SignageDesignPattern)}
+          disabled={pending}
+          style={inputStyle}
+        >
+          {SIGNAGE_DESIGN_PATTERNS.map((p) => (
+            <option key={p} value={p}>
+              {SIGNAGE_DESIGN_PATTERN_LABELS[p]}
+            </option>
+          ))}
+        </select>
+        <span style={hintStyle}>
+          この TV デバイスの盤面デザイン。保存するとサイネージ URL に反映され、各 TV
+          が次回ポーリング（最大 60 秒以内）で切り替わります。
+        </span>
       </label>
 
       <label style={fieldStyle}>

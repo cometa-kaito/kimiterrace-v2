@@ -23,7 +23,7 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
-import type { SignageDesignPattern } from "@/lib/signage/signage-design";
+import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -56,6 +56,10 @@ export function SignageClient({
 
   const ads = data.ads;
   const adCount = ads.length;
+  // 端末別デザイン（このページは ?design 付き URL でロードされ、初期 payload に反映済み）。ポーリングでも
+  // 同じデザインを引き継ぐため poll URL に転送する（転送しないと data Route が学校レベル既定/pattern1 に
+  // 倒れ初回ポーリングで盤面が切替わってしまう）。ページセッション中は不変なので initial 値を固定で使う。
+  const designParam = initial.designPattern;
 
   // --- 自動更新ポーリング (jitter 付き再帰 setTimeout、tab 非表示時はスキップして接続節約) ---
   const poll = useCallback(async () => {
@@ -64,7 +68,7 @@ export function SignageClient({
     }
     try {
       const res = await fetch(
-        `/signage/${encodeURIComponent(classToken)}/data?date=${jstDateString()}`,
+        `/signage/${encodeURIComponent(classToken)}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}`,
         { cache: "no-store" },
       );
       if (res.status === 410) {
@@ -77,7 +81,7 @@ export function SignageClient({
     } catch {
       // ネットワークエラーは握りつぶし、最後に成功した表示を維持する。
     }
-  }, [classToken]);
+  }, [classToken, designParam]);
 
   useEffect(() => {
     if (invalid) {
@@ -205,46 +209,105 @@ type SignageBoardProps = {
 };
 
 /**
- * 学校が選んだデザインパターンに応じた盤面コンポーネントを返す（**学校別デザインの拡張点**）。
- * 現状は `pattern1`（今回作成した v1 レイアウト）のみ。未知/将来パターンは既定 `pattern1` に
- * フォールバックして必ず描画する。将来パターン追加時は case と専用 Board を足すだけで拡張できる。
+ * 学校 / 端末が選んだデザインパターンに応じた盤面コンポーネントを返す（**デザインの拡張点**）。
+ * `pattern1` = 旧キミテラス v1 レイアウト（既定）/ `pattern2` = 予定・来校者・呼び出し・センサ・天気・鉄道の
+ * 掲示盤面。未知 / 将来パターンは既定 `pattern1` にフォールバックして必ず描画する（fail-soft）。将来パターン
+ * 追加時は case と専用 Board を足すだけで拡張できる。再生制御（ポーリング/ローテーション/テレメトリ/時計）は
+ * `SignageClient` が持ち、各 Board は表示専用で共通 props を受け取る。広告（右）と上部ヘッダーは両パターン共通。
  */
 function renderDesignBoard(pattern: SignageDesignPattern, props: SignageBoardProps) {
   switch (pattern) {
-    case "pattern1":
-      return <Pattern1Board {...props} />;
+    case "pattern2":
+      return <Pattern2Board {...props} />;
     default:
       return <Pattern1Board {...props} />;
   }
 }
 
-/**
- * パターン1: 旧キミテラス v1 レイアウト盤面。
- *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
- *   天気は予定の上に小さく1行。学校が `pattern1` を選んだとき（既定）に描画される。
- */
-function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
-  const hasMedia = ad != null;
+/** 全盤面共通のヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別（#243）+ ブランディング。 */
+function BoardHeader({ data, now }: { data: SignagePayload; now: Date | null }) {
   const { dateText, dayText } = formatBoardDate(data.date);
   const time = now ? formatClock(now) : "";
   // #243: このサイネージの識別ラベル（学科 学年 クラス）。時刻の横に出してどの端末か判別できるようにする。
   const classIdentity = formatClassIdentity(data.classContext);
+  return (
+    <header className={styles.adHeader}>
+      <span className={styles.dateText}>{dateText}</span>
+      <span className={styles.dayBadge}>{dayText}</span>
+      {time ? <span className={styles.timeText}>{time}</span> : null}
+      {classIdentity ? (
+        <span className={styles.classIdentity} aria-label={`表示クラス: ${classIdentity}`}>
+          {classIdentity}
+        </span>
+      ) : null}
+      <span className={styles.headerBranding}>キミテラス by Rebounder</span>
+    </header>
+  );
+}
 
+/**
+ * 全盤面共通の広告エリア（右 30%・暗色ゾーン + ぼかし背景 + 前景 media + キャプション + ドット）。
+ * パターン2 でも「右側の広告はパターン1と同じ」（ユーザー指定）。再生制御は SignageClient が持ち、本部品は
+ * 現在広告とタップ配線（#43 / F07）を受け取って描画する。
+ */
+function AdAside({
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  onAdTap,
+}: {
+  ad: SignageBoardProps["ad"];
+  adLink: string | null;
+  adCount: number;
+  safeIndex: number;
+  onAdTap: SignageBoardProps["onAdTap"];
+}) {
+  const hasMedia = ad != null;
+  return (
+    <aside
+      aria-label="広告"
+      className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
+    >
+      {ad ? (
+        adLink ? (
+          // 広告領域**全体**をタップで遷移（管理で設定した linkUrl）。新規タブ + reverse tabnabbing
+          // 防止 (noopener noreferrer)。タップで tap テレメトリを送る（遷移は阻害しない）。adId は
+          // ingest 側で当該クラスの実効広告に実在照合される（水増しは DB 層でも弾く）。
+          <a
+            href={adLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.adAreaLink}
+            aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
+            onClick={() => onAdTap(ad.adId, safeIndex)}
+          >
+            <AdInner ad={ad} />
+          </a>
+        ) : (
+          <AdInner ad={ad} />
+        )
+      ) : (
+        <div className={styles.adContainer}>
+          <div className={styles.adForeground}>
+            <p className={styles.adEmpty}>　</p>
+          </div>
+        </div>
+      )}
+      {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
+    </aside>
+  );
+}
+
+/**
+ * パターン1: 旧キミテラス v1 レイアウト盤面（既定）。
+ *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
+ *   天気は予定列の日付横。`pattern1`（既定）選択時に描画される。
+ */
+function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
   return (
     <div className={styles.signageRoot}>
-      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別 + ブランディング。天気は予定列の日付横に移動（2026-06-07 ユーザー）。 */}
-      <header className={styles.adHeader}>
-        <span className={styles.dateText}>{dateText}</span>
-        <span className={styles.dayBadge}>{dayText}</span>
-        {time ? <span className={styles.timeText}>{time}</span> : null}
-        {classIdentity ? (
-          <span className={styles.classIdentity} aria-label={`表示クラス: ${classIdentity}`}>
-            {classIdentity}
-          </span>
-        ) : null}
-        <span className={styles.headerBranding}>キミテラス by Rebounder</span>
-      </header>
-
+      <BoardHeader data={data} now={now} />
       <div className={styles.container}>
         <main className={styles.infoArea}>
           <div className={styles.contentGrid}>
@@ -257,43 +320,137 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
             <AssignmentTable section={data.daily.assignments} today={data.date} />
           </div>
         </main>
-
-        <aside
-          aria-label="広告"
-          className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
-        >
-          {ad ? (
-            adLink ? (
-              // 広告領域**全体**をタップで遷移（管理で設定した linkUrl）。新規タブ + reverse tabnabbing
-              // 防止 (noopener noreferrer)。タップで tap テレメトリを送る（遷移は阻害しない）。adId は
-              // ingest 側で当該クラスの実効広告に実在照合される（水増しは DB 層でも弾く）。
-              <a
-                href={adLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.adAreaLink}
-                aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
-                onClick={() => onAdTap(ad.adId, safeIndex)}
-              >
-                <AdInner ad={ad} />
-              </a>
-            ) : (
-              <AdInner ad={ad} />
-            )
-          ) : (
-            <div className={styles.adContainer}>
-              <div className={styles.adForeground}>
-                <p className={styles.adEmpty}>　</p>
-              </div>
-            </div>
-          )}
-          {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
-        </aside>
-
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
         {/* モバイル限定フッター（順序: タブ→広告→予定→連絡→提出物→フッター）。デスクトップは非表示。 */}
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * パターン2: 掲示盤面（予定 / 来校者一覧 / 生徒呼び出し / 人感センサカウンタ / 天気予報 / 鉄道）。右側の広告は
+ * パターン1と同一（`AdAside` 共有・ユーザー指定）。
+ *
+ * **本 PR は「TVデバイスごとの切替の仕組み」+「パターン2のレイアウト骨格」**まで。予定・天気は既存データで
+ * 実描画し、来校者 / 呼び出し / センサ / 鉄道は後続スライス（データモデル・エディタ・外部取得 Job）まで
+ * 「準備中」プレースホルダーを出す。これで admin/tv-devices から端末ごとに P1/P2 を切替えられることを保証し、
+ * 各ウィジェットは別 PR で中身を詰める（盤面は壊さない＝fail-soft）。
+ */
+function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
+  return (
+    <div className={styles.signageRoot}>
+      <BoardHeader data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p2Grid}>
+            <Pattern2Schedule days={data.scheduleDays} today={data.date} />
+            <Pattern2Weather weather={data.weather ?? null} />
+            <Pattern2Placeholder title="来校者一覧" />
+            <Pattern2Placeholder title="生徒呼び出し" />
+            <Pattern2Placeholder title="人感センサカウンタ" />
+            <Pattern2Placeholder title="鉄道" />
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン2の予定（横幅いっぱい・今後3平日の3列）。最終形は week/day/内容/場所/対象者だが、**本 PR は既存
+ * データ（時限 + 内容）のみ実描画**し、場所・対象者は後続スライス（モデル + エディタ拡張）まで注記で示す。
+ */
+function Pattern2Schedule({ days, today }: { days: ScheduleDay[]; today: string }) {
+  return (
+    <section aria-label="予定" className={`${styles.card} ${styles.p2Wide}`}>
+      <h2 className={styles.cardTitle}>予定</h2>
+      <div className={styles.p2ScheduleScroll}>
+        {days.map((day) => {
+          const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
+          const isToday = day.date === today;
+          return (
+            <div
+              key={day.date}
+              className={`${styles.p2ScheduleDay} ${isToday ? styles.p2ScheduleToday : ""}`}
+            >
+              <span className={styles.p2ScheduleDate}>{scheduleHeaderLabel(day.date)}</span>
+              <div className={styles.p2ScheduleRows}>
+                {rows.length === 0 ? (
+                  <span className={styles.p2Muted}>予定はありません</span>
+                ) : (
+                  rows.map((row, i) => (
+                    <span
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                      key={i}
+                      className={styles.p2ScheduleItem}
+                    >
+                      {row.periodLabel ? (
+                        <span className={styles.scheduleTime}>{row.periodLabel}</span>
+                      ) : null}
+                      {row.content}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <span className={styles.p2Hint}>場所・対象者は準備中</span>
+    </section>
+  );
+}
+
+/** パターン2の天気予報（既存 weather を流用）。未取得は fail-soft でセクションを残し「準備中」表示にしない。 */
+function Pattern2Weather({ weather }: { weather: SignageWeather | null }) {
+  const hasDays = weather != null && weather.days.length > 0;
+  return (
+    <section aria-label="天気予報" className={styles.card}>
+      <h2 className={styles.cardTitle}>天気予報</h2>
+      {hasDays ? (
+        <div className={styles.p2WeatherRow}>
+          {weather.days.map((d) => (
+            <div key={d.forecastDate} className={styles.p2WeatherDay}>
+              <span className={styles.p2WeatherDate}>{scheduleHeaderLabel(d.forecastDate)}</span>
+              <span aria-hidden="true" className={styles.p2WeatherGlyph}>
+                {WEATHER_ICON_GLYPH[d.icon]}
+              </span>
+              <span className={styles.p2WeatherText}>{d.weatherText ?? d.iconLabel}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={styles.p2Muted}>天気情報はありません</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の未実装ウィジェット枠（来校者一覧 / 生徒呼び出し / 人感センサカウンタ / 鉄道）。後続スライスで
+ * 中身を実装するまで盤面骨格を見せつつ「準備中」を明示する（端末別切替の検証を妨げない）。
+ */
+function Pattern2Placeholder({ title }: { title: string }) {
+  return (
+    <section aria-label={title} className={styles.card}>
+      <h2 className={styles.cardTitle}>{title}</h2>
+      <p className={styles.p2Placeholder}>準備中</p>
+    </section>
   );
 }
 
