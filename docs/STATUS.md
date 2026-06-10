@@ -6,6 +6,7 @@
 - リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public) ／ Issue: https://github.com/cometa-kaito/kimiterrace-v2/issues
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
+- **web デプロイ手順: [runbooks/web-deploy.md](runbooks/web-deploy.md)（`scripts/deploy/deploy-web.sh <env> --apply`）。過去の引き継ぎ内の長い再デプロイ手順は読み返さずこれを使う。**
 - 最終更新: 2026-06-10 ／ 更新者: Claude Code
 
 ---

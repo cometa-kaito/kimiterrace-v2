@@ -413,6 +413,7 @@ kimiterrace-v2/
 
 - 現在地: [docs/STATUS.md](docs/STATUS.md)
 - ロードマップ: [docs/ROADMAP.md](docs/ROADMAP.md)
+- **web 日常デプロイ**: [docs/runbooks/web-deploy.md](docs/runbooks/web-deploy.md)（build→bump→apply→疎通の唯一の正規手順。実体 `scripts/deploy/deploy-web.sh`。bring-up とは別物）
 - **並行開発レーン**: [docs/parallel-lanes.md](docs/parallel-lanes.md)（複数スレッド並行時の衝突回避 × context 経済）
 - 意思決定一覧: [docs/adr/](docs/adr/)
 - インシデント対応: [docs/runbooks/incident-response.md](docs/runbooks/incident-response.md)
@@ -423,5 +424,6 @@ kimiterrace-v2/
 
 - 設計判断に迷う → Plan agent でレビュー、ADR ドラフト作成
 - 既存実装を理解したい → Explore agent
+- **web をデプロイしたい → [docs/runbooks/web-deploy.md](docs/runbooks/web-deploy.md)（手順を STATUS/terraform/履歴から再構築しない。`scripts/deploy/deploy-web.sh <env> --apply`）**
 - 大きな PR のレビュー → `/ultrareview`（人間が起動）
 - 本番障害 → [docs/runbooks/incident-response.md](docs/runbooks/incident-response.md) に沿って対応
