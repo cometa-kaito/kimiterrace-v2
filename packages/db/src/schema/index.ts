@@ -19,6 +19,8 @@ export * from "./tv-devices.js";
 export * from "./class-visitors.js";
 // パターン2 サイネージ「生徒呼び出し」: クラス×日別の呼び出しレコード（実名表示・ADR-034・RLS + 監査）
 export * from "./student-callouts.js";
+// パターン2 サイネージ「鉄道」: 鉄道事業者の運行情報キャッシュ（公開・非PII・ADR-035・read_all RLS）
+export * from "./railway-status.js";
 // F16 (ADR-023): TV ダウンタイム（無応答インシデント）記録。定期チェッカが down/recover 遷移で書く
 export * from "./tv-device-downtime.js";
 // F15 (ADR-022): TV リモートコマンドキュー（enqueue + ポーリング配信 + ack、send-once）

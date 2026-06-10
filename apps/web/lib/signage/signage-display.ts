@@ -20,6 +20,7 @@ import {
   getEffectiveDailyData,
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
+import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
 import { signageScheduleDates } from "./rotation";
 import {
   type SignageDesignPattern,
@@ -112,6 +113,12 @@ export type SignagePayload = {
    * 生徒氏名はフルネームで当該クラス端末にのみ表示され RLS で自校スコープ・**Vertex 非送信**（ADR-034）。
    */
   callouts: StudentCallout[] | null;
+  /**
+   * パターン2「鉄道」用、対象事業者（当面=名鉄/笠松駅）の運行情報。pattern1 は使わない。**端末は閉域**で、
+   * バックエンド取得 Job が `railway_status` にキャッシュした行を読むだけ（名鉄サイト直叩きしない・ADR-035）。
+   * キャッシュ無し・取得失敗は `null`（ウィジェットは「運行情報は取得できていません」表示＝fail-soft）。
+   */
+  trainStatus: SignageRailwayStatus | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -182,6 +189,9 @@ export async function getSignageDisplayData(
     // パターン2「生徒呼び出し」: このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。同一 tx・RLS 自校限定
     // （ルール2）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。取得失敗は fail-soft で null。
     const callouts = await getCalloutsForClass(tx, cls.classId, date).catch(() => null);
+    // パターン2「鉄道」: 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は
+    // 閉域（名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。取得失敗は fail-soft で null。
+    const trainStatus = await getSignageRailwayStatus(tx).catch(() => null);
     return {
       date,
       designPattern,
@@ -193,6 +203,7 @@ export async function getSignageDisplayData(
       presenceCount,
       visitors,
       callouts,
+      trainStatus,
     } satisfies SignagePayload;
   });
 }

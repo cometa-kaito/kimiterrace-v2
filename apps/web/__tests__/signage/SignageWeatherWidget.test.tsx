@@ -88,6 +88,7 @@ function payload(
     presenceCount: null,
     visitors: null,
     callouts: null,
+    trainStatus: null,
   };
 }
 
