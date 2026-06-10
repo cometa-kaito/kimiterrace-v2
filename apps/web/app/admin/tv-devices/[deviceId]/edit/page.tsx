@@ -60,6 +60,7 @@ export default async function TvDeviceEditPage({
       </p>
       <TvConfigEditForm
         deviceRowId={device.id}
+        deviceId={device.deviceId}
         initial={{
           label: device.label,
           targetMac: device.targetMac,

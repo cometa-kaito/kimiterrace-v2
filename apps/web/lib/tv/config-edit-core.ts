@@ -4,6 +4,11 @@
 // postgres を含まないため client component / core から安全に使える。
 import type { TvSchedule } from "@kimiterrace/db/schema";
 import type { AuthUser } from "../auth/session";
+import {
+  DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  applyDesignPatternToUrl,
+  isSignageDesignPattern,
+} from "../signage/design-pattern";
 
 /**
  * F15 §4.2 (ADR-022): TV デバイス設定編集の純粋ロジック・型・定数。
@@ -383,6 +388,12 @@ export type TvConfigEditInput = {
   schedule?: unknown;
   monitoringEnabled?: unknown;
   notes?: unknown;
+  /**
+   * 端末別デザインパターン（`pattern1` / `pattern2` …）。**専用列は持たず** `signageUrl` の `?design=` に
+   * 合成して保存する（`tv_devices` スキーマ非変更で端末別切替を実現。design-pattern.ts 参照）。未知値・
+   * 未指定は既定 `pattern1`（= パラメータ無し）に倒す。`signageUrl` が空（クリア）なら design は無効。
+   */
+  design?: unknown;
 };
 
 /** trim 後に空なら null、長さ超過は超過フラグを返す内部ヘルパ。 */
@@ -422,6 +433,12 @@ export function validateTvConfigEdit(raw: TvConfigEditInput): Validated<TvConfig
       };
     }
   }
+  // 端末別デザインパターンを **検証済みの素の signageUrl** に合成する（host は不変なので SSRF 検証の後で
+  // 安全に追記できる。pattern1（既定）は `?design` を付けない＝後方互換・URL を汚さない）。未知値・未指定は
+  // 既定 pattern1 に倒す。signageUrl が null（クリア）なら design は載せる先が無いので無視する。
+  const design = isSignageDesignPattern(raw.design) ? raw.design : DEFAULT_SIGNAGE_DESIGN_PATTERN;
+  const composedSignageUrl =
+    signageUrl.value !== null ? applyDesignPatternToUrl(signageUrl.value, design) : null;
   const webhookUrl = normStr(raw.webhookUrl, URL_MAX);
   if (webhookUrl.tooLong) {
     return { ok: false, message: `Webhook URL は ${URL_MAX} 文字までです。` };
@@ -458,7 +475,7 @@ export function validateTvConfigEdit(raw: TvConfigEditInput): Validated<TvConfig
     value: {
       label: label.value,
       targetMac: targetMac.value,
-      signageUrl: signageUrl.value,
+      signageUrl: composedSignageUrl,
       webhookUrl: webhookUrl.value,
       scheduleJson: schedule.value,
       monitoringEnabled,

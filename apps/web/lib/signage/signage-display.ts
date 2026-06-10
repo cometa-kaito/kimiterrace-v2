@@ -5,6 +5,7 @@ import {
   type TenantTx,
   getEffectiveAdsForClass,
   getSignageClassContext,
+  getTodayPresenceCount,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
@@ -16,7 +17,11 @@ import {
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
 import { signageScheduleDates } from "./rotation";
-import { type SignageDesignPattern, getSignageDesignPattern } from "./signage-design";
+import {
+  type SignageDesignPattern,
+  getSignageDesignPattern,
+  isSignageDesignPattern,
+} from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
@@ -85,6 +90,12 @@ export type SignagePayload = {
    * ヘッダーの時刻横に表示する。階層モードにより学科・学年は null になりうる。RLS で自校に限定。
    */
   classContext: SignageClassContext;
+  /**
+   * パターン2「人感センサカウンタ」用、このクラスの**本日（JST）の presence 検知件数**（PIR 人感センサーの
+   * 検知回数）。pattern1 は使わない。センサー未設置・検知ゼロは `0`、取得失敗は `null`（ウィジェットは
+   * 「計測なし」表示＝fail-soft、盤面を壊さない）。
+   */
+  presenceCount: number | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -108,6 +119,7 @@ async function resolveSignageClass(
 export async function getSignageDisplayData(
   classToken: string,
   date: string,
+  designParam?: unknown,
 ): Promise<SignagePayload | null> {
   const cls = await resolveSignageClass(classToken);
   if (!cls) {
@@ -132,12 +144,21 @@ export async function getSignageDisplayData(
     // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    // 学校別デザインパターン（school_configs display_settings.signageDesign）。未設定は既定 pattern1。
+    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
+    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
+    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
+    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
     // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
-    const designPattern = await getSignageDesignPattern(tx);
+    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+      ? designParam
+      : await getSignageDesignPattern(tx);
     // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
     // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
     const classContext = await getSignageClassContext(tx, cls.classId);
+    // パターン2「人感センサカウンタ」: このクラスの本日(JST=`date`)の presence 検知件数。同一 tx・RLS
+    // 自校限定（ルール2）。pattern2 でのみ使うが、payload は両パターン共通なので常に解決する。取得失敗は
+    // **fail-soft** で null に倒し、ウィジェットは「計測なし」表示にする（盤面の他要素は壊さない）。
+    const presenceCount = await getTodayPresenceCount(tx, cls.classId, date).catch(() => null);
     return {
       date,
       designPattern,
@@ -146,6 +167,7 @@ export async function getSignageDisplayData(
       ads,
       weather,
       classContext,
+      presenceCount,
     } satisfies SignagePayload;
   });
 }

@@ -85,6 +85,7 @@ function payload(
     ads: [],
     weather: weatherValue,
     classContext: { departmentName: null, gradeName: null, className: null },
+    presenceCount: null,
   };
 }
 

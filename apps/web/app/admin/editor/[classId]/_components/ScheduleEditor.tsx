@@ -37,7 +37,13 @@ import { toEditorTarget } from "./target";
  * #243 (②UI-UX): 未保存ガード（離脱時のブラウザ確認 + 対象日切替時の confirm）・保存状態の明示
  * （未保存/保存済み）・未変更時の保存ボタン無効化・入力 aria-label・狭幅での表横スクロールを備える。
  */
-type Row = { period: number; subject: string; note: string };
+type Row = {
+  period: number;
+  subject: string;
+  note: string;
+  location: string;
+  targetAudience: string;
+};
 
 /** 行 state を保存ペイロード（ScheduleItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
 function toScheduleItems(rows: Row[]): ScheduleItem[] {
@@ -45,6 +51,8 @@ function toScheduleItems(rows: Row[]): ScheduleItem[] {
     period: r.period,
     subject: r.subject,
     ...(r.note.trim() ? { note: r.note } : {}),
+    ...(r.location.trim() ? { location: r.location } : {}),
+    ...(r.targetAudience.trim() ? { targetAudience: r.targetAudience } : {}),
   }));
 }
 
@@ -63,7 +71,13 @@ export function ScheduleEditor({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i) => ({ period: i.period, subject: i.subject, note: i.note ?? "" })),
+    initialItems.map((i) => ({
+      period: i.period,
+      subject: i.subject,
+      note: i.note ?? "",
+      location: i.location ?? "",
+      targetAudience: i.targetAudience ?? "",
+    })),
   );
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savedOnce, setSavedOnce] = useState(false);
@@ -80,7 +94,10 @@ export function ScheduleEditor({
   }
   function addRow() {
     const nextPeriod = rows.length > 0 ? Math.max(...rows.map((r) => r.period)) + 1 : 1;
-    setRows((prev) => [...prev, { period: nextPeriod, subject: "", note: "" }]);
+    setRows((prev) => [
+      ...prev,
+      { period: nextPeriod, subject: "", note: "", location: "", targetAudience: "" },
+    ]);
   }
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
@@ -135,6 +152,8 @@ export function ScheduleEditor({
               <th style={thStyle}>時限</th>
               <th style={thStyle}>科目</th>
               <th style={thStyle}>補足</th>
+              <th style={thStyle}>場所</th>
+              <th style={thStyle}>対象者</th>
               <th style={thStyle} />
             </tr>
           </thead>
@@ -170,6 +189,24 @@ export function ScheduleEditor({
                     placeholder="(任意)"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の補足`}
+                  />
+                </td>
+                <td style={tdStyle}>
+                  <input
+                    value={r.location}
+                    onChange={(e) => update(i, { location: e.target.value })}
+                    placeholder="(任意) 体育館 等"
+                    style={{ ...inputStyle, width: "100%" }}
+                    aria-label={`${i + 1} 行目の場所`}
+                  />
+                </td>
+                <td style={tdStyle}>
+                  <input
+                    value={r.targetAudience}
+                    onChange={(e) => update(i, { targetAudience: e.target.value })}
+                    placeholder="(任意) 3年生 等"
+                    style={{ ...inputStyle, width: "100%" }}
+                    aria-label={`${i + 1} 行目の対象者`}
                   />
                 </td>
                 <td style={tdStyle}>

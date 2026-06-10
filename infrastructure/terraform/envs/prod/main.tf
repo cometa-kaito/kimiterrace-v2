@@ -171,7 +171,7 @@ locals {
   jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "f1df616" # 個別教員アカウント(系統B)撤去・学校側 deploy 2026-06-10: /admin/school/members 撤去 + 合成メール非表示（#785）。_APP_URL=app.school-signage.net 維持
+  web_image_tag = "1c93a8f" # 個別教員アカウント(系統B)撤去・学校側 deploy 2026-06-10: /admin/school/members 撤去 + 合成メール非表示（#785）。_APP_URL=app.school-signage.net 維持
 }
 
 module "network" {
@@ -516,7 +516,7 @@ module "cloud_run_job_weather" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③): true に切替
+  enabled                = true # 2026-06-10 有効化: jobs image 626e85c 同梱済・network(NAT)/secret 準備完了
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/weather/weather-job.js"] # ビルド済み weather-job（WORKDIR=/app/apps/jobs）
   database_url_secret_id = local.db_url_app_secret_id
