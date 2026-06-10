@@ -1,12 +1,16 @@
 /**
  * ADR-032: 教員「学校共通パスワード」のパスワードポリシー（純ロジック・client-safe）。
  *
- * ユーザー判断で **4 文字以上**の共通パスワードを許容する（学校の運用負荷を最優先）。短いパスワードは
- * 総当たり耐性が弱いため、ログイン route 側で IP レート制限を併用する（ADR-032 §セキュリティ）。
+ * 共通パスワードは **Identity Platform の email/password アカウントのパスワードそのもの**（ADR-032）。
+ * Identity Platform は最小 **6 文字**を下限とし（パスワードポリシーの最小長は 6〜30 で設定可能・6 未満は不可）、
+ * これより短いと `createUser`/`updateUser` が `auth/invalid-password` で拒否し、設定アクションが失敗する
+ * （prod で 6 文字未満を設定するとエラーバウンダリに落ちた不具合の根因）。よって本ポリシーの下限も IdP に
+ * 揃えて **6 文字**とする。学校には覚えやすい **英数字 6 文字以上**を案内する（数字のみは総当たりに弱いので避ける）。
+ * 短いほど総当たりに弱いため、ログイン route 側で IP レート制限を併用する（ADR-032 §セキュリティ）。
  * 設定フォーム（system_admin）とログインフォーム（教員）双方からこの規則を参照し単一ソース化する。
  */
 
-export const MIN_TEACHER_PASSWORD_LENGTH = 4;
+export const MIN_TEACHER_PASSWORD_LENGTH = 6;
 export const MAX_TEACHER_PASSWORD_LENGTH = 128;
 
 export type TeacherPasswordPolicyResult = { ok: true } | { ok: false; message: string };

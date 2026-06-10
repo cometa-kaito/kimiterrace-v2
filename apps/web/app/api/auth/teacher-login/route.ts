@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
  * 既存の `createSessionCookie` で `__session` cookie 発行。`/api/auth/session` と同じ cookie 属性・有効期間。
  *
  * **CSRF（#139 L2 と同方針）**: body だけで受けるため login CSRF 対象。`isSameOriginRequest` で弾く。
- * **総当たり抑止**: 共通パスワードは短くなりうる（4 文字許容）。**失敗のみ**を IP 単位で数え、閾値超で 429
+ * **総当たり抑止**: 共通パスワードは短くなりうる（最短 6 文字 = IdP 下限）。**失敗のみ**を IP 単位で数え、閾値超で 429
  * （成功＝正規一斉ログインは非計上。学校 NAT 共有でも誤ブロックしない）。volume の最終防壁は WAF/Cloud Armor。
  * **列挙対策**: 学校未有効・パスワード不一致・アカウント不備はすべて 401 `invalid_credentials` に畳む
  * （どの理由かを攻撃者に与えない）。学校選択が要る場合のみ 400 `select_required` を返す（UI の分岐用）。

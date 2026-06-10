@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import {
   disableSharedTeacherAccount,
+  isPasswordRejectedError,
   provisionSharedTeacherAccount,
 } from "../auth/teacher-account";
 import { validateTeacherPasswordPolicy } from "../auth/teacher-password-core";
@@ -289,7 +290,7 @@ async function writeSchoolAudit(
 /**
  * ADR-032: 学校の「教員共通パスワード」を設定/更新し、共通教員ログインを有効化する（system_admin 専用）。
  *
- * 手順: 認可 → ポリシー検証（≥4 文字）→ 対象校の存在確認 → IdP の共通教員アカウントを provisioning
+ * 手順: 認可 → ポリシー検証（≥6 文字 = IdP 下限）→ 対象校の存在確認 → IdP の共通教員アカウントを provisioning
  * （`provisionSharedTeacherAccount`、外部システムゆえ tx 外）→ DB で共通教員 `users` 行を用意 +
  * `teacher_login_enabled=true` + 監査（同一 tx）。**パスワード平文/ハッシュは本 DB に保存しない**
  * （IdP が保管、ルール5）。監査 diff にもパスワードは載せない。
@@ -316,7 +317,20 @@ export async function setSchoolTeacherPasswordAction(raw: {
   }
 
   // IdP（外部システム）の共通教員アカウントを冪等に用意/更新（tx 外）。
-  const { uid } = await provisionSharedTeacherAccount(schoolId, password);
+  // IdP がパスワードを拒否（6 文字未満 / password policy 違反等）した場合は、エラーバウンダリへ吹き上げず
+  // 検証エラーとして整形する（app 検証で 6 文字未満は既に弾くが、IdP 側ポリシーによる拒否への多層防御）。
+  let uid: string;
+  try {
+    ({ uid } = await provisionSharedTeacherAccount(schoolId, password));
+  } catch (error) {
+    if (isPasswordRejectedError(error)) {
+      return invalid(
+        "このパスワードは利用できません。英数字 6 文字以上で設定してください（できるだけ長く）。",
+      );
+    }
+    // 権限/インフラ起因の不明エラーは握り潰さず再 throw（ログ + 可観測性を残す、安全側）。
+    throw error;
+  }
 
   // DB: 共通教員 users 行（created_by FK 充足）+ enabled フラグ + 監査を同一 tx で。
   await withSession(async (tx, user) => {
@@ -334,6 +348,9 @@ export async function setSchoolTeacherPasswordAction(raw: {
 
   revalidatePath(`/admin/system/schools/${schoolId}/edit`);
   revalidatePath(`/admin/system/schools/${schoolId}`);
+  // 公開ログイン画面（/login）の教員モード出し分けは「有効化済み学校が 1 校以上あるか」で決まる。
+  // /login は force-dynamic だが、有効化直後に確実へ反映させるため明示的に revalidate する（安全側）。
+  revalidatePath("/login");
   return { ok: true, data: { enabled: true } };
 }
 
@@ -367,5 +384,7 @@ export async function clearSchoolTeacherPasswordAction(raw: {
 
   revalidatePath(`/admin/system/schools/${schoolId}/edit`);
   revalidatePath(`/admin/system/schools/${schoolId}`);
+  // 無効化で教員モードの出し分けが変わりうるため /login も反映させる（set と対称、安全側）。
+  revalidatePath("/login");
   return { ok: true, data: { enabled: false } };
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deterministicUuid,
+  isPasswordRejectedError,
   sharedTeacherUid,
   teacherAccountEmail,
 } from "@/lib/auth/teacher-account";
@@ -64,5 +65,21 @@ describe("teacherAccountEmail", () => {
 
   it("送信されない予約 TLD .invalid を使う", () => {
     expect(teacherAccountEmail(SCHOOL_A).endsWith(".invalid")).toBe(true);
+  });
+});
+
+describe("isPasswordRejectedError", () => {
+  it("auth/invalid-password と auth/weak-password は true（設定者が直せる入力エラー）", () => {
+    expect(isPasswordRejectedError({ code: "auth/invalid-password" })).toBe(true);
+    expect(isPasswordRejectedError({ code: "auth/weak-password" })).toBe(true);
+  });
+
+  it("それ以外のコード / 非エラー値は false（権限・インフラ起因は再 throw させるため分類しない）", () => {
+    expect(isPasswordRejectedError({ code: "auth/email-already-exists" })).toBe(false);
+    expect(isPasswordRejectedError({ code: "auth/internal-error" })).toBe(false);
+    expect(isPasswordRejectedError(new Error("plain"))).toBe(false);
+    expect(isPasswordRejectedError(null)).toBe(false);
+    expect(isPasswordRejectedError(undefined)).toBe(false);
+    expect(isPasswordRejectedError("auth/invalid-password")).toBe(false);
   });
 });
