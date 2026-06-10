@@ -122,6 +122,12 @@ export const tvDevices = pgTable(
     // 最終ポーリング元 IP（x-forwarded-for 由来）。運用診断用。inet は drizzle に専用型が無いため
     // varchar で保持し、INET 制約は付けない（IPv4/IPv6/XFF 由来の表記ゆれを緩く受ける）。
     lastKnownIp: varchar("last_known_ip", { length: 64 }),
+    // FCM 登録トークン（遠隔起動、F16 拡張）。TV アプリ（com.kimiterrace.tvbridge）が lp-config ポーリング時に
+    // `&fcmToken=<token>` で報告する最新トークン。down 検知時の遠隔起動（FCM data メッセージ action=wake）と
+    // 管理画面「起こす」操作の宛先になる。NULL = 未報告（旧 APK / 報告前）で送信対象外。FCM トークンは端末固有の
+    // 不透明文字列で、それ自体は PII（生徒・保護者情報）でない（ルール4）。device_id と同様に推測不能なので
+    // UI ではフル値を出さず保有有無のみを示す。長さ可変ゆえ text で保持する。
+    fcmToken: text("fcm_token"),
     // --- F16（死活監視、ADR-023）の土台フィールド ---
     // TV からの起動報告（任意・精度向上、F16 §3）。reboot 判定に使う。本スライスでは列のみ用意。
     lastBootAt: timestamp("last_boot_at", { withTimezone: true, mode: "date" }),
