@@ -83,9 +83,9 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // で URL 直打ち・API 直叩きも 403)。全校横断版は system_admin の /admin/system/* に存続する。
   school_admin: [
     { label: "学校管理", href: "/admin/school" },
-    // F11 第2スライス: 自校教職員のロール一覧 (school_admin 専用、自校運用)。teacher には出さない
-    // (requireRole(["school_admin"]) で 403 になるため死リンク防止)。
-    { label: "教職員", href: "/admin/school/members" },
+    // 教員アカウント概念の撤去（2026-06-10 ユーザー判断）に伴い「教職員」(/admin/school/members) を撤去。
+    // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。教員ロールの
+    // 付与/無効化/設定リンク発行という school_admin の自校教職員管理面ごと廃止した（[[project_remove_individual_teacher_accounts]]）。
     { label: "エディタ", href: "/admin/editor" },
     { label: "音声/チャット入力", href: "/admin/teacher-input" },
     { label: "コンテンツ", href: "/admin/contents" },

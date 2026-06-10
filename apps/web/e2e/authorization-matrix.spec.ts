@@ -99,13 +99,8 @@ const PAGE_CASES: readonly PageCase[] = [
     allow: ["system_admin"],
     allowUrl: /\/admin\/system\/users$/,
   },
-  // /admin/school/members = MEMBER_ADMIN_ROLES (school_admin のみ)。teacher / system_admin は 403。
-  {
-    label: "/admin/school/members (school_admin only)",
-    path: "/admin/school/members",
-    allow: ["school_admin"],
-    allowUrl: /\/admin\/school\/members$/,
-  },
+  // /admin/school/members（school_admin の自校教職員管理）は教員アカウント概念の撤去（2026-06-10）で
+  // ページごと廃止したため、認可マトリクスからも除外（教員は学校共通パスワード=系統A のみでログイン）。
 ];
 
 /** 認証済みページの到達検証: 許可ロールは allowUrl に留まり、不許可ロールは /forbidden に倒れる。 */
