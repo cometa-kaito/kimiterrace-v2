@@ -141,6 +141,11 @@ locals {
   # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
   provision_agent_secret_id = "prod-provision-agent-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
+  # portal ↔ v2 Partner API 共有シークレット（PARTNER_API_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
+  # partner-api-contract §1 / K1 効果メトリクス pull（/api/partner/*）。portal 側 Vercel env PORTAL_API_SECRET と同一値。
+  # 未投入だと partner route は fail-closed(401)（未認証の portal リクエストを到達させない）。
+  partner_api_secret_id = "prod-partner-api-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
   # TV 死活監視の Slack incoming webhook URL の Secret Manager secret ID（ルール5・値は別途投入）。
   # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
   slack_webhook_url_secret_id = "prod-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
@@ -171,7 +176,7 @@ locals {
   jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "1c93a8f" # 個別教員アカウント(系統B)撤去・学校側 deploy 2026-06-10: /admin/school/members 撤去 + 合成メール非表示（#785）。_APP_URL=app.school-signage.net 維持
+  web_image_tag = "a4482b0" # 効果還元K1 deploy 2026-06-10: K1 効果メトリクス pull /api/partner/* (#803)。schema 無変更(1c93a8f..d2d20f3 で migration 差分ゼロ)・pattern2(#804+)は意図的に除外
 }
 
 module "network" {
@@ -240,6 +245,9 @@ module "secret_manager" {
     }
     (local.provision_agent_secret_id) = {
       description = "TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET、C方式/PR4）。Cloud Run web service が /api/tv/provisioning/* の agent 認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.partner_api_secret_id) = {
+      description = "portal ↔ v2 Partner API 共有シークレット（PARTNER_API_SECRET、partner-api-contract §1）。Cloud Run web service が /api/partner/*（K1 効果メトリクス pull）の認証に使う。portal 側 Vercel env PORTAL_API_SECRET と同一値。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
     (local.slack_webhook_url_secret_id) = {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
@@ -461,6 +469,7 @@ module "cloud_run" {
   database_url_secret_id    = local.db_url_app_secret_id
   tv_poll_secret_id         = local.tv_poll_secret_id
   provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
+  partner_api_secret_id     = local.partner_api_secret_id     # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
   vpc_connector             = module.network.vpc_connector_id
   vertex_location           = var.region
 

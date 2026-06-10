@@ -67,6 +67,17 @@ variable "provision_agent_secret_id" {
   default     = ""
 }
 
+variable "partner_api_secret_id" {
+  description = <<-EOT
+    PARTNER_API_SECRET を保持する Secret Manager secret の ID（ルール5、partner-api-contract §1）。
+    portal ↔ v2 サーバー間 Partner API（K1 効果メトリクス pull /api/partner/*）の共有シークレット。
+    tv_poll_secret_id と同じパターンで配線する。空文字なら env / accessor を配線しない
+    （その場合 partner route は fail-closed＝未認証の portal リクエストを到達させない）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "vpc_connector" {
   description = <<-EOT
     Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。
