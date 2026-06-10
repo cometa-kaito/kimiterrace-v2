@@ -1,5 +1,7 @@
 import { type InferSelectModel, and, asc, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { TenantTx } from "../client.js";
+import { classes } from "../schema/classes.js";
 import { studentCallouts } from "../schema/student-callouts.js";
 
 /**
@@ -49,4 +51,63 @@ export async function getCalloutsForClass(
     .from(studentCallouts)
     .where(and(eq(studentCallouts.classId, classId), eq(studentCallouts.calloutDate, date)))
     .orderBy(asc(studentCallouts.scheduledTime), asc(studentCallouts.studentName));
+}
+
+/** 呼び出し 1 件の書き込み入力（編集 Action が検証・正規化して渡す。空欄は null）。 */
+export type StudentCalloutInput = {
+  studentName: string;
+  location: string | null;
+  reason: string | null;
+  scheduledTime: string | null;
+};
+
+export type ReplaceCalloutsParams = {
+  schoolId: string;
+  classId: string;
+  date: string;
+  items: StudentCalloutInput[];
+  /** 監査 actor（users.id）。createdBy/updatedBy に入れる。 */
+  actorUserId: string;
+};
+
+/**
+ * 指定クラス・日付の生徒呼び出しを **全置換** する（class_visitors の replaceClassVisitors と同型）。RLS context
+ * tx 内で呼ぶこと。手書き WHERE school_id は書かない（tenant_isolation が DELETE/INSERT とも自校に限定・INSERT は
+ * WITH CHECK で自校強制）。cross-tenant 防止: 先に対象 class が自校で可視か確認し、不可視なら `null`（呼出側
+ * Action が not_found へ）。`schoolId` は actor の自校（= current_school_id）を渡す。
+ *
+ * @returns 置換後の件数。対象 class が不可視（他校 / 不在）なら `null`。
+ */
+export async function replaceStudentCallouts(
+  tx: TenantTx,
+  params: ReplaceCalloutsParams,
+): Promise<number | null> {
+  const { schoolId, classId, date, items, actorUserId } = params;
+  const [cls] = await tx
+    .select({ id: classes.id })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1);
+  if (!cls) {
+    return null;
+  }
+  await tx
+    .delete(studentCallouts)
+    .where(and(eq(studentCallouts.classId, classId), eq(studentCallouts.calloutDate, date)));
+  if (items.length > 0) {
+    await tx.insert(studentCallouts).values(
+      items.map((it) => ({
+        schoolId,
+        classId,
+        calloutDate: date,
+        studentName: it.studentName,
+        location: it.location,
+        reason: it.reason,
+        scheduledTime: it.scheduledTime,
+        createdBy: actorUserId,
+        updatedBy: actorUserId,
+      })),
+    );
+  }
+  return items.length;
 }

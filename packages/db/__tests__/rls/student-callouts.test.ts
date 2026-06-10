@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getCalloutsForClass } from "../../src/queries/student-callouts.js";
+import {
+  type StudentCalloutInput,
+  getCalloutsForClass,
+  replaceStudentCallouts,
+} from "../../src/queries/student-callouts.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -119,5 +123,75 @@ describeOrSkip("RLS: student_callouts（生徒呼び出し）", () => {
           VALUES (${fx.schoolB}, ${classB}, ${today}, '不正')`;
       }),
     ).rejects.toThrow();
+  });
+
+  // --- replaceStudentCallouts（編集 Action コア・全置換書き込み） ---
+
+  function input(studentName: string, scheduledTime: string | null): StudentCalloutInput {
+    return { studentName, scheduledTime, location: null, reason: null };
+  }
+
+  it("replaceStudentCallouts: クラス×日付の呼び出しを全置換する（旧行は消えて新リストが入る）", async () => {
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceStudentCallouts(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [input("佐藤太郎", "10:00"), input("鈴木花子", "09:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    let rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getCalloutsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => r.studentName)).toEqual(["鈴木花子", "佐藤太郎"]);
+
+    const count = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceStudentCallouts(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [input("田中一郎", null)],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    expect(count).toBe(1);
+    rows = await withTenantContext(db, ctxA(), (tx) => getCalloutsForClass(tx, classA, today), APP);
+    expect(rows.map((r) => r.studentName)).toEqual(["田中一郎"]);
+  });
+
+  it("replaceStudentCallouts: 他校クラスは不可視で null を返し書き込まない（cross-tenant 防止）", async () => {
+    const result = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceStudentCallouts(tx, {
+          schoolId: fx.schoolA,
+          classId: classB,
+          date: today,
+          items: [input("不正", "10:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    expect(result).toBeNull();
+    const rows = await withTenantContext(
+      db,
+      ctxB(),
+      (tx) => getCalloutsForClass(tx, classB, today),
+      APP,
+    );
+    expect(rows).toEqual([]);
   });
 });
