@@ -290,7 +290,7 @@ async function writeSchoolAudit(
 /**
  * ADR-032: 学校の「教員共通パスワード」を設定/更新し、共通教員ログインを有効化する（system_admin 専用）。
  *
- * 手順: 認可 → ポリシー検証（≥4 文字）→ 対象校の存在確認 → IdP の共通教員アカウントを provisioning
+ * 手順: 認可 → ポリシー検証（≥6 文字 = IdP 下限）→ 対象校の存在確認 → IdP の共通教員アカウントを provisioning
  * （`provisionSharedTeacherAccount`、外部システムゆえ tx 外）→ DB で共通教員 `users` 行を用意 +
  * `teacher_login_enabled=true` + 監査（同一 tx）。**パスワード平文/ハッシュは本 DB に保存しない**
  * （IdP が保管、ルール5）。監査 diff にもパスワードは載せない。
