@@ -75,6 +75,32 @@ export async function changeIdpUserRole(
 }
 
 /**
+ * F11 (#324 follow-up B1): 既存 IdP ユーザー向けの **初回パスワード設定 / 再設定リンク**を生成する seam。
+ *
+ * `generatePasswordResetLink(email)` は対象メールの IdP ユーザーに oobCode 付きリンクを発行する。パスワード
+ * 未設定 (新規発行直後) なら「初回設定」、設定済みなら「再設定」として同じ oobCode フローで機能する
+ * (Identity Platform はどちらも resetPassword action として扱う)。既定の Firebase action ハンドラは英語の
+ * 「Password changed」表示でログイン導線が無いため、`oobCode` を取り出して自前の `{origin}/reset-password`
+ * に載せ替える (`buildInAppResetLink`)。origin 解決不能時は既定リンクにフォールバックする (発行/再発行を
+ * 壊さない = 安全側、reset-link.ts と同方針)。
+ *
+ * **サーバー専用 / リクエストスコープ**: origin を現リクエストヘッダから解決する (`getRequestOrigin`) ため
+ * Server Action からのみ呼ぶ。新規発行 ({@link createIdpUser}) と再発行 (`reissueStaffSetupLinkAction`) が
+ * **同一のリンク生成ロジックを共有する単一ソース** — リンクの宛先・載せ替え規律を二重管理しない。
+ *
+ * @throws 対象 email の IdP ユーザーが存在しない等で `generatePasswordResetLink` が失敗する場合
+ *   (呼出側はアカウント mirror の不整合として throw を伝播させ、握り潰さない)。
+ */
+export async function generateSetupLinkForExistingUser(
+  email: string,
+): Promise<{ setupLink: string }> {
+  const firebaseLink = await getAdminAuth().generatePasswordResetLink(email);
+  // 自前リセットページに載せ替える (origin 解決不能なら既定リンクのまま = 安全側)。
+  const origin = await getRequestOrigin();
+  return { setupLink: buildInAppResetLink(firebaseLink, origin ?? "") };
+}
+
+/**
  * F11 (#508): 新規スタッフアカウントの **Identity Platform 作成 seam**。
  *
  * **uid 規約 (ADR-003 provisioning)**: Auth の **localId 自体を呼出側生成の `users.id`(UUID) に一致**
@@ -113,11 +139,8 @@ export async function createIdpUser(args: {
   try {
     // claims は role / school_id のみ (uid は localId で claim ではない、ADR-003)。
     await auth.setCustomUserClaims(args.uid, { role: args.role, school_id: args.schoolId });
-    const firebaseLink = await auth.generatePasswordResetLink(args.email);
-    // 自前リセットページに載せ替える (origin 解決不能なら既定リンクのまま = 安全側)。
-    const origin = await getRequestOrigin();
-    const setupLink = buildInAppResetLink(firebaseLink, origin ?? "");
-    return { setupLink };
+    // reset-link 生成は再発行 (reissueStaffSetupLinkAction) と共有する seam を再利用する (単一ソース)。
+    return await generateSetupLinkForExistingUser(args.email);
   } catch (error) {
     // createUser 成功後の部分失敗は **claims 無しの孤児 IdP user** (認証は normalizeClaims が role 欠落で
     // deny するが、email を占有して再発行を塞ぐ) を残すため、削除して seam を atomic 化してから throw する。
