@@ -30,6 +30,8 @@ export * from "./queries/presence-today.js";
 export * from "./queries/class-visitors.js";
 // パターン2 サイネージ「生徒呼び出し」: クラス×日別の呼び出し read（実名表示・ADR-034・RLS テナント分離）
 export * from "./queries/student-callouts.js";
+// パターン2 サイネージ「鉄道」: 鉄道事業者の運行情報キャッシュ read/upsert（公開・非PII・ADR-035・read_all RLS）
+export * from "./queries/railway-status.js";
 // F09 (#45): 月次レポートの学校別サマリー集計読み取り層 (JST 暦月の totals/ranking/稼働日数)
 export * from "./queries/monthly-report.js";
 // F09 (#45, #430): 月次レポート生成履歴 (monthly_reports) の書き込み層 (RLS context 内 upsert)

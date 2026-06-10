@@ -355,7 +355,7 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
             <Pattern2Visitors visitors={data.visitors} />
             <Pattern2Callouts callouts={data.callouts} />
             <Pattern2SensorCount count={data.presenceCount} />
-            <Pattern2Placeholder title="鉄道" />
+            <Pattern2Train train={data.trainStatus} />
           </div>
         </main>
         <AdAside
@@ -561,14 +561,31 @@ function Pattern2SensorCount({ count }: { count: number | null }) {
 }
 
 /**
- * パターン2の未実装ウィジェット枠（来校者一覧 / 生徒呼び出し / 鉄道）。後続スライスで中身を実装するまで
- * 盤面骨格を見せつつ「準備中」を明示する（端末別切替の検証を妨げない）。
+ * パターン2の鉄道（運行情報）。対象事業者（当面=名鉄/笠松駅）の現況をキャッシュ（railway_status）から表示する。
+ * 端末は閉域で名鉄サイトを直叩きしない（バックエンド取得 Job が更新・ADR-035）。取得 Job 未稼働・取得失敗
+ * （`null`）は「運行情報は取得できていません」（fail-soft）。運行に乱れがある時は強調、キャッシュが古い時は注記。
  */
-function Pattern2Placeholder({ title }: { title: string }) {
+function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
   return (
-    <section aria-label={title} className={styles.card}>
-      <h2 className={styles.cardTitle}>{title}</h2>
-      <p className={styles.p2Placeholder}>準備中</p>
+    <section aria-label="鉄道" className={styles.card}>
+      <h2 className={styles.cardTitle}>鉄道</h2>
+      {train == null ? (
+        <p className={styles.p2Muted}>運行情報は取得できていません</p>
+      ) : (
+        <div className={styles.p2Train}>
+          <span className={styles.p2TrainOperator}>{train.operatorName}</span>
+          <p
+            className={`${styles.p2TrainStatus} ${train.hasDisruption ? styles.p2TrainDisrupted : ""}`}
+          >
+            {train.statusText}
+          </p>
+          {train.isStale ? (
+            <span className={styles.p2TrainStale} role="status">
+              （情報が古い可能性）
+            </span>
+          ) : null}
+        </div>
+      )}
     </section>
   );
 }

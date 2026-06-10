@@ -579,20 +579,33 @@
 .p2Wide {
   grid-column: 1 / -1;
 }
-/* 未実装ウィジェットの「準備中」枠（破線で“ここに来る”ことを明示しつつ盤面を壊さない）。 */
-.p2Placeholder {
+/* 鉄道（運行情報）: 事業者名 + メッセージ本文。乱れ時は赤強調、古い時は注記。 */
+.p2Train {
   flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
-  color: var(--text-muted);
+  gap: 0.25rem;
+}
+.p2TrainOperator {
+  font-size: clamp(0.7rem, 1vw, 0.9rem);
   font-weight: 700;
-  font-size: clamp(0.85rem, 1.3vw, 1.15rem);
-  letter-spacing: 0.08em;
-  border: 1px dashed var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--surface-muted);
-  margin-top: 0.2rem;
+  color: var(--text-muted);
+}
+.p2TrainStatus {
+  font-size: clamp(0.85rem, 1.4vw, 1.2rem);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--primary-color);
+}
+.p2TrainDisrupted {
+  color: var(--urgent-color);
+}
+.p2TrainStale {
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
+  color: var(--text-muted);
+  font-weight: 600;
 }
 .p2Muted {
   color: var(--text-muted);
