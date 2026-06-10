@@ -161,6 +161,37 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
     );
   });
 
+  it("runTvLivenessCheck: down エッジが端末の fcm_token を downDevices に載せる（遠隔起動の宛先）", async () => {
+    // A の TV に FCM トークンを保存し、10 分前から無応答にする（新規 down）。
+    await sql`UPDATE tv_devices SET fcm_token = 'tok-wake-aaa', last_seen_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(summary.newlyDown).toBe(1);
+    expect(summary.downDevices).toHaveLength(1);
+    // entrypoint（apps/jobs）が wake 送信先に使う fcm_token がエッジに載っている。
+    expect(summary.downDevices[0]?.deviceId).toBe(DEV_A);
+    expect(summary.downDevices[0]?.fcmToken).toBe("tok-wake-aaa");
+  });
+
+  it("runTvLivenessCheck: fcm_token 未報告（NULL）の down は downDevices.fcmToken=null（送信対象外）", async () => {
+    // fcm_token を明示的に NULL（旧 APK / 報告前）にして無応答にする。
+    await sql`UPDATE tv_devices SET fcm_token = NULL, last_seen_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(summary.newlyDown).toBe(1);
+    expect(summary.downDevices[0]?.fcmToken).toBeNull();
+  });
+
   it("runTvLivenessCheck: 再走査で二重計上しない（idempotent / send-once）", async () => {
     await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(mins => 10) WHERE device_id = ${DEV_A}`;
 

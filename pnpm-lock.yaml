@@ -48,6 +48,9 @@ importers:
       '@kimiterrace/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@kimiterrace/fcm':
+        specifier: workspace:*
+        version: link:../../packages/fcm
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
@@ -214,6 +217,22 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@25.9.1)(jiti@2.6.1)(jsdom@29.1.1(@noble/hashes@1.8.0))(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/fcm:
+    dependencies:
+      google-auth-library:
+        specifier: ^10.6.2
+        version: 10.6.2
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

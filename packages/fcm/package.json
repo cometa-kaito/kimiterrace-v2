@@ -1,0 +1,30 @@
+{
+  "name": "@kimiterrace/fcm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "description": "FCM HTTP v1 送信（遠隔起動）。純ロジック（メッセージ整形・送信可否）+ 薄い HTTP アダプタ（OAuth は Workload Identity、鍵ファイル禁止・ルール5）。",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "google-auth-library": "^10.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
+  }
+}

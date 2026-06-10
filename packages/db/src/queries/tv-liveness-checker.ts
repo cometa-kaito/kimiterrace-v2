@@ -58,6 +58,11 @@ export interface TvLivenessCheckSummary {
     label: string | null;
     lastSeenAt: Date | null;
     wentDownAt: Date;
+    /**
+     * 端末が報告した FCM 登録トークン（遠隔起動の宛先、F16 拡張）。NULL = 未報告（旧 APK / 報告前）で
+     * 送信対象外。entrypoint（apps/jobs）が down エッジごとにこれを使って wake 送信する（`@kimiterrace/fcm`）。
+     */
+    fcmToken: string | null;
   }[];
   /**
    * 今回 down→up に反転した TV（未解決行を実際に締めた分のみ）。`recovered` と件数一致。
@@ -71,10 +76,12 @@ export interface TvLivenessCheckSummary {
   }[];
 }
 
-/** 走査対象 1 行の内部表現（schema 由来 + 未解決行有無 + 表示ラベル）。 */
+/** 走査対象 1 行の内部表現（schema 由来 + 未解決行有無 + 表示ラベル + FCM トークン）。 */
 type DeviceStateRow = TvLivenessInput & {
   /** 表示用ラベル（教室名等、PII 非含み）。Slack 通知文に使う。 */
   label: string | null;
+  /** FCM 登録トークン（遠隔起動の宛先、F16 拡張）。NULL = 未報告で送信対象外。 */
+  fcmToken: string | null;
 };
 
 /**
@@ -120,6 +127,8 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
       schoolId: tvDevices.schoolId,
       // 表示用ラベル（教室名等、PII 非含み）。Slack 通知文に載せる（F16 §4）。
       label: tvDevices.label,
+      // FCM 登録トークン（遠隔起動の宛先、F16 拡張）。down エッジで wake 送信に使う。
+      fcmToken: tvDevices.fcmToken,
       lastSeenAt: tvDevices.lastSeenAt,
       lastBootAt: tvDevices.lastBootAt,
       alertState: tvDevices.alertState,
@@ -150,6 +159,7 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
     deviceId: r.deviceId,
     schoolId: r.schoolId,
     label: r.label,
+    fcmToken: r.fcmToken,
     lastSeenAt: r.lastSeenAt,
     lastBootAt: r.lastBootAt,
     alertState: r.alertState,
@@ -225,6 +235,7 @@ async function applyTransitions(
       label: st?.label ?? null,
       lastSeenAt: st?.lastSeenAt ?? null,
       wentDownAt: down.wentDownAt,
+      fcmToken: st?.fcmToken ?? null,
     });
   }
 

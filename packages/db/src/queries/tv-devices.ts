@@ -233,6 +233,28 @@ export async function getTvDeviceConfig(
 }
 
 /**
+ * 遠隔起動（「起こす」）が読む 1 デバイスの **送信宛先トークン**（F16 拡張）。`id`（行 PK）で取得する。
+ * 可視範囲は RLS が決める（school_admin = 自校 / system_admin = 全校）。他校 / ソフトデリート済 / 不可視は
+ * `undefined`（→ 呼び出し側 Action が not_found に写像）。手書きの `WHERE school_id` は書かない（ルール2、
+ * getTvDeviceConfig と同方針）。呼び出し側は非 BYPASSRLS 接続（kimiterrace_app）を RLS context 下で使うこと。
+ *
+ * `fcm_token` は端末が報告した最新トークン。NULL = 未報告（旧 APK / 報告前）で送信対象外（呼び出し側で判定）。
+ */
+export type TvDeviceWakeTarget = Pick<TvDeviceRow, "id" | "fcmToken">;
+
+export async function getTvDeviceFcmToken(
+  db: Selectable,
+  id: string,
+): Promise<TvDeviceWakeTarget | undefined> {
+  const rows = await db
+    .select({ id: tvDevices.id, fcmToken: tvDevices.fcmToken })
+    .from(tvDevices)
+    .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
  * 設定編集が書き込める **オペレーター編集可能フィールド**（F15 §4.2）の正規化済みパッチ。
  *
  * ここに無いフィールドは **システム管理列**で編集経路から書けない（型レベルで遮断）:
