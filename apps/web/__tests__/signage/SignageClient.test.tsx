@@ -73,6 +73,7 @@ function payload(ads: SignagePayload["ads"]): SignagePayload {
     ads,
     weather: null,
     classContext: { departmentName: "電子工学科", gradeName: "1年", className: "A組" },
+    presenceCount: null,
   };
 }
 
@@ -115,17 +116,35 @@ describe("SignageClient view impression (#43 / F07)", () => {
 });
 
 describe("SignageClient デザインパターン dispatch（端末別デザイン）", () => {
-  function p2(ads: SignagePayload["ads"]): SignagePayload {
-    return { ...payload(ads), designPattern: "pattern2" };
+  function p2(ads: SignagePayload["ads"], presenceCount: number | null = null): SignagePayload {
+    return { ...payload(ads), designPattern: "pattern2", presenceCount };
   }
 
-  it("pattern2 はパターン2盤面（来校者/呼び出し/センサ/鉄道の枠 + 準備中）を描画する", () => {
+  it("pattern2 はパターン2盤面（来校者/呼び出し/センサ/鉄道の枠 + 準備中3枠）を描画する", () => {
     render(<SignageClient classToken={TOKEN} initial={p2([])} />);
     expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "生徒呼び出し" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
-    expect(screen.getAllByText("準備中").length).toBeGreaterThanOrEqual(4);
+    // 人感センサは実装済（準備中ではない）。残り3枠（来校者/呼び出し/鉄道）が準備中。
+    expect(screen.getAllByText("準備中").length).toBe(3);
+  });
+
+  it("pattern2 人感センサカウンタ: 件数があれば本日の検知回数を出し、null は計測なし、0 も出す", () => {
+    const { unmount } = render(<SignageClient classToken={TOKEN} initial={p2([], 12)} />);
+    const sensor = screen.getByRole("region", { name: "人感センサカウンタ" });
+    expect(sensor).toHaveTextContent("12");
+    expect(sensor).toHaveTextContent("本日の検知");
+    unmount();
+
+    const { unmount: u2 } = render(<SignageClient classToken={TOKEN} initial={p2([], 0)} />);
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toHaveTextContent("0");
+    u2();
+
+    render(<SignageClient classToken={TOKEN} initial={p2([], null)} />);
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toHaveTextContent(
+      "計測なし",
+    );
   });
 
   it("pattern1（既定）はパターン2専用の枠を描画しない", () => {
