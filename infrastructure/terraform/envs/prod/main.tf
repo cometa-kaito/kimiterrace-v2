@@ -176,7 +176,7 @@ locals {
   jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "d2d20f3" # 効果還元K1 deploy 2026-06-10: K1 効果メトリクス pull /api/partner/* (#803)。schema 無変更(1c93a8f..d2d20f3 で migration 差分ゼロ)・pattern2(#804+)は意図的に除外
+  web_image_tag = "a4482b0" # 効果還元K1 deploy 2026-06-10: K1 効果メトリクス pull /api/partner/* (#803)。schema 無変更(1c93a8f..d2d20f3 で migration 差分ゼロ)・pattern2(#804+)は意図的に除外
 }
 
 module "network" {
