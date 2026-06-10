@@ -1,5 +1,5 @@
 {
-  "id": "5296f368-2ecf-45ec-acf5-77a7c1f07f11",
+  "id": "96752804-32cf-448f-b797-b42e19a5a5c7",
   "prevId": "0a17114f-b8de-40b3-a5c5-0a7b8e10c49e",
   "version": "7",
   "dialect": "postgresql",
@@ -2023,6 +2023,106 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.railway_status": {
+      "name": "railway_status",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "operator": {
+          "name": "operator",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operator_name": {
+          "name": "operator_name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "has_disruption": {
+          "name": "has_disruption",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "status_text": {
+          "name": "status_text",
+          "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ux_railway_status_operator": {
+          "name": "ux_railway_status_operator",
+          "columns": [
+            {
+              "expression": "operator",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.tv_device_downtime": {
       "name": "tv_device_downtime",
       "schema": "",
@@ -3805,12 +3905,6 @@
           "notNull": true,
           "default": true
         },
-        "portal_company_id": {
-          "name": "portal_company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3883,21 +3977,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "ux_advertisers_portal_company_id": {
-          "name": "ux_advertisers_portal_company_id",
-          "columns": [
-            {
-              "expression": "portal_company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3959,12 +4038,6 @@
         "notes": {
           "name": "notes",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "portal_contract_id": {
-          "name": "portal_contract_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -4037,21 +4110,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ux_contracts_portal_contract_id": {
-          "name": "ux_contracts_portal_contract_id",
-          "columns": [
-            {
-              "expression": "portal_contract_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5751,12 +5809,6 @@
           "notNull": true,
           "default": 0
         },
-        "portal_placement_id": {
-          "name": "portal_placement_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5808,21 +5860,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ux_ads_portal_placement_id": {
-          "name": "ux_ads_portal_placement_id",
-          "columns": [
-            {
-              "expression": "portal_placement_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
