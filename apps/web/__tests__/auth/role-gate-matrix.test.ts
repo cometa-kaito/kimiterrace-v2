@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
 import { PUBLISHER_ROLES } from "../../lib/contents/publish-core";
 import { ADMIN_ROLES } from "../../lib/nav";
-import { MEMBER_ADMIN_ROLES } from "../../lib/role-management/roles";
 import { SYSTEM_ADMIN_ROLES } from "../../lib/system-admin/roles";
 import { TEACHER_INPUT_STAFF_ROLES } from "../../lib/teacher-input/roles";
 
@@ -12,12 +11,12 @@ import { TEACHER_INPUT_STAFF_ROLES } from "../../lib/teacher-input/roles";
  *
  * RLS は tenant 境界のみを守り role 境界を守らない ([[rls-tenant-not-role-boundary]])。よって
  * 「どの role がどの管理面に入れるか」は各 handler の requireRole / withSession({allowedRoles}) が担い、
- * その許可集合 = 本 gate 定数群が単一ソース。本スイートは個別 action テスト (roles/policy/member-actions
- * 等) を横断し、全 gate × 全 role の許可/拒否を 1 つのマトリクスで固定する。
+ * その許可集合 = 本 gate 定数群が単一ソース。本スイートは個別 action テスト (system-admin roles 等) を
+ * 横断し、全 gate × 全 role の許可/拒否を 1 つのマトリクスで固定する。
  *
  * 新規価値 (既存個別テストと二重化しない):
  * - config typo 検出: gate 定数に誤って role を足す/外すと期待マトリクスと不一致で fail
- *   (例: MEMBER_ADMIN_ROLES に teacher 誤追加 → 自校教職員管理の越権穴を CI が検知)。
+ *   (例: PUBLISHER_ROLES に system_admin 誤追加 → 公開系の越権穴を CI が検知)。
  * - 越権網羅: student/guardian (最下位) が**いかなる管理 gate にも入れない**ことを全 gate で固定。
  * - enum 追従: ALL_ROLES が TenantRole 全網羅であることを型で保証 (新 role 追加時の監査漏れ防止)。
  *
@@ -43,7 +42,6 @@ void _exhaustive;
 // gate (実装の定数) と allow (期待) がズレたら下のマトリクスが fail し、config 誤りを検知する。
 const GATES: { name: string; gate: readonly TenantRole[]; allow: ReadonlySet<string> }[] = [
   { name: "SYSTEM_ADMIN_ROLES", gate: SYSTEM_ADMIN_ROLES, allow: new Set(["system_admin"]) },
-  { name: "MEMBER_ADMIN_ROLES", gate: MEMBER_ADMIN_ROLES, allow: new Set(["school_admin"]) },
   { name: "PUBLISHER_ROLES", gate: PUBLISHER_ROLES, allow: new Set(["school_admin", "teacher"]) },
   {
     name: "TEACHER_INPUT_STAFF_ROLES",

@@ -23,7 +23,13 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
         <img src="/brand/logo-wordmark.png" alt="キミテラス" style={brandLogoStyle} />
         <span style={roleBadgeStyle}>{ROLE_LABEL[user.role]}</span>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {user.email && <span style={userEmailStyle}>{user.email}</span>}
+          {/* 教員は学校共通アカウント（ADR-032）でログインし個別 ID を持たない。合成メール
+              （t-…@teacher.kimiterrace.invalid）を画面に出さず「教員」バッジのみ表示する
+              ＝「教員アカウント」という概念をユーザーに見せない（ユーザー要望 2026-06-10）。
+              職員・管理者（school_admin / system_admin）は個別アカウントゆえ実メールを表示する。 */}
+          {user.role !== "teacher" && user.email && (
+            <span style={userEmailStyle}>{user.email}</span>
+          )}
           <SignOutButton />
         </div>
       </header>

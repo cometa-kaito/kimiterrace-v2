@@ -48,10 +48,9 @@ describe("navItemsForRole", () => {
     ]);
   });
 
-  it("school_admin は学校管理 + 教職員 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
+  it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。教職員管理は教員アカウント概念の撤去で廃止、監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
     expect(hrefs).toContain("/admin/school");
-    expect(hrefs).toContain("/admin/school/members");
     expect(hrefs).toContain("/admin/editor");
     expect(hrefs).toContain("/admin/teacher-input");
     expect(hrefs).toContain("/admin/contents");
@@ -70,14 +69,13 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/chat");
   });
 
-  it("教職員 (/admin/school/members) は school_admin 専用 (F11 第2スライス、自校運用)。teacher / system_admin には出さない (死リンク防止)", () => {
-    // /admin/school/members は requireRole(["school_admin"]) で teacher / system_admin を 403 にする
-    // ため、nav からも出さない (自校運用ビュー、system_admin の横断管理は別サーフェス)。
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/school/members");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/school/members");
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain(
-      "/admin/school/members",
-    );
+  it("教職員管理 (/admin/school/members) はどの role の nav にも出さない (教員アカウント概念の撤去・2026-06-10)", () => {
+    // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。school_admin の
+    // 自校教職員管理面（個別教員の発行/無効化/設定リンク再発行）はページごと撤去したため、nav にも出さない
+    // （再追加防止の回帰、[[project_remove_individual_teacher_accounts]]）。
+    for (const role of ["school_admin", "teacher", "system_admin"] as const) {
+      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/admin/school/members");
+    }
   });
 
   it("音声/チャット入力 (/admin/teacher-input) は publisher (school_admin/teacher) のみ、system_admin には出さない (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)", () => {
@@ -163,9 +161,10 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/sensors");
   });
 
-  it("教職員管理 (/admin/system/users) は system_admin 専用 (F11 全校横断、自校 /admin/school/members とは別)", () => {
+  it("教職員管理 (/admin/system/users) は system_admin 専用 (F11 全校横断・school_admin 管理用)", () => {
     // /admin/system/users は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/school/members は別ルートで存続。
+    // nav からも publisher には出さない (死リンク防止)。自校の個別教員管理面 (/admin/school/members) は
+    // 教員アカウント概念の撤去で廃止済（[[project_remove_individual_teacher_accounts]]）。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/system/users");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/system/users");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/system/users");
@@ -233,11 +232,6 @@ describe("homePathForRole", () => {
 
 describe("activeNavHref (最長一致)", () => {
   const schoolAdmin = navItemsForRole("school_admin");
-
-  it("子ページ /admin/school/members では教職員のみ active、親の学校管理は点灯しない (バグ回帰)", () => {
-    // 旧実装は startsWith で親 /admin/school も一致し「学校管理」「教職員」が両点灯していた。
-    expect(activeNavHref(schoolAdmin, "/admin/school/members")).toBe("/admin/school/members");
-  });
 
   it("親ページ /admin/school では学校管理が active", () => {
     expect(activeNavHref(schoolAdmin, "/admin/school")).toBe("/admin/school");
