@@ -1,11 +1,13 @@
 import { hashToken } from "@/lib/magic-link/token";
 import {
+  type ClassVisitor,
   type EffectiveAd,
   type SignageClassContext,
   type TenantTx,
   getEffectiveAdsForClass,
   getSignageClassContext,
   getTodayPresenceCount,
+  getVisitorsForClass,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
@@ -96,6 +98,12 @@ export type SignagePayload = {
    * 「計測なし」表示＝fail-soft、盤面を壊さない）。
    */
   presenceCount: number | null;
+  /**
+   * パターン2「来校者一覧」用、このクラスの**当日（JST）の来校者**（時刻順）。pattern1 は使わない。来校者
+   * 無し・取得失敗はともに空/`null`（ウィジェットは「本日の来校者はありません」表示＝fail-soft）。氏名は
+   * 当該クラスの端末にのみ表示され RLS で自校スコープ（class-visitors schema の「個人情報について」参照）。
+   */
+  visitors: ClassVisitor[] | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -159,6 +167,10 @@ export async function getSignageDisplayData(
     // 自校限定（ルール2）。pattern2 でのみ使うが、payload は両パターン共通なので常に解決する。取得失敗は
     // **fail-soft** で null に倒し、ウィジェットは「計測なし」表示にする（盤面の他要素は壊さない）。
     const presenceCount = await getTodayPresenceCount(tx, cls.classId, date).catch(() => null);
+    // パターン2「来校者一覧」: このクラスの当日(JST=`date`)の来校者を時刻順で取得。同一 tx・RLS 自校限定
+    // （ルール2）。pattern2 でのみ使うが payload は両パターン共通なので常に解決。取得失敗は fail-soft で
+    // null に倒し、ウィジェットは「来校者はありません」表示にする（盤面の他要素は壊さない）。
+    const visitors = await getVisitorsForClass(tx, cls.classId, date).catch(() => null);
     return {
       date,
       designPattern,
@@ -168,6 +180,7 @@ export async function getSignageDisplayData(
       weather,
       classContext,
       presenceCount,
+      visitors,
     } satisfies SignagePayload;
   });
 }
