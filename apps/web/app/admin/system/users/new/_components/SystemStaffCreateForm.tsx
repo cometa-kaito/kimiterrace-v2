@@ -9,9 +9,10 @@ import { FormField } from "@kimiterrace/ui";
 import { type FormEvent, useState, useTransition } from "react";
 
 /**
- * F11 (#508): system_admin が **任意校に学校管理者 / 教員を発行**するフォーム。**Client Component** —
+ * F11 (#508): system_admin が **任意校に学校管理者を発行**するフォーム。**Client Component** —
  * `createSystemStaffAction` を呼ぶ。`/admin/school/members/new` の `StaffCreateForm` (school_admin 自校版)
- * の system_admin 全校横断版で、**発行先の学校** と **ロール (学校管理者 / 教員)** を入力で選べる点が異なる。
+ * の system_admin 全校横断版で、**発行先の学校**を入力で選べる点が異なる。教員は学校共通PW (ADR-032・系統A)
+ * でログインし個別アカウントを持たないため発行対象でない (教員アカウント概念の撤去・2026-06-10)。
  *
  * 認可・検証・対象校実在確認・IdP 作成・DB mirror・監査・RLS は Server Action 側 (users-actions.ts) が
  * 担保するので、ここは入力収集と **初回パスワード設定リンク (setupLink) の表示**に徹する。成功時は一覧へ
@@ -23,12 +24,6 @@ import { type FormEvent, useState, useTransition } from "react";
  */
 
 type SchoolOption = { id: string; name: string; prefecture: string };
-
-/** 発行できるロール (system_admin への昇格は不可、action 側でも STAFF_ROLES に限定)。 */
-const ROLE_OPTIONS = [
-  { value: "school_admin", label: "学校管理者" },
-  { value: "teacher", label: "教員" },
-] as const;
 
 /** 項目別エラー (email/displayName は core 由来 + 学校選択)。 */
 type SystemStaffFieldErrors = StaffCreateFieldErrors & { schoolId?: string };
@@ -70,7 +65,7 @@ export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) 
     setFieldErrors({});
     setError(null);
     startTransition(async () => {
-      const res = await createSystemStaffAction({ ...raw, role: fd.get("role"), schoolId });
+      const res = await createSystemStaffAction({ ...raw, schoolId });
       if (res.ok) {
         setCreated({ setupLink: res.data.setupLink });
       } else {
@@ -150,16 +145,6 @@ export function SystemStaffCreateForm({ schools }: { schools: SchoolOption[] }) 
           {schools.map((s) => (
             <option key={s.id} value={s.id}>
               {s.prefecture} / {s.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
-
-      <FormField label="ロール" required hint="新規校の最初の管理者を作るには「学校管理者」を選ぶ">
-        <select name="role" required defaultValue="school_admin" style={inputStyle}>
-          {ROLE_OPTIONS.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
             </option>
           ))}
         </select>
