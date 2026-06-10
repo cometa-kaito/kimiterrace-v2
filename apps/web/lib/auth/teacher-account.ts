@@ -84,6 +84,19 @@ function isUserNotFound(error: unknown): boolean {
 }
 
 /**
+ * 共通パスワードが Identity Platform に拒否されたか（利用者が直せる入力起因のエラー）。
+ *
+ * `auth/invalid-password`（6 文字未満 / 非文字列）と `auth/weak-password`（プロジェクトの password policy 違反）を
+ * 「設定者が修正可能な入力エラー」として分類する。`setSchoolTeacherPasswordAction` がこれを掴んでフレンドリーな
+ * 検証メッセージ（`invalid`）に整形し、**エラーバウンダリへ吹き上げない**。app 検証で 6 文字未満は既に弾くが、
+ * IdP の password policy 等による拒否への多層防御（権限/インフラ起因の不明エラーは分類せず再 throw させる）。
+ */
+export function isPasswordRejectedError(error: unknown): boolean {
+  const code = adminErrorCode(error);
+  return code === "auth/invalid-password" || code === "auth/weak-password";
+}
+
+/**
  * 学校の共通教員アカウントを **冪等に** 用意/更新し、パスワードを設定する（system_admin の設定操作）。
  *
  * - 未作成なら `createUser({ uid, email, password })`、既存なら `updateUser` でパスワード/メール更新 + 有効化。

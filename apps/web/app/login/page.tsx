@@ -4,6 +4,15 @@ import { getDb } from "../../lib/db";
 import { LoginForm } from "./_components/LoginForm";
 
 /**
+ * **動的レンダリング必須**（force-dynamic）。本ページは「共通ログインが有効な学校」を毎リクエスト DB から
+ * 引いて教員モードの出し分けを決める。指定が無いと Next は public ページの本ルートを**静的プリレンダ**して
+ * `s-maxage` で長期キャッシュするため、ビルド時点（有効校 0）の HTML が凍結配信され、後から system_admin が
+ * 学校の共通パスワードを設定（`teacher_login_enabled=true`）しても**教員ログイン UI が現れない**バグになる
+ * （prod で実発生: `x-nextjs-prerender:1` / `s-maxage=31536000`）。有効化を即時反映するため動的に固定する。
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * ログイン画面 (ADR-003 / ADR-032)。**Server Component**。
  *
  * 教員ロールが最多のため **教員ログイン（学校共通パスワード）を中心**に設計する（ユーザー要望）。本サーバー
