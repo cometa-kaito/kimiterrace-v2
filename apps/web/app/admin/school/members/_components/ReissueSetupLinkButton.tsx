@@ -1,7 +1,7 @@
 "use client";
 
 import { reissueStaffSetupLinkAction } from "@/lib/role-management/member-actions";
-import { useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 /**
  * F11 (#324 follow-up B1): 自校 teacher の **初回パスワード設定リンク再発行**ボタン。**Client Component** —
@@ -29,6 +29,31 @@ export function ReissueSetupLinkButton({
   const [copyFailed, setCopyFailed] = useState(false);
   // clipboard 失敗時に readonly 入力を選択状態へ誘導するための参照。
   const linkInputRef = useRef<HTMLInputElement>(null);
+  // オーバーレイを開いたときにフォーカスを移す先 (キーボード/AT 利用者の文脈移動、ConfirmDialog と同方針)。
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // 閉じると再発行リンクを state から破棄する (secret を画面に残さない)。setState は安定なので deps は空。
+  const close = useCallback(() => {
+    setLink(null);
+    setError(null);
+    setCopied(false);
+    setCopyFailed(false);
+  }, []);
+
+  // オーバーレイ表示時に本体へフォーカスし、Esc で閉じられるようにする (NFR05、ConfirmDialog の a11y 水準に合わせる)。
+  useEffect(() => {
+    if (!link) {
+      return;
+    }
+    dialogRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        close();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [link, close]);
 
   function run() {
     setError(null);
@@ -60,14 +85,6 @@ export function ReissueSetupLinkButton({
     }
   }
 
-  // 閉じると再発行リンクを state から破棄する (secret を画面に残さない)。
-  function close() {
-    setLink(null);
-    setError(null);
-    setCopied(false);
-    setCopyFailed(false);
-  }
-
   return (
     <span style={wrapStyle}>
       <button type="button" onClick={run} disabled={pending} style={btnStyle}>
@@ -76,14 +93,26 @@ export function ReissueSetupLinkButton({
       {error ? <output style={errorStyle}>{error}</output> : null}
 
       {link ? (
-        // 行内に長い URL を出すと表のレイアウトが崩れるため、オーバーレイで提示する。
+        // 行内に長い URL を出すと表のレイアウトが崩れるため、オーバーレイで提示する。背景クリックでも閉じる
+        // (Esc は上の keydown と等価。マウス補助)。
+        // biome-ignore lint/a11y/noStaticElementInteractions: 背景クリックでの取消はマウス補助。キーボード等価は Esc で提供済み
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`「${displayName}」の初回パスワード設定リンク`}
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              close();
+            }
+          }}
           style={overlayStyle}
         >
-          <div style={panelStyle}>
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`「${displayName}」の初回パスワード設定リンク`}
+            tabIndex={-1}
+            style={panelStyle}
+          >
             <h2 style={panelTitleStyle}>「{displayName}」の設定リンク</h2>
             <p style={warnNoteStyle}>
               ⚠ このリンクは<strong>この画面でのみ表示</strong>
@@ -148,6 +177,7 @@ const panelStyle: React.CSSProperties = {
   display: "grid",
   gap: "0.85rem",
   textAlign: "left",
+  outline: "none",
 };
 const panelTitleStyle: React.CSSProperties = { margin: 0, fontSize: "1.05rem", color: "#111827" };
 const labelStyle: React.CSSProperties = {

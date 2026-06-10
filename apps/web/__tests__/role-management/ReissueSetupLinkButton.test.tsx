@@ -103,4 +103,17 @@ describe("ReissueSetupLinkButton (#324 follow-up B1)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("初回パスワード設定リンク")).not.toBeInTheDocument();
   });
+
+  it("Esc でオーバーレイを閉じる (a11y: secret も破棄する)", async () => {
+    reissueMock.mockResolvedValue({
+      ok: true,
+      data: { id: PROPS.userId, setupLink: "https://app.example/reset-password?oobCode=abc" },
+    });
+    render(<ReissueSetupLinkButton {...PROPS} />);
+    fireEvent.click(screen.getByRole("button", { name: "設定リンク再発行" }));
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("初回パスワード設定リンク")).not.toBeInTheDocument();
+  });
 });
