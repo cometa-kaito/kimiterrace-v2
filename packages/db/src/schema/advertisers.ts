@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, pgTable, text, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { advertiserStatus } from "../_shared/enums.js";
 
@@ -33,11 +33,17 @@ export const advertisers = pgTable(
     // 営業ステータス。新規行は既定 'prospect'（見込み）。既存行は migration で is_active 由来に backfill。
     status: advertiserStatus("status").notNull().default("prospect"),
     isActive: boolean("is_active").notNull().default(true),
+    // Partner API K3（partner-api-contract §3）の冪等キー。portal（商流 SoR）側 company の UUID を保持し、
+    // POST /api/partner/delivery が portal_company_id を競合キーに upsert する（二重反映しない）。
+    // **portal 由来 ID の外部参照**で v2 テーブルへの FK ではない（portal は別リポ・別 DB）。既存行は null。
+    // nullable + unique（部分 unique 不要: NULL は unique 制約上互いに衝突しないため複数行 null 可）。
+    portalCompanyId: uuid("portal_company_id"),
     ...auditColumns,
   },
   (t) => ({
     ixCompanyName: index("ix_advertisers_company_name").on(t.companyName),
     ixActive: index("ix_advertisers_is_active").on(t.isActive),
     ixStatus: index("ix_advertisers_status").on(t.status),
+    uxPortalCompanyId: uniqueIndex("ux_advertisers_portal_company_id").on(t.portalCompanyId),
   }),
 );

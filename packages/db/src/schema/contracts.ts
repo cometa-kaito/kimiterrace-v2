@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { contractStatus } from "../_shared/enums.js";
 import { advertisers } from "./advertisers.js";
@@ -31,11 +40,16 @@ export const contracts = pgTable(
     // 配信対象校 (school_id の配列)。空配列は「全校配信」ではなく「未指定」を意味する。
     targetSchools: jsonb("target_schools").notNull().default(sql`'[]'::jsonb`),
     notes: text("notes"),
+    // Partner API K3（partner-api-contract §3）の冪等キー。portal 側 contract の UUID を保持し、
+    // POST /api/partner/delivery が portal_contract_id を競合キーに upsert する。portal 由来 ID の
+    // 外部参照（v2 テーブルへの FK ではない）。既存行は null。nullable + unique（NULL は複数行可）。
+    portalContractId: uuid("portal_contract_id"),
     ...auditColumns,
   },
   (t) => ({
     ixAdvertiser: index("ix_contracts_advertiser_id").on(t.advertiserId),
     ixStatus: index("ix_contracts_status").on(t.status),
     ixStartedAt: index("ix_contracts_started_at").on(t.startedAt),
+    uxPortalContractId: uniqueIndex("ux_contracts_portal_contract_id").on(t.portalContractId),
   }),
 );
