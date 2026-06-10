@@ -14,7 +14,8 @@
 # 安全既定（fail-safe）:
 #   - 非対話で動く（read プロンプトなし＝Claude の Bash からも hang しない）。実行範囲は flag で制御。
 #   - 既定は build + bump + `terraform plan` まで。**apply はしない**。実際に Cloud Run を更新するには
-#     `--apply` を明示する。prod への apply は環境名 prod + --apply の二重指定が必須。
+#     `--apply` を明示する（apply は --apply 指定時のみ到達。これが唯一の hard gate）。
+#     prod の場合はさらに反映前に警告を出す（取り違え事故の speed-bump。非対話設計ゆえ read 確認は使わない）。
 #   - tag bump は作業ツリーの main.tf を編集するだけ。git commit / push はしない（ルール6/8: infra 変更は
 #     PR 経由が原則。apply は作業ツリーの値で効くので、commit/PR は後追いでよい）。
 #
@@ -124,7 +125,7 @@ cat <<EOF
 ============================================================
 EOF
 
-# prod は --apply の取り違え事故を防ぐため、明示確認を要求（非対話なので flag の二重化で担保）
+# prod apply 時は取り違え事故防止の speed-bump として警告を出す（hard gate は --apply 自体）
 if [ "$ENV" = "prod" ] && [ "$DO_APPLY" = "1" ]; then
   warn "prod に対して apply します（本番 Cloud Run revision が切替わります）。"
 fi

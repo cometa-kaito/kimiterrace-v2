@@ -114,7 +114,7 @@ git commit -m "feat(infra): <env> web を <sha> へ bump（#NNN 反映）"
 - [ ] **schema 変更**: `packages/db/**` を触ったか。触ったなら本手順だけでは不足 → 下記「schema を変えた時」。
 - [ ] **secret 増減**: 新しい secret 参照を足したか。足したなら `gcloud secrets versions add` + 全モジュール apply が要る → 下記「secret を変えた時」。
 - [ ] **prod 広告**: prod の広告 `media_url` は **staging バケット参照**。差し替えは staging 側の `ginan/*.png` を上書きする（prod バケットだけでは映らない）（[[prod-ads-use-staging-bucket]]）。
-- [ ] **main merge ≠ 自動デプロイ**: main に merge しても何も反映されない。反映はこの 3 手（build/bump/apply）を踏んで初めて起きる（[[prod-deploy-model]]）。
+- [ ] **main merge ≠ 自動デプロイ**: main に merge しても何も反映されない。反映は build/bump/apply を踏んで初めて起きる（[[prod-deploy-model]]）。
 - [ ] **IdP パスワード下限**: 共通PW等は 6 文字未満にできない（Identity Platform の下限・下げ不可）（[[ref_idp_password_floor_and_login_static_cache]]）。
 
 ---
