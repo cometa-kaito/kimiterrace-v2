@@ -84,9 +84,10 @@ describeOrSkip("Partner K3 schema: portal_*_id 冪等キー列 + UNIQUE (RLS)", 
         'ux_ads_portal_placement_id'
       )
     `;
+    // ASCII 昇順: "ux_ads_" < "ux_advertisers_"（5 文字目 's' < 'v'）< "ux_contracts_"。
     expect(idx.map((r) => r.indexname).sort()).toEqual([
-      "ux_advertisers_portal_company_id",
       "ux_ads_portal_placement_id",
+      "ux_advertisers_portal_company_id",
       "ux_contracts_portal_contract_id",
     ]);
   });
