@@ -171,7 +171,7 @@ locals {
   jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "fb01ce6" # 教員共通PWログイン prod 修正 deploy 2026-06-10: 最小長6(IdP下限)/IdP拒否をinvalid整形/login動的化（#783）。_APP_URL=app.school-signage.net 維持
+  web_image_tag = "f1df616" # 個別教員アカウント(系統B)撤去・学校側 deploy 2026-06-10: /admin/school/members 撤去 + 合成メール非表示（#785）。_APP_URL=app.school-signage.net 維持
 }
 
 module "network" {
