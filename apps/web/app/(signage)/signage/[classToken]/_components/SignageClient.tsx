@@ -352,7 +352,7 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
           <div className={styles.p2Grid}>
             <Pattern2Schedule days={data.scheduleDays} today={data.date} />
             <Pattern2Weather weather={data.weather ?? null} />
-            <Pattern2Placeholder title="来校者一覧" />
+            <Pattern2Visitors visitors={data.visitors} />
             <Pattern2Placeholder title="生徒呼び出し" />
             <Pattern2SensorCount count={data.presenceCount} />
             <Pattern2Placeholder title="鉄道" />
@@ -450,6 +450,56 @@ function Pattern2Weather({ weather }: { weather: SignageWeather | null }) {
         </div>
       ) : (
         <p className={styles.p2Muted}>天気情報はありません</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の人感センサカウンタ（F13 / ADR-020）。このクラスの **本日の検知回数（累計）** を表示する。
+ * PIR は瞬間検知で滞在時間を測れない（ADR-020）ため「在室人数」ではなく「本日何回検知したか」を出す
+ * （2026-06-10 ユーザー確定）。件数は `getTodayPresenceCount`（RLS 自校限定）由来。取得失敗（`null`）は
+ * 「計測なし」表示に倒す（fail-soft）。検知ゼロは `0 回` を出す（センサーは在るが今日まだ反応なし）。
+ */
+/**
+ * パターン2の来校者一覧（クラス×当日）。時刻 + 氏名（+ 所属）を上段に、用件 / 対応者を下段に小さく出す。
+ * 来校者無し・取得失敗（`null`）はともに「本日の来校者はありません」（fail-soft）。氏名は当該クラスの端末に
+ * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」参照・2026-06-10 ユーザー確定）。
+ */
+function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }) {
+  const list = visitors ?? [];
+  return (
+    <section aria-label="来校者一覧" className={styles.card}>
+      <h2 className={styles.cardTitle}>来校者一覧</h2>
+      {list.length === 0 ? (
+        <p className={styles.p2Muted}>本日の来校者はありません</p>
+      ) : (
+        <ul className={styles.p2VisitorList}>
+          {list.map((v) => (
+            <li key={v.id} className={styles.p2VisitorItem}>
+              <span className={styles.p2VisitorMain}>
+                {v.scheduledTime ? (
+                  <span className={styles.scheduleTime}>{v.scheduledTime}</span>
+                ) : null}
+                <span className={styles.p2VisitorName}>{v.visitorName}</span>
+                {v.affiliation ? (
+                  <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
+                ) : null}
+              </span>
+              {v.purpose || v.host ? (
+                <span className={styles.p2ScheduleMeta}>
+                  {v.purpose ? <span>{v.purpose}</span> : null}
+                  {v.purpose && v.host ? (
+                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                      ／
+                    </span>
+                  ) : null}
+                  {v.host ? <span>対応: {v.host}</span> : null}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );
