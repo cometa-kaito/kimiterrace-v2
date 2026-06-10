@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { getVisitorsForClass } from "../../src/queries/class-visitors.js";
+import {
+  type ClassVisitorInput,
+  getVisitorsForClass,
+  replaceClassVisitors,
+} from "../../src/queries/class-visitors.js";
 import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -123,5 +127,77 @@ describeOrSkip("RLS: class_visitors（来校者一覧）", () => {
           VALUES (${fx.schoolB}, ${classB}, ${today}, '不正')`;
       }),
     ).rejects.toThrow();
+  });
+
+  // --- replaceClassVisitors（編集 Action コア・全置換書き込み） ---
+
+  function input(visitorName: string, scheduledTime: string | null): ClassVisitorInput {
+    return { visitorName, scheduledTime, affiliation: null, purpose: null, host: null, note: null };
+  }
+
+  it("replaceClassVisitors: クラス×日付の来校者を全置換する（旧行は消えて新リストが入る）", async () => {
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceClassVisitors(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [input("佐藤", "10:00"), input("鈴木", "09:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    let rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getVisitorsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => r.visitorName)).toEqual(["鈴木", "佐藤"]); // 09:00, 10:00
+
+    // 再保存（全置換）: 旧 2 件が消えて新 1 件のみ。
+    const count = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceClassVisitors(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [input("田中", null)],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    expect(count).toBe(1);
+    rows = await withTenantContext(db, ctxA(), (tx) => getVisitorsForClass(tx, classA, today), APP);
+    expect(rows.map((r) => r.visitorName)).toEqual(["田中"]);
+  });
+
+  it("replaceClassVisitors: 他校クラスは不可視で null を返し書き込まない（cross-tenant 防止）", async () => {
+    const result = await withTenantContext(
+      db,
+      ctxA(), // A コンテキストで B 校のクラスを対象に
+      (tx) =>
+        replaceClassVisitors(tx, {
+          schoolId: fx.schoolA,
+          classId: classB,
+          date: today,
+          items: [input("不正", "10:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    expect(result).toBeNull();
+    // B 校から見ても classB に来校者は入っていない（書き込まれていない）。
+    const rows = await withTenantContext(
+      db,
+      ctxB(),
+      (tx) => getVisitorsForClass(tx, classB, today),
+      APP,
+    );
+    expect(rows).toEqual([]);
   });
 });
