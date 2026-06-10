@@ -6,7 +6,7 @@
 - リポジトリ: https://github.com/cometa-kaito/kimiterrace-v2 (public) ／ Issue: https://github.com/cometa-kaito/kimiterrace-v2/issues
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
-- 最終更新: 2026-06-07 ／ 更新者: Claude Code
+- 最終更新: 2026-06-10 ／ 更新者: Claude Code
 
 ---
 
@@ -37,6 +37,7 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-06-10: **多ロール UI follow-up B1 完了 — school_admin が自校 teacher の初回パスワード設定リンクを再発行可能に**（[#781](https://github.com/cometa-kaito/kimiterrace-v2/pull/781) merged, squash `d31b377`）。教員発行の `setupLink` は一度しか表示されず紛失/失効＝行き止まりだった（IdP user 削除→再作成のみ）課題を解消。`reissueStaffSetupLinkAction`（requireRole school_admin + RLS read + `canModifyTargetUser` の role 境界、無効化/email欠落を弾く、IdP 呼び出しは read tx の外、audit に生リンク/email を焼き込まない）+ 一覧の管理可×稼働中 teacher 行に再発行ボタン。reset-link 生成は `generateSetupLinkForExistingUser` に切り出し新規発行と共有。fresh Reviewer APPROVE / CI 13/13 green。**未デプロイ**（prod web イメージ再ビルド + `web_image_tag` bump の通常フローで反映可）。
 - 2026-06-06: **🔻 引き継ぎ（最新・次セッション最優先）— ★ 多ロール UI テスト継続中 → 改善点を全修正 → 最終再デプロイ（#618 ソリッドカラー込み）**:
   - **★ 次にやること**: ユーザー依頼「各ロールのテストアカウントを作って Chrome で UI を触り（ボタンの意味を解釈→押下結果を予想→実挙動との差分を確認）改善点を全修正」。**teacher 巡回は前タスクで完了**。**school_admin / system_admin の巡回が未着手**（アカウント発行済・下記）。任意で student（匿名 magic-link 閲覧）。→ 見つけた改善は **全て PR→fresh Reviewer→自律 merge** → 最後に **1回だけ再デプロイ**。
   - **テストアカウント（staging IdP・全て pw `Kimiterrace-E2E-2026`・合成データのみ・再利用可）**:
