@@ -516,7 +516,7 @@ module "cloud_run_job_weather" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③): true に切替
+  enabled                = true # 2026-06-10 有効化: jobs image 626e85c 同梱済・network(NAT)/secret 準備完了
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/weather/weather-job.js"] # ビルド済み weather-job（WORKDIR=/app/apps/jobs）
   database_url_secret_id = local.db_url_app_secret_id
