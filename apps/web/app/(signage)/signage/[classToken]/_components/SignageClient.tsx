@@ -372,8 +372,9 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 }
 
 /**
- * パターン2の予定（横幅いっぱい・今後3平日の3列）。最終形は week/day/内容/場所/対象者だが、**本 PR は既存
- * データ（時限 + 内容）のみ実描画**し、場所・対象者は後続スライス（モデル + エディタ拡張）まで注記で示す。
+ * パターン2の予定（横幅いっぱい・今後3平日の3列）。day/曜（列ヘッダー）+ 時限 + 内容（科目・補足）に加え、
+ * **場所 / 対象者**（任意・教員がエディタで入力）を各コマの下に小さく添える（PR3）。未設定の場所/対象者は
+ * 行を出さない（fail-soft、盤面を詰めて見せる）。
  */
 function Pattern2Schedule({ days, today }: { days: ScheduleDay[]; today: string }) {
   return (
@@ -393,26 +394,39 @@ function Pattern2Schedule({ days, today }: { days: ScheduleDay[]; today: string 
                 {rows.length === 0 ? (
                   <span className={styles.p2Muted}>予定はありません</span>
                 ) : (
-                  rows.map((row, i) => (
-                    <span
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                      key={i}
-                      className={styles.p2ScheduleItem}
-                    >
-                      {row.periodLabel ? (
-                        <span className={styles.scheduleTime}>{row.periodLabel}</span>
-                      ) : null}
-                      {row.content}
-                    </span>
-                  ))
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                  rows.map((row, i) => <Pattern2ScheduleRow key={i} row={row} />)
                 )}
               </div>
             </div>
           );
         })}
       </div>
-      <span className={styles.p2Hint}>場所・対象者は準備中</span>
     </section>
+  );
+}
+
+/** パターン2 予定の 1 コマ: 時限 + 内容、その下に 場所 / 対象者（あるものだけ）を小さく添える。 */
+function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  const hasMeta = row.location != null || row.targetAudience != null;
+  return (
+    <div className={styles.p2ScheduleItem}>
+      <span className={styles.p2ScheduleMain}>
+        {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
+        {row.content}
+      </span>
+      {hasMeta ? (
+        <span className={styles.p2ScheduleMeta}>
+          {row.location ? <span>場所: {row.location}</span> : null}
+          {row.location && row.targetAudience ? (
+            <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+              ／
+            </span>
+          ) : null}
+          {row.targetAudience ? <span>対象: {row.targetAudience}</span> : null}
+        </span>
+      ) : null}
+    </div>
   );
 }
 

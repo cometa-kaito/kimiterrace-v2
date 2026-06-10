@@ -167,13 +167,24 @@ export function isValidDate(value: unknown): value is string {
 
 /**
  * 予定の 1 コマ。`period` は時限 (1..12)、`subject` は科目名 (1..32)、`note` は任意の補足。
- * サイネージ (#48-E1) は `subject` を代表ラベルとして描画する。
+ * `location`（場所）/ `targetAudience`（対象者）はパターン2 盤面で表示する任意フィールド（例: 場所
+ * 「体育館」、対象者「3年生」）。いずれも施設/学年区分で **PII ではない**（ルール4 対象外）。サイネージ
+ * (#48-E1) は `subject` を代表ラベルとして描画する。
  */
-export type ScheduleItem = { period: number; subject: string; note?: string };
+export type ScheduleItem = {
+  period: number;
+  subject: string;
+  note?: string;
+  location?: string;
+  targetAudience?: string;
+};
 
 const MAX_ITEMS = 12;
 const SUBJECT_MAX = 32;
 const NOTE_MAX = 200;
+/** 場所 / 対象者 の最大長（任意フィールド。暴走入力抑止）。 */
+const LOCATION_MAX = 50;
+const TARGET_MAX = 50;
 
 /** 検証結果。`ok` なら正規化済 value、そうでなければ表示用 message。エディタ各 core で共有。 */
 export type Validated<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -231,6 +242,24 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
         return { ok: false, message: `補足は ${NOTE_MAX} 文字以内で入力してください。` };
       }
       item.note = note;
+    }
+    if (rec.location !== undefined && rec.location !== null && rec.location !== "") {
+      const location = normalizeString(rec.location, LOCATION_MAX);
+      if (!location) {
+        return { ok: false, message: `場所は ${LOCATION_MAX} 文字以内で入力してください。` };
+      }
+      item.location = location;
+    }
+    if (
+      rec.targetAudience !== undefined &&
+      rec.targetAudience !== null &&
+      rec.targetAudience !== ""
+    ) {
+      const targetAudience = normalizeString(rec.targetAudience, TARGET_MAX);
+      if (!targetAudience) {
+        return { ok: false, message: `対象者は ${TARGET_MAX} 文字以内で入力してください。` };
+      }
+      item.targetAudience = targetAudience;
     }
     items.push(item);
   }

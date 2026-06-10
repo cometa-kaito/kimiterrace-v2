@@ -650,13 +650,35 @@
   gap: 0.1rem;
 }
 .p2ScheduleItem {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px dotted var(--border-color);
+  padding: 0.1rem 0;
+}
+/* 時限 + 内容（1 行・はみ出しは省略）。 */
+.p2ScheduleMain {
   font-size: clamp(0.72rem, 1.1vw, 1rem);
   font-weight: 600;
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-bottom: 1px dotted var(--border-color);
+  min-width: 0;
+}
+/* 場所 / 対象者（小さく・控えめ・折り返し可）。あるものだけ出す。 */
+.p2ScheduleMeta {
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.3rem;
+  min-width: 0;
+}
+.p2ScheduleMetaSep {
+  color: var(--border-color);
 }
 /* 天気予報: 日付ごとの小カードを横並び。 */
 .p2WeatherRow {
