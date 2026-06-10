@@ -57,6 +57,17 @@ resource "google_secret_manager_secret_iam_member" "runtime_provision_agent_secr
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# PARTNER_API_SECRET secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
+# Partner API（portal ↔ v2 K1 効果メトリクス pull /api/partner/*）の共有シークレット。空文字なら配線しない。
+resource "google_secret_manager_secret_iam_member" "runtime_partner_api_secret" {
+  count = var.enabled && var.partner_api_secret_id != "" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.partner_api_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # Vertex AI 呼び出し（F03 抽出 / F06 生徒 Q&A / F08 効果コメントの Gemini）。project レベル
 # roles/aiplatform.user。送信前 PII マスキングは app 側（ルール4）。
 resource "google_project_iam_member" "runtime_vertex_user" {
@@ -150,6 +161,21 @@ resource "google_cloud_run_v2_service" "web" {
           value_source {
             secret_key_ref {
               secret  = var.provision_agent_secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # PARTNER_API_SECRET = portal ↔ v2 Partner API 共有シークレット（Secret Manager 注入、ルール5）。
+      # K1 効果メトリクス pull /api/partner/*（partner-api-contract §1）。未設定なら partner route は fail-closed(401)。
+      dynamic "env" {
+        for_each = var.partner_api_secret_id != "" ? [1] : []
+        content {
+          name = "PARTNER_API_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = var.partner_api_secret_id
               version = "latest"
             }
           }
