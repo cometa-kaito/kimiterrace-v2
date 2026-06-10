@@ -353,7 +353,7 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
             <Pattern2Schedule days={data.scheduleDays} today={data.date} />
             <Pattern2Weather weather={data.weather ?? null} />
             <Pattern2Visitors visitors={data.visitors} />
-            <Pattern2Placeholder title="生徒呼び出し" />
+            <Pattern2Callouts callouts={data.callouts} />
             <Pattern2SensorCount count={data.presenceCount} />
             <Pattern2Placeholder title="鉄道" />
           </div>
@@ -497,6 +497,38 @@ function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }
                   {v.host ? <span>対応: {v.host}</span> : null}
                 </span>
               ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の生徒呼び出し（クラス×当日）。時刻 + 生徒**フルネーム**を上段に、呼び出し先 / 用件を下段に出す。
+ * 呼び出し無し・取得失敗（`null`）はともに「呼び出しはありません」（fail-soft）。実名表示は ADR-034 の境界下
+ * （当該クラス端末・RLS 自校・Vertex 非送信。出席番号でなく実名なのは呼び出しの取り違え防止）。
+ */
+function Pattern2Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
+  const list = callouts ?? [];
+  return (
+    <section aria-label="生徒呼び出し" className={styles.card}>
+      <h2 className={styles.cardTitle}>生徒呼び出し</h2>
+      {list.length === 0 ? (
+        <p className={styles.p2Muted}>呼び出しはありません</p>
+      ) : (
+        <ul className={styles.p2VisitorList}>
+          {list.map((c) => (
+            <li key={c.id} className={styles.p2VisitorItem}>
+              <span className={styles.p2VisitorMain}>
+                {c.scheduledTime ? (
+                  <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                ) : null}
+                <span className={styles.p2VisitorName}>{c.studentName}</span>
+                {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
+              </span>
+              {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
             </li>
           ))}
         </ul>

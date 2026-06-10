@@ -3,7 +3,9 @@ import {
   type ClassVisitor,
   type EffectiveAd,
   type SignageClassContext,
+  type StudentCallout,
   type TenantTx,
+  getCalloutsForClass,
   getEffectiveAdsForClass,
   getSignageClassContext,
   getTodayPresenceCount,
@@ -104,6 +106,12 @@ export type SignagePayload = {
    * 当該クラスの端末にのみ表示され RLS で自校スコープ（class-visitors schema の「個人情報について」参照）。
    */
   visitors: ClassVisitor[] | null;
+  /**
+   * パターン2「生徒呼び出し」用、このクラスの**当日（JST）の呼び出し**（時刻順）。pattern1 は使わない。
+   * 呼び出し無し・取得失敗はともに空/`null`（ウィジェットは「呼び出しはありません」表示＝fail-soft）。
+   * 生徒氏名はフルネームで当該クラス端末にのみ表示され RLS で自校スコープ・**Vertex 非送信**（ADR-034）。
+   */
+  callouts: StudentCallout[] | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -171,6 +179,9 @@ export async function getSignageDisplayData(
     // （ルール2）。pattern2 でのみ使うが payload は両パターン共通なので常に解決。取得失敗は fail-soft で
     // null に倒し、ウィジェットは「来校者はありません」表示にする（盤面の他要素は壊さない）。
     const visitors = await getVisitorsForClass(tx, cls.classId, date).catch(() => null);
+    // パターン2「生徒呼び出し」: このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。同一 tx・RLS 自校限定
+    // （ルール2）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。取得失敗は fail-soft で null。
+    const callouts = await getCalloutsForClass(tx, cls.classId, date).catch(() => null);
     return {
       date,
       designPattern,
@@ -181,6 +192,7 @@ export async function getSignageDisplayData(
       classContext,
       presenceCount,
       visitors,
+      callouts,
     } satisfies SignagePayload;
   });
 }
