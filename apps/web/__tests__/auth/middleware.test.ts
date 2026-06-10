@@ -97,6 +97,18 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/api/tv-admin")).toBe(true);
   });
 
+  it("効果還元K1 portal↔v2 /api/partner/* はゲート対象外 (除外)", () => {
+    // portal (Vercel) は `__session` を持たない外部 origin。除外しないと /login に弾かれ K1 破綻。
+    // 認可は route handler の共有シークレット検証 (PARTNER_API_SECRET) が担う (partner-api-contract §1)。
+    expect(gated.test("/api/partner/advertisers/abc-uuid/metrics")).toBe(false);
+    expect(gated.test("/api/partner/advertisers/abc/metrics?ym=2026-05")).toBe(false);
+  });
+
+  it("api/partner/ 除外は末尾 / で境界済、look-alike な /api/partners 等は過剰除外しない (保護のまま)", () => {
+    expect(gated.test("/api/partners")).toBe(true);
+    expect(gated.test("/api/partner-admin")).toBe(true);
+  });
+
   it("guide 除外は guide(?:/|$) で厳格、/guidelines 等は過剰除外しない (保護のまま)", () => {
     // `guide` 単体だと /guidelines も巻き込み静かな保護バイパスになる (PR #227 Reviewer Low-1)。
     expect(gated.test("/guidelines")).toBe(true);

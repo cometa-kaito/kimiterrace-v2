@@ -62,6 +62,11 @@ export function middleware(request: NextRequest): NextResponse {
  *   ログインせずに送れる匿名公開経路 (V1 feedback 受付の移植)。除外しないと未ログインで /login に
  *   弾かれ投稿不能。書き込みは SECURITY DEFINER `submit_feedback` 1 行 INSERT に限定、閲覧は
  *   system_admin のみ (system_admin_only RLS) なので、匿名公開でも閲覧面は漏れない。
+ * - /api/partner/*: 効果還元K1 (partner-api-contract §1) portal↔v2 サーバー間 API
+ *   (`/api/partner/advertisers/{id}/metrics`)。portal (Vercel) は `__session` を持たない外部 origin の
+ *   GET。除外しないと /login に弾かれ K1 (効果メトリクス pull) が破綻する。認可は route handler の
+ *   **共有シークレット** (PARTNER_API_SECRET, `Authorization: Bearer` / `x-partner-key`) 検証が担う
+ *   (未一致は 401・fail-closed)。/api/tv/ と同型 (外部 origin × 共有シークレット認可)。
  * - /api/tv/*: F15/F16 (ADR-022/ADR-023) TV デバイスのポーリング設定取得 (`/api/tv/config`)。
  *   学校設置の Google TV は `__session` を持たない外部 origin の GET。除外しないと TV が /login に
  *   弾かれポーリング破綻する。認可は **共有シークレット** (`?key=` / TV_POLL_SECRET、ADR-022) を
@@ -85,6 +90,6 @@ export function middleware(request: NextRequest): NextResponse {
  */
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|reset-password(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|reset-password(?:/|$)|s/|student(?:/|$)|signage/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/partner/|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };
