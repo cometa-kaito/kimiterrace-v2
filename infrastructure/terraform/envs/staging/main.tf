@@ -215,7 +215,13 @@ locals {
   # 6c85195: #243 ② 横断統一 — 効果コメント / teacher-input に共通の「考え中…」即時フィードバック（#751）。
   #          F06 チャットの未スタイルだった thinking も同 1 クラスで整える。8d8b8a1 を内包＋本変更。
   #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:6c85195 を Cloud Build 済・AR push 済。
-  web_image_tag = "6c85195"
+  # ac37c9e: staging を最新 main に追従（6c85195 から多数の merge をまとめて反映）。主な内包: #783 /login
+  #          force-dynamic 化（s-maxage 退行修正）+ 共通PW下限6 / #785・#788 個別教員アカウント(系統B)撤去 /
+  #          #762-768 C方式 TV プロビジョニング。schema 変更なし（migrate 不要）。web:ac37c9e を Cloud Build・
+  #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
+  #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
+  #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
+  web_image_tag = "ac37c9e"
 }
 
 module "network" {
