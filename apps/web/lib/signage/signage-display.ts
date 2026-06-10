@@ -16,7 +16,11 @@ import {
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
 import { signageScheduleDates } from "./rotation";
-import { type SignageDesignPattern, getSignageDesignPattern } from "./signage-design";
+import {
+  type SignageDesignPattern,
+  getSignageDesignPattern,
+  isSignageDesignPattern,
+} from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
@@ -108,6 +112,7 @@ async function resolveSignageClass(
 export async function getSignageDisplayData(
   classToken: string,
   date: string,
+  designParam?: unknown,
 ): Promise<SignagePayload | null> {
   const cls = await resolveSignageClass(classToken);
   if (!cls) {
@@ -132,9 +137,14 @@ export async function getSignageDisplayData(
     // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    // 学校別デザインパターン（school_configs display_settings.signageDesign）。未設定は既定 pattern1。
+    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
+    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
+    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
+    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
     // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
-    const designPattern = await getSignageDesignPattern(tx);
+    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+      ? designParam
+      : await getSignageDesignPattern(tx);
     // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
     // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
     const classContext = await getSignageClassContext(tx, cls.classId);

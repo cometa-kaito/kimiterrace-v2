@@ -21,10 +21,11 @@ export async function GET(
   context: { params: Promise<{ classToken: string }> },
 ): Promise<NextResponse> {
   const { classToken } = await context.params;
+  const search = new URL(request.url).searchParams;
   // 形式 + 実在暦日を検証し無効は今日へフォールバック (無効暦日が pg date 比較で 500 になるのを防ぐ)。
-  const date = parseSignageDate(new URL(request.url).searchParams.get("date"));
-
-  const payload = await getSignageDisplayData(classToken, date);
+  const date = parseSignageDate(search.get("date"));
+  // 端末別デザイン（SignageClient が初期 designPattern を ?design で引き継ぐ）。未指定/未知は既定へ fail-soft。
+  const payload = await getSignageDisplayData(classToken, date, search.get("design"));
   if (!payload) {
     return NextResponse.json(
       { error: "gone" },

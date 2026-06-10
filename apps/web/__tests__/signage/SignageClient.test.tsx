@@ -114,6 +114,46 @@ describe("SignageClient view impression (#43 / F07)", () => {
   });
 });
 
+describe("SignageClient デザインパターン dispatch（端末別デザイン）", () => {
+  function p2(ads: SignagePayload["ads"]): SignagePayload {
+    return { ...payload(ads), designPattern: "pattern2" };
+  }
+
+  it("pattern2 はパターン2盤面（来校者/呼び出し/センサ/鉄道の枠 + 準備中）を描画する", () => {
+    render(<SignageClient classToken={TOKEN} initial={p2([])} />);
+    expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "生徒呼び出し" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
+    expect(screen.getAllByText("準備中").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("pattern1（既定）はパターン2専用の枠を描画しない", () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([])} />);
+    expect(screen.queryByRole("region", { name: "来校者一覧" })).toBeNull();
+    expect(screen.queryByText("準備中")).toBeNull();
+  });
+
+  it("pattern2 でも広告（右）はパターン1と同一でリンク化・タップ送信する", () => {
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={p2([adWithLink(AD_A, "https://sponsor.example/lp", "スポンサー")])}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "広告: スポンサー" });
+    expect(link).toHaveAttribute("href", "https://sponsor.example/lp");
+    sendSignageEvent.mockClear();
+    fireEvent.click(link);
+    expect(sendSignageEvent).toHaveBeenCalledWith(TOKEN, {
+      type: "tap",
+      adId: AD_A,
+      slotIndex: 0,
+      clientId: "cid-123",
+    });
+  });
+});
+
 describe("SignageClient ad click-through tap (#43 / F07)", () => {
   it("linkUrl 付き広告はリンク化され、タップで tap を送る (adId/slotIndex/clientId 付き)", () => {
     render(
