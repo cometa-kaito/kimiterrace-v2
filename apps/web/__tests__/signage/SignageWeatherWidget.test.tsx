@@ -87,6 +87,7 @@ function payload(
     classContext: { departmentName: null, gradeName: null, className: null },
     presenceCount: null,
     visitors: null,
+    callouts: null,
   };
 }
 

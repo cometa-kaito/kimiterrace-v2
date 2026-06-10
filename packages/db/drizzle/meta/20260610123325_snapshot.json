@@ -1,5 +1,5 @@
 {
-  "id": "6f3e221d-d204-49c6-a03e-38e04adbd38f",
+  "id": "0a17114f-b8de-40b3-a5c5-0a7b8e10c49e",
   "prevId": "172428fa-fde2-4dfa-a0c9-f2e834016a0e",
   "version": "7",
   "dialect": "postgresql",
@@ -1871,6 +1871,158 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.student_callouts": {
+      "name": "student_callouts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "school_id": {
+          "name": "school_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "class_id": {
+          "name": "class_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "callout_date": {
+          "name": "callout_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "student_name": {
+          "name": "student_name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location": {
+          "name": "location",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scheduled_time": {
+          "name": "scheduled_time",
+          "type": "varchar(5)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ix_student_callouts_class_date": {
+          "name": "ix_student_callouts_class_date",
+          "columns": [
+            {
+              "expression": "class_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "callout_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ix_student_callouts_school": {
+          "name": "ix_student_callouts_school",
+          "columns": [
+            {
+              "expression": "school_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "student_callouts_school_id_schools_id_fk": {
+          "name": "student_callouts_school_id_schools_id_fk",
+          "tableFrom": "student_callouts",
+          "tableTo": "schools",
+          "columnsFrom": [
+            "school_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "student_callouts_class_id_classes_id_fk": {
+          "name": "student_callouts_class_id_classes_id_fk",
+          "tableFrom": "student_callouts",
+          "tableTo": "classes",
+          "columnsFrom": [
+            "class_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.tv_device_downtime": {
       "name": "tv_device_downtime",
       "schema": "",
@@ -3653,12 +3805,6 @@
           "notNull": true,
           "default": true
         },
-        "portal_company_id": {
-          "name": "portal_company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3731,21 +3877,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "ux_advertisers_portal_company_id": {
-          "name": "ux_advertisers_portal_company_id",
-          "columns": [
-            {
-              "expression": "portal_company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3807,12 +3938,6 @@
         "notes": {
           "name": "notes",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "portal_contract_id": {
-          "name": "portal_contract_id",
-          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
@@ -3885,21 +4010,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ux_contracts_portal_contract_id": {
-          "name": "ux_contracts_portal_contract_id",
-          "columns": [
-            {
-              "expression": "portal_contract_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5599,12 +5709,6 @@
           "notNull": true,
           "default": 0
         },
-        "portal_placement_id": {
-          "name": "portal_placement_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5656,21 +5760,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ux_ads_portal_placement_id": {
-          "name": "ux_ads_portal_placement_id",
-          "columns": [
-            {
-              "expression": "portal_placement_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
