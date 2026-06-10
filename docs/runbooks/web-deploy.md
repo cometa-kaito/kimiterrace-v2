@@ -145,15 +145,36 @@ gcloud run jobs execute kimiterrace-migrate --region asia-northeast1 --project s
 
 ## secret を変えた時
 
-新しい secret 参照を増やした/値を変えた場合のみ:
+**新しい secret 参照を web に足したら、web をデプロイする前に secret を用意する**（順序を逆にすると下記 IAM 伝播レースを踏む）:
 
 ```bash
-echo -n '<value>' | gcloud secrets versions add <env>-<secret-name> --data-file=- --project=signage-v2-<env>
-# secret コンテナ自体を足したなら全モジュール apply（-target を外す）
-terraform -chdir=infrastructure/terraform/envs/<env> apply -input=false
+# 1. container を作る（main.tf の secret_manager の secrets map に定義がある前提。terraform 管理＝ルール5/8）
+terraform -chdir=infrastructure/terraform/envs/<env> plan -target=module.secret_manager -out=sm.plan
+terraform -chdir=infrastructure/terraform/envs/<env> apply sm.plan   # 保存プラン方式（blind auto-approve を避ける）
+
+# 2. 値を投入（ルール5: 値は人間/運用が投入。値は transcript に出さない。staging で実利用が無いなら強ランダム値で可）
+head -c 24 /dev/urandom | base64 | tr -d '\n' | gcloud secrets versions add <env>-<secret-name> --data-file=- --project=signage-v2-<env>
+
+# 3. その後で web を通常デプロイ（このファイルの ①〜⑤）
 ```
 
-secret はコード/環境変数に置かない（CLAUDE.md ルール5）。
+secret はコード/環境変数に置かない（CLAUDE.md ルール5）。container は terraform 管理（ルール8）。
+
+### トラブル: 新 revision が `SecretsAccessCheckFailed`
+
+新しく作った secret を web が mount する初回 deploy は、secret/IAM 作成と revision 評価が同時刻になる **IAM 伝播レース**で、revision が `Permission denied on secret … SecretsAccessCheckFailed` → Ready=False になることがある（terraform apply は rc=0 で返るが、traffic は旧 revision のまま＝古い挙動が出続ける）。確認と解消:
+
+```bash
+# IAM は正しく付いているか（付いていれば伝播レース確定。secret を先に用意していれば普通は踏まない）
+gcloud secrets get-iam-policy <env>-<secret-name> --project=signage-v2-<env>
+
+# 伝播後（数分）に新 revision を強制する。同一 image/設定では terraform は revision を自動生成しないため -replace。
+# ❌ gcloud run deploy 直は rule8 違反で auto 分類器がブロックする。terraform -replace を使う。
+terraform -chdir=infrastructure/terraform/envs/<env> plan -replace="module.cloud_run.google_cloud_run_v2_service.web[0]" -target=module.cloud_run -out=rep.plan   # 1 add/1 destroy・custom domain mapping 非破壊を plan で確認
+terraform -chdir=infrastructure/terraform/envs/<env> apply rep.plan   # service を destroy→recreate（数十秒・URL は同 project/名ゆえ不変）
+```
+
+詳細: [[ref_cloudrun_new_secret_iam_race]]（staging は 2026-06-10 に `staging-provision-agent-secret` 投入時に本レースを踏み -replace で解消）。
 
 ---
 
