@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, real, text, uuid, varchar } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  integer,
+  pgTable,
+  real,
+  text,
+  uniqueIndex,
+  uuid,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { adMediaType, hierarchyScope } from "../_shared/enums.js";
 import { advertisers } from "./advertisers.js";
@@ -39,10 +49,16 @@ export const ads = pgTable(
     // 文字サイズ倍率（V1: 0.85 / 1.0 / 1.3 / 1.6）。
     captionFontScale: real("caption_font_scale").notNull().default(1),
     displayOrder: integer("display_order").notNull().default(0),
+    // Partner API K3（partner-api-contract §3）の冪等キー。portal 側 placement の UUID を保持し、
+    // POST /api/partner/delivery が portal_placement_id を競合キーに upsert する。portal 由来 ID の
+    // 外部参照（v2 テーブルへの FK ではない）。学校作成のクラス広告など portal 非経由の行は null。
+    // nullable + unique（NULL は複数行可）。
+    portalPlacementId: uuid("portal_placement_id"),
     ...auditColumns,
   },
   (t) => ({
     ixTargetOrder: index("ix_ads_target_order").on(t.schoolId, t.scope, t.displayOrder),
+    uxPortalPlacementId: uniqueIndex("ux_ads_portal_placement_id").on(t.portalPlacementId),
     ckScope: check(
       "ck_ads_scope",
       sql`(
