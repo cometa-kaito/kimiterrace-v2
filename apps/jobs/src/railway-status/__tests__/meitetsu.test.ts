@@ -46,4 +46,19 @@ describe("parseMeitetsuStatus", () => {
     expect(parseMeitetsuStatus("<html><body><p>ようこそ名鉄へ</p></body></html>")).toBeNull();
     expect(parseMeitetsuStatus("")).toBeNull();
   });
+
+  it("空白入りの閉じタグ `</script >` でも script ブロックを除去する", () => {
+    const html = '<body><script>var s="遅延が発生";</script ><p>平常運転中です。</p></body>';
+    expect(parseMeitetsuStatus(html)).toEqual({
+      hasDisruption: false,
+      statusText: "平常運転中です。",
+    });
+  });
+
+  it("実体参照を 1 パス復号する（&amp;lt; を < に二重復号しない）", () => {
+    // 実体は 1 回だけ復号され "A&lt;B" のまま（"<" に二重復号しない）。乱れ誤判定もしない。
+    const r = parseMeitetsuStatus("<p>A&amp;lt;B 平常運転。</p>");
+    expect(r?.hasDisruption).toBe(false);
+    expect(r?.statusText).toContain("A&lt;B");
+  });
 });

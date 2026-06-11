@@ -46,25 +46,34 @@ const DISRUPTION_EXCLUDES = ["証明", "について", "確認方法", "とは"]
 
 const MAX_LEN = 500;
 
+/** HTML 実体参照 → 文字。**1 パス復号**用（`&amp;` を先に戻すと `&amp;lt;` が `<` に二重復号される問題を避ける）。 */
+const HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  nbsp: " ",
+  "#8203": "",
+};
+
 /**
  * HTML をプレーンテキスト化する。**各タグを改行に置換**してブロック境界（見出し / 段落）を保ち、見出し
- * 「列車運行情報」等が運行情報本文と 1 文に混ざらないようにする（script/style 除去・基本実体参照復元・
- * 行内空白圧縮・空行圧縮）。
+ * 「列車運行情報」等が運行情報本文と 1 文に混ざらないようにする（script/style ブロック除去・実体参照を
+ * 1 パス復号・行内空白圧縮・空行圧縮）。
  */
 function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, "\n")
-    .replace(/<style[\s\S]*?<\/style>/gi, "\n")
-    .replace(/<[^>]+>/g, "\n")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#8203;/g, "")
-    .replace(/[ \t　]+/g, " ")
-    .replace(/\s*\n\s*/g, "\n")
-    .replace(/\n+/g, "\n")
-    .trim();
+  return (
+    html
+      // script/style はブロックごと除去。閉じタグは `</script >`（空白入り）や大文字も拾う（\b + \s*）。
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "\n")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "\n")
+      .replace(/<[^>]+>/g, "\n")
+      // 実体参照は 1 パスで復号（二重復号を避ける。`&amp;` を個別に先に戻さない）。
+      .replace(/&(amp|lt|gt|nbsp|#8203);/gi, (m, e: string) => HTML_ENTITIES[e.toLowerCase()] ?? m)
+      .replace(/[ \t　]+/g, " ")
+      .replace(/\s*\n\s*/g, "\n")
+      .replace(/\n+/g, "\n")
+      .trim()
+  );
 }
 
 /**
