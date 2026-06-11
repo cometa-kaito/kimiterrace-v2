@@ -2,7 +2,7 @@ import { type PendingTvCommand, pollPendingTvCommands, pollTvConfig } from "@kim
 import { NextResponse } from "next/server";
 import { getDb } from "../../../../lib/db";
 import { clientKeyFromHeaders } from "../../../../lib/guide/rate-limit";
-import { getConfiguredTvPollSecret, verifyTvPollSecret } from "../../../../lib/tv/poll-secret";
+import { getConfiguredTvPollSecret, verifyTvPollKey } from "../../../../lib/tv/poll-secret";
 import { tvPollRateLimiter } from "../../../../lib/tv/rate-limit";
 
 /**
@@ -56,7 +56,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const provided = url.searchParams.get("key") ?? request.headers.get("x-tv-key");
-  if (!verifyTvPollSecret(provided, expected)) {
+  if (!verifyTvPollKey(provided)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

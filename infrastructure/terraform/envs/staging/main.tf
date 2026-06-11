@@ -118,6 +118,10 @@ locals {
   # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
   tv_poll_secret_id = "staging-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
+  # ゼロダウンタイム鍵ローテの移行期だけ TV_POLL_SECRET_LEGACY に配線する staging-tv-poll-secret の旧版番号。
+  # ""（既定）= 単一キー運用。手順は prod/main.tf の同 local 参照（staging でのリハーサル用）。
+  tv_poll_secret_legacy_version = "" # gitleaks:allow（バージョン番号であり値ではない）
+
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
   # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
@@ -484,17 +488,18 @@ resource "google_project_service" "aiplatform" {
 }
 
 module "cloud_run" {
-  source                    = "../../modules/cloud_run"
-  project_id                = var.project_id
-  region                    = var.region
-  env                       = local.env
-  enabled                   = true
-  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id    = local.db_url_app_secret_id
-  tv_poll_secret_id         = local.tv_poll_secret_id
-  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
-  vpc_connector             = module.network.vpc_connector_id
-  vertex_location           = var.region
+  source                        = "../../modules/cloud_run"
+  project_id                    = var.project_id
+  region                        = var.region
+  env                           = local.env
+  enabled                       = true
+  image                         = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id        = local.db_url_app_secret_id
+  tv_poll_secret_id             = local.tv_poll_secret_id
+  tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
+  provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
+  vpc_connector                 = module.network.vpc_connector_id
+  vertex_location               = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
   # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
   # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。

@@ -56,6 +56,18 @@ variable "tv_poll_secret_id" {
   default     = ""
 }
 
+variable "tv_poll_secret_legacy_version" {
+  description = <<-EOT
+    ゼロダウンタイム鍵ローテーション用。TV_POLL_SECRET_LEGACY として配線する `tv_poll_secret_id` の
+    **旧バージョン番号**（例 "3"）。移行期間中だけ旧キーも受理するために設定し、全 TV 端末を新キーへ
+    更新し終えたら "" に戻して apply すれば旧キーは無効化される（poll-secret.ts は LEGACY 未配線時に
+    現用キーのみ受理）。空文字なら TV_POLL_SECRET_LEGACY env を配線しない（＝単一キー運用・従来挙動）。
+    accessor IAM は tv_poll_secret_id 全体に付与済みのため追加付与は不要。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "provision_agent_secret_id" {
   description = <<-EOT
     PROVISION_AGENT_SECRET を保持する Secret Manager secret の ID（ルール5、C方式 TV プロビジョニング）。
