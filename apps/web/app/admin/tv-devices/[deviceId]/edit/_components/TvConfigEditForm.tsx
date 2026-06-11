@@ -92,6 +92,9 @@ export function TvConfigEditForm({
   const composedSignageUrl = signageUrl.trim()
     ? applyDesignPatternToUrl(signageUrl.trim(), design)
     : "";
+  // クリック可能な href は **http(s) のみ**に限定する（保存時 checkEditableUrl が非 http(s) を弾くが、保存前の
+  // 未検証入力が `javascript:` 等で href に載るのを防ぐ＝特権ユーザーの self-XSS 面も塞ぐ）。表示・コピーは可。
+  const previewHref = /^https?:\/\//i.test(composedSignageUrl) ? composedSignageUrl : null;
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -199,14 +202,18 @@ export function TvConfigEditForm({
             選択中のデザインを反映した URL です（パターン2 は <code>?design=pattern2</code>{" "}
             が付きます）。 動作確認はこの URL を開いてください（上の「サイネージ URL」欄は design
             を含まない素の URL）。{" "}
-            <a
-              href={composedSignageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={previewLinkStyle}
-            >
-              プレビューを開く ↗
-            </a>{" "}
+            {previewHref ? (
+              <a
+                href={previewHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={previewLinkStyle}
+              >
+                プレビューを開く ↗
+              </a>
+            ) : (
+              <span style={{ color: "#b91c1c" }}>（プレビューは http(s) の URL のみ開けます）</span>
+            )}{" "}
             <button
               type="button"
               onClick={() => copyText(composedSignageUrl, "composed")}

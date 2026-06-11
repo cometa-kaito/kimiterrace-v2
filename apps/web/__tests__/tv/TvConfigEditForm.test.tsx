@@ -69,4 +69,11 @@ describe("TvConfigEditForm 配信URLプレビュー（端末別デザイン）",
     renderForm(null);
     expect(screen.queryByRole("link", { name: /プレビューを開く/ })).toBeNull();
   });
+
+  it("非 http(s) URL ではプレビューリンクを出さない（javascript: 等の href sink を塞ぐ）", () => {
+    // 保存時は checkEditableUrl が弾くが、保存前の未検証入力が href に載らないことを固定する。
+    renderForm("javascript:alert(1)");
+    expect(screen.queryByRole("link", { name: /プレビューを開く/ })).toBeNull();
+    expect(screen.getByText(/http\(s\) の URL のみ開けます/)).toBeInTheDocument();
+  });
 });
