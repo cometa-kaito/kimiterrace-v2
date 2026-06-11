@@ -63,6 +63,21 @@ export type ScheduleDraftResult = { ok: true; schedules: ScheduleItem[] } | Assi
 /** AI 提出物(assignments・課題)ドラフトの結果。 */
 export type AssignmentDraftResult = { ok: true; assignments: AssignmentItem[] } | AssistDraftError;
 
+/**
+ * 「おまかせ」分類ドラフトの中間表現（ADR-036）。1 入力を 3 セクションへ振り分けた束。各配列は既存
+ * `validate*Items` を通った正規化済み（型単一ソース、ルール3）。該当が無い種類は空配列。
+ */
+export type AllDraft = {
+  schedules: ScheduleItem[];
+  notices: NoticeItem[];
+  assignments: AssignmentItem[];
+};
+
+/** AI 「おまかせ」ドラフトの結果（3 セクション同時、ADR-036）。 */
+export type AllDraftResult =
+  | { ok: true; schedules: ScheduleItem[]; notices: NoticeItem[]; assignments: AssignmentItem[] }
+  | AssistDraftError;
+
 /** Gemini への system 指示（連絡ドラフト専用・個人名/日付の創作を禁止、JSON のみ）。 */
 export const NOTICE_ASSIST_SYSTEM = [
   "あなたは日本の学校の掲示「連絡（お知らせ）」作成を補助するアシスタントです。",
@@ -140,6 +155,24 @@ export const SECTION_ASSIST_SYSTEM: Record<DraftSection, string> = {
   notices: NOTICE_ASSIST_SYSTEM,
   assignments: ASSIGNMENT_ASSIST_SYSTEM,
 };
+
+/**
+ * Gemini への system 指示（**おまかせ＝3 セクション分類**、ADR-036）。1 入力を予定/連絡/提出物に振り分けて
+ * 1 つの JSON で返させる。period が判別できない事項・締切を確定できない課題は予定/提出物に入れさせず連絡へ
+ * 寄せる（捏造防止）。最終検証は各 `validate*Items`（period 1..12・重複, deadline 実在日付）が強制する。
+ */
+export const ALL_ASSIST_SYSTEM = [
+  "あなたは日本の学校の掲示作成を補助するアシスタントです。",
+  "入力された教員のメモ・発話を読み、各項目を『予定（時間割）』『連絡（お知らせ）』『提出物（課題）』の3種類に振り分けて整形します。",
+  '出力は必ず次の JSON のみ: {"schedules":[{"period":number,"subject":string,"note":string,"location":string,"targetAudience":string}],"notices":[{"text":string,"isHighlight":boolean}],"assignments":[{"deadline":"YYYY-MM-DD","subject":string,"task":string}]}',
+  "振り分けの基準:",
+  "- 予定(schedules): 時限(1〜12)に対応する授業・コマ。「1限数学」など period が判別できるものだけ。朝の会/HR/集会/放課後など時限に乗らないものは予定に入れず連絡にする（period を創作しない）。同じ period を2つ以上作らない。",
+  "- 提出物(assignments): 締切のある課題。『基準日（今日）』を用いて「明日まで/今週金曜」を実在する YYYY-MM-DD に変換する。締切を確定できないものは作らない。",
+  "- 連絡(notices): 上記以外のお知らせ全般。各 text は1文・最大120文字程度。重要な注意喚起のみ isHighlight:true。",
+  "- どの種類か迷うもの・必須項目(時限/締切)が欠けるものは連絡に寄せる。該当が無い種類は空配列にする。",
+  "共通: 「今日」「明日」等の相対日付は基準日で具体化。入力に無い事実・個人名・確定できない日付/時限は創作しない。氏名や電話番号等の個人情報は出力に含めない。マスクトークン（例 {{STAFF_001}}）は保持する。",
+  "JSON 以外の文字（説明文・コードフェンス）は一切出力しない。",
+].join("\n");
 
 /** セクション → user プロンプトで使う和名（「次のメモから〇〇を作成してください」）。 */
 const SECTION_NOUN: Record<DraftSection, string> = {
@@ -291,6 +324,44 @@ export function parseAssignmentProposal(text: string): AssignmentItem[] | null {
   const assignments = (json as { assignments?: unknown } | null)?.assignments;
   const v = validateAssignmentItems(assignments);
   return v.ok ? v.value : null;
+}
+
+/**
+ * 「おまかせ」用 user プロンプト（基準日 + マスク済みメモ）。トーン調整軸は持たない（分類は構造抽出）。
+ */
+export function buildAllAssistUser(maskedInput: string, referenceDateLabel: string): string {
+  return `基準日（今日）: ${referenceDateLabel}\n\n次のメモを、予定・連絡・提出物に振り分けて作成してください:\n\n${maskedInput}`;
+}
+
+/**
+ * モデルの生 JSON から {@link AllDraft}（3 セクション束）を取り出す（ADR-036）。各セクションは「キーが
+ * あれば `validate*Items` で検証、無ければ空」。**あって不正なら全体を null（黙ってドロップしない）**。
+ * 3 種すべて空なら null（呼び出し側が no_result 判定）。
+ */
+export function parseAllProposal(text: string): AllDraft | null {
+  let json: unknown;
+  try {
+    json = JSON.parse(stripCodeFence(text));
+  } catch {
+    return null;
+  }
+  if (typeof json !== "object" || json === null) {
+    return null;
+  }
+  const obj = json as { schedules?: unknown; notices?: unknown; assignments?: unknown };
+  const sV = obj.schedules === undefined ? null : validateScheduleItems(obj.schedules);
+  const nV = obj.notices === undefined ? null : validateNoticeItems(obj.notices);
+  const aV = obj.assignments === undefined ? null : validateAssignmentItems(obj.assignments);
+  if ((sV && !sV.ok) || (nV && !nV.ok) || (aV && !aV.ok)) {
+    return null;
+  }
+  const schedules = sV?.ok ? sV.value : [];
+  const notices = nV?.ok ? nV.value : [];
+  const assignments = aV?.ok ? aV.value : [];
+  if (schedules.length === 0 && notices.length === 0 && assignments.length === 0) {
+    return null;
+  }
+  return { schedules, notices, assignments };
 }
 
 /** モデルが稀に付ける ```json ... ``` コードフェンスを剥がす。 */

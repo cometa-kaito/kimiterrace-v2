@@ -48,6 +48,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@kimiterrace/db", () => ({ auditLog: {} }));
 
 import {
+  assistDraftAllAction,
   assistDraftAssignmentAction,
   assistDraftNoticesAction,
   assistDraftNoticesFromFileAction,
@@ -310,6 +311,58 @@ describe("assistDraftAssignmentAction", () => {
       ok: false,
       reason: "no_result",
     });
+  });
+});
+
+describe("assistDraftAllAction（おまかせ分類）", () => {
+  it("1入力を予定/連絡/提出物に分類して 3 セクション返し、おまかせ監査で書き込む", async () => {
+    const d = depsReturning(
+      '{"schedules":[{"period":1,"subject":"数学"}],"notices":[{"text":"明日は短縮授業"}],"assignments":[{"deadline":"2026-06-20","subject":"英語","task":"音読"}]}',
+    );
+    const r = await assistDraftAllAction(
+      "class",
+      CLASS_ID,
+      "1限数学 明日短縮 英語音読20日まで",
+      {},
+      d,
+    );
+    expect(r).toEqual({
+      ok: true,
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "明日は短縮授業" }],
+      assignments: [{ deadline: "2026-06-20", subject: "英語", task: "音読" }],
+    });
+    expect(h.insertValues).toHaveBeenCalledOnce();
+    const arg = d.model.generate.mock.calls[0]?.[0] as { system?: string; user?: string };
+    expect(arg?.system).toContain('"schedules"');
+    expect(arg?.user).toContain("振り分けて作成してください");
+  });
+
+  it("一部セクションだけでも返す（連絡のみ）", async () => {
+    const d = depsReturning('{"notices":[{"text":"連絡だけ"}]}');
+    const r = await assistDraftAllAction("class", CLASS_ID, "連絡だけ", {}, d);
+    expect(r).toEqual({
+      ok: true,
+      schedules: [],
+      notices: [{ text: "連絡だけ" }],
+      assignments: [],
+    });
+  });
+
+  it("3 種すべて空/壊れた応答は no_result", async () => {
+    const d = depsReturning('{"schedules":[],"notices":[],"assignments":[]}');
+    expect(await assistDraftAllAction("class", CLASS_ID, "x", {}, d)).toEqual({
+      ok: false,
+      reason: "no_result",
+    });
+  });
+
+  it("氏名らしき語は pii_warning（共有 soft-gate・送信しない）", async () => {
+    h.findSuspectedPersonalNames.mockReturnValue([{ surface: "田中先生" }]);
+    const d = depsReturning('{"notices":[{"text":"x"}]}');
+    const r = await assistDraftAllAction("class", CLASS_ID, "田中先生", {}, d);
+    expect(r).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中先生"] });
+    expect(d.model.generate).not.toHaveBeenCalled();
   });
 });
 

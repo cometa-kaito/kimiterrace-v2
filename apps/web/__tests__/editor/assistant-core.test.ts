@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_ASSIST_SYSTEM,
   ASSIGNMENT_ASSIST_SYSTEM,
   NOTICE_TONE_INSTRUCTIONS,
   SCHEDULE_ASSIST_SYSTEM,
   SECTION_ASSIST_SYSTEM,
+  buildAllAssistUser,
   buildNoticeAssistUser,
   buildSectionAssistUser,
   jstDateLabel,
+  parseAllProposal,
   parseAssignmentProposal,
   parseNoticeProposal,
   parseNoticeTone,
@@ -180,6 +183,55 @@ describe("buildSectionAssistUser", () => {
     expect(buildNoticeAssistUser("メモ", ref, "短く。")).toBe(
       buildSectionAssistUser("notices", "メモ", ref, "短く。"),
     );
+  });
+});
+
+describe("parseAllProposal（おまかせ分類）", () => {
+  it("3 セクションを束で取り出し各 validate*Items で正規化する", () => {
+    const r = parseAllProposal(
+      '{"schedules":[{"period":1,"subject":"数学"}],"notices":[{"text":"明日は短縮授業"}],"assignments":[{"deadline":"2026-06-20","subject":"英語","task":"音読"}]}',
+    );
+    expect(r).toEqual({
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "明日は短縮授業" }],
+      assignments: [{ deadline: "2026-06-20", subject: "英語", task: "音読" }],
+    });
+  });
+
+  it("欠けたセクションは空配列（連絡のみ等）", () => {
+    expect(parseAllProposal('{"notices":[{"text":"連絡だけ"}]}')).toEqual({
+      schedules: [],
+      notices: [{ text: "連絡だけ" }],
+      assignments: [],
+    });
+  });
+
+  it("あって不正なセクションがあれば全体を null（黙ってドロップしない）", () => {
+    // period 範囲外 → schedules 検証失敗 → 全体 null。
+    expect(
+      parseAllProposal('{"schedules":[{"period":99,"subject":"x"}],"notices":[{"text":"有効"}]}'),
+    ).toBeNull();
+  });
+
+  it("3 種すべて空/壊れた JSON は null（呼び出し側が no_result 判定）", () => {
+    expect(parseAllProposal('{"schedules":[],"notices":[],"assignments":[]}')).toBeNull();
+    expect(parseAllProposal("これはメモです")).toBeNull();
+    expect(parseAllProposal("{")).toBeNull();
+  });
+});
+
+describe("buildAllAssistUser / ALL_ASSIST_SYSTEM", () => {
+  it("基準日とメモを含め、3 種振り分けの指示文になっている", () => {
+    const u = buildAllAssistUser("1限数学 明日まで宿題", "2026年6月8日（月）");
+    expect(u).toContain("基準日（今日）: 2026年6月8日（月）");
+    expect(u).toContain("1限数学 明日まで宿題");
+    expect(u).toContain("振り分けて作成してください");
+  });
+
+  it("ALL system は 3 セクションの JSON キーを指示する", () => {
+    expect(ALL_ASSIST_SYSTEM).toContain('"schedules"');
+    expect(ALL_ASSIST_SYSTEM).toContain('"notices"');
+    expect(ALL_ASSIST_SYSTEM).toContain('"assignments"');
   });
 });
 
