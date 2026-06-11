@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth/guard";
 import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { FileUploadForm } from "./_components/FileUploadForm";
 import { TeacherInputComposer } from "./_components/TeacherInputComposer";
@@ -26,12 +27,12 @@ export default async function TeacherInputPage() {
         {/* 入力履歴への導線（ナビ未掲載のため発見性を確保。送信後の状況確認の受け皿）。 */}
         <Link
           href="/admin/teacher-input/history"
-          style={{ marginLeft: "auto", fontSize: "0.9rem", color: "#2563eb" }}
+          style={{ marginLeft: "auto", fontSize: "0.9rem", color: tokens.color.blueStrong }}
         >
           入力履歴を見る →
         </Link>
       </div>
-      <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
+      <p style={{ color: tokens.color.muted, margin: "0 0 1rem", fontSize: "0.9rem" }}>
         「明日 10 時から体育館で説明会」のように話しかける、または入力すると、その内容から
         編集できる掲示の草稿を作成します。草稿はエディタで確認・修正してから公開できます。
         音声は端末内で文字起こしし、サーバーには文字だけを送ります。

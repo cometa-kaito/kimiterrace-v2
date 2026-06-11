@@ -24,6 +24,10 @@ export const color = {
    *  グラデはロゴ画像のみ・2026-06-05 方針。globals.css --brand-primary と一致させること。 */
   primary: "#ea580c",
   primaryHover: "#c2410c",
+  /** ブランドブルー（LP --primary #2B4ACB と同値・UIUX-00 共通トークン）。見出し/リンク/強調用。
+   *  白背景上のテキスト 4.5:1 を充足。淡い blue #6fa8c7 は副次色として残す（置換ではなく追加）。
+   *  globals.css --brand-blue-strong と一致させること。 */
+  blueStrong: "#2b4acb",
 
   // ステータストーン（薄背景 / 文字 / 枠）。StatusBadge・各種バナーで共有。
   neutralBg: "#f3f4f6",

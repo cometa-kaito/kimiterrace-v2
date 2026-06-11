@@ -7,6 +7,7 @@ import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { getCalloutsForClass, getVisitorsForClass } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
@@ -77,7 +78,10 @@ export default async function ClassEditorPage({
       <EditorBoard
         header={
           <header style={{ marginBottom: "1rem" }}>
-            <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
+            <Link
+              href="/admin/editor"
+              style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
+            >
               ← 編集対象の選択へ戻る
             </Link>
             <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
@@ -98,7 +102,7 @@ export default async function ClassEditorPage({
                   gap: "0.35rem",
                   fontSize: "0.9rem",
                   fontWeight: 600,
-                  color: "#c2410c",
+                  color: tokens.color.primaryHover,
                 }}
               >
                 サイネージ表示を確認（別タブ） →

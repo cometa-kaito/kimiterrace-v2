@@ -1,44 +1,54 @@
+import { tokens } from "@kimiterrace/ui";
+
 /**
  * エディタ各セクション (#48-H Schedule / #48-I Notice / Assignment) 共通のインラインスタイル。
  * ScheduleEditor.tsx が定義していた値をセクション間で再利用するため切り出した (見た目の単一ソース)。
+ * 色は `@kimiterrace/ui` の tokens を参照する（UIUX-02: ハードコード hex の整流）。
  */
+
+const { color, fontSize, radius } = tokens;
 
 export const inputStyle: React.CSSProperties = {
   padding: "0.35rem 0.5rem",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
 };
 export const thStyle: React.CSSProperties = {
   textAlign: "left",
-  fontSize: "0.85rem",
-  color: "#6b7280",
+  fontSize: fontSize.sm,
+  color: color.muted,
   padding: "0.25rem 0.4rem",
 };
 export const tdStyle: React.CSSProperties = { padding: "0.25rem 0.4rem", verticalAlign: "top" };
+// 保存はこの画面の主アクション。ブランドのアクション色（オレンジ）に揃え、タップ領域 44px を確保する
+// （白文字×#ea580c は非テキスト UI 3:1 充足・.brand-btn と同一の既存判断）。
 export const primaryBtnStyle: React.CSSProperties = {
+  minHeight: "44px",
   padding: "0.45rem 1.1rem",
-  background: "#1f2937",
+  background: color.primary,
   color: "#fff",
   border: "none",
-  borderRadius: "6px",
+  borderRadius: radius.sm,
   cursor: "pointer",
+  fontWeight: 600,
 };
 export const secondaryBtnStyle: React.CSSProperties = {
+  minHeight: "44px",
   padding: "0.45rem 1.1rem",
   background: "#fff",
-  color: "#1f2937",
-  border: "1px solid #d1d5db",
-  borderRadius: "6px",
+  color: color.ink,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
   cursor: "pointer",
 };
 export const removeBtnStyle: React.CSSProperties = {
   padding: "0.3rem 0.6rem",
   background: "transparent",
-  color: "#b91c1c",
-  border: "1px solid #fca5a5",
-  borderRadius: "6px",
+  color: color.dangerFg,
+  border: `1px solid ${color.dangerBorder}`,
+  borderRadius: radius.sm,
   cursor: "pointer",
-  fontSize: "0.85rem",
+  fontSize: fontSize.sm,
 };
 
 /**
@@ -64,18 +74,18 @@ export const saveBarStyle: React.CSSProperties = {
 };
 /** 「未保存の変更があります」（注意色）。 */
 export const dirtyTextStyle: React.CSSProperties = {
-  fontSize: "0.82rem",
+  fontSize: fontSize.xs,
   fontWeight: 600,
-  color: "#b45309",
+  color: color.warningFg,
 };
 /** 「保存済み」（成功色）。 */
 export const savedTextStyle: React.CSSProperties = {
-  fontSize: "0.82rem",
-  color: "#166534",
+  fontSize: fontSize.xs,
+  color: color.successFg,
 };
 /** 無効化された保存ボタン（未変更時）。 */
 export const primaryBtnDisabledStyle: React.CSSProperties = {
   ...primaryBtnStyle,
-  background: "#9ca3af",
+  background: color.muted,
   cursor: "not-allowed",
 };
