@@ -25,9 +25,12 @@ export type DraftSection = DailySectionField;
  * notice-assignment-core の単一ソースを再利用、ルール3）。
  */
 
-/** AI 連絡ドラフトの結果（client が UI に写像する判別共用体）。本文/生PIIは ok 時の notices のみ。 */
-export type AssistDraftResult =
-  | { ok: true; notices: NoticeItem[] }
+/**
+ * AI ドラフトの**失敗結果（全セクション共通）**。ok:false のバリアントをここに集約し、連絡/予定/提出物の
+ * 各結果型 ({@link AssistDraftResult}/{@link ScheduleDraftResult}/{@link AssignmentDraftResult}) が
+ * ok:true 部分だけ差し替えて再利用する（型の二重定義を避ける）。
+ */
+export type AssistDraftError =
   | {
       // ADR-030 PII soft-gate: 氏名らしき高確信パターン検出・未 override で送信保留。surfaces は警告表示用。
       ok: false;
@@ -50,6 +53,15 @@ export type AssistDraftResult =
         | "no_result" // モデル応答が空/不正
         | "error";
     };
+
+/** AI 連絡(notices)ドラフトの結果（client が UI に写像）。本文/生PIIは ok 時の notices のみ。 */
+export type AssistDraftResult = { ok: true; notices: NoticeItem[] } | AssistDraftError;
+
+/** AI 予定(schedules・時間割)ドラフトの結果。 */
+export type ScheduleDraftResult = { ok: true; schedules: ScheduleItem[] } | AssistDraftError;
+
+/** AI 提出物(assignments・課題)ドラフトの結果。 */
+export type AssignmentDraftResult = { ok: true; assignments: AssignmentItem[] } | AssistDraftError;
 
 /** Gemini への system 指示（連絡ドラフト専用・個人名/日付の創作を禁止、JSON のみ）。 */
 export const NOTICE_ASSIST_SYSTEM = [
