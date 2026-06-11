@@ -2,7 +2,7 @@
 
 - 状態: Accepted（2026-06-11、ユーザー判断「フル実装（推奨）」）
 - 日付: 2026-06-11（Proposed / Accepted 同日。`/admin` からの広告アップロード自己完結化に伴う配信設計）
-- 関連: [ADR-008 Route Handlers](008-nextjs-route-handlers.md), [ADR-009 Terraform / 単一 egress](009-terraform.md), [ADR-018 公開 ad-media バケット], [CLAUDE.md ルール5（secret/log・最小権限）/ ルール8（Terraform）], [docs/discovery/wifi-filter-method.md（県教委 Wi-Fi FQDN 許可リスト）], 月次レポート DL の proxy-stream 先例（`api/reports/[id]/download`）
+- 関連: [ADR-008 Route Handlers](008-nextjs-route-handlers.md), [ADR-009 Terraform / 単一 egress](009-terraform.md), 公開 ad-media バケット（`infrastructure/terraform/modules/ad_media`・#46/#48-F）, [CLAUDE.md ルール5（secret/log・最小権限）/ ルール8（Terraform）], [docs/discovery/wifi-filter-method.md（県教委 Wi-Fi FQDN 許可リスト）], 月次レポート DL の proxy-stream 先例（`api/reports/[id]/download`）
 
 ## 文脈
 
