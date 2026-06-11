@@ -80,6 +80,19 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/signage/abc123_token/data")).toBe(false);
   });
 
+  it("#46/ADR-037 公開広告メディア /ad-media/{key} はゲート対象外 (除外・拡張子非依存)", () => {
+    // サイネージ端末は `__session` を持たない匿名公開経路。可否は route の isValidAdMediaKey が担う。
+    expect(gated.test("/ad-media/ads/22222222-2222-2222-2222-222222222222/abc.png")).toBe(false);
+    // 末尾拡張子除外に依存せず除外する（video=.mp4 や拡張子規約変更でも破綻しない）。
+    expect(gated.test("/ad-media/ads/x/clip.mp4")).toBe(false);
+    expect(gated.test("/ad-media/foo")).toBe(false);
+  });
+
+  it("ad-media/ 除外は末尾 / で境界済、look-alike な /ad-mediax 等は過剰除外しない (保護のまま)", () => {
+    expect(gated.test("/ad-mediax")).toBe(true);
+    expect(gated.test("/ad-media-admin")).toBe(true);
+  });
+
   it("F12/#48-M フィードバック /guide・/api/guide/* はゲート対象外 (除外)", () => {
     expect(gated.test("/guide")).toBe(false);
     expect(gated.test("/api/guide/feedback")).toBe(false);
