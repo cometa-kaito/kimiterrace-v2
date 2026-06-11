@@ -152,6 +152,22 @@ resource "google_cloud_run_v2_service" "web" {
         }
       }
 
+      # TV_POLL_SECRET_LEGACY = ゼロダウンタイム鍵ローテの移行期のみ受理する旧キー（Secret Manager 注入、ルール5）。
+      # 同一 secret(tv_poll_secret_id) の旧バージョンをピン留め。空文字なら配線しない（単一キー運用＝従来挙動）。
+      # 全 TV 端末を新キーへ更新後に legacy_version を "" へ戻して apply すれば旧キーは無効化される。
+      dynamic "env" {
+        for_each = var.tv_poll_secret_id != "" && var.tv_poll_secret_legacy_version != "" ? [1] : []
+        content {
+          name = "TV_POLL_SECRET_LEGACY"
+          value_source {
+            secret_key_ref {
+              secret  = var.tv_poll_secret_id
+              version = var.tv_poll_secret_legacy_version
+            }
+          }
+        }
+      }
+
       # PROVISION_AGENT_SECRET = TV プロビジョニング agent 認証 共有シークレット（Secret Manager 注入、ルール5）。
       # C方式: /api/tv/provisioning/* の agent 認証（PR4）。未設定なら agent route は fail-closed。
       dynamic "env" {

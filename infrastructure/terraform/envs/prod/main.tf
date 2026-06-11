@@ -136,6 +136,15 @@ locals {
   # cutover では v1 LP の TV_POLL_SECRET 現値と一致させる（LP 互換ポーリングを切らさない）。
   tv_poll_secret_id = "prod-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
+  # ゼロダウンタイム鍵ローテ（漏洩対応）の移行期だけ TV_POLL_SECRET_LEGACY として配線する prod-tv-poll-secret の
+  # 旧バージョン番号。""（既定）= 単一キー運用（従来挙動）。カットオーバー手順:
+  #   ①新キー値を新バージョンとして投入: gcloud secrets versions add prod-tv-poll-secret --data-file=- --project=signage-v2-prod
+  #     （--data-file は値をプロセス置換/標準入力で渡し、コマンド/履歴に値を残さない。ルール5）→ 新版が latest=新キー。
+  #   ② ここを旧版番号（投入直前の latest。例 "3"）に設定 → apply（web image も二重受理コードへ bump）。
+  #     → TV_POLL_SECRET=latest(新)・TV_POLL_SECRET_LEGACY=旧 を両受理（無停止）。
+  #   ③全 TV 端末を新キーへ更新後、ここを "" へ戻して apply → 旧キー失効。旧版は disable/destroy（gcloud secrets versions disable）。
+  tv_poll_secret_legacy_version = "" # gitleaks:allow（バージョン番号であり値ではない）
+
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
   # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
@@ -460,18 +469,19 @@ resource "google_project_service" "aiplatform" {
 # Vertex user + Identity Platform admin + 各 secret accessor を付与。app が自前認証ゆえ未認証 invoker（allUsers）許可。
 # 2-phase apply（④）: ① secret コンテナ作成 → ② app DSN / tv-poll 値投入 → ③ full apply で service 作成。
 module "cloud_run" {
-  source                    = "../../modules/cloud_run"
-  project_id                = var.project_id
-  region                    = var.region
-  env                       = local.env
-  enabled                   = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
-  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id    = local.db_url_app_secret_id
-  tv_poll_secret_id         = local.tv_poll_secret_id
-  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
-  partner_api_secret_id     = local.partner_api_secret_id     # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
-  vpc_connector             = module.network.vpc_connector_id
-  vertex_location           = var.region
+  source                        = "../../modules/cloud_run"
+  project_id                    = var.project_id
+  region                        = var.region
+  env                           = local.env
+  enabled                       = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
+  image                         = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id        = local.db_url_app_secret_id
+  tv_poll_secret_id             = local.tv_poll_secret_id
+  tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
+  provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
+  partner_api_secret_id         = local.partner_api_secret_id         # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
+  vpc_connector                 = module.network.vpc_connector_id
+  vertex_location               = var.region
 
   # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
