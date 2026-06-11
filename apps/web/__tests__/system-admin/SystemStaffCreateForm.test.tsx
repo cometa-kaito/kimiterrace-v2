@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * F11 (#508): SystemStaffCreateForm のテスト。createSystemStaffAction を mock し、入力値
- * (email/displayName/role/schoolId) で action を呼ぶこと・成功で **初回パスワード設定リンク (setupLink)**
+ * (email/displayName/schoolId) で action を呼ぶこと・成功で **初回パスワード設定リンク (setupLink)**
  * を表示すること・失敗でエラー表示・コピー操作・学校 0 件のガードを検証する。認可/検証/対象校実在確認/
  * IdP/監査は Server Action 側 (create-system-staff.test.ts で実証済) の責務なので、ここは UI 配線のみ固める。
+ *
+ * 教員アカウント概念の撤去 (2026-06-10): 発行は学校管理者のみ (ロール選択 UI は撤去)。action へ role は渡さない。
  */
 
 vi.mock("@/lib/system-admin/users-actions", () => ({ createSystemStaffAction: vi.fn() }));
@@ -34,11 +36,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function fill(opts?: { schoolId?: string; email?: string; displayName?: string; role?: string }) {
+function fill(opts?: { schoolId?: string; email?: string; displayName?: string }) {
   const schoolId = opts?.schoolId ?? GINAN.id;
   const email = opts?.email ?? "admin@example.com";
   const displayName = opts?.displayName ?? "学校管理者A";
-  // FormField 化後はラベルが「学校」「ロール」「メールアドレス」「表示名」(必須印 * は aria-hidden)。
+  // ロール選択は撤去 (常に school_admin)。ラベルは「学校」「メールアドレス」「表示名」(必須印 * は aria-hidden)。
   fireEvent.change(screen.getByRole("combobox", { name: "学校" }), { target: { value: schoolId } });
   fireEvent.change(screen.getByRole("textbox", { name: "メールアドレス" }), {
     target: { value: email },
@@ -46,11 +48,6 @@ function fill(opts?: { schoolId?: string; email?: string; displayName?: string; 
   fireEvent.change(screen.getByRole("textbox", { name: "表示名" }), {
     target: { value: displayName },
   });
-  if (opts?.role) {
-    fireEvent.change(screen.getByRole("combobox", { name: "ロール" }), {
-      target: { value: opts.role },
-    });
-  }
 }
 
 describe("SystemStaffCreateForm (#508 system_admin 発行フォーム)", () => {
@@ -82,7 +79,7 @@ describe("SystemStaffCreateForm (#508 system_admin 発行フォーム)", () => {
     expect(screen.getByText("発行先の学校を選択してください。")).toBeInTheDocument();
   });
 
-  it("送信で {email, displayName, role, schoolId} を渡し、成功で初回設定リンクを表示する", async () => {
+  it("送信で {email, displayName, schoolId} を渡し (role は送らない)、成功で初回設定リンクを表示する", async () => {
     createMock.mockResolvedValue({
       ok: true,
       data: { id: "u1", setupLink: "https://idp/reset?code=abc" },
@@ -94,7 +91,6 @@ describe("SystemStaffCreateForm (#508 system_admin 発行フォーム)", () => {
       expect(createMock).toHaveBeenCalledWith({
         email: "admin@example.com",
         displayName: "学校管理者A",
-        role: "school_admin",
         schoolId: GINAN.id,
       }),
     );
@@ -103,22 +99,9 @@ describe("SystemStaffCreateForm (#508 system_admin 発行フォーム)", () => {
     expect(screen.queryByRole("button", { name: "発行する" })).not.toBeInTheDocument();
   });
 
-  it("ロールを教員に変更すると role=teacher で発行する", async () => {
-    createMock.mockResolvedValue({
-      ok: true,
-      data: { id: "u2", setupLink: "https://idp/reset?code=t" },
-    });
+  it("ロール選択 UI は出さない (常に学校管理者・教員アカウント概念の撤去)", () => {
     render(<SystemStaffCreateForm schools={SCHOOLS} />);
-    fill({ role: "teacher", schoolId: E2E.id });
-    fireEvent.click(screen.getByRole("button", { name: "発行する" }));
-    await waitFor(() =>
-      expect(createMock).toHaveBeenCalledWith({
-        email: "admin@example.com",
-        displayName: "学校管理者A",
-        role: "teacher",
-        schoolId: E2E.id,
-      }),
-    );
+    expect(screen.queryByRole("combobox", { name: "ロール" })).not.toBeInTheDocument();
   });
 
   it("失敗時はエラーメッセージを表示し、成功 UI (setupLink) を出さない", async () => {

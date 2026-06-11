@@ -9,7 +9,8 @@ import { SystemStaffCreateForm } from "./_components/SystemStaffCreateForm";
  * F11 (#508): システム管理者の **教職員発行** (`/admin/system/users/new`)。**Server Component**。
  *
  * **認可**: `/admin` layout の `requireRole(ADMIN_ROLES)` に加え `requireRole(SYSTEM_ADMIN_ROLES)`
- * (system_admin のみ)。任意校への school_admin / teacher 発行は横断運用なので system_admin 専用。
+ * (system_admin のみ)。任意校への school_admin 発行は横断運用なので system_admin 専用。教員は学校共通PW
+ * (ADR-032・系統A) でログインし個別アカウントを持たないため発行対象でない (教員アカウント概念の撤去)。
  *
  * 発行先の学校プルダウン用に `listSchools` を RLS tx (system_admin context = 全校可視) で取得し、
  * client に渡せる最小フィールド (id / name / prefecture) に射影する (Date 等の非シリアライズ値や
@@ -31,8 +32,8 @@ export default async function SystemUserNewPage() {
       </Link>
       <h1 style={titleStyle}>教職員を発行</h1>
       <p style={subtitleStyle}>
-        学校を選んで学校管理者 / 教員のアカウントを発行します。新規校では、まず「学校管理者」を 1
-        人発行すると、その管理者でログインして学科・学年・クラスや教員を登録できます。
+        学校を選んで学校管理者アカウントを発行します。新規校では、まず「学校管理者」を 1
+        人発行すると、その管理者でログインして学科・学年・クラスを登録できます。教員は学校共通パスワードでログインするため個別発行は不要です。
       </p>
       <SystemStaffCreateForm schools={options} />
     </section>

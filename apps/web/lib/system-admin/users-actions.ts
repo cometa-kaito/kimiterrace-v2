@@ -1,12 +1,11 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { type TenantRole, type TenantTx, auditLog, schools, users } from "@kimiterrace/db";
+import { type TenantTx, auditLog, schools, users } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import {
-  changeIdpUserRole,
   createIdpUser,
   deactivateIdpUser,
   deleteIdpUser,
@@ -19,8 +18,11 @@ import { validateStaffCreate } from "../role-management/staff-create-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, conflict, forbidden, invalid, isUuid, notFound } from "./schools-core";
 
-/** この画面が扱う教職員ロール (school_admin ↔ teacher の相互変更)。student/guardian/system_admin は対象外。 */
-const STAFF_ROLES = ["school_admin", "teacher"] as const;
+/**
+ * この画面が扱う管理ロール。教員アカウント概念の撤去 (2026-06-10) で teacher を除外し school_admin のみ。
+ * 教員は学校共通PW (ADR-032・系統A) でログインし個別アカウントを持たないため、発行/ロール変更の対象外。
+ */
+const STAFF_ROLES = ["school_admin"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
 
 /**
@@ -129,8 +131,8 @@ export async function setStaffActiveAction(raw: {
     return notFound("指定されたユーザーが見つかりません。");
   }
   if (gate.kind === "not_staff") {
-    // 一覧は教職員のみを出すため通常到達しない。生徒/保護者は IdP アカウントを持たない (対象外)。
-    return forbidden("教職員以外のアカウントはこの画面では操作できません。");
+    // 一覧は school_admin のみを出すため通常到達しない。教員 (共通PW) / 生徒 / 保護者はこの汎用トグル対象外。
+    return forbidden("学校管理者以外のアカウントはこの画面では操作できません。");
   }
   if (gate.kind === "last_admin") {
     return conflict(
@@ -236,7 +238,7 @@ async function withGate(userId: string, nextActive: boolean): Promise<GateResult
       if (!row) {
         return { kind: "not_found" } as const;
       }
-      if (row.role !== "school_admin" && row.role !== "teacher") {
+      if (row.role !== "school_admin") {
         return { kind: "not_staff" } as const;
       }
       // last-admin ガード: 有効な school_admin を無効化しようとしていて、その人が学校で唯一の有効な
@@ -298,176 +300,13 @@ async function lockAndCountActiveSchoolAdmins(tx: TenantTx, schoolId: string): P
 }
 
 /**
- * F11 (#47 / #324, ADR-026 D2): system_admin が教職員の **ロールを変更** する Server Action
- * (school_admin ↔ teacher)。`/admin/system/users` (#343) の各行から呼ぶ。
- *
- * エンフォースは IdP seam `changeIdpUserRole` (`setCustomUserClaims` + `revokeRefreshTokens`) を使う
- * (ADR-026 D2: claims がロールの単一ソース。revoke で再ログインを強制し、**降格で旧特権 claim が残る**のを
- * 防ぐ)。DB の `users.role` は mirror。**DB-only のロール変更は作らない** (D3)。
- *
- * ## 実行順 (ADR-026: IdP を先に、DB mirror を後に)
- * 1. 入力検証 (nextRole は school_admin / teacher のみ) → `requireRole(SYSTEM_ADMIN_ROLES)`。
- * 2. RLS tx で対象の現ロール / 状態 / 所属校を読む。教職員以外は対象外、現ロールと同じなら no-op。
- * 3. **降格 last-admin ガード**: 有効な school_admin を teacher に降格しようとしていて、その人が学校で
- *    唯一の有効な管理者なら拒否する (無効化と同じロックアウト防止、ADR-026)。
- * 4. **IdP 更新を先に** (claims 再付与 + revoke)。
- * 5. 成功後に DB `users.role` mirror 更新 + `audit_log` を同一 tx で記録 (ルール1)。
- *
- * 監査は無効化と同じ規律: テナント監査ゆえ `school_id` = 対象校、actor は system_admin ゆえ NULL。
- */
-export async function changeStaffRoleAction(raw: {
-  userId?: unknown;
-  nextRole?: unknown;
-}): Promise<ActionResult<{ id: string; role: StaffRole }>> {
-  if (!isUuid(raw.userId)) {
-    return invalid("ユーザーの指定が不正です。");
-  }
-  if (raw.nextRole !== "school_admin" && raw.nextRole !== "teacher") {
-    return invalid("変更先のロールが不正です。");
-  }
-  const userId = raw.userId;
-  const nextRole = raw.nextRole;
-
-  await requireRole(SYSTEM_ADMIN_ROLES);
-
-  // 1) RLS tx: 対象の現ロール / 状態 / 所属校を読み、教職員限定 + 降格 last-admin ガードを評価する。
-  const gate = await withRoleGate(userId, nextRole);
-
-  if (gate.kind === "not_found") {
-    return notFound("指定されたユーザーが見つかりません。");
-  }
-  if (gate.kind === "not_staff") {
-    return forbidden("教職員以外のアカウントはこの画面では操作できません。");
-  }
-  if (gate.kind === "no_change") {
-    return invalid("ロールに変更がありません。");
-  }
-  if (gate.kind === "last_admin") {
-    return conflict(
-      "この学校で唯一の有効な学校管理者のため教員に変更できません。先に別の学校管理者を用意してください。",
-    );
-  }
-
-  // 2) IdP 更新を先に (claims 再付与 + revoke で再ログイン強制)。
-  await changeIdpUserRole(userId, nextRole, gate.schoolId);
-
-  // この降格が「有効な school_admin を 1 人減らす」操作か。降格も無効化と同じ last-admin レース
-  // (#355 Low-2) を起こす。昇格 (teacher→school_admin) は管理者を減らさないため対象外。
-  const removesActiveAdmin =
-    nextRole === "teacher" && gate.before === "school_admin" && gate.wasActive;
-
-  // 3) DB mirror + 監査を同一 tx で。
-  try {
-    await withSession(
-      async (tx) => {
-        // TOCTOU 根治 (#355 Low-2): 管理者を減らす降格のみ、FOR UPDATE 再カウントで last-admin を直列検出。
-        if (removesActiveAdmin && (await lockAndCountActiveSchoolAdmins(tx, gate.schoolId)) <= 1) {
-          throw new LastAdminRaceError();
-        }
-        const updated = await tx
-          .update(users)
-          .set({ role: nextRole, updatedBy: null, updatedAt: new Date() })
-          .where(eq(users.id, userId))
-          .returning({ id: users.id });
-        if (updated.length === 0) {
-          throw new Error("user role mirror update affected no row");
-        }
-        await tx.insert(auditLog).values({
-          actorUserId: null,
-          schoolId: gate.schoolId,
-          tableName: "users",
-          recordId: userId,
-          operation: "update",
-          diff: { before: { role: gate.before }, after: { role: nextRole } },
-          rowHash: "",
-          createdBy: null,
-          updatedBy: null,
-        });
-      },
-      { allowedRoles: SYSTEM_ADMIN_ROLES },
-    );
-  } catch (e) {
-    if (isLastAdminRace(e)) {
-      // #395 L1: race パスは mirror tx ロールバックで audit_log に残らないため、確定実行された IdP の往復
-      // (降格→補償) を構造化ログで 1 件記録する (NFR04 観測性, ADR-026 L1)。補償**前**に出す。
-      // detectedBy=db_trigger_kt001 は seam の FOR UPDATE 再カウントを越えてトリガ (#395 L2) が弾いた異常シグナル。
-      logger.warn(
-        {
-          event: "last_admin_race_detected",
-          action: "change_role",
-          detectedBy: e instanceof LastAdminRaceError ? "app_recount" : "db_trigger_kt001",
-          schoolId: gate.schoolId,
-          targetUserId: userId,
-          compensation: "restore_school_admin_role",
-        },
-        "last-admin race detected at mirror tx; compensating IdP-first demotion",
-      );
-      // 補償: IdP のロールを school_admin に戻す (revoke 済のため再ログインは要るが claim は復元)。DB は未更新。
-      await changeIdpUserRole(userId, "school_admin", gate.schoolId);
-      return conflict(
-        "この学校で唯一の有効な学校管理者のため教員に変更できません。先に別の学校管理者を用意してください。",
-      );
-    }
-    throw e;
-  }
-
-  revalidatePath("/admin/system/users");
-  return { ok: true, data: { id: userId, role: nextRole } };
-}
-
-type RoleGateResult =
-  | { kind: "not_found" }
-  | { kind: "not_staff" }
-  | { kind: "no_change" }
-  | { kind: "last_admin" }
-  // wasActive は mirror tx の TOCTOU 再カウント要否 (有効な school_admin を降格する操作か) の判定に使う。
-  | { kind: "ok"; schoolId: string; before: TenantRole; wasActive: boolean };
-
-/**
- * ロール変更の対象を読み、教職員限定 / no-op / 降格 last-admin ガードを評価して判定を返す。read のみの短い tx。
- */
-async function withRoleGate(userId: string, nextRole: StaffRole): Promise<RoleGateResult> {
-  return await withSession(
-    async (tx: TenantTx) => {
-      const [row] = await tx
-        .select({ role: users.role, isActive: users.isActive, schoolId: users.schoolId })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      if (!row) {
-        return { kind: "not_found" } as const;
-      }
-      if (row.role !== "school_admin" && row.role !== "teacher") {
-        return { kind: "not_staff" } as const;
-      }
-      if (row.role === nextRole) {
-        return { kind: "no_change" } as const;
-      }
-      // 降格 last-admin ガード: 有効な school_admin を teacher に降格しようとしていて、その人が学校で
-      // 唯一の有効な管理者なら拒否する (無効化と同じロックアウト防止。昇格 teacher→school_admin は対象外)。
-      if (row.role === "school_admin" && nextRole === "teacher" && row.isActive) {
-        if ((await countActiveSchoolAdmins(tx, row.schoolId)) <= 1) {
-          return { kind: "last_admin" } as const;
-        }
-      }
-      return {
-        kind: "ok",
-        schoolId: row.schoolId,
-        before: row.role,
-        wasActive: row.isActive,
-      } as const;
-    },
-    { allowedRoles: SYSTEM_ADMIN_ROLES },
-  );
-}
-
-/**
- * F11 (#508): system_admin が **任意校に school_admin / teacher アカウントを新規発行**する Server Action
+ * F11 (#508): system_admin が **任意校に school_admin アカウントを新規発行**する Server Action
  * (全校横断発行)。school_admin 版 (`createStaffAction`, role-management) の system_admin スコープ版。
  *
  * ## school_admin 版との違い
  * - **認可**: `requireRole(SYSTEM_ADMIN_ROLES)`。発行先の **学校を入力で指定** (cross-tenant)。
- * - **ロール**: 入力で `school_admin` / `teacher` を選べる (system_admin への昇格は不可、STAFF_ROLES に限定)。
+ * - **ロール**: 常に `school_admin` 固定 (system_admin 昇格は不可)。教員は学校共通PW (ADR-032・系統A) で
+ *   ログインし個別アカウントを持たないため、このアクションでは発行しない (教員アカウント概念の撤去・2026-06-10)。
  * - **RLS**: system_admin context で INSERT (`system_admin_full_access` が任意校への users INSERT を許可)。
  *   IdP 作成前に **対象校の実在を検証** (system_admin は全校可視) して、存在しない学校への孤児発行を防ぐ。
  * - **監査**: system_admin は `users` 行でないため `actorUserId` / `createdBy` は NULL、`school_id` は
@@ -481,21 +320,17 @@ async function withRoleGate(userId: string, nextRole: StaffRole): Promise<RoleGa
 export async function createSystemStaffAction(raw: {
   email?: unknown;
   displayName?: unknown;
-  role?: unknown;
   schoolId?: unknown;
 }): Promise<ActionResult<{ id: string; setupLink: string }>> {
   // 入力検証 (IdP / DB 到達前に弾く)。email/displayName の規則・メッセージは staff-create-core が単一
-  // ソース (member-actions / SystemStaffCreateForm の項目別検証と同一)。role/schoolId は system 固有。
+  // ソース (member-actions / SystemStaffCreateForm の項目別検証と同一)。schoolId は system 固有。
   const validated = validateStaffCreate(raw);
   if (!validated.ok) {
     return invalid(validated.message);
   }
   const { email, displayName } = validated.value;
-  // role は school_admin / teacher のみ (system_admin 昇格は不可)。
-  if (raw.role !== "school_admin" && raw.role !== "teacher") {
-    return invalid("ロールは school_admin または teacher を指定してください。");
-  }
-  const role: StaffRole = raw.role;
+  // 発行ロールは常に school_admin 固定 (教員は学校共通PW=系統Aゆえ個別発行しない・教員アカウント概念の撤去)。
+  const role: StaffRole = "school_admin";
   if (!isUuid(raw.schoolId)) {
     return invalid("学校の指定が不正です。");
   }

@@ -143,11 +143,13 @@ describe("formatSignageItem", () => {
   });
 });
 
-describe("parseScheduleRow (予定グリッドの時限 + 内容 分割)", () => {
-  it("時限ラベルと内容 (科目 + 補足) に分ける", () => {
+describe("parseScheduleRow (予定グリッドの時限 + 内容 + 場所/対象者 分割)", () => {
+  it("時限ラベルと内容 (科目 + 補足) に分ける（場所/対象者は未設定なら null）", () => {
     expect(parseScheduleRow({ period: 3, subject: "理科", note: "実験室" })).toEqual({
       periodLabel: "3限",
       content: "理科（実験室）",
+      location: null,
+      targetAudience: null,
     });
   });
 
@@ -155,19 +157,49 @@ describe("parseScheduleRow (予定グリッドの時限 + 内容 分割)", () =>
     expect(parseScheduleRow({ period: 2, subject: "英語" })).toEqual({
       periodLabel: "2限",
       content: "英語",
+      location: null,
+      targetAudience: null,
+    });
+  });
+
+  it("場所 / 対象者を拾う（パターン2 用・trim 済み）", () => {
+    expect(
+      parseScheduleRow({
+        period: 1,
+        subject: "体育",
+        location: " 体育館 ",
+        targetAudience: "3年生",
+      }),
+    ).toEqual({
+      periodLabel: "1限",
+      content: "体育",
+      location: "体育館",
+      targetAudience: "3年生",
     });
   });
 
   it("period 欠損/非正は時限ラベル空", () => {
-    expect(parseScheduleRow({ subject: "数学" })).toEqual({ periodLabel: "", content: "数学" });
+    expect(parseScheduleRow({ subject: "数学" })).toEqual({
+      periodLabel: "",
+      content: "数学",
+      location: null,
+      targetAudience: null,
+    });
     expect(parseScheduleRow({ period: 0, subject: "数学" })).toEqual({
       periodLabel: "",
       content: "数学",
+      location: null,
+      targetAudience: null,
     });
   });
 
   it("確定スキーマ外は時限空 + 汎用ラベルにフォールバック (表示を壊さない)", () => {
-    expect(parseScheduleRow("自由テキスト")).toEqual({ periodLabel: "", content: "自由テキスト" });
+    expect(parseScheduleRow("自由テキスト")).toEqual({
+      periodLabel: "",
+      content: "自由テキスト",
+      location: null,
+      targetAudience: null,
+    });
   });
 });
 

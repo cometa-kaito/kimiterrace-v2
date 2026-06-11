@@ -4,9 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * F11 (#508): createSystemStaffAction (system_admin 全校横断 発行) の配線テスト。
  * next/cache・guard・db・IdP seam・observability を mock。
  *
+ * 教員アカウント概念の撤去 (2026-06-10): 発行ロールは常に school_admin 固定 (role 入力なし)。教員は学校
+ * 共通PW (ADR-032・系統A) でログインし個別アカウントを持たないため、このアクションでは発行しない。
+ *
  * 検証する不変条件:
- * - 入力検証 (email / displayName / role∈{school_admin,teacher} / schoolId uuid) は IdP / DB に到達しない。
- * - system_admin への昇格発行は不可 (role 値域)。
+ * - 入力検証 (email / displayName / schoolId uuid) は IdP / DB に到達しない。
+ * - **発行ロールは常に school_admin** (入力に依らず固定)。
  * - 対象校が存在しない → notFound、IdP を呼ばない (孤児発行防止)。
  * - **uid 規約 (ADR-003)**: createUser uid == users.id == identity_uid。
  * - **IdP-first** + メール重複 conflict + **DB 失敗で孤児 IdP user を補償削除**。
@@ -60,7 +63,6 @@ const systemAdmin = { uid: "sysadmin", role: "system_admin" as const, schoolId: 
 const VALID = {
   email: "admin@example.com",
   displayName: "校長先生",
-  role: "school_admin",
   schoolId: SCHOOL_ID,
 };
 
@@ -108,12 +110,6 @@ describe("createSystemStaffAction (#508 system_admin 全校横断発行)", () =>
 
   it("表示名が空なら invalid", async () => {
     const res = await createSystemStaffAction({ ...VALID, displayName: "  " });
-    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
-    expect(createIdpUserMock).not.toHaveBeenCalled();
-  });
-
-  it("role が school_admin/teacher 以外 (system_admin 昇格) は invalid", async () => {
-    const res = await createSystemStaffAction({ ...VALID, role: "system_admin" });
     expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
     expect(createIdpUserMock).not.toHaveBeenCalled();
   });
@@ -177,10 +173,13 @@ describe("createSystemStaffAction (#508 system_admin 全校横断発行)", () =>
     expect(usersInsertValues?.identityUid).toBe(idpUid);
   });
 
-  it("role=teacher も発行できる", async () => {
-    await createSystemStaffAction({ ...VALID, role: "teacher" });
-    expect(createIdpUserMock.mock.calls[0]?.[0]).toMatchObject({ role: "teacher" });
-    expect(usersInsertValues).toMatchObject({ role: "teacher" });
+  it("role 入力 (teacher 等) は無視され常に school_admin で発行する (教員アカウント概念の撤去)", async () => {
+    // 旧 UI を経由しない直接呼び出しで role=teacher を渡しても、アクションは固定で school_admin を発行する。
+    await createSystemStaffAction({ ...VALID, role: "teacher" } as Parameters<
+      typeof createSystemStaffAction
+    >[0]);
+    expect(createIdpUserMock.mock.calls[0]?.[0]).toMatchObject({ role: "school_admin" });
+    expect(usersInsertValues).toMatchObject({ role: "school_admin" });
   });
 
   it("メール重複 (auth/email-already-exists) は conflict、DB に到達しない", async () => {

@@ -54,11 +54,24 @@ export function hashToken(token: string): string {
 }
 
 /**
+ * 末尾の連続スラッシュを除去する（二重スラッシュ正規化）。**正規表現 `/\/+$/` は使わない**: アンカー無しの
+ * `\/+$` は「多数のスラッシュ + 非スラッシュ」入力で O(n^2) の polynomial-redos になる（CodeQL
+ * js/polynomial-redos）。本実装は末尾から線形に走査する（ReDoS 不能）。
+ */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47 /* '/' */) {
+    end -= 1;
+  }
+  return s.slice(0, end);
+}
+
+/**
  * base + token から v2 サイネージ表示 URL（`<base>/signage/<token>`）を組み立てる。
  * base 末尾のスラッシュは正規化する（二重スラッシュ防止）。
  */
 export function buildSignageUrl(base: string, token: string): string {
-  const trimmed = base.replace(/\/+$/, "");
+  const trimmed = stripTrailingSlashes(base);
   return `${trimmed}/signage/${token}`;
 }
 
@@ -78,7 +91,7 @@ export function resolveSignageBaseUrl(raw: string | undefined): string {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new Error(`[seed-ginan-signage] SIGNAGE_BASE_URL must be http(s): ${base}`);
   }
-  return base.replace(/\/+$/, "");
+  return stripTrailingSlashes(base);
 }
 
 /**
@@ -106,6 +119,6 @@ export function isV2SignageUrl(signageUrl: string | null | undefined, base: stri
   if (!signageUrl) {
     return false;
   }
-  const trimmed = base.replace(/\/+$/, "");
+  const trimmed = stripTrailingSlashes(base);
   return signageUrl.startsWith(`${trimmed}/signage/`);
 }

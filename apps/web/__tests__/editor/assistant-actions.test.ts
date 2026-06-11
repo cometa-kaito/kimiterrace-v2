@@ -48,8 +48,12 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@kimiterrace/db", () => ({ auditLog: {} }));
 
 import {
+  assistDraftAllAction,
+  assistDraftAssignmentAction,
   assistDraftNoticesAction,
   assistDraftNoticesFromFileAction,
+  assistDraftScheduleAction,
+  assistDraftScheduleFromFileAction,
 } from "../../lib/editor/assistant-actions";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
@@ -236,5 +240,166 @@ describe("assistDraftNoticesFromFileAction", () => {
     const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
     expect(r).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中さん"] });
     expect(d.model.generate).not.toHaveBeenCalled();
+  });
+});
+
+/** 予定/提出物用の generate スタブ（deps() の既定は notices JSON のため section ごとに差し替える）。 */
+function depsReturning(text: string) {
+  return deps({ generate: vi.fn().mockResolvedValue({ text, usage: {}, modelVersion: "f" }) });
+}
+
+describe("assistDraftScheduleAction", () => {
+  it("正常時は schedules を返し、section 別 system プロンプトで生成し、audit に書く", async () => {
+    const d = depsReturning('{"schedules":[{"period":1,"subject":"数学","location":"体育館"}]}');
+    const r = await assistDraftScheduleAction("class", CLASS_ID, "1限は体育館で数学", {}, d);
+    expect(r).toEqual({
+      ok: true,
+      schedules: [{ period: 1, subject: "数学", location: "体育館" }],
+    });
+    expect(h.insertValues).toHaveBeenCalledOnce();
+    const arg = d.model.generate.mock.calls[0]?.[0] as { system?: string; user?: string };
+    expect(arg?.system).toContain('"schedules"');
+    expect(arg?.user).toContain("予定を作成してください");
+  });
+
+  it("壊れた応答は no_result", async () => {
+    const d = depsReturning("not json");
+    expect(await assistDraftScheduleAction("class", CLASS_ID, "x", {}, d)).toEqual({
+      ok: false,
+      reason: "no_result",
+    });
+  });
+
+  it("氏名らしき語は pii_warning（共有 soft-gate・送信しない）", async () => {
+    h.findSuspectedPersonalNames.mockReturnValue([{ surface: "田中先生" }]);
+    const d = depsReturning('{"schedules":[{"period":1,"subject":"数学"}]}');
+    const r = await assistDraftScheduleAction("class", CLASS_ID, "田中先生の数学", {}, d);
+    expect(r).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中先生"] });
+    expect(d.model.generate).not.toHaveBeenCalled();
+  });
+
+  it("レート制限超過は rate_limited（生成しない）", async () => {
+    const d = deps({ acquire: false });
+    expect(await assistDraftScheduleAction("class", CLASS_ID, "1限数学", {}, d)).toEqual({
+      ok: false,
+      reason: "rate_limited",
+    });
+    expect(d.model.generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistDraftAssignmentAction", () => {
+  it("正常時は assignments を返し audit に書く", async () => {
+    const d = depsReturning(
+      '{"assignments":[{"deadline":"2026-06-20","subject":"数学","task":"ワークP30"}]}',
+    );
+    const r = await assistDraftAssignmentAction("class", CLASS_ID, "数学のワーク 金曜まで", {}, d);
+    expect(r).toEqual({
+      ok: true,
+      assignments: [{ deadline: "2026-06-20", subject: "数学", task: "ワークP30" }],
+    });
+    expect(h.insertValues).toHaveBeenCalledOnce();
+    const arg = d.model.generate.mock.calls[0]?.[0] as { user?: string };
+    expect(arg?.user).toContain("提出物を作成してください");
+  });
+
+  it("実在しない締切は検証で落ちて no_result", async () => {
+    const d = depsReturning(
+      '{"assignments":[{"deadline":"2026-02-30","subject":"数学","task":"x"}]}',
+    );
+    expect(await assistDraftAssignmentAction("class", CLASS_ID, "x", {}, d)).toEqual({
+      ok: false,
+      reason: "no_result",
+    });
+  });
+});
+
+describe("assistDraftAllAction（おまかせ分類）", () => {
+  it("1入力を予定/連絡/提出物に分類して 3 セクション返し、おまかせ監査で書き込む", async () => {
+    const d = depsReturning(
+      '{"schedules":[{"period":1,"subject":"数学"}],"notices":[{"text":"明日は短縮授業"}],"assignments":[{"deadline":"2026-06-20","subject":"英語","task":"音読"}]}',
+    );
+    const r = await assistDraftAllAction(
+      "class",
+      CLASS_ID,
+      "1限数学 明日短縮 英語音読20日まで",
+      {},
+      d,
+    );
+    expect(r).toEqual({
+      ok: true,
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "明日は短縮授業" }],
+      assignments: [{ deadline: "2026-06-20", subject: "英語", task: "音読" }],
+    });
+    expect(h.insertValues).toHaveBeenCalledOnce();
+    const arg = d.model.generate.mock.calls[0]?.[0] as { system?: string; user?: string };
+    expect(arg?.system).toContain('"schedules"');
+    expect(arg?.user).toContain("振り分けて作成してください");
+  });
+
+  it("一部セクションだけでも返す（連絡のみ）", async () => {
+    const d = depsReturning('{"notices":[{"text":"連絡だけ"}]}');
+    const r = await assistDraftAllAction("class", CLASS_ID, "連絡だけ", {}, d);
+    expect(r).toEqual({
+      ok: true,
+      schedules: [],
+      notices: [{ text: "連絡だけ" }],
+      assignments: [],
+    });
+  });
+
+  it("3 種すべて空/壊れた応答は no_result", async () => {
+    const d = depsReturning('{"schedules":[],"notices":[],"assignments":[]}');
+    expect(await assistDraftAllAction("class", CLASS_ID, "x", {}, d)).toEqual({
+      ok: false,
+      reason: "no_result",
+    });
+  });
+
+  it("氏名らしき語は pii_warning（共有 soft-gate・送信しない）", async () => {
+    h.findSuspectedPersonalNames.mockReturnValue([{ surface: "田中先生" }]);
+    const d = depsReturning('{"notices":[{"text":"x"}]}');
+    const r = await assistDraftAllAction("class", CLASS_ID, "田中先生", {}, d);
+    expect(r).toEqual({ ok: false, reason: "pii_warning", suspectedSurfaces: ["田中先生"] });
+    expect(d.model.generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistDraftScheduleFromFileAction", () => {
+  it("PDF 正常 → schedules を返し extractText と audit が動く", async () => {
+    h.extractText.mockResolvedValue({ text: "1限 数学 / 2限 英語", format: "pdf" });
+    const d = depsReturning(
+      '{"schedules":[{"period":1,"subject":"数学"},{"period":2,"subject":"英語"}]}',
+    );
+    const r = await assistDraftScheduleFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile()),
+      {},
+      d,
+    );
+    expect(r).toEqual({
+      ok: true,
+      schedules: [
+        { period: 1, subject: "数学" },
+        { period: 2, subject: "英語" },
+      ],
+    });
+    expect(h.extractText).toHaveBeenCalledOnce();
+    expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("非対応 MIME（画像）は unsupported_format（抽出前に弾く）", async () => {
+    const d = depsReturning('{"schedules":[]}');
+    const r = await assistDraftScheduleFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(pdfFile("p.png", "image/png")),
+      {},
+      d,
+    );
+    expect(r).toEqual({ ok: false, reason: "unsupported_format" });
+    expect(h.extractText).not.toHaveBeenCalled();
   });
 });

@@ -6,13 +6,16 @@ import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
+import { getCalloutsForClass, getVisitorsForClass } from "@kimiterrace/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
+import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { EditorBoard } from "./_components/EditorBoard";
 import { NoticeEditor } from "./_components/NoticeEditor";
 import { ScheduleEditor } from "./_components/ScheduleEditor";
+import { VisitorsEditor } from "./_components/VisitorsEditor";
 
 /**
  * クラス別エディタ — Schedule (#48-H) + Notice / Assignment (#48-I) セクション。
@@ -56,13 +59,18 @@ export default async function ClassEditorPage({
     }
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
-    return { schedule, notices, assignments };
+    // パターン2「来校者一覧」: 当日のこのクラスの来校者（RLS 自校限定）。pattern1 校では表示に出ないが、
+    // エディタは共通（教員/事務が入力。場所/対象者と同じく入力は常時可能）。
+    const visitors = await getVisitorsForClass(tx, classId, date);
+    // パターン2「生徒呼び出し」: 当日のこのクラスの呼び出し（RLS 自校限定・実名は ADR-034 境界下）。
+    const callouts = await getCalloutsForClass(tx, classId, date);
+    return { schedule, notices, assignments, visitors, callouts };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
   if (!data || !data.notices || !data.assignments) {
     notFound();
   }
-  const { schedule, notices, assignments } = data;
+  const { schedule, notices, assignments, visitors, callouts } = data;
 
   return (
     <>
@@ -132,11 +140,15 @@ export default async function ClassEditorPage({
           <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
         }
       />
+      <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+      <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
       <EditorAssistant
         scope="class"
         targetId={classId}
         date={date}
         existingNotices={notices.items}
+        existingSchedules={schedule.items}
+        existingAssignments={assignments.items}
       />
     </>
   );

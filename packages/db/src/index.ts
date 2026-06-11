@@ -24,6 +24,14 @@ export * from "./queries/feedback.js";
 export * from "./queries/ai-extractions.js";
 // F08 (#44): 効果ダッシュボードの行動ログ集計読み取り層 (view/tap totals + content ランキング)
 export * from "./queries/event-stats.js";
+// F13 (ADR-020): パターン2 サイネージ「人感センサカウンタ」用、クラス別・本日(JST)の presence 件数
+export * from "./queries/presence-today.js";
+// パターン2 サイネージ「来校者一覧」: クラス×日別の来校者 read（RLS テナント分離）
+export * from "./queries/class-visitors.js";
+// パターン2 サイネージ「生徒呼び出し」: クラス×日別の呼び出し read（実名表示・ADR-034・RLS テナント分離）
+export * from "./queries/student-callouts.js";
+// パターン2 サイネージ「鉄道」: 鉄道事業者の運行情報キャッシュ read/upsert（公開・非PII・ADR-035・read_all RLS）
+export * from "./queries/railway-status.js";
 // F09 (#45): 月次レポートの学校別サマリー集計読み取り層 (JST 暦月の totals/ranking/稼働日数)
 export * from "./queries/monthly-report.js";
 // F09 (#45, #430): 月次レポート生成履歴 (monthly_reports) の書き込み層 (RLS context 内 upsert)
@@ -36,6 +44,10 @@ export * from "./queries/users.js";
 export * from "./queries/ad-reach.js";
 // F09 (#45): 広告主アカウント単位の月次レポート集計読み取り層 (advertisers⋈contracts⋈contents⋈events, system_admin)
 export * from "./queries/advertiser-report.js";
+// Partner API K1 (partner-api-contract §2): 単一広告主×指定月の効果メトリクス + presence(接触機会) 読み取り層 (system_admin)
+export * from "./queries/advertiser-metrics.js";
+// Partner API K3 (partner-api-contract §3): 配信 push 受け口の冪等 upsert 層 (advertisers/contracts/ads, system_admin)
+export * from "./queries/partner-delivery.js";
 // F03 (#348, ADR-027): 分散レート制限の Cloud SQL store (DistributedRateLimiter 用)
 export * from "./queries/ai-rate-limit.js";
 // F06 (#364, ADR-028): 生徒 Q&A の RAG 検索 (公開中 content_versions を pgvector で top-k、RLS 委譲)

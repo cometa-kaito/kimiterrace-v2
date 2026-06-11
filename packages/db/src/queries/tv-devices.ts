@@ -176,6 +176,7 @@ export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> 
 export type TvDeviceEditable = Pick<
   TvDeviceRow,
   | "id"
+  | "deviceId"
   | "label"
   | "targetMac"
   | "signageUrl"
@@ -201,6 +202,7 @@ export async function getTvDeviceConfig(
   const rows = await db
     .select({
       id: tvDevices.id,
+      deviceId: tvDevices.deviceId,
       label: tvDevices.label,
       targetMac: tvDevices.targetMac,
       signageUrl: tvDevices.signageUrl,

@@ -136,10 +136,24 @@ locals {
   # cutover では v1 LP の TV_POLL_SECRET 現値と一致させる（LP 互換ポーリングを切らさない）。
   tv_poll_secret_id = "prod-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
+  # ゼロダウンタイム鍵ローテ（漏洩対応）の移行期だけ TV_POLL_SECRET_LEGACY として配線する prod-tv-poll-secret の
+  # 旧バージョン番号。""（既定）= 単一キー運用（従来挙動）。カットオーバー手順:
+  #   ①新キー値を新バージョンとして投入: gcloud secrets versions add prod-tv-poll-secret --data-file=- --project=signage-v2-prod
+  #     （--data-file は値をプロセス置換/標準入力で渡し、コマンド/履歴に値を残さない。ルール5）→ 新版が latest=新キー。
+  #   ② ここを旧版番号（投入直前の latest。例 "3"）に設定 → apply（web image も二重受理コードへ bump）。
+  #     → TV_POLL_SECRET=latest(新)・TV_POLL_SECRET_LEGACY=旧 を両受理（無停止）。
+  #   ③全 TV 端末を新キーへ更新後、ここを "" へ戻して apply → 旧キー失効。旧版は disable/destroy（gcloud secrets versions disable）。
+  tv_poll_secret_legacy_version = "" # gitleaks:allow（バージョン番号であり値ではない）
+
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
   # 未投入だと agent route は fail-closed（未認証エージェントを到達させない）。
   provision_agent_secret_id = "prod-provision-agent-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # portal ↔ v2 Partner API 共有シークレット（PARTNER_API_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
+  # partner-api-contract §1 / K1 効果メトリクス pull（/api/partner/*）。portal 側 Vercel env PORTAL_API_SECRET と同一値。
+  # 未投入だと partner route は fail-closed(401)（未認証の portal リクエストを到達させない）。
+  partner_api_secret_id = "prod-partner-api-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
   # TV 死活監視の Slack incoming webhook URL の Secret Manager secret ID（ルール5・値は別途投入）。
   # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
@@ -152,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "3f067e9" # C方式 deploy 2026-06-09: tv_provisioning_jobs migration(0021+drizzle, PR1 #762) 同梱
+  migrate_image_tag = "c40ab97" # 2026-06-11 deploy: pattern2(0023/0024/0025) + K3 partner idempotency 等 main HEAD 反映
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -168,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
+  jobs_image_tag = "c40ab97" # 2026-06-11: railway-status-job 同梱（鉄道Job有効化・ADR-035）。weather/liveness も同梱の main HEAD
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "f1df616" # 個別教員アカウント(系統B)撤去・学校側 deploy 2026-06-10: /admin/school/members 撤去 + 合成メール非表示（#785）。_APP_URL=app.school-signage.net 維持
+  web_image_tag = "0356a4f" # 2026-06-11 deploy: F02おまかせ統合UI(#820/#822/#824) main HEAD 追従（schema 無変更=migrate 不要）
 }
 
 module "network" {
@@ -240,6 +254,9 @@ module "secret_manager" {
     }
     (local.provision_agent_secret_id) = {
       description = "TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET、C方式/PR4）。Cloud Run web service が /api/tv/provisioning/* の agent 認証に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.partner_api_secret_id) = {
+      description = "portal ↔ v2 Partner API 共有シークレット（PARTNER_API_SECRET、partner-api-contract §1）。Cloud Run web service が /api/partner/*（K1 効果メトリクス pull）の認証に使う。portal 側 Vercel env PORTAL_API_SECRET と同一値。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
     (local.slack_webhook_url_secret_id) = {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
@@ -452,17 +469,19 @@ resource "google_project_service" "aiplatform" {
 # Vertex user + Identity Platform admin + 各 secret accessor を付与。app が自前認証ゆえ未認証 invoker（allUsers）許可。
 # 2-phase apply（④）: ① secret コンテナ作成 → ② app DSN / tv-poll 値投入 → ③ full apply で service 作成。
 module "cloud_run" {
-  source                    = "../../modules/cloud_run"
-  project_id                = var.project_id
-  region                    = var.region
-  env                       = local.env
-  enabled                   = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
-  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id    = local.db_url_app_secret_id
-  tv_poll_secret_id         = local.tv_poll_secret_id
-  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
-  vpc_connector             = module.network.vpc_connector_id
-  vertex_location           = var.region
+  source                        = "../../modules/cloud_run"
+  project_id                    = var.project_id
+  region                        = var.region
+  env                           = local.env
+  enabled                       = true # bring-up: 2026-06-08 有効化（web 本体・TV_POLL_SECRET 配線）
+  image                         = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id        = local.db_url_app_secret_id
+  tv_poll_secret_id             = local.tv_poll_secret_id
+  tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
+  provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
+  partner_api_secret_id         = local.partner_api_secret_id         # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
+  vpc_connector                 = module.network.vpc_connector_id
+  vertex_location               = var.region
 
   # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
@@ -488,6 +507,20 @@ module "cloud_run" {
   #   apply 失敗・他は無傷。検証は Vercel DNS に TXT 追加）。v1 Firebase 表示はこの CNAME 切替時に当該 FQDN から
   #   外れる（= 表示 cutover 本体）。
   custom_domain = "app.school-signage.net"
+
+  # 広告メディア配信バケット（ADR-037）。受口 /api/ads/media が保存し /ad-media/<key> が GET する公開バケット。
+  ad_media_bucket = module.ad_media.bucket_name
+}
+
+# 広告メディアアップロード受口（/api/ads/media）が公開 ad-media バケットへ保存するための最小権限（#46/ADR-037）。
+# cloud_run の runtime SA に**当該バケット限定**で objectAdmin（作成+上書き+一覧）を付与する（ルール5 最小権限・
+# upload_storage/report_storage の writer と同規律）。公開 read（allUsers）は ad_media モジュール側で付与済。
+# 別リソースに切り出すことで module 間の循環（cloud_run⇄ad_media）を避ける（cloud_run→ad_media の単方向）。
+resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
+  count  = module.ad_media.bucket_name != "" && module.cloud_run.runtime_service_account_email != null ? 1 : 0
+  bucket = module.ad_media.bucket_name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
@@ -516,13 +549,30 @@ module "cloud_run_job_weather" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # TODO(bring-up ③): true に切替
+  enabled                = true # 2026-06-10 有効化: jobs image 626e85c 同梱済・network(NAT)/secret 準備完了
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/weather/weather-job.js"] # ビルド済み weather-job（WORKDIR=/app/apps/jobs）
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
   # deletion_protection はモジュール既定 true（prod）
+}
+
+# パターン2 鉄道運行情報取得 Job（名鉄スクレイピング、ADR-035）。prod は scaffold（有効化は別途人間判断）。
+module "cloud_run_job_railway_status" {
+  source                 = "../../modules/cloud_run_job_railway_status"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true # 2026-06-11 有効化: staging 検証済（実 名鉄ページ parse 成功）+ jobs image c40ab97 同梱（ADR-035）
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/railway-status/railway-status-job.js"]
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
+  # 鉄道 Job は状態を持たない再生成可能な取得ジョブ（データは railway_status DB 側）。weather と同様 recreate
+  # 容易性を優先し deletion_protection=false（初回作成時の secret IAM 伝播レースで tainted job を replace 回収するため）。
+  deletion_protection = false
 }
 
 # F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。

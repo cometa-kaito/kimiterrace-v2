@@ -23,7 +23,7 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
-import type { SignageDesignPattern } from "@/lib/signage/signage-design";
+import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -56,6 +56,10 @@ export function SignageClient({
 
   const ads = data.ads;
   const adCount = ads.length;
+  // 端末別デザイン（このページは ?design 付き URL でロードされ、初期 payload に反映済み）。ポーリングでも
+  // 同じデザインを引き継ぐため poll URL に転送する（転送しないと data Route が学校レベル既定/pattern1 に
+  // 倒れ初回ポーリングで盤面が切替わってしまう）。ページセッション中は不変なので initial 値を固定で使う。
+  const designParam = initial.designPattern;
 
   // --- 自動更新ポーリング (jitter 付き再帰 setTimeout、tab 非表示時はスキップして接続節約) ---
   const poll = useCallback(async () => {
@@ -64,7 +68,7 @@ export function SignageClient({
     }
     try {
       const res = await fetch(
-        `/signage/${encodeURIComponent(classToken)}/data?date=${jstDateString()}`,
+        `/signage/${encodeURIComponent(classToken)}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}`,
         { cache: "no-store" },
       );
       if (res.status === 410) {
@@ -77,7 +81,7 @@ export function SignageClient({
     } catch {
       // ネットワークエラーは握りつぶし、最後に成功した表示を維持する。
     }
-  }, [classToken]);
+  }, [classToken, designParam]);
 
   useEffect(() => {
     if (invalid) {
@@ -205,46 +209,105 @@ type SignageBoardProps = {
 };
 
 /**
- * 学校が選んだデザインパターンに応じた盤面コンポーネントを返す（**学校別デザインの拡張点**）。
- * 現状は `pattern1`（今回作成した v1 レイアウト）のみ。未知/将来パターンは既定 `pattern1` に
- * フォールバックして必ず描画する。将来パターン追加時は case と専用 Board を足すだけで拡張できる。
+ * 学校 / 端末が選んだデザインパターンに応じた盤面コンポーネントを返す（**デザインの拡張点**）。
+ * `pattern1` = 旧キミテラス v1 レイアウト（既定）/ `pattern2` = 予定・来校者・呼び出し・センサ・天気・鉄道の
+ * 掲示盤面。未知 / 将来パターンは既定 `pattern1` にフォールバックして必ず描画する（fail-soft）。将来パターン
+ * 追加時は case と専用 Board を足すだけで拡張できる。再生制御（ポーリング/ローテーション/テレメトリ/時計）は
+ * `SignageClient` が持ち、各 Board は表示専用で共通 props を受け取る。広告（右）と上部ヘッダーは両パターン共通。
  */
 function renderDesignBoard(pattern: SignageDesignPattern, props: SignageBoardProps) {
   switch (pattern) {
-    case "pattern1":
-      return <Pattern1Board {...props} />;
+    case "pattern2":
+      return <Pattern2Board {...props} />;
     default:
       return <Pattern1Board {...props} />;
   }
 }
 
-/**
- * パターン1: 旧キミテラス v1 レイアウト盤面。
- *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
- *   天気は予定の上に小さく1行。学校が `pattern1` を選んだとき（既定）に描画される。
- */
-function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
-  const hasMedia = ad != null;
+/** 全盤面共通のヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別（#243）+ ブランディング。 */
+function BoardHeader({ data, now }: { data: SignagePayload; now: Date | null }) {
   const { dateText, dayText } = formatBoardDate(data.date);
   const time = now ? formatClock(now) : "";
   // #243: このサイネージの識別ラベル（学科 学年 クラス）。時刻の横に出してどの端末か判別できるようにする。
   const classIdentity = formatClassIdentity(data.classContext);
+  return (
+    <header className={styles.adHeader}>
+      <span className={styles.dateText}>{dateText}</span>
+      <span className={styles.dayBadge}>{dayText}</span>
+      {time ? <span className={styles.timeText}>{time}</span> : null}
+      {classIdentity ? (
+        <span className={styles.classIdentity} aria-label={`表示クラス: ${classIdentity}`}>
+          {classIdentity}
+        </span>
+      ) : null}
+      <span className={styles.headerBranding}>キミテラス by Rebounder</span>
+    </header>
+  );
+}
 
+/**
+ * 全盤面共通の広告エリア（右 30%・暗色ゾーン + ぼかし背景 + 前景 media + キャプション + ドット）。
+ * パターン2 でも「右側の広告はパターン1と同じ」（ユーザー指定）。再生制御は SignageClient が持ち、本部品は
+ * 現在広告とタップ配線（#43 / F07）を受け取って描画する。
+ */
+function AdAside({
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  onAdTap,
+}: {
+  ad: SignageBoardProps["ad"];
+  adLink: string | null;
+  adCount: number;
+  safeIndex: number;
+  onAdTap: SignageBoardProps["onAdTap"];
+}) {
+  const hasMedia = ad != null;
+  return (
+    <aside
+      aria-label="広告"
+      className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
+    >
+      {ad ? (
+        adLink ? (
+          // 広告領域**全体**をタップで遷移（管理で設定した linkUrl）。新規タブ + reverse tabnabbing
+          // 防止 (noopener noreferrer)。タップで tap テレメトリを送る（遷移は阻害しない）。adId は
+          // ingest 側で当該クラスの実効広告に実在照合される（水増しは DB 層でも弾く）。
+          <a
+            href={adLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.adAreaLink}
+            aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
+            onClick={() => onAdTap(ad.adId, safeIndex)}
+          >
+            <AdInner ad={ad} />
+          </a>
+        ) : (
+          <AdInner ad={ad} />
+        )
+      ) : (
+        <div className={styles.adContainer}>
+          <div className={styles.adForeground}>
+            <p className={styles.adEmpty}>　</p>
+          </div>
+        </div>
+      )}
+      {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
+    </aside>
+  );
+}
+
+/**
+ * パターン1: 旧キミテラス v1 レイアウト盤面（既定）。
+ *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
+ *   天気は予定列の日付横。`pattern1`（既定）選択時に描画される。
+ */
+function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
   return (
     <div className={styles.signageRoot}>
-      {/* ヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別 + ブランディング。天気は予定列の日付横に移動（2026-06-07 ユーザー）。 */}
-      <header className={styles.adHeader}>
-        <span className={styles.dateText}>{dateText}</span>
-        <span className={styles.dayBadge}>{dayText}</span>
-        {time ? <span className={styles.timeText}>{time}</span> : null}
-        {classIdentity ? (
-          <span className={styles.classIdentity} aria-label={`表示クラス: ${classIdentity}`}>
-            {classIdentity}
-          </span>
-        ) : null}
-        <span className={styles.headerBranding}>キミテラス by Rebounder</span>
-      </header>
-
+      <BoardHeader data={data} now={now} />
       <div className={styles.container}>
         <main className={styles.infoArea}>
           <div className={styles.contentGrid}>
@@ -257,43 +320,273 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
             <AssignmentTable section={data.daily.assignments} today={data.date} />
           </div>
         </main>
-
-        <aside
-          aria-label="広告"
-          className={`${styles.adArea} ${hasMedia ? styles.adAreaHasMedia : ""}`}
-        >
-          {ad ? (
-            adLink ? (
-              // 広告領域**全体**をタップで遷移（管理で設定した linkUrl）。新規タブ + reverse tabnabbing
-              // 防止 (noopener noreferrer)。タップで tap テレメトリを送る（遷移は阻害しない）。adId は
-              // ingest 側で当該クラスの実効広告に実在照合される（水増しは DB 層でも弾く）。
-              <a
-                href={adLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.adAreaLink}
-                aria-label={ad.caption ? `広告: ${ad.caption}` : "広告を開く"}
-                onClick={() => onAdTap(ad.adId, safeIndex)}
-              >
-                <AdInner ad={ad} />
-              </a>
-            ) : (
-              <AdInner ad={ad} />
-            )
-          ) : (
-            <div className={styles.adContainer}>
-              <div className={styles.adForeground}>
-                <p className={styles.adEmpty}>　</p>
-              </div>
-            </div>
-          )}
-          {adCount > 1 ? <Dots count={adCount} active={safeIndex} /> : null}
-        </aside>
-
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
         {/* モバイル限定フッター（順序: タブ→広告→予定→連絡→提出物→フッター）。デスクトップは非表示。 */}
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * パターン2: 掲示盤面（予定 / 来校者一覧 / 生徒呼び出し / 人感センサカウンタ / 天気予報 / 鉄道）。右側の広告は
+ * パターン1と同一（`AdAside` 共有・ユーザー指定）。
+ *
+ * **本 PR は「TVデバイスごとの切替の仕組み」+「パターン2のレイアウト骨格」**まで。予定・天気は既存データで
+ * 実描画し、来校者 / 呼び出し / センサ / 鉄道は後続スライス（データモデル・エディタ・外部取得 Job）まで
+ * 「準備中」プレースホルダーを出す。これで admin/tv-devices から端末ごとに P1/P2 を切替えられることを保証し、
+ * 各ウィジェットは別 PR で中身を詰める（盤面は壊さない＝fail-soft）。
+ */
+function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
+  return (
+    <div className={styles.signageRoot}>
+      <BoardHeader data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p2Grid}>
+            <Pattern2Schedule days={data.scheduleDays} today={data.date} />
+            <Pattern2Weather weather={data.weather ?? null} />
+            <Pattern2Visitors visitors={data.visitors} />
+            <Pattern2Callouts callouts={data.callouts} />
+            <Pattern2SensorCount count={data.presenceCount} />
+            <Pattern2Train train={data.trainStatus} />
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン2の予定（横幅いっぱい・今後3平日の3列）。day/曜（列ヘッダー）+ 時限 + 内容（科目・補足）に加え、
+ * **場所 / 対象者**（任意・教員がエディタで入力）を各コマの下に小さく添える（PR3）。未設定の場所/対象者は
+ * 行を出さない（fail-soft、盤面を詰めて見せる）。
+ */
+function Pattern2Schedule({ days, today }: { days: ScheduleDay[]; today: string }) {
+  return (
+    <section aria-label="予定" className={`${styles.card} ${styles.p2Wide}`}>
+      <h2 className={styles.cardTitle}>予定</h2>
+      <div className={styles.p2ScheduleScroll}>
+        {days.map((day) => {
+          const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
+          const isToday = day.date === today;
+          return (
+            <div
+              key={day.date}
+              className={`${styles.p2ScheduleDay} ${isToday ? styles.p2ScheduleToday : ""}`}
+            >
+              <span className={styles.p2ScheduleDate}>{scheduleHeaderLabel(day.date)}</span>
+              <div className={styles.p2ScheduleRows}>
+                {rows.length === 0 ? (
+                  <span className={styles.p2Muted}>予定はありません</span>
+                ) : (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                  rows.map((row, i) => <Pattern2ScheduleRow key={i} row={row} />)
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** パターン2 予定の 1 コマ: 時限 + 内容、その下に 場所 / 対象者（あるものだけ）を小さく添える。 */
+function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  const hasMeta = row.location != null || row.targetAudience != null;
+  return (
+    <div className={styles.p2ScheduleItem}>
+      <span className={styles.p2ScheduleMain}>
+        {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
+        {row.content}
+      </span>
+      {hasMeta ? (
+        <span className={styles.p2ScheduleMeta}>
+          {row.location ? <span>場所: {row.location}</span> : null}
+          {row.location && row.targetAudience ? (
+            <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+              ／
+            </span>
+          ) : null}
+          {row.targetAudience ? <span>対象: {row.targetAudience}</span> : null}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** パターン2の天気予報（既存 weather を流用）。未取得は fail-soft でセクションを残し「準備中」表示にしない。 */
+function Pattern2Weather({ weather }: { weather: SignageWeather | null }) {
+  const hasDays = weather != null && weather.days.length > 0;
+  return (
+    <section aria-label="天気予報" className={styles.card}>
+      <h2 className={styles.cardTitle}>天気予報</h2>
+      {hasDays ? (
+        <div className={styles.p2WeatherRow}>
+          {weather.days.map((d) => (
+            <div key={d.forecastDate} className={styles.p2WeatherDay}>
+              <span className={styles.p2WeatherDate}>{scheduleHeaderLabel(d.forecastDate)}</span>
+              <span aria-hidden="true" className={styles.p2WeatherGlyph}>
+                {WEATHER_ICON_GLYPH[d.icon]}
+              </span>
+              <span className={styles.p2WeatherText}>{d.weatherText ?? d.iconLabel}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={styles.p2Muted}>天気情報はありません</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の人感センサカウンタ（F13 / ADR-020）。このクラスの **本日の検知回数（累計）** を表示する。
+ * PIR は瞬間検知で滞在時間を測れない（ADR-020）ため「在室人数」ではなく「本日何回検知したか」を出す
+ * （2026-06-10 ユーザー確定）。件数は `getTodayPresenceCount`（RLS 自校限定）由来。取得失敗（`null`）は
+ * 「計測なし」表示に倒す（fail-soft）。検知ゼロは `0 回` を出す（センサーは在るが今日まだ反応なし）。
+ */
+/**
+ * パターン2の来校者一覧（クラス×当日）。時刻 + 氏名（+ 所属）を上段に、用件 / 対応者を下段に小さく出す。
+ * 来校者無し・取得失敗（`null`）はともに「本日の来校者はありません」（fail-soft）。氏名は当該クラスの端末に
+ * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」参照・2026-06-10 ユーザー確定）。
+ */
+function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }) {
+  const list = visitors ?? [];
+  return (
+    <section aria-label="来校者一覧" className={styles.card}>
+      <h2 className={styles.cardTitle}>来校者一覧</h2>
+      {list.length === 0 ? (
+        <p className={styles.p2Muted}>本日の来校者はありません</p>
+      ) : (
+        <ul className={styles.p2VisitorList}>
+          {list.map((v) => (
+            <li key={v.id} className={styles.p2VisitorItem}>
+              <span className={styles.p2VisitorMain}>
+                {v.scheduledTime ? (
+                  <span className={styles.scheduleTime}>{v.scheduledTime}</span>
+                ) : null}
+                <span className={styles.p2VisitorName}>{v.visitorName}</span>
+                {v.affiliation ? (
+                  <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
+                ) : null}
+              </span>
+              {v.purpose || v.host ? (
+                <span className={styles.p2ScheduleMeta}>
+                  {v.purpose ? <span>{v.purpose}</span> : null}
+                  {v.purpose && v.host ? (
+                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                      ／
+                    </span>
+                  ) : null}
+                  {v.host ? <span>対応: {v.host}</span> : null}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の生徒呼び出し（クラス×当日）。時刻 + 生徒**フルネーム**を上段に、呼び出し先 / 用件を下段に出す。
+ * 呼び出し無し・取得失敗（`null`）はともに「呼び出しはありません」（fail-soft）。実名表示は ADR-034 の境界下
+ * （当該クラス端末・RLS 自校・Vertex 非送信。出席番号でなく実名なのは呼び出しの取り違え防止）。
+ */
+function Pattern2Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
+  const list = callouts ?? [];
+  return (
+    <section aria-label="生徒呼び出し" className={styles.card}>
+      <h2 className={styles.cardTitle}>生徒呼び出し</h2>
+      {list.length === 0 ? (
+        <p className={styles.p2Muted}>呼び出しはありません</p>
+      ) : (
+        <ul className={styles.p2VisitorList}>
+          {list.map((c) => (
+            <li key={c.id} className={styles.p2VisitorItem}>
+              <span className={styles.p2VisitorMain}>
+                {c.scheduledTime ? (
+                  <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                ) : null}
+                <span className={styles.p2VisitorName}>{c.studentName}</span>
+                {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
+              </span>
+              {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の人感センサカウンタ（F13 / ADR-020）。このクラスの **本日の検知回数（累計）** を表示する。
+ * PIR は瞬間検知で滞在時間を測れない（ADR-020）ため「在室人数」ではなく「本日何回検知したか」を出す
+ * （2026-06-10 ユーザー確定）。件数は `getTodayPresenceCount`（RLS 自校限定）由来。取得失敗（`null`）は
+ * 「計測なし」表示に倒す（fail-soft）。検知ゼロは `0 回` を出す（センサーは在るが今日まだ反応なし）。
+ */
+function Pattern2SensorCount({ count }: { count: number | null }) {
+  return (
+    <section aria-label="人感センサカウンタ" className={styles.card}>
+      <h2 className={styles.cardTitle}>人感センサカウンタ</h2>
+      {count == null ? (
+        <p className={styles.p2Muted}>計測なし</p>
+      ) : (
+        <div className={styles.p2SensorCount}>
+          <span className={styles.p2SensorNum}>{count.toLocaleString("ja-JP")}</span>
+          <span className={styles.p2SensorUnit}>回</span>
+          <span className={styles.p2SensorLabel}>本日の検知</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * パターン2の鉄道（運行情報）。対象事業者（当面=名鉄/笠松駅）の現況をキャッシュ（railway_status）から表示する。
+ * 端末は閉域で名鉄サイトを直叩きしない（バックエンド取得 Job が更新・ADR-035）。取得 Job 未稼働・取得失敗
+ * （`null`）は「運行情報は取得できていません」（fail-soft）。運行に乱れがある時は強調、キャッシュが古い時は注記。
+ */
+function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
+  return (
+    <section aria-label="鉄道" className={styles.card}>
+      <h2 className={styles.cardTitle}>鉄道</h2>
+      {train == null ? (
+        <p className={styles.p2Muted}>運行情報は取得できていません</p>
+      ) : (
+        <div className={styles.p2Train}>
+          <span className={styles.p2TrainOperator}>{train.operatorName}</span>
+          <p
+            className={`${styles.p2TrainStatus} ${train.hasDisruption ? styles.p2TrainDisrupted : ""}`}
+          >
+            {train.statusText}
+          </p>
+          {train.isStale ? (
+            <span className={styles.p2TrainStale} role="status">
+              （情報が古い可能性）
+            </span>
+          ) : null}
+        </div>
+      )}
+    </section>
   );
 }
 
