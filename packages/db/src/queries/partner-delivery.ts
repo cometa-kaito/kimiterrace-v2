@@ -1,0 +1,239 @@
+import { type InferSelectModel, eq } from "drizzle-orm";
+import type { TenantTx } from "../client.js";
+import { ads } from "../schema/ads.js";
+import { advertisers } from "../schema/advertisers.js";
+import { contracts } from "../schema/contracts.js";
+
+/**
+ * Partner API K3（`docs/api/partner-api-contract.md` §3）: **配信 push の受け口**（Flow B の v2 側）の
+ * 冪等 upsert ドメインサービス。**write**（INSERT ... ON CONFLICT DO UPDATE）。
+ *
+ * portal（商流 SoR・別リポ・Supabase/Vercel）の承認時に Outbox 経由で送られる advertiser/contract/ads を、
+ * portal 由来 ID（`portal_company_id` / `portal_contract_id` / `portal_placement_id`）を**冪等キー**に
+ * `advertisers` / `contracts` / `ads` へ upsert する。同じ portal ID で再送しても二重作成しない
+ * （Outbox 再送・契約 §3「冪等」と整合）。
+ *
+ * ## v2 = Read Model（契約 §4 / §42.2）
+ * v2 が保持する advertiser/contract は**配信判断に必要な最小フィールドの Read Model**（portal=write 正、
+ * v2=read 自律）。`status`(active/paused) を受けて配信可否に反映し、portal がダウンしても v2 は自律配信できる。
+ *
+ * ## テナント分離 / 可視範囲（CLAUDE.md ルール2 / ADR-019）
+ * `school_id` 条件を**手書きしない**。CRM 表（`advertisers` / `contracts`）は `system_admin_full_access`
+ * policy のみを持つため、呼び出しは **system_admin context**（`app.current_user_role='system_admin'`）で行う
+ * 必要がある。その context では学校テナント表 `ads` も `system_admin_full_access` で全校横断に書ける
+ * （運営入稿広告の経路、ads-crud RLS テストと同じ前提）。降格（tenantScoped）はしない（複数校横断が要件）。
+ * 接続ロールは非 BYPASSRLS の `kimiterrace_app`。**BYPASSRLS 不使用**（ルール2）。
+ *
+ * ## 監査（ルール1）
+ * upsert はシステム（portal）由来のため `created_by` / `updated_by` は **null**（システム作成）。
+ * 更新時は `updated_at` / `updated_by` のみ進め、`created_at` / `created_by` は初回値を保つ
+ * （railway-status / weather-forecasts の upsert と同方針）。
+ *
+ * ## 【要件1】contract は portalContractId が **null 可**（契約 §3）
+ * portal 由来 ID を ON CONFLICT の競合キーにするが、Postgres の UNIQUE は **NULL を互いに distinct 扱い**する
+ * （`partner-portal-ids` schema テストで pin 済）。したがって `portalContractId` が null の入力をそのまま
+ * `onConflictDoUpdate(target=portal_contract_id)` に流すと、再送のたびに「競合しない新規行」を作り**冪等が壊れる**。
+ * よって本実装は **`contract == null`（contract 未指定）または `portalContractId == null` の場合、contract を
+ * upsert しない**（`applied.contracts = 0`）。これは安全側の決定的扱い:
+ *   - `ads` は `contract_id` / `slot_id` を **持たない**（school_id + advertiser_id のみで関連、ads schema 確認済）
+ *     ため、contract を書かなくても ads upsert の FK は壊れない。
+ *   - 冪等キーを持たない contract を毎回作る方が（孤児契約の累積・冪等違反）よほど有害。
+ * portal が contract を v2 に確実に反映したい場合は `portalContractId` を必ず付けて送る契約とする（§3 の
+ * 冪等の前提）。`portalContractId` 付きなら通常どおり upsert（再送は同一行を更新）。
+ *
+ * 型は schema（`advertisers` / `contracts` / `ads`）から `InferSelectModel` 派生（ルール3、as any 禁止）。
+ */
+
+type AdvertiserRow = InferSelectModel<typeof advertisers>;
+type ContractRow = InferSelectModel<typeof contracts>;
+type AdRow = InferSelectModel<typeof ads>;
+
+/** 配信受け口の advertiser 入力（Read Model 最小フィールド、契約 §3 camelCase）。 */
+export type DeliveryAdvertiserInput = {
+  portalCompanyId: NonNullable<AdvertiserRow["portalCompanyId"]>;
+  companyName: AdvertiserRow["companyName"];
+  industry: AdvertiserRow["industry"];
+  contactEmail: AdvertiserRow["contactEmail"];
+  /** 営業ステータス。配信可否（active/paused）に反映（契約 §4 Read Model）。 */
+  status: AdvertiserRow["status"];
+};
+
+/** 配信受け口の contract 入力（契約 §3）。`portalContractId` は null 可（要件1、上記 doc 参照）。 */
+export type DeliveryContractInput = {
+  portalContractId: ContractRow["portalContractId"];
+  monthlyFeeJpy: number | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  /** 配信対象校（v2 `schools.id`）の配列。`contracts.target_schools` jsonb に格納。 */
+  targetV2SchoolIds: string[];
+};
+
+/** 配信受け口の ad 入力（契約 §3）。`mediaUrl` は再ホスト後の GCS パス（route が解決して渡す）。 */
+export type DeliveryAdInput = {
+  portalPlacementId: NonNullable<AdRow["portalPlacementId"]>;
+  v2SchoolId: AdRow["schoolId"];
+  scope: AdRow["scope"];
+  mediaType: AdRow["mediaType"];
+  durationSec: number;
+  displayOrder: number;
+  /** 再ホスト済みの配信 URL（route が assetFetchUrl を解決して渡す。ここでは URL の出所は問わない）。 */
+  mediaUrl: AdRow["mediaUrl"];
+  caption: AdRow["caption"];
+  linkUrl: AdRow["linkUrl"];
+};
+
+export type DeliveryInput = {
+  advertiser: DeliveryAdvertiserInput;
+  /** null = contract を反映しない（portal が contract を送らない契約もありうる、契約 §3）。 */
+  contract: DeliveryContractInput | null;
+  ads: DeliveryAdInput[];
+};
+
+/** 反映件数 + 紐付いた v2 advertiser id（契約 §3 の 200 レスポンスへ写す）。 */
+export type DeliveryResult = {
+  applied: { advertisers: number; contracts: number; ads: number };
+  advertiserId: string;
+};
+
+/**
+ * advertiser / contract / ads を portal 由来 ID を冪等キーに upsert する（**system_admin context の tx で呼ぶ**）。
+ *
+ * - advertisers: ON CONFLICT (portal_company_id) DO UPDATE で companyName/industry/contactEmail/status を最新化。
+ * - contracts: `contract` 且つ `portalContractId` が非 null のときのみ ON CONFLICT (portal_contract_id) で upsert
+ *   （要件1: null は冪等が壊れるため反映しない）。
+ * - ads: ON CONFLICT (portal_placement_id) DO UPDATE で schoolId/scope/mediaUrl/mediaType/durationSec/
+ *   displayOrder/caption/linkUrl を最新化（status は ads に列が無く、配信可否は advertiser.status で表現）。
+ *
+ * すべて同一 tx（原子的）。`fn` 内の例外は呼び出し側へ伝播し、route が §3 のステータスへ写す。
+ *
+ * @param tx system_admin context を張った非 BYPASSRLS の TenantTx。
+ */
+export async function applyPartnerDelivery(
+  tx: TenantTx,
+  input: DeliveryInput,
+): Promise<DeliveryResult> {
+  // 1. advertiser を upsert（冪等キー = portal_company_id）。created_by/updated_by は null（システム作成）。
+  const advRows = await tx
+    .insert(advertisers)
+    .values({
+      portalCompanyId: input.advertiser.portalCompanyId,
+      companyName: input.advertiser.companyName,
+      industry: input.advertiser.industry,
+      contactEmail: input.advertiser.contactEmail,
+      status: input.advertiser.status,
+      // status ↔ is_active 不変条件（advertisers schema doc）: paused ⟺ is_active=false。
+      isActive: input.advertiser.status !== "paused",
+      createdBy: null,
+      updatedBy: null,
+    })
+    .onConflictDoUpdate({
+      target: advertisers.portalCompanyId,
+      set: {
+        companyName: input.advertiser.companyName,
+        industry: input.advertiser.industry,
+        contactEmail: input.advertiser.contactEmail,
+        status: input.advertiser.status,
+        isActive: input.advertiser.status !== "paused",
+        updatedAt: new Date(),
+        updatedBy: null,
+      },
+    })
+    .returning({ id: advertisers.id });
+  const advertiserId = advRows[0]?.id;
+  if (!advertiserId) {
+    throw new Error("applyPartnerDelivery: advertiser upsert が行を返しませんでした");
+  }
+
+  // 2. contract を upsert（要件1: portalContractId 非 null のときのみ。null は冪等が壊れるため反映しない）。
+  let contractsApplied = 0;
+  if (input.contract && input.contract.portalContractId != null) {
+    const c = input.contract;
+    // monthly_fee_jpy / started_at は NOT NULL。portal が欠落値を送った場合は安全な既定で埋める
+    // （費用 0 / 開始 now）。これらは v2 の Read Model（配信可否は status 主導）であり請求は portal 専有のため、
+    // 欠落で配信判断は壊れない。status は advertiser.status を引き継ぐ（contract 独自 status は portal 専有）。
+    const contractStatusValue = input.advertiser.status === "paused" ? "paused" : "active";
+    await tx
+      .insert(contracts)
+      .values({
+        portalContractId: c.portalContractId,
+        advertiserId,
+        status: contractStatusValue,
+        startedAt: c.startedAt ?? new Date(),
+        endedAt: c.endedAt,
+        monthlyFeeJpy: c.monthlyFeeJpy ?? 0,
+        targetSchools: c.targetV2SchoolIds,
+        createdBy: null,
+        updatedBy: null,
+      })
+      .onConflictDoUpdate({
+        target: contracts.portalContractId,
+        set: {
+          advertiserId,
+          status: contractStatusValue,
+          startedAt: c.startedAt ?? new Date(),
+          endedAt: c.endedAt,
+          monthlyFeeJpy: c.monthlyFeeJpy ?? 0,
+          targetSchools: c.targetV2SchoolIds,
+          updatedAt: new Date(),
+          updatedBy: null,
+        },
+      });
+    contractsApplied = 1;
+  }
+
+  // 3. ads を upsert（冪等キー = portal_placement_id）。1 件ずつ（件数は最低 1・通常少数）。
+  let adsApplied = 0;
+  for (const a of input.ads) {
+    await tx
+      .insert(ads)
+      .values({
+        portalPlacementId: a.portalPlacementId,
+        schoolId: a.v2SchoolId,
+        scope: a.scope,
+        advertiserId,
+        mediaUrl: a.mediaUrl,
+        mediaType: a.mediaType,
+        durationSec: a.durationSec,
+        displayOrder: a.displayOrder,
+        caption: a.caption,
+        linkUrl: a.linkUrl,
+        createdBy: null,
+        updatedBy: null,
+      })
+      .onConflictDoUpdate({
+        target: ads.portalPlacementId,
+        set: {
+          schoolId: a.v2SchoolId,
+          scope: a.scope,
+          advertiserId,
+          mediaUrl: a.mediaUrl,
+          mediaType: a.mediaType,
+          durationSec: a.durationSec,
+          displayOrder: a.displayOrder,
+          caption: a.caption,
+          linkUrl: a.linkUrl,
+          updatedAt: new Date(),
+          updatedBy: null,
+        },
+      });
+    adsApplied += 1;
+  }
+
+  return {
+    applied: { advertisers: 1, contracts: contractsApplied, ads: adsApplied },
+    advertiserId,
+  };
+}
+
+/** 指定 portal_company_id の advertiser を引く（テスト/冪等検証の補助、system_admin context で読む）。 */
+export async function findAdvertiserByPortalCompanyId(
+  tx: TenantTx,
+  portalCompanyId: string,
+): Promise<AdvertiserRow | null> {
+  const rows = await tx
+    .select()
+    .from(advertisers)
+    .where(eq(advertisers.portalCompanyId, portalCompanyId))
+    .limit(1);
+  return rows[0] ?? null;
+}

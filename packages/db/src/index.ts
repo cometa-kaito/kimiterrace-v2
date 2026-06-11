@@ -46,6 +46,8 @@ export * from "./queries/ad-reach.js";
 export * from "./queries/advertiser-report.js";
 // Partner API K1 (partner-api-contract §2): 単一広告主×指定月の効果メトリクス + presence(接触機会) 読み取り層 (system_admin)
 export * from "./queries/advertiser-metrics.js";
+// Partner API K3 (partner-api-contract §3): 配信 push 受け口の冪等 upsert 層 (advertisers/contracts/ads, system_admin)
+export * from "./queries/partner-delivery.js";
 // F03 (#348, ADR-027): 分散レート制限の Cloud SQL store (DistributedRateLimiter 用)
 export * from "./queries/ai-rate-limit.js";
 // F06 (#364, ADR-028): 生徒 Q&A の RAG 検索 (公開中 content_versions を pgvector で top-k、RLS 委譲)
