@@ -38,14 +38,9 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 });
 
 describe("navItemsForRole", () => {
-  it("teacher はエディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A (#48-C 導線、F02 入力、F04 公開ハブ、F06 チャット)。監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去、MFA は意図的に nav から撤去 (機能残置)", () => {
+  it("teacher はエディタのみ (2026-06-11 ユーザー判断: 教員 UX をエディタ 1 枚に集約。音声/チャット入力・コンテンツ・掲示物 Q&A はサイネージに出ない生徒 Q&A ボットの裏方ゆえ nav から撤去・機能/認可は残置で URL 直打ち可。監視系は校務DX原則で運営専用に撤去、MFA は意図的に nav から撤去)", () => {
     const items = navItemsForRole("teacher");
-    expect(items.map((i) => i.href)).toEqual([
-      "/admin/editor",
-      "/admin/teacher-input",
-      "/admin/contents",
-      "/admin/chat",
-    ]);
+    expect(items.map((i) => i.href)).toEqual(["/admin/editor"]);
   });
 
   it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。教職員管理は教員アカウント概念の撤去で廃止、監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
@@ -61,12 +56,13 @@ describe("navItemsForRole", () => {
     expect(hrefs).not.toContain("/admin/sensors");
   });
 
-  it("掲示物 Q&A (/admin/chat) は publisher (school_admin/teacher) のみ、system_admin には出さない (F06 #370、死リンク防止)", () => {
+  it("掲示物 Q&A (/admin/chat) は school_admin のみ nav に出す。system_admin は nav 非表示 (F06 #370、死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
     // /admin/chat も /api/teacher/chat も requireRole(PUBLISHER_ROLES) で system_admin を 403 にする
     // ため、nav からも system_admin には出さない。生徒は /student の StudentChat (別経路) を使う。
+    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/chat");
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/chat");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/chat");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/chat");
   });
 
   it("教職員管理 (/admin/school/members) はどの role の nav にも出さない (教員アカウント概念の撤去・2026-06-10)", () => {
@@ -78,22 +74,24 @@ describe("navItemsForRole", () => {
     }
   });
 
-  it("音声/チャット入力 (/admin/teacher-input) は publisher (school_admin/teacher) のみ、system_admin には出さない (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)", () => {
+  it("音声/チャット入力 (/admin/teacher-input) は school_admin のみ nav に出す。system_admin は nav 非表示 (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
     // /admin/teacher-input は requireRole(TEACHER_INPUT_STAFF_ROLES=teacher/school_admin) で
     // system_admin を 403 にするため、nav からも system_admin には出さない。
+    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain(
       "/admin/teacher-input",
     );
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/teacher-input");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/teacher-input");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/teacher-input");
   });
 
-  it("コンテンツ (/admin/contents) は publisher (school_admin/teacher) のみに出す (#166 と整合)", () => {
+  it("コンテンツ (/admin/contents) は school_admin のみ nav に出す。system_admin は nav 非表示 (#166 と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
     // /admin/contents は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため、
     // nav からも system_admin には出さない (死リンク防止)。
+    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/contents");
     expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/contents");
-    expect(navItemsForRole("teacher").map((i) => i.href)).toContain("/admin/contents");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/contents");
   });
 
   it("ダッシュボード (/admin/dashboard) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /admin/system/dashboard を使う)", () => {
