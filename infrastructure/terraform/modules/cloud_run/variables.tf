@@ -197,3 +197,14 @@ variable "custom_domain" {
   type        = string
   default     = ""
 }
+
+variable "ad_media_bucket" {
+  description = <<-EOT
+    広告メディア配信バケット名（env `AD_MEDIA_BUCKET`）。`/api/ads/media` 受口が広告クリエイティブを保存し、
+    同一オリジン配信 Route `/ad-media/<key>` が GET する公開バケット（ADR-037 / modules/ad_media）。
+    空文字なら env を注入せず、受口は fail-close（502）= 安全。書込み権限（objectAdmin）は env 側で当該バケット
+    限定に付与する（ルール5 最小権限・ハードコード禁止）。
+  EOT
+  type        = string
+  default     = ""
+}
