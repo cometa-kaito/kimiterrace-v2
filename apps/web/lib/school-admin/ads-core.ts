@@ -3,6 +3,7 @@
 // Turbopack が fs/net/tls を解決できず next build が落ちる (#48-J Reviewer Critical-1)。
 // /schema は enum/テーブル定義のみで postgres を含まないため client component から安全に使える。
 import { adMediaType } from "@kimiterrace/db/schema";
+import { isValidAdMediaKey } from "../ads/media-object";
 import type { AuthUser } from "../auth/session";
 
 /**
@@ -97,6 +98,32 @@ function normalizeUrl(value: unknown): string | null {
   return trimmed;
 }
 
+/** 同一オリジン配信パスの接頭辞 (ADR-037。アップロードした広告メディアの media_url)。 */
+const AD_MEDIA_PATH_PREFIX = "/ad-media/";
+
+/**
+ * メディア URL を正規化する。次の 2 形式を許可 (ADR-037):
+ * 1. **同一オリジン配信パス** `/ad-media/<key>` — `/admin` からアップロードした広告メディア。サイネージは
+ *    `app.school-signage.net` 配下から GET するため相対パスで十分 (県教委 Wi-Fi の FQDN 許可リストを通る)。
+ *    `<key>` は `isValidAdMediaKey` で検証 (接頭辞 `ads/` + traversal 拒否)。`new URL()` は base 無しの相対で
+ *    throw するため、絶対 URL 用の `normalizeUrl` より先にこの分岐で受ける (#828 Reviewer C1)。
+ * 2. **絶対 http(s) URL** — 外部の画像/動画 URL を直接指定する場合 (動画は当面この形式)。
+ * それ以外 (javascript: 等のスキーム・`/ad-media/` 以外の不正な相対パス) は null。
+ */
+function normalizeMediaUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > URL_MAX) {
+    return null;
+  }
+  if (trimmed.startsWith(AD_MEDIA_PATH_PREFIX)) {
+    return isValidAdMediaKey(trimmed.slice(AD_MEDIA_PATH_PREFIX.length)) ? trimmed : null;
+  }
+  return normalizeUrl(trimmed);
+}
+
 /** 任意 caption: 未指定は null、指定時は 1..60 文字 (前後空白除去)。 */
 function normalizeCaption(value: unknown): string | null | undefined {
   if (value === undefined || value === null || value === "") {
@@ -181,9 +208,12 @@ export function validateAdInput(raw: {
   captionFontScale?: unknown;
   displayOrder?: unknown;
 }): Validated<AdInput> {
-  const mediaUrl = normalizeUrl(raw.mediaUrl);
+  const mediaUrl = normalizeMediaUrl(raw.mediaUrl);
   if (!mediaUrl) {
-    return { ok: false, message: "メディア URL は http(s) の URL を入力してください。" };
+    return {
+      ok: false,
+      message: "メディア URL はアップロードした画像か、http(s) の URL を入力してください。",
+    };
   }
   if (!isMediaType(raw.mediaType)) {
     return { ok: false, message: "メディア種別は image / video のいずれかです。" };

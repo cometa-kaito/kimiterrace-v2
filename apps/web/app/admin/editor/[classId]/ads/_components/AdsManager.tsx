@@ -7,7 +7,8 @@ import {
   CAPTION_FONT_SCALES,
 } from "@/lib/school-admin/ads-core";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useRef, useState, useTransition } from "react";
+import { AdMediaUpload } from "./AdMediaUpload";
 
 /**
  * クラス広告管理の操作 UI (#48-J)。**Client Component** — Server Actions を呼び、成功時は
@@ -272,12 +273,31 @@ function AdForm({
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
   children: React.ReactNode;
 }) {
+  // アップロード成功時にメディア URL / 種別の欄へ値を反映する（uncontrolled のまま ref で代入することで、
+  // 既存の FormData 送信・form.reset() 挙動と整合させる）。
+  const mediaUrlRef = useRef<HTMLInputElement>(null);
+  const mediaTypeRef = useRef<HTMLSelectElement>(null);
   return (
     <form onSubmit={onSubmit} style={formStyle}>
+      <AdMediaUpload
+        onUploaded={(url, mediaType) => {
+          if (mediaUrlRef.current) {
+            mediaUrlRef.current.value = url;
+          }
+          if (mediaTypeRef.current) {
+            mediaTypeRef.current.value = mediaType;
+          }
+        }}
+      />
+      {/* アップロードした相対パス（/ad-media/…）も受けるため type="url" にしない（type="url" は絶対 URL のみ許容で
+          相対値を constraint validation で弾く・#828 Reviewer C1）。最終検証は Server Action 側 validateAdInput
+          （同一オリジン相対 or http(s) 絶対）が担う。 */}
       <input
         name="mediaUrl"
-        type="url"
-        placeholder="メディア URL (https://...)"
+        ref={mediaUrlRef}
+        type="text"
+        inputMode="url"
+        placeholder="メディア URL（上のアップロード or https://… を直接入力）"
         required
         defaultValue={initial?.mediaUrl}
         style={wideInputStyle}
@@ -285,6 +305,7 @@ function AdForm({
       />
       <select
         name="mediaType"
+        ref={mediaTypeRef}
         defaultValue={initial?.mediaType ?? "image"}
         style={inputStyle}
         disabled={pending}
