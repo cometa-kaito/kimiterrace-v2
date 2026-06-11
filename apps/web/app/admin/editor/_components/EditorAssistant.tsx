@@ -9,6 +9,7 @@ import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { AllDraftPanel } from "./AllDraftPanel";
 import {
   ASSIGNMENT_DRAFT_CONFIG,
   SCHEDULE_DRAFT_CONFIG,
@@ -88,8 +89,9 @@ export function EditorAssistant({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  // 作成する種類（タブ）。連絡=ストリーミング（本体）、予定/提出物=非ストリーミング（SectionDraftPanel）。
-  const [mode, setMode] = useState<"notices" | "schedules" | "assignments">("notices");
+  // 作成する種類（タブ）。連絡=ストリーミング（本体）、予定/提出物=SectionDraftPanel、おまかせ=AllDraftPanel
+  // （1入力→AI分類→3セクション同時, ADR-036）。既定は連絡。
+  const [mode, setMode] = useState<"notices" | "schedules" | "assignments" | "all">("notices");
   const [text, setText] = useState("");
   const [instruction, setInstruction] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -310,17 +312,18 @@ export function EditorAssistant({
             </button>
           </div>
 
-          {/* 作成する種類のタブ（連絡 / 予定 / 提出物）。既定は連絡（既存ストリーミング UI）。 */}
+          {/* 作成する種類のタブ（連絡 / 予定 / 提出物 / おまかせ）。既定は連絡（既存ストリーミング UI）。 */}
           <div
             role="tablist"
             aria-label="作成する種類"
-            style={{ display: "flex", gap: "0.25rem", margin: "0 0 0.5rem" }}
+            style={{ display: "flex", gap: "0.25rem", margin: "0 0 0.5rem", flexWrap: "wrap" }}
           >
             {(
               [
                 ["notices", "連絡"],
                 ["schedules", "予定"],
                 ["assignments", "提出物"],
+                ["all", "おまかせ"],
               ] as const
             ).map(([m, label]) => (
               <button
@@ -341,7 +344,16 @@ export function EditorAssistant({
             ))}
           </div>
 
-          {mode === "schedules" ? (
+          {mode === "all" ? (
+            <AllDraftPanel
+              scope={scope}
+              targetId={targetId}
+              date={date}
+              existingSchedules={existingSchedules}
+              existingNotices={existingNotices}
+              existingAssignments={existingAssignments}
+            />
+          ) : mode === "schedules" ? (
             <SectionDraftPanel
               scope={scope}
               targetId={targetId}
