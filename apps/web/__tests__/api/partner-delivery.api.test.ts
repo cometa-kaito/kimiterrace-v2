@@ -22,8 +22,10 @@ vi.mock("@/lib/db", () => ({ getDb: () => ({}) }));
 // ---- モック: asset 再ホストポート（fetch/GCS を介さず制御） ----
 let rehostImpl: (fetchUrl: string, objectId: string) => Promise<string>;
 class AssetRehostError extends Error {}
+class AssetPolicyError extends Error {}
 vi.mock("@/lib/partner/asset-rehost", () => ({
   AssetRehostError,
+  AssetPolicyError,
   getAssetRehost: () => ({ rehost: (u: string, id: string) => rehostImpl(u, id) }),
 }));
 
@@ -167,6 +169,25 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     expect(res.status).toBe(400);
   });
 
+  it("scope が school 以外 → 400（K3 は現状 school のみ受ける・恒久ロス防止）", async () => {
+    const base = validBody();
+    const ad = { ...(base.ads as Record<string, unknown>[])[0], scope: "grade" };
+    const res = await POST(makeReq(validBody({ ads: [ad] }), { key: SECRET }));
+    expect(res.status).toBe(400);
+    expect(applyPartnerDelivery).not.toHaveBeenCalled();
+  });
+
+  it("assetFetchUrl が http（非 https）→ 400（SSRF 面・https 限定）", async () => {
+    const base = validBody();
+    const ad = {
+      ...(base.ads as Record<string, unknown>[])[0],
+      assetFetchUrl: "http://x.example.com/a.png",
+    };
+    const res = await POST(makeReq(validBody({ ads: [ad] }), { key: SECRET }));
+    expect(res.status).toBe(400);
+    expect(applyPartnerDelivery).not.toHaveBeenCalled();
+  });
+
   // ---- 正常系（200） ----
   it("正鍵 + 正常 payload → 200 + applied + advertiserId", async () => {
     const res = await POST(makeReq(validBody(), { key: SECRET }));
@@ -239,6 +260,16 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     };
     const res = await POST(makeReq(validBody(), { key: SECRET }));
     expect(res.status).toBe(502);
+    expect(applyPartnerDelivery).not.toHaveBeenCalled();
+  });
+
+  // ---- 【要件2】asset ポリシー違反（400・恒久 = SSRF 等、無限再送を防ぐ） ----
+  it("asset ポリシー違反（AssetPolicyError）→ 400（恒久・再送させない）、upsert なし", async () => {
+    rehostImpl = async () => {
+      throw new AssetPolicyError("asset host is internal");
+    };
+    const res = await POST(makeReq(validBody(), { key: SECRET }));
+    expect(res.status).toBe(400);
     expect(applyPartnerDelivery).not.toHaveBeenCalled();
   });
 

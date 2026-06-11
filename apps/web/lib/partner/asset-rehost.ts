@@ -1,4 +1,6 @@
+import { lookup } from "node:dns/promises";
 import { Storage } from "@google-cloud/storage";
+import { isBlockedInternalHost } from "../tv/config-edit-core";
 
 /**
  * Partner API K3（`docs/api/partner-api-contract.md` §3）: portal が渡す **短命署名 URL**（`assetFetchUrl`、
@@ -16,6 +18,14 @@ import { Storage } from "@google-cloud/storage";
  * `assetFetchUrl` の取得失敗（署名 URL 期限切れ・ネットワーク断）と GCS アップロード失敗は **transient**
  * （再送で回復しうる）= route で **5xx**。`AssetRehostError` を投げ、route が 502/500 に写す。恒久不整合
  * （payload 不正等）はここに来る前に route のバリデーションで 4xx として弾く。
+ * SSRF ポリシー違反（非 https・内部ホスト/IP・DNS-rebinding・リダイレクト）は **恒久** = `AssetPolicyError`、
+ * route が **4xx**（再送しても直らない・無限再送を防ぐ）。
+ *
+ * ## SSRF（重要・PR #816 Reviewer B-1 / config-edit-core.ts §SSRF）
+ * `assetFetchUrl` は外部 portal 由来の値をサーバー側 fetch するシンク。Cloud Run のメタデータサーバ
+ * （`169.254.169.254`）から SA トークンを盗む HIGH severity SSRF になりうる。`createGcsAssetRehost` は fetch 前に
+ * `assertPublicHttpsTarget` で https 限定 + ホスト名リテラル + **解決済み IP** を `isBlockedInternalHost` で
+ * 内部レンジと突合（DNS-rebinding 対策）し、`redirect:'manual'` でリダイレクトを追わない。
  *
  * ## 現状（GCS バケット未プロビジョニング・ルール8 = この PR で Terraform を足さない）
  * 公開 ad-media バケットは Terraform `modules/ad_media` で定義済みだが各 env で **enabled=false**（実体未生成）で、
@@ -36,6 +46,56 @@ export class AssetRehostError extends Error {
   }
 }
 
+/**
+ * asset URL のポリシー違反（**恒久**・要件2: route が 4xx に写す）。再送で直らない:
+ * 非 https / 内部ホスト・内部 IP（SSRF）/ 内部へ解決する公開名（DNS-rebinding）/ リダイレクト / 不正キー。
+ */
+export class AssetPolicyError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "AssetPolicyError";
+  }
+}
+
+/** DNS lookup の注入形（テスト用）。`node:dns/promises` の `lookup(host,{all:true})` と互換。 */
+export type LookupAll = (hostname: string) => Promise<Array<{ address: string }>>;
+
+/**
+ * **SSRF ガード（fetch 時の宛先検証）**: `fetchUrl` が https の外部公開ホストであることを保証する。
+ * 保存時検証に依存せず、`isBlockedInternalHost`（loopback/link-local/RFC1918/メタデータ/IPv4-mapped IPv6 を網羅）で
+ * **ホスト名リテラルと解決済み IP の両方**を内部レンジと突合する（DNS-rebinding 対策）。違反は `AssetPolicyError`
+ * （恒久・route 4xx）。DNS 解決自体の失敗は `AssetRehostError`（transient・route 5xx）。
+ */
+export async function assertPublicHttpsTarget(
+  fetchUrl: string,
+  lookupAll: LookupAll,
+): Promise<URL> {
+  let url: URL;
+  try {
+    url = new URL(fetchUrl);
+  } catch {
+    throw new AssetPolicyError("asset url invalid");
+  }
+  if (url.protocol !== "https:") {
+    throw new AssetPolicyError("asset url must be https");
+  }
+  // 1. ホスト名リテラル（内部 IP・metadata.google.internal 等）を弾く。
+  if (isBlockedInternalHost(url.hostname)) {
+    throw new AssetPolicyError("asset host is internal");
+  }
+  // 2. DNS 解決し、全 IP を内部レンジと突合（公開名が内部 IP へ解決する DNS-rebinding を遮断）。
+  let addrs: Array<{ address: string }>;
+  try {
+    addrs = await lookupAll(url.hostname);
+  } catch (cause) {
+    throw new AssetRehostError("asset host resolve failed", { cause });
+  }
+  if (addrs.length === 0 || addrs.some((a) => isBlockedInternalHost(a.address))) {
+    throw new AssetPolicyError("asset host resolves to internal address");
+  }
+  return url;
+}
+
 /** 1 アセットを「取得 → 配信先へ再ホスト → 公開 URL を返す」ポート。 */
 export interface AssetRehostPort {
   /**
@@ -49,6 +109,9 @@ export interface AssetRehostPort {
 
 /** 取得バイト数の実務上限（暴走入力防止）。広告クリエイティブは画像/短尺動画想定。 */
 const MAX_ASSET_BYTES = 50 * 1024 * 1024; // 50 MiB
+
+/** asset 取得のタイムアウト（内部宛先での hang や巨大取得を防ぐ）。 */
+const FETCH_TIMEOUT_MS = 15_000;
 
 /** object キーに使えるのは UUID 様の安全文字のみ（path injection 防止）。 */
 const SAFE_OBJECT_ID = /^[0-9a-zA-Z._-]+$/;
@@ -75,6 +138,8 @@ export type GcsAssetRehostConfig = {
   storage?: Storage;
   /** 取得に使う fetch（テスト注入用）。未指定なら global fetch。 */
   fetchImpl?: typeof fetch;
+  /** DNS 解決（テスト注入用）。未指定なら `node:dns/promises` の lookup(all:true)。SSRF の IP 検証に使う。 */
+  lookupImpl?: LookupAll;
 };
 
 /**
@@ -91,21 +156,33 @@ export function createGcsAssetRehost(config: GcsAssetRehostConfig): AssetRehostP
   const bucket = storage.bucket(config.bucket);
   const prefix = config.prefix ?? "partner";
   const doFetch = config.fetchImpl ?? fetch;
+  const lookupAll: LookupAll = config.lookupImpl ?? ((h) => lookup(h, { all: true }));
 
   return {
     async rehost(fetchUrl: string, objectId: string): Promise<string> {
       if (!SAFE_OBJECT_ID.test(objectId) || objectId.includes("..")) {
-        // 呼出側のキー生成不正（恒久）。transient ではないが、route 到達前に portalPlacementId を UUID 検証
-        // 済みのため通常到達しない。多層防御として明示エラー。
-        throw new Error(`createGcsAssetRehost: 不正な objectId: ${objectId}`);
+        // 呼出側のキー生成不正（恒久・route 4xx）。route 到達前に portalPlacementId を UUID 検証済みのため
+        // 通常到達しないが、多層防御として明示。
+        throw new AssetPolicyError(`不正な objectId: ${objectId}`);
       }
 
+      // 0. SSRF ガード: https の外部公開ホストのみ許可（内部 IP・メタデータ・DNS-rebinding を遮断）。恒久違反は 4xx。
+      const target = await assertPublicHttpsTarget(fetchUrl, lookupAll);
+
       // 1. 取得（transient: 署名 URL 失効・ネットワーク断 → AssetRehostError → route 5xx）。
+      //    redirect:'manual' でリダイレクトを追わない（公開→内部 IP への 30x 迂回を遮断、SSRF）。
       let res: Response;
       try {
-        res = await doFetch(fetchUrl);
+        res = await doFetch(target, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
       } catch (cause) {
         throw new AssetRehostError("asset fetch failed", { cause });
+      }
+      if (res.status >= 300 && res.status < 400) {
+        // リダイレクトは追わない（内部宛先への 30x 迂回を防ぐ・恒久）。
+        throw new AssetPolicyError("asset url redirected");
       }
       if (!res.ok) {
         // 4xx/5xx いずれもここでは transient 扱い（403=署名失効も再発行で回復しうる）。route が 5xx に写す。

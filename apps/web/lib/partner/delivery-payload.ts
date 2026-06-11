@@ -4,7 +4,7 @@ import type {
   DeliveryContractInput,
   DeliveryInput,
 } from "@kimiterrace/db";
-import { adMediaType, advertiserStatus, hierarchyScope } from "@kimiterrace/db/schema";
+import { adMediaType, advertiserStatus } from "@kimiterrace/db/schema";
 import { z } from "zod";
 
 /**
@@ -25,7 +25,6 @@ import { z } from "zod";
 // enum 許容値は DB enum を単一ソースに（ルール3）。
 const STATUS_VALUES = advertiserStatus.enumValues as [string, ...string[]];
 const MEDIA_TYPE_VALUES = adMediaType.enumValues as [string, ...string[]];
-const SCOPE_VALUES = hierarchyScope.enumValues as [string, ...string[]];
 
 const CAPTION_MAX = 60; // ads.caption varchar(60)
 const URL_MAX = 2048; // text だが暴走入力防止の実務上限
@@ -38,20 +37,23 @@ const ORDER_MIN = 0;
 const ORDER_MAX = 32767;
 const MAX_ADS = 200; // 1 配信あたりの ads 上限（暴走防止）
 
-/** http(s) 絶対 URL のみ（javascript: 等を弾く）。1..URL_MAX 文字。 */
-const httpUrl = z
+/**
+ * **https** 絶対 URL のみ（javascript:/http: を弾く）。1..URL_MAX 文字。
+ * assetFetchUrl は v2 がサーバー側で取得する SSRF シンクのため、http や非 https をここで排除する
+ * （第一層）。内部ホスト/IP・DNS-rebinding・リダイレクトは `asset-rehost.ts` が fetch 時に再検証する（第二層）。
+ */
+const httpsUrl = z
   .string()
   .trim()
   .min(1)
   .max(URL_MAX)
   .refine((v) => {
     try {
-      const u = new URL(v);
-      return u.protocol === "https:" || u.protocol === "http:";
+      return new URL(v).protocol === "https:";
     } catch {
       return false;
     }
-  }, "must be an http(s) URL");
+  }, "must be an https URL");
 
 /** 空文字を null に正規化する任意文字列（contactEmail/caption/linkUrl 等）。 */
 const nullableTrimmed = (max: number) =>
@@ -87,14 +89,17 @@ const contractSchema = z
 const adSchema = z.object({
   portalPlacementId: z.string().uuid(),
   v2SchoolId: z.string().uuid(),
-  scope: z.enum(SCOPE_VALUES),
+  // K3 は現状 **school スコープのみ**受ける。grade/department/class は payload が階層 id（gradeId 等）を運び
+  // applyPartnerDelivery がそれを埋めるまで未対応。受けてしまうと ads の ck_ads_scope check 違反（23514）で
+  // 恒久 409＝配信ロスになるため、payload 段階で 400 に倒す。portal の Flow B も現状 school のみ送る。
+  scope: z.literal("school"),
   mediaType: z.enum(MEDIA_TYPE_VALUES),
   durationSec: z.number().int().min(DURATION_MIN).max(DURATION_MAX),
   displayOrder: z.number().int().min(ORDER_MIN).max(ORDER_MAX),
-  assetFetchUrl: httpUrl,
+  assetFetchUrl: httpsUrl,
   caption: nullableTrimmed(CAPTION_MAX),
   linkUrl: z
-    .union([httpUrl, z.null()])
+    .union([httpsUrl, z.null()])
     .optional()
     .transform((v) => v ?? null),
 });
@@ -165,7 +170,7 @@ export function parseDeliveryPayload(raw: unknown): ParseResult {
   const ads: ValidatedAd[] = p.ads.map((a) => ({
     portalPlacementId: a.portalPlacementId,
     v2SchoolId: a.v2SchoolId,
-    scope: a.scope as ValidatedAd["scope"],
+    scope: a.scope,
     mediaType: a.mediaType as ValidatedAd["mediaType"],
     durationSec: a.durationSec,
     displayOrder: a.displayOrder,

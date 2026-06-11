@@ -135,7 +135,7 @@ type EditableUrlCheck = "ok" | "invalid_scheme" | "internal_host";
  * 戻り値が `true` のホストはブロック対象。`URL.hostname`（WHATWG パーサで 8/16/10 進・short-form の
  * IPv4 は dotted-decimal へ正規化済み、IPv6 は角括弧つき）を受け取る。
  */
-function isBlockedInternalHost(rawHostname: string): boolean {
+export function isBlockedInternalHost(rawHostname: string): boolean {
   // 小文字化 → IPv6 の角括弧除去 → FQDN 絶対表記の末尾ドット 1 個除去（`metadata.google.internal.`
   // のようなサフィックス一致回避を塞ぐ）。
   let host = rawHostname.toLowerCase();

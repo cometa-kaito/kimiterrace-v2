@@ -8,7 +8,7 @@ import {
 } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { AssetRehostError, getAssetRehost } from "@/lib/partner/asset-rehost";
+import { AssetPolicyError, AssetRehostError, getAssetRehost } from "@/lib/partner/asset-rehost";
 import { parseDeliveryPayload } from "@/lib/partner/delivery-payload";
 import {
   getConfiguredPartnerSecret,
@@ -37,7 +37,8 @@ import {
  * ## 【要件2】HTTP ステータス = portal の再送判断（4xx=fatal / 5xx=transient）
  * portal sender は **4xx を二度と再送しない / 5xx を再送する**。各経路を方針に沿って明示選択する:
  *   - **401**: 認証失敗（未設定 / 不一致 / 欠如）。再送で直らない。
- *   - **400**: payload 形不正・enum 外・UUID 不正・ads 0 件（バリデーション）。再送で直らない。
+ *   - **400**: payload 形不正・enum 外・UUID 不正・ads 0 件（バリデーション）/ asset URL ポリシー違反
+ *     （非 https・内部ホスト・DNS-rebinding・リダイレクト = SSRF、`AssetPolicyError`）。再送で直らない。
  *   - **409**: 未知 v2School 等の **恒久的な整合不能**（FK 違反 23503 / check 違反 23514）。スキーマ的に
  *     受け付け不能で、同じ payload を再送しても直らない（portal 側の参照を直す必要がある）。
  *   - **5xx**: asset 取得失敗（署名 URL 期限切れ・ネットワーク, 502）/ GCS アップロード失敗（502）/ DB 一時
@@ -112,11 +113,15 @@ export async function POST(request: Request): Promise<NextResponse> {
         linkUrl: a.linkUrl,
       });
     } catch (err) {
+      if (err instanceof AssetPolicyError) {
+        // SSRF/非 https/リダイレクト等の恒久ポリシー違反。再送で直らないため 400（無限再送を防ぐ）。
+        return NextResponse.json({ error: "asset_rejected" }, { status: 400 });
+      }
       if (err instanceof AssetRehostError) {
         // 取得 / アップロード失敗（transient）。502 で再送を促す（4xx にすると配信ロス）。
         return NextResponse.json({ error: "asset_unavailable" }, { status: 502 });
       }
-      // 想定外（キー生成不正等）は 500。
+      // 想定外は 500。
       return NextResponse.json({ error: "internal_error" }, { status: 500 });
     }
   }
