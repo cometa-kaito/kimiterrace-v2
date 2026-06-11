@@ -497,6 +497,20 @@ module "cloud_run" {
   #   apply 失敗・他は無傷。検証は Vercel DNS に TXT 追加）。v1 Firebase 表示はこの CNAME 切替時に当該 FQDN から
   #   外れる（= 表示 cutover 本体）。
   custom_domain = "app.school-signage.net"
+
+  # 広告メディア配信バケット（ADR-037）。受口 /api/ads/media が保存し /ad-media/<key> が GET する公開バケット。
+  ad_media_bucket = module.ad_media.bucket_name
+}
+
+# 広告メディアアップロード受口（/api/ads/media）が公開 ad-media バケットへ保存するための最小権限（#46/ADR-037）。
+# cloud_run の runtime SA に**当該バケット限定**で objectAdmin（作成+上書き+一覧）を付与する（ルール5 最小権限・
+# upload_storage/report_storage の writer と同規律）。公開 read（allUsers）は ad_media モジュール側で付与済。
+# 別リソースに切り出すことで module 間の循環（cloud_run⇄ad_media）を避ける（cloud_run→ad_media の単方向）。
+resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
+  count  = module.ad_media.bucket_name != "" && module.cloud_run.runtime_service_account_email != null ? 1 : 0
+  bucket = module.ad_media.bucket_name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。

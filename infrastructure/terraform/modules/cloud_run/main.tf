@@ -211,6 +211,15 @@ resource "google_cloud_run_v2_service" "web" {
         value = tostring(var.ai_enabled)
       }
 
+      # 広告メディア配信バケット（ADR-037）。空文字なら注入しない（受口は env 欠落で 502 = fail-close）。
+      dynamic "env" {
+        for_each = var.ad_media_bucket != "" ? [var.ad_media_bucket] : []
+        content {
+          name  = "AD_MEDIA_BUCKET"
+          value = env.value
+        }
+      }
+
       resources {
         limits = {
           cpu    = var.cpu

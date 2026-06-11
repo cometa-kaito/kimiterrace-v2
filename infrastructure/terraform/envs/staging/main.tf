@@ -508,6 +508,18 @@ module "cloud_run" {
   # v1 の app.school-signage.net は無傷（本番 cutover 時に同一 FQDN を流用しフィルタ再申請ゼロ）。
   # 校内 Wi-Fi 許可リスト外（校外・合成データでの検証用途）。
   custom_domain = "staging.school-signage.net"
+
+  # 広告メディア配信バケット（ADR-037）。受口 /api/ads/media が保存し /ad-media/<key> が GET する公開バケット。
+  ad_media_bucket = module.ad_media.bucket_name
+}
+
+# 広告メディアアップロード受口（/api/ads/media）が公開 ad-media バケットへ保存するための最小権限（#46/ADR-037）。
+# cloud_run の runtime SA に当該バケット限定で objectAdmin を付与（ルール5 最小権限）。公開 read は ad_media 側。
+resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
+  count  = module.ad_media.bucket_name != "" && module.cloud_run.runtime_service_account_email != null ? 1 : 0
+  bucket = module.ad_media.bucket_name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
