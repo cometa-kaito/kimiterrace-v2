@@ -157,7 +157,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "3f067e9" # C方式 deploy 2026-06-09: tv_provisioning_jobs migration(0021+drizzle, PR1 #762) 同梱
+  migrate_image_tag = "c40ab97" # 2026-06-11 deploy: pattern2(0023/0024/0025) + K3 partner idempotency 等 main HEAD 反映
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -173,10 +173,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "626e85c" # F16 §9 TV死活 liveness Job 点灯 2026-06-09: down-only(🔴) Slack 配信（PR #772 含む）
+  jobs_image_tag = "c40ab97" # 2026-06-11: railway-status-job 同梱（鉄道Job有効化・ADR-035）。weather/liveness も同梱の main HEAD
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "a4482b0" # 効果還元K1 deploy 2026-06-10: K1 効果メトリクス pull /api/partner/* (#803)。schema 無変更(1c93a8f..d2d20f3 で migration 差分ゼロ)・pattern2(#804+)は意図的に除外
+  web_image_tag = "c40ab97" # 2026-06-11 deploy: pattern2 全機能(#804-811) + K3 partner(#806/#816) + 教員nav(#815) + AIアシスタント(#818/#819) を main HEAD から反映
 }
 
 module "network" {
@@ -540,13 +540,15 @@ module "cloud_run_job_railway_status" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # prod は scaffold。staging 検証後に有効化判断（ADR-035）
+  enabled                = true # 2026-06-11 有効化: staging 検証済（実 名鉄ページ parse 成功）+ jobs image c40ab97 同梱（ADR-035）
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/railway-status/railway-status-job.js"]
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
-  # deletion_protection はモジュール既定 true（prod）
+  # 鉄道 Job は状態を持たない再生成可能な取得ジョブ（データは railway_status DB 側）。weather と同様 recreate
+  # 容易性を優先し deletion_protection=false（初回作成時の secret IAM 伝播レースで tainted job を replace 回収するため）。
+  deletion_protection = false
 }
 
 # F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。
