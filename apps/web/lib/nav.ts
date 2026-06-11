@@ -70,6 +70,13 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 自校の月次サマリービュー (/admin/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
     { label: "月次レポート", href: "/admin/system/reports" },
     { label: "フィードバック", href: "/admin/system/feedback" },
+    // UIUX-03 (PR2-4): 不足ビューア群 (system_admin 専用、cross-tenant)。events / audit_log / ai_chat の
+    // 生データ閲覧。PII 近接のため「表示時マスキング + 閲覧自体の監査記録」を各ページが実装する
+    // (docs/compliance/admin-viewer-policy.md DRAFT)。nav 配線は 3 ビューア分をまとめて PR4 で追加
+    // (nav.ts の 3 連続編集を避ける)。
+    { label: "イベント生ログ", href: "/admin/system/events" },
+    { label: "監査ログ", href: "/admin/system/audit" },
+    { label: "AIチャット監査", href: "/admin/system/ai-chat" },
     // 自分のパスワード変更 (個人 email/password アカウント)。ログイン後にここから再設定できる。
     // 対象ロールは PASSWORD_CHANGE_ROLES (system_admin / school_admin) と揃える (password-policy.ts)。
     { label: "パスワード変更", href: "/admin/account/password" },
