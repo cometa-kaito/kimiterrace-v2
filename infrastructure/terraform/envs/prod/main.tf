@@ -176,7 +176,7 @@ locals {
   jobs_image_tag = "c40ab97" # 2026-06-11: railway-status-job 同梱（鉄道Job有効化・ADR-035）。weather/liveness も同梱の main HEAD
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "0356a4f" # 2026-06-11 deploy: F02おまかせ統合UI(#820/#822/#824) main HEAD 追従（schema 無変更=migrate 不要）
+  web_image_tag = "7d90c0e" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + F02おまかせ統合UI main HEAD 追従（schema 無変更=migrate 不要）
 }
 
 module "network" {
