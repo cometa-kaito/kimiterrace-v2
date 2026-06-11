@@ -119,6 +119,17 @@ module "cloud_run_job_weather" {
   external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
 }
 
+# パターン2 鉄道運行情報取得 Job（名鉄スクレイピング、ADR-035）。dev は scaffold。
+module "cloud_run_job_railway_status" {
+  source                = "../../modules/cloud_run_job_railway_status"
+  project_id            = var.project_id
+  region                = var.region
+  env                   = local.env
+  enabled               = false
+  deletion_protection   = false
+  external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
+}
+
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。
 # 公開ルート（magic-link / webhook）の秘匿値が載る request log の閲覧を運用者へ限定する。
 # enabled 化時に var.log_viewer_members（運用者グループ + breakglass）を設定すること。

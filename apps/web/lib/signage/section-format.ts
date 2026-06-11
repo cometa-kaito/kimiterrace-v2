@@ -3,7 +3,7 @@
  *
  * **背景**: daily_data の各セクション JSONB は #48-A では opaque 保持され、要素スキーマは後続スライスで
  * 確定した:
- *  - schedules:   {@link ScheduleItem}   `{ period, subject, note? }`   (#48-H)
+ *  - schedules:   {@link ScheduleItem}   `{ period, subject, note?, location?, targetAudience? }` (#48-H)
  *  - notices:     {@link NoticeItem}     `{ text, isHighlight? }`        (#48-I)
  *  - assignments: {@link AssignmentItem} `{ deadline, subject, task }`   (#48-I)
  *  - quietHours:  {@link QuietRange}     `{ start, end }` ("HH:MM")       (#48-J-2)
@@ -167,10 +167,18 @@ export function formatSignageItem(kind: SignageSectionKind, item: unknown): Sign
 // 単一ソースにし (ルール3)、想定外要素は null/フォールバックで fail-soft。
 // =====================================================================================
 
-/** 予定 1 行: 時限ラベル (例「3限」、無ければ空) と内容 (科目 + 補足)。 */
-export type SignageScheduleRow = { periodLabel: string; content: string };
+/**
+ * 予定 1 行: 時限ラベル (例「3限」、無ければ空) と内容 (科目 + 補足)。`location`（場所）/
+ * `targetAudience`（対象者）はパターン2 盤面用の任意フィールド（未設定は null）。パターン1 は使わない。
+ */
+export type SignageScheduleRow = {
+  periodLabel: string;
+  content: string;
+  location: string | null;
+  targetAudience: string | null;
+};
 
-/** 予定要素を「時限 + 内容」に分ける。確定スキーマ外は時限空 + 汎用ラベルにフォールバック。 */
+/** 予定要素を「時限 + 内容 (+ 場所 / 対象者)」に分ける。確定スキーマ外は時限空 + 汎用ラベルにフォールバック。 */
 export function parseScheduleRow(item: unknown): SignageScheduleRow {
   if (item && typeof item === "object" && !Array.isArray(item)) {
     const rec = item as Record<string, unknown>;
@@ -182,10 +190,12 @@ export function parseScheduleRow(item: unknown): SignageScheduleRow {
       return {
         periodLabel: hasPeriod ? `${period}限` : "",
         content: note ? `${subject}（${note}）` : subject,
+        location: str(field<ScheduleItem>(rec, "location")),
+        targetAudience: str(field<ScheduleItem>(rec, "targetAudience")),
       };
     }
   }
-  return { periodLabel: "", content: genericLabel(item) };
+  return { periodLabel: "", content: genericLabel(item), location: null, targetAudience: null };
 }
 
 /** 提出物 1 行: 科目・提出物・期限 (短縮日付) + 締切までの残日数ラベルと緊急度。 */

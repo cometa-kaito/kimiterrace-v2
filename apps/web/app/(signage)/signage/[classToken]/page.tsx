@@ -30,15 +30,16 @@ export default async function SignagePage({
   searchParams,
 }: {
   params: Promise<{ classToken: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; design?: string }>;
 }) {
   const { classToken } = await params;
-  const { date: dateParam } = await searchParams;
+  const { date: dateParam, design } = await searchParams;
 
   // 既定は JST の今日。?date=YYYY-MM-DD で任意日を表示可 (形式不正・無効暦日は今日へフォールバック)。
   const date = parseSignageDate(dateParam);
 
-  const payload = await getSignageDisplayData(classToken, date);
+  // ?design=patternN は端末別デザイン（TV の signage_url が持つ）。未指定/未知は学校レベル既定→pattern1。
+  const payload = await getSignageDisplayData(classToken, date, design);
   if (!payload) {
     return <SignageInvalid />;
   }

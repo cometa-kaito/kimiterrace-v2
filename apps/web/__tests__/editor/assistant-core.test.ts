@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_ASSIST_SYSTEM,
+  ASSIGNMENT_ASSIST_SYSTEM,
   NOTICE_TONE_INSTRUCTIONS,
+  SCHEDULE_ASSIST_SYSTEM,
+  SECTION_ASSIST_SYSTEM,
+  buildAllAssistUser,
   buildNoticeAssistUser,
+  buildSectionAssistUser,
   jstDateLabel,
+  parseAllProposal,
+  parseAssignmentProposal,
   parseNoticeProposal,
   parseNoticeTone,
+  parseScheduleProposal,
 } from "../../lib/editor/assistant-core";
 
 /**
@@ -61,6 +70,181 @@ describe("buildNoticeAssistUser", () => {
     expect(buildNoticeAssistUser("メモ", "2026年6月8日（月）")).not.toContain("【調整の指示】");
     const u = buildNoticeAssistUser("メモ", "2026年6月8日（月）", "短くする。");
     expect(u).toContain("【調整の指示】短くする。");
+  });
+});
+
+describe("parseScheduleProposal", () => {
+  it("正常な JSON から schedules を取り出し period 昇順に正規化する", () => {
+    const r = parseScheduleProposal(
+      '{"schedules":[{"period":2,"subject":"英語","location":"視聴覚室","targetAudience":"3年"},{"period":1,"subject":"数学"}]}',
+    );
+    expect(r).toEqual([
+      { period: 1, subject: "数学" },
+      { period: 2, subject: "英語", location: "視聴覚室", targetAudience: "3年" },
+    ]);
+  });
+
+  it("period が文字列でも数値に正規化して受理する", () => {
+    expect(parseScheduleProposal('{"schedules":[{"period":"3","subject":"理科"}]}')).toEqual([
+      { period: 3, subject: "理科" },
+    ]);
+  });
+
+  it("```json コードフェンス付きでも取り出す", () => {
+    expect(
+      parseScheduleProposal('```json\n{"schedules":[{"period":1,"subject":"国語"}]}\n```'),
+    ).toEqual([{ period: 1, subject: "国語" }]);
+  });
+
+  it("JSON でない/壊れた応答は null", () => {
+    expect(parseScheduleProposal("1限 数学")).toBeNull();
+    expect(parseScheduleProposal('{"schedules":')).toBeNull();
+  });
+
+  it("空配列は空配列（呼び出し側が no_result 判定）", () => {
+    expect(parseScheduleProposal('{"schedules":[]}')).toEqual([]);
+  });
+
+  it("period が範囲外/重複なら検証で全体拒否され null", () => {
+    expect(parseScheduleProposal('{"schedules":[{"period":0,"subject":"x"}]}')).toBeNull();
+    expect(parseScheduleProposal('{"schedules":[{"period":13,"subject":"x"}]}')).toBeNull();
+    expect(
+      parseScheduleProposal(
+        '{"schedules":[{"period":1,"subject":"a"},{"period":1,"subject":"b"}]}',
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("parseAssignmentProposal", () => {
+  it("正常な JSON から assignments を取り出す", () => {
+    const r = parseAssignmentProposal(
+      '{"assignments":[{"deadline":"2026-06-20","subject":"数学","task":"ワークP30"}]}',
+    );
+    expect(r).toEqual([{ deadline: "2026-06-20", subject: "数学", task: "ワークP30" }]);
+  });
+
+  it("```json コードフェンス付きでも取り出す", () => {
+    expect(
+      parseAssignmentProposal(
+        '```json\n{"assignments":[{"deadline":"2026-06-30","subject":"英語","task":"音読"}]}\n```',
+      ),
+    ).toEqual([{ deadline: "2026-06-30", subject: "英語", task: "音読" }]);
+  });
+
+  it("実在しない日付(2026-02-30)は検証で拒否され null", () => {
+    expect(
+      parseAssignmentProposal(
+        '{"assignments":[{"deadline":"2026-02-30","subject":"数学","task":"x"}]}',
+      ),
+    ).toBeNull();
+  });
+
+  it("必須フィールド欠落は null", () => {
+    expect(
+      parseAssignmentProposal('{"assignments":[{"deadline":"2026-06-20","subject":"数学"}]}'),
+    ).toBeNull();
+  });
+
+  it("JSON でない/空配列の扱い", () => {
+    expect(parseAssignmentProposal("提出物: 数学")).toBeNull();
+    expect(parseAssignmentProposal('{"assignments":[]}')).toEqual([]);
+  });
+});
+
+describe("buildSectionAssistUser", () => {
+  it("section に応じて『次のメモから〇〇を作成してください』の和名が変わる", () => {
+    const ref = "2026年6月8日（月）";
+    expect(buildSectionAssistUser("schedules", "メモ", ref)).toContain(
+      "次のメモから予定を作成してください",
+    );
+    expect(buildSectionAssistUser("notices", "メモ", ref)).toContain(
+      "次のメモから連絡を作成してください",
+    );
+    expect(buildSectionAssistUser("assignments", "メモ", ref)).toContain(
+      "次のメモから提出物を作成してください",
+    );
+  });
+
+  it("基準日とメモを含め、adjust があれば【調整の指示】を付す", () => {
+    const u = buildSectionAssistUser(
+      "schedules",
+      "1限数学",
+      "2026年6月8日（月）",
+      "場所も入れる。",
+    );
+    expect(u).toContain("基準日（今日）: 2026年6月8日（月）");
+    expect(u).toContain("1限数学");
+    expect(u).toContain("【調整の指示】場所も入れる。");
+  });
+
+  it("buildNoticeAssistUser は section='notices' のラッパで出力が一致（後方互換）", () => {
+    const ref = "2026年6月8日（月）";
+    expect(buildNoticeAssistUser("メモ", ref, "短く。")).toBe(
+      buildSectionAssistUser("notices", "メモ", ref, "短く。"),
+    );
+  });
+});
+
+describe("parseAllProposal（おまかせ分類）", () => {
+  it("3 セクションを束で取り出し各 validate*Items で正規化する", () => {
+    const r = parseAllProposal(
+      '{"schedules":[{"period":1,"subject":"数学"}],"notices":[{"text":"明日は短縮授業"}],"assignments":[{"deadline":"2026-06-20","subject":"英語","task":"音読"}]}',
+    );
+    expect(r).toEqual({
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "明日は短縮授業" }],
+      assignments: [{ deadline: "2026-06-20", subject: "英語", task: "音読" }],
+    });
+  });
+
+  it("欠けたセクションは空配列（連絡のみ等）", () => {
+    expect(parseAllProposal('{"notices":[{"text":"連絡だけ"}]}')).toEqual({
+      schedules: [],
+      notices: [{ text: "連絡だけ" }],
+      assignments: [],
+    });
+  });
+
+  it("あって不正なセクションがあれば全体を null（黙ってドロップしない）", () => {
+    // period 範囲外 → schedules 検証失敗 → 全体 null。
+    expect(
+      parseAllProposal('{"schedules":[{"period":99,"subject":"x"}],"notices":[{"text":"有効"}]}'),
+    ).toBeNull();
+  });
+
+  it("3 種すべて空/壊れた JSON は null（呼び出し側が no_result 判定）", () => {
+    expect(parseAllProposal('{"schedules":[],"notices":[],"assignments":[]}')).toBeNull();
+    expect(parseAllProposal("これはメモです")).toBeNull();
+    expect(parseAllProposal("{")).toBeNull();
+  });
+});
+
+describe("buildAllAssistUser / ALL_ASSIST_SYSTEM", () => {
+  it("基準日とメモを含め、3 種振り分けの指示文になっている", () => {
+    const u = buildAllAssistUser("1限数学 明日まで宿題", "2026年6月8日（月）");
+    expect(u).toContain("基準日（今日）: 2026年6月8日（月）");
+    expect(u).toContain("1限数学 明日まで宿題");
+    expect(u).toContain("振り分けて作成してください");
+  });
+
+  it("ALL system は 3 セクションの JSON キーを指示する", () => {
+    expect(ALL_ASSIST_SYSTEM).toContain('"schedules"');
+    expect(ALL_ASSIST_SYSTEM).toContain('"notices"');
+    expect(ALL_ASSIST_SYSTEM).toContain('"assignments"');
+  });
+});
+
+describe("SECTION_ASSIST_SYSTEM", () => {
+  it("3 セクション全てに非空の system プロンプトがある", () => {
+    for (const key of ["schedules", "notices", "assignments"] as const) {
+      expect(SECTION_ASSIST_SYSTEM[key].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("予定は schedules JSON、提出物は YYYY-MM-DD 変換を指示する", () => {
+    expect(SCHEDULE_ASSIST_SYSTEM).toContain('"schedules"');
+    expect(ASSIGNMENT_ASSIST_SYSTEM).toContain("YYYY-MM-DD");
   });
 });
 

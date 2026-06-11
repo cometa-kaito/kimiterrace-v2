@@ -73,6 +73,10 @@ function payload(ads: SignagePayload["ads"]): SignagePayload {
     ads,
     weather: null,
     classContext: { departmentName: "電子工学科", gradeName: "1年", className: "A組" },
+    presenceCount: null,
+    visitors: null,
+    callouts: null,
+    trainStatus: null,
   };
 }
 
@@ -110,6 +114,192 @@ describe("SignageClient view impression (#43 / F07)", () => {
       type: "view",
       adId: AD_A,
       slotIndex: 0,
+    });
+  });
+});
+
+describe("SignageClient デザインパターン dispatch（端末別デザイン）", () => {
+  function p2(ads: SignagePayload["ads"], presenceCount: number | null = null): SignagePayload {
+    return { ...payload(ads), designPattern: "pattern2", presenceCount };
+  }
+
+  it("pattern2 はパターン2盤面（予定/天気/来校者/呼び出し/センサ/鉄道）を描画する（準備中枠なし）", () => {
+    render(<SignageClient classToken={TOKEN} initial={p2([])} />);
+    expect(screen.getByRole("region", { name: "予定" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "天気予報" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "生徒呼び出し" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
+    // 全ウィジェット実装済 → 「準備中」枠は残っていない。
+    expect(screen.queryByText("準備中")).toBeNull();
+  });
+
+  it("pattern2 鉄道: 事業者名 + 運行情報を表示、乱れ/古い時は注記、null は取得不可表示", () => {
+    const { unmount } = render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{
+          ...payload([]),
+          designPattern: "pattern2",
+          trainStatus: {
+            operatorName: "名鉄",
+            statusText: "名古屋本線で遅延が発生しています。",
+            hasDisruption: true,
+            isStale: true,
+          },
+        }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "鉄道" });
+    expect(region).toHaveTextContent("名鉄");
+    expect(region).toHaveTextContent("名古屋本線で遅延が発生しています。");
+    expect(region).toHaveTextContent("情報が古い可能性");
+    unmount();
+
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", trainStatus: null }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "鉄道" })).toHaveTextContent(
+      "運行情報は取得できていません",
+    );
+  });
+
+  it("pattern2 生徒呼び出し: 時刻 + 氏名 + 呼び出し先 + 用件を表示、無し/null は不在表示", () => {
+    const callouts = [
+      {
+        id: "c1",
+        studentName: "佐藤太郎",
+        location: "職員室",
+        reason: "忘れ物",
+        scheduledTime: "10:15",
+      },
+    ];
+    const { unmount } = render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", callouts }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "生徒呼び出し" });
+    expect(region).toHaveTextContent("10:15");
+    expect(region).toHaveTextContent("佐藤太郎");
+    expect(region).toHaveTextContent("職員室");
+    expect(region).toHaveTextContent("忘れ物");
+    unmount();
+
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", callouts: null }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "生徒呼び出し" })).toHaveTextContent(
+      "呼び出しはありません",
+    );
+  });
+
+  it("pattern2 来校者一覧: 来校者を時刻/氏名/所属 + 用件/対応で表示、無し/null は不在表示", () => {
+    const visitors = [
+      {
+        id: "v1",
+        visitorName: "佐藤一郎",
+        affiliation: "ABC商事",
+        scheduledTime: "10:30",
+        purpose: "面談",
+        host: "田中先生",
+        note: null,
+      },
+    ];
+    const { unmount } = render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", visitors }}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "来校者一覧" });
+    expect(region).toHaveTextContent("10:30");
+    expect(region).toHaveTextContent("佐藤一郎");
+    expect(region).toHaveTextContent("ABC商事");
+    expect(region).toHaveTextContent("面談");
+    expect(region).toHaveTextContent("対応: 田中先生");
+    unmount();
+
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", visitors: null }}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "来校者一覧" })).toHaveTextContent(
+      "本日の来校者はありません",
+    );
+  });
+
+  it("pattern2 人感センサカウンタ: 件数があれば本日の検知回数を出し、null は計測なし、0 も出す", () => {
+    const { unmount } = render(<SignageClient classToken={TOKEN} initial={p2([], 12)} />);
+    const sensor = screen.getByRole("region", { name: "人感センサカウンタ" });
+    expect(sensor).toHaveTextContent("12");
+    expect(sensor).toHaveTextContent("本日の検知");
+    unmount();
+
+    const { unmount: u2 } = render(<SignageClient classToken={TOKEN} initial={p2([], 0)} />);
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toHaveTextContent("0");
+    u2();
+
+    render(<SignageClient classToken={TOKEN} initial={p2([], null)} />);
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toHaveTextContent(
+      "計測なし",
+    );
+  });
+
+  it("pattern2 予定: 場所 / 対象者を各コマに表示する（あるものだけ）", () => {
+    const scheduleDays: SignagePayload["scheduleDays"] = [
+      {
+        date: "2026-05-31",
+        schedule: {
+          source: null,
+          items: [{ period: 1, subject: "体育", location: "体育館", targetAudience: "3年生" }],
+        },
+      },
+    ];
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={{ ...payload([]), designPattern: "pattern2", scheduleDays }}
+      />,
+    );
+    const schedule = screen.getByRole("region", { name: "予定" });
+    expect(schedule).toHaveTextContent("体育");
+    expect(schedule).toHaveTextContent("場所: 体育館");
+    expect(schedule).toHaveTextContent("対象: 3年生");
+  });
+
+  it("pattern1（既定）はパターン2専用の枠を描画しない", () => {
+    render(<SignageClient classToken={TOKEN} initial={payload([])} />);
+    expect(screen.queryByRole("region", { name: "来校者一覧" })).toBeNull();
+    expect(screen.queryByText("準備中")).toBeNull();
+  });
+
+  it("pattern2 でも広告（右）はパターン1と同一でリンク化・タップ送信する", () => {
+    render(
+      <SignageClient
+        classToken={TOKEN}
+        initial={p2([adWithLink(AD_A, "https://sponsor.example/lp", "スポンサー")])}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "広告: スポンサー" });
+    expect(link).toHaveAttribute("href", "https://sponsor.example/lp");
+    sendSignageEvent.mockClear();
+    fireEvent.click(link);
+    expect(sendSignageEvent).toHaveBeenCalledWith(TOKEN, {
+      type: "tap",
+      adId: AD_A,
+      slotIndex: 0,
+      clientId: "cid-123",
     });
   });
 });

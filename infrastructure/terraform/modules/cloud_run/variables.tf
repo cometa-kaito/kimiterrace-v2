@@ -56,12 +56,35 @@ variable "tv_poll_secret_id" {
   default     = ""
 }
 
+variable "tv_poll_secret_legacy_version" {
+  description = <<-EOT
+    ゼロダウンタイム鍵ローテーション用。TV_POLL_SECRET_LEGACY として配線する `tv_poll_secret_id` の
+    **旧バージョン番号**（例 "3"）。移行期間中だけ旧キーも受理するために設定し、全 TV 端末を新キーへ
+    更新し終えたら "" に戻して apply すれば旧キーは無効化される（poll-secret.ts は LEGACY 未配線時に
+    現用キーのみ受理）。空文字なら TV_POLL_SECRET_LEGACY env を配線しない（＝単一キー運用・従来挙動）。
+    accessor IAM は tv_poll_secret_id 全体に付与済みのため追加付与は不要。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "provision_agent_secret_id" {
   description = <<-EOT
     PROVISION_AGENT_SECRET を保持する Secret Manager secret の ID（ルール5、C方式 TV プロビジョニング）。
     /api/tv/provisioning/* の agent 認証用 専用 共有シークレット（TV_POLL_SECRET とは別 secret）。
     tv_poll_secret_id と同じパターンで配線する。空文字なら env / accessor を配線しない
     （その場合 agent route は fail-closed＝未認証エージェントを到達させない）。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "partner_api_secret_id" {
+  description = <<-EOT
+    PARTNER_API_SECRET を保持する Secret Manager secret の ID（ルール5、partner-api-contract §1）。
+    portal ↔ v2 サーバー間 Partner API（K1 効果メトリクス pull /api/partner/*）の共有シークレット。
+    tv_poll_secret_id と同じパターンで配線する。空文字なら env / accessor を配線しない
+    （その場合 partner route は fail-closed＝未認証の portal リクエストを到達させない）。
   EOT
   type        = string
   default     = ""
@@ -170,6 +193,17 @@ variable "custom_domain" {
     設計: 県教委 Wi-Fi は FQDN(SNI) 許可リスト方式で `app.school-signage.net` を許可済（docs/discovery/
     wifi-filter-method.md, 制約 C01）。staging 用の別サブドメインは校内 Wi-Fi 許可リスト外（校外・合成データ
     での検証は可）。本番切替（cutover）では同一 FQDN `app.school-signage.net` を流用しフィルタ再申請ゼロ。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "ad_media_bucket" {
+  description = <<-EOT
+    広告メディア配信バケット名（env `AD_MEDIA_BUCKET`）。`/api/ads/media` 受口が広告クリエイティブを保存し、
+    同一オリジン配信 Route `/ad-media/<key>` が GET する公開バケット（ADR-037 / modules/ad_media）。
+    空文字なら env を注入せず、受口は fail-close（502）= 安全。書込み権限（objectAdmin）は env 側で当該バケット
+    限定に付与する（ルール5 最小権限・ハードコード禁止）。
   EOT
   type        = string
   default     = ""

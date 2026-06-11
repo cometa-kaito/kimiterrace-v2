@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "fc21f81"
+  migrate_image_tag = "25587e3"
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "08e8ba5"
+  jobs_image_tag = "25587e3"
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -117,6 +117,10 @@ locals {
   # TV ポーリング共有シークレット（TV_POLL_SECRET）の Secret Manager secret ID（ルール5・値は別途投入）。
   # F15/ADR-022: /api/tv/config・/api/tv/lp-config の認証。未投入だと poll route は fail-closed(401)。
   tv_poll_secret_id = "staging-tv-poll-secret" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # ゼロダウンタイム鍵ローテの移行期だけ TV_POLL_SECRET_LEGACY に配線する staging-tv-poll-secret の旧版番号。
+  # ""（既定）= 単一キー運用。手順は prod/main.tf の同 local 参照（staging でのリハーサル用）。
+  tv_poll_secret_legacy_version = "" # gitleaks:allow（バージョン番号であり値ではない）
 
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
@@ -215,7 +219,13 @@ locals {
   # 6c85195: #243 ② 横断統一 — 効果コメント / teacher-input に共通の「考え中…」即時フィードバック（#751）。
   #          F06 チャットの未スタイルだった thinking も同 1 クラスで整える。8d8b8a1 を内包＋本変更。
   #          schema 変更なし（apps/web のみ）ゆえ migrate 不要。web:6c85195 を Cloud Build 済・AR push 済。
-  web_image_tag = "6c85195"
+  # ac37c9e: staging を最新 main に追従（6c85195 から多数の merge をまとめて反映）。主な内包: #783 /login
+  #          force-dynamic 化（s-maxage 退行修正）+ 共通PW下限6 / #785・#788 個別教員アカウント(系統B)撤去 /
+  #          #762-768 C方式 TV プロビジョニング。schema 変更なし（migrate 不要）。web:ac37c9e を Cloud Build・
+  #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
+  #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
+  #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
+  web_image_tag = "19ac171"
 }
 
 module "network" {
@@ -478,17 +488,18 @@ resource "google_project_service" "aiplatform" {
 }
 
 module "cloud_run" {
-  source                    = "../../modules/cloud_run"
-  project_id                = var.project_id
-  region                    = var.region
-  env                       = local.env
-  enabled                   = true
-  image                     = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
-  database_url_secret_id    = local.db_url_app_secret_id
-  tv_poll_secret_id         = local.tv_poll_secret_id
-  provision_agent_secret_id = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
-  vpc_connector             = module.network.vpc_connector_id
-  vertex_location           = var.region
+  source                        = "../../modules/cloud_run"
+  project_id                    = var.project_id
+  region                        = var.region
+  env                           = local.env
+  enabled                       = true
+  image                         = "${module.artifact_registry.image_repo_url}/web:${local.web_image_tag}"
+  database_url_secret_id        = local.db_url_app_secret_id
+  tv_poll_secret_id             = local.tv_poll_secret_id
+  tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
+  provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
+  vpc_connector                 = module.network.vpc_connector_id
+  vertex_location               = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
   # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
   # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。
@@ -502,6 +513,18 @@ module "cloud_run" {
   # v1 の app.school-signage.net は無傷（本番 cutover 時に同一 FQDN を流用しフィルタ再申請ゼロ）。
   # 校内 Wi-Fi 許可リスト外（校外・合成データでの検証用途）。
   custom_domain = "staging.school-signage.net"
+
+  # 広告メディア配信バケット（ADR-037）。受口 /api/ads/media が保存し /ad-media/<key> が GET する公開バケット。
+  ad_media_bucket = module.ad_media.bucket_name
+}
+
+# 広告メディアアップロード受口（/api/ads/media）が公開 ad-media バケットへ保存するための最小権限（#46/ADR-037）。
+# cloud_run の runtime SA に当該バケット限定で objectAdmin を付与（ルール5 最小権限）。公開 read は ad_media 側。
+resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
+  count  = module.ad_media.bucket_name != "" && module.cloud_run.runtime_service_account_email != null ? 1 : 0
+  bucket = module.ad_media.bucket_name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
 # F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
@@ -537,6 +560,23 @@ module "cloud_run_job_weather" {
   database_url_secret_id = local.db_url_app_secret_id
   vpc_connector          = module.network.vpc_connector_id
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-021）
+}
+
+# パターン2 鉄道運行情報取得 Job（名鉄スクレイピング、ADR-035）。5 分間隔。
+# PR6b は enabled=false（scaffold）。デプロイ時に jobs image を railway-status-job 同梱で build/push 後、
+# enabled=true へ flip して apply する（image が entry を含む前に Job を作らない）。
+module "cloud_run_job_railway_status" {
+  source                 = "../../modules/cloud_run_job_railway_status"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true  # 2026-06-11 有効化: jobs image 25587e3 同梱・staging デプロイ（ADR-035）
+  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/railway-status/railway-status-job.js"]
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
 }
 
 # F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。

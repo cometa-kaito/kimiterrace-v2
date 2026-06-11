@@ -1,7 +1,7 @@
 import { ackTvCommand } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
 import { getDb } from "../../../../../lib/db";
-import { getConfiguredTvPollSecret, verifyTvPollSecret } from "../../../../../lib/tv/poll-secret";
+import { getConfiguredTvPollSecret, verifyTvPollKey } from "../../../../../lib/tv/poll-secret";
 import { tvPollRateLimiter } from "../../../../../lib/tv/rate-limit";
 
 /**
@@ -59,7 +59,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   const url = new URL(request.url);
   const provided = url.searchParams.get("key") ?? request.headers.get("x-tv-key");
-  if (!verifyTvPollSecret(provided, expected)) {
+  if (!verifyTvPollKey(provided)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

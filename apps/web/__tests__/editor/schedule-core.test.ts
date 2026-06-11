@@ -80,4 +80,27 @@ describe("validateScheduleItems", () => {
   it("空配列は許可 (予定なし = 全削除)", () => {
     expect(validateScheduleItems([])).toEqual({ ok: true, value: [] });
   });
+
+  it("場所 / 対象者を任意で受理（trim・空文字は省略）", () => {
+    const r = validateScheduleItems([
+      { period: 1, subject: "体育", location: " 体育館 ", targetAudience: "3年生" },
+      { period: 2, subject: "数学", location: "", targetAudience: "" },
+    ]);
+    expect(r).toEqual({
+      ok: true,
+      value: [
+        { period: 1, subject: "体育", location: "体育館", targetAudience: "3年生" },
+        { period: 2, subject: "数学" },
+      ],
+    });
+  });
+
+  it("場所 / 対象者が長すぎる（51 文字）は拒否", () => {
+    expect(validateScheduleItems([{ period: 1, subject: "x", location: "あ".repeat(51) }]).ok).toBe(
+      false,
+    );
+    expect(
+      validateScheduleItems([{ period: 1, subject: "x", targetAudience: "あ".repeat(51) }]).ok,
+    ).toBe(false);
+  });
 });

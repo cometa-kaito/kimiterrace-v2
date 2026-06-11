@@ -1,10 +1,15 @@
 import { hashToken } from "@/lib/magic-link/token";
 import {
+  type ClassVisitor,
   type EffectiveAd,
   type SignageClassContext,
+  type StudentCallout,
   type TenantTx,
+  getCalloutsForClass,
   getEffectiveAdsForClass,
   getSignageClassContext,
+  getTodayPresenceCount,
+  getVisitorsForClass,
   resolveMagicLink,
   withTenantContext,
 } from "@kimiterrace/db";
@@ -15,8 +20,13 @@ import {
   getEffectiveDailyData,
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
+import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
 import { signageScheduleDates } from "./rotation";
-import { type SignageDesignPattern, getSignageDesignPattern } from "./signage-design";
+import {
+  type SignageDesignPattern,
+  getSignageDesignPattern,
+  isSignageDesignPattern,
+} from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
 
 /**
@@ -85,6 +95,30 @@ export type SignagePayload = {
    * ヘッダーの時刻横に表示する。階層モードにより学科・学年は null になりうる。RLS で自校に限定。
    */
   classContext: SignageClassContext;
+  /**
+   * パターン2「人感センサカウンタ」用、このクラスの**本日（JST）の presence 検知件数**（PIR 人感センサーの
+   * 検知回数）。pattern1 は使わない。センサー未設置・検知ゼロは `0`、取得失敗は `null`（ウィジェットは
+   * 「計測なし」表示＝fail-soft、盤面を壊さない）。
+   */
+  presenceCount: number | null;
+  /**
+   * パターン2「来校者一覧」用、このクラスの**当日（JST）の来校者**（時刻順）。pattern1 は使わない。来校者
+   * 無し・取得失敗はともに空/`null`（ウィジェットは「本日の来校者はありません」表示＝fail-soft）。氏名は
+   * 当該クラスの端末にのみ表示され RLS で自校スコープ（class-visitors schema の「個人情報について」参照）。
+   */
+  visitors: ClassVisitor[] | null;
+  /**
+   * パターン2「生徒呼び出し」用、このクラスの**当日（JST）の呼び出し**（時刻順）。pattern1 は使わない。
+   * 呼び出し無し・取得失敗はともに空/`null`（ウィジェットは「呼び出しはありません」表示＝fail-soft）。
+   * 生徒氏名はフルネームで当該クラス端末にのみ表示され RLS で自校スコープ・**Vertex 非送信**（ADR-034）。
+   */
+  callouts: StudentCallout[] | null;
+  /**
+   * パターン2「鉄道」用、対象事業者（当面=名鉄/笠松駅）の運行情報。pattern1 は使わない。**端末は閉域**で、
+   * バックエンド取得 Job が `railway_status` にキャッシュした行を読むだけ（名鉄サイト直叩きしない・ADR-035）。
+   * キャッシュ無し・取得失敗は `null`（ウィジェットは「運行情報は取得できていません」表示＝fail-soft）。
+   */
+  trainStatus: SignageRailwayStatus | null;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -108,6 +142,7 @@ async function resolveSignageClass(
 export async function getSignageDisplayData(
   classToken: string,
   date: string,
+  designParam?: unknown,
 ): Promise<SignagePayload | null> {
   const cls = await resolveSignageClass(classToken);
   if (!cls) {
@@ -132,12 +167,31 @@ export async function getSignageDisplayData(
     // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    // 学校別デザインパターン（school_configs display_settings.signageDesign）。未設定は既定 pattern1。
+    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
+    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
+    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
+    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
     // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
-    const designPattern = await getSignageDesignPattern(tx);
+    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+      ? designParam
+      : await getSignageDesignPattern(tx);
     // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
     // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
     const classContext = await getSignageClassContext(tx, cls.classId);
+    // パターン2「人感センサカウンタ」: このクラスの本日(JST=`date`)の presence 検知件数。同一 tx・RLS
+    // 自校限定（ルール2）。pattern2 でのみ使うが、payload は両パターン共通なので常に解決する。取得失敗は
+    // **fail-soft** で null に倒し、ウィジェットは「計測なし」表示にする（盤面の他要素は壊さない）。
+    const presenceCount = await getTodayPresenceCount(tx, cls.classId, date).catch(() => null);
+    // パターン2「来校者一覧」: このクラスの当日(JST=`date`)の来校者を時刻順で取得。同一 tx・RLS 自校限定
+    // （ルール2）。pattern2 でのみ使うが payload は両パターン共通なので常に解決。取得失敗は fail-soft で
+    // null に倒し、ウィジェットは「来校者はありません」表示にする（盤面の他要素は壊さない）。
+    const visitors = await getVisitorsForClass(tx, cls.classId, date).catch(() => null);
+    // パターン2「生徒呼び出し」: このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。同一 tx・RLS 自校限定
+    // （ルール2）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。取得失敗は fail-soft で null。
+    const callouts = await getCalloutsForClass(tx, cls.classId, date).catch(() => null);
+    // パターン2「鉄道」: 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は
+    // 閉域（名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。取得失敗は fail-soft で null。
+    const trainStatus = await getSignageRailwayStatus(tx).catch(() => null);
     return {
       date,
       designPattern,
@@ -146,6 +200,10 @@ export async function getSignageDisplayData(
       ads,
       weather,
       classContext,
+      presenceCount,
+      visitors,
+      callouts,
+      trainStatus,
     } satisfies SignagePayload;
   });
 }

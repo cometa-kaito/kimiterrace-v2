@@ -4,8 +4,8 @@
 
 ## 構成
 
-- `deployment.md` — 通常デプロイ手順
-- `rollback.md` — 切り戻し手順
+- **`web-deploy.md` — web の日常コードデプロイ手順（routine code deploy）。新セッションでデプロイを頼まれたらまずこれ。実体は `scripts/deploy/deploy-web.sh`**
+- `rollback.md` — 切り戻し手順（web の戻しは web-deploy.md「ロールバック」に集約）
 - `data-migration.md` — Firestore → PostgreSQL データ移行
 - `db-migrations.md` — DB スキーマ/RLS マイグレーション適用（SECURITY DEFINER オーナー固定）
 - `dependency-upgrades.md` — dependabot bump の安全な取り込み（minimumReleaseAge / チョークポイント / 統合）
