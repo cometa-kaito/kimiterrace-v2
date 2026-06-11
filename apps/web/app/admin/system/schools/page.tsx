@@ -1,9 +1,16 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
+import { SCHOOL_SORT_KEYS, listSchoolsPage } from "@/lib/system-admin/school-list";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
-import { listSchools } from "@kimiterrace/db";
 import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
+import { DataListControls } from "../../_components/datalist/DataListControls";
+import { DataTable } from "../../_components/datalist/DataTable";
+import { PaginationNav } from "../../_components/datalist/PaginationNav";
+import { type RawSearchParams, parseListParams } from "../../_components/datalist/list-params";
+
+const { color, fontSize, space } = tokens;
 
 /** 階層モードの表示ラベル (一覧の列)。enum 値を網羅 (型でズレ検出、ルール3)。 */
 const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
@@ -11,70 +18,89 @@ const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
   department: "学科制",
 };
 
+const BASE_PATH = "/admin/system/schools";
+
 /**
- * #48-L (#123): システム管理者の学校一覧 (`/admin/system/schools`)。**Server Component**。
+ * #48-L (#123) / UIUX-03 PR1: システム管理者の学校一覧 (`/admin/system/schools`)。**Server Component**。
  *
- * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
- * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に限定する。横断 (全校) マスタの閲覧は
- * system_admin 専用で、school_admin / teacher は 403 (`/forbidden`)。
- *
- * `withSession` で RLS context を張り `listSchools` を呼ぶ。可視範囲は schools の RLS が決め
- * (system_admin=全校 / それ以外=自校のみ)、本ページは system_admin 専用なので全校が並ぶ。
- * 各行は校名から詳細 (`/admin/system/schools/{id}`、#48-L2) / 「編集」から編集
- * (`/admin/system/schools/{id}/edit`、#48-L1) に遷移できる。create/delete は follow-up。
+ * 共通 DataList 基盤 (検索 / 列ソート / 階層モードフィルタ / 登録日範囲 / ページング) の最初の
+ * 適用例。データ取得は `listSchoolsPage` (apps/web/lib) がサーバーサイドで絞り込み、全件スキャン
+ * をやめる。**認可**: `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ)、可視範囲は RLS。
  */
-export default async function SystemSchoolsPage() {
+export default async function SystemSchoolsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   await requireRole(SYSTEM_ADMIN_ROLES);
-  const schools = await withSession((tx) => listSchools(tx));
+  const params = parseListParams(await searchParams, {
+    sortKeys: SCHOOL_SORT_KEYS,
+    defaultSort: "prefecture",
+    defaultDir: "asc",
+    filterKeys: ["mode"],
+  });
+  const { rows, total } = await withSession((tx) => listSchoolsPage(tx, params));
 
   return (
     <section>
       <header style={headerStyle}>
         <h1 style={titleStyle}>学校一覧</h1>
         <div style={headerRightStyle}>
-          <span style={countStyle}>{schools.length} 校</span>
+          <span style={countStyle}>{total} 校</span>
           <Link href="/admin/system/schools/new" style={newLinkStyle}>
             ＋ 新規登録
           </Link>
         </div>
       </header>
 
-      {schools.length === 0 ? (
-        <p style={emptyStyle}>登録されている学校がありません。</p>
-      ) : (
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>都道府県</th>
-              <th style={thStyle}>学校名</th>
-              <th style={thStyle}>学校コード</th>
-              <th style={thStyle}>階層モード</th>
-              <th style={thStyle}>登録日</th>
-              <th style={thStyle} />
-            </tr>
-          </thead>
-          <tbody>
-            {schools.map((s) => (
-              <tr key={s.id}>
-                <td style={tdStyle}>{s.prefecture}</td>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>
-                  <Link href={`/admin/system/schools/${s.id}`} style={nameLinkStyle}>
-                    {s.name}
-                  </Link>
-                </td>
-                <td style={tdStyle}>{s.code ?? "—"}</td>
-                <td style={tdStyle}>{HIERARCHY_MODE_LABEL[s.hierarchyMode]}</td>
-                <td style={tdStyle}>{formatJstDate(s.createdAt)}</td>
-                <td style={tdStyle}>
-                  <Link href={`/admin/system/schools/${s.id}/edit`} style={editLinkStyle}>
-                    編集
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <DataListControls
+        basePath={BASE_PATH}
+        params={params}
+        searchPlaceholder="校名・学校コード・都道府県"
+        selects={[
+          {
+            name: "mode",
+            label: "階層モード",
+            options: [
+              { value: "class", label: HIERARCHY_MODE_LABEL.class },
+              { value: "department", label: HIERARCHY_MODE_LABEL.department },
+            ],
+          },
+        ]}
+        dateRange
+        dateRangeLabel="登録日"
+      />
+
+      <DataTable
+        basePath={BASE_PATH}
+        params={params}
+        empty="条件に合う学校がありません。"
+        columns={[
+          { key: "prefecture", label: "都道府県", sortable: true },
+          { key: "name", label: "学校名", sortable: true },
+          { key: "code", label: "学校コード", sortable: true },
+          { key: "hierarchyMode", label: "階層モード" },
+          { key: "createdAt", label: "登録日", sortable: true },
+          { key: "actions", label: "" },
+        ]}
+        rows={rows.map((s) => ({
+          key: s.id,
+          cells: [
+            s.prefecture,
+            <Link key="name" href={`/admin/system/schools/${s.id}`} style={nameLinkStyle}>
+              <strong>{s.name}</strong>
+            </Link>,
+            s.code ?? "—",
+            HIERARCHY_MODE_LABEL[s.hierarchyMode],
+            formatJstDate(s.createdAt),
+            <Link key="edit" href={`/admin/system/schools/${s.id}/edit`} style={editLinkStyle}>
+              編集
+            </Link>,
+          ],
+        }))}
+      />
+
+      <PaginationNav basePath={BASE_PATH} params={params} total={total} />
     </section>
   );
 }
@@ -93,36 +119,22 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
-  marginBottom: "1rem",
+  marginBottom: space.md,
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700 };
-const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const countStyle: React.CSSProperties = { fontSize: fontSize.sm, color: color.muted };
 const headerRightStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "1rem",
+  gap: space.lg,
 };
 const newLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
+  fontSize: fontSize.sm,
   color: "#fff",
-  background: "#1d4ed8",
+  background: color.primary,
   padding: "0.4rem 0.9rem",
   borderRadius: "6px",
   textDecoration: "none",
 };
-const emptyStyle: React.CSSProperties = { color: "#6b7280" };
-const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  padding: "0.4rem 0.6rem",
-  borderBottom: "1px solid #e5e7eb",
-};
-const tdStyle: React.CSSProperties = {
-  padding: "0.5rem 0.6rem",
-  borderBottom: "1px solid #f3f4f6",
-  fontSize: "0.9rem",
-};
-const editLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.85rem" };
-const nameLinkStyle: React.CSSProperties = { color: "#1f2937", textDecoration: "none" };
+const editLinkStyle: React.CSSProperties = { color: color.primary, fontSize: fontSize.sm };
+const nameLinkStyle: React.CSSProperties = { color: color.ink, textDecoration: "none" };
