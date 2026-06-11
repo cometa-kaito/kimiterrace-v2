@@ -3,7 +3,13 @@ import { withSession } from "@/lib/db";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import { getSchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import type { GradeView } from "@/lib/school-admin/hub-queries";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { LAST_CLASS_COOKIE } from "./[classId]/_components/RememberLastClass";
+
+const { color, fontSize, radius } = tokens;
 
 /**
  * エディタ着地 (#48-H)。編集する **範囲** を **階層ツリー（学校全体 → 学科 → 学年 → クラス）** で選ぶ。
@@ -19,7 +25,11 @@ import Link from "next/link";
  * 個別入力が無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、
  * `effective-daily-data.ts`）。
  */
-export default async function EditorIndexPage() {
+export default async function EditorIndexPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ stay?: string }>;
+}) {
   const user = await requireRole(EDITOR_ROLES);
   const hierarchy = await withSession((tx) => getSchoolHierarchy(tx));
   const { departments, grades } = hierarchy;
@@ -27,9 +37,33 @@ export default async function EditorIndexPage() {
   const orphanGrades = grades.filter((g) => !g.departmentId);
   const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0);
 
+  // UIUX-02 ホップ削減①: 編集できるクラスが 1 つだけの teacher は選択画面を飛ばして直行する。
+  // school_admin は共通（scope）編集も使うため自動遷移しない。クラス画面の「戻る」は ?stay=1 で
+  // 本ページに留まれる（自動遷移とのループ防止）。
+  const allClasses = grades.flatMap((g) => g.classes.map((c) => ({ ...c, gradeName: g.name })));
+  const { stay } = await searchParams;
+  const onlyClass = allClasses.length === 1 ? allClasses[0] : undefined;
+  if (user.role === "teacher" && onlyClass && stay !== "1") {
+    redirect(`/admin/editor/${onlyClass.id}`);
+  }
+
+  // UIUX-02 ホップ削減②: 最後に開いたクラス（cookie）を RLS スコープ済みの自校階層と突合し、
+  // 実在するときだけ「前回のクラスを再開」を最上位に出す（失効/他校の値は無視）。
+  const lastClassId = (await cookies()).get(LAST_CLASS_COOKIE)?.value;
+  const lastClass = lastClassId ? (allClasses.find((c) => c.id === lastClassId) ?? null) : null;
+
   return (
     <div style={{ maxWidth: "760px" }}>
       <h1 style={{ fontSize: "1.4rem", marginBottom: "0.5rem" }}>エディタ — 編集する範囲を選ぶ</h1>
+
+      {lastClass ? (
+        <p style={{ margin: "0 0 1rem" }}>
+          <Link href={`/admin/editor/${lastClass.id}`} style={resumeBtnStyle}>
+            <span aria-hidden="true">▶</span> 前回のクラスを再開 — {lastClass.gradeName}{" "}
+            {lastClass.name}
+          </Link>
+        </p>
+      ) : null}
 
       {/* 範囲の概念を最初に説明（分かりにくさの主因＝何を選べばよいか不明）。 */}
       <div style={explainStyle}>
@@ -45,7 +79,7 @@ export default async function EditorIndexPage() {
             <strong>全クラスに共通</strong>で表示
           </li>
         </ul>
-        <p style={{ margin: "0.4rem 0 0", color: "#6b7280", fontSize: "0.82rem" }}>
+        <p style={{ margin: "0.4rem 0 0", color: color.muted, fontSize: fontSize.xs }}>
           クラスに個別の入力があれば、共通より優先されます（優先順位: クラス ＞ 学年 ＞ 学科 ＞
           学校全体）。
         </p>
@@ -145,13 +179,13 @@ function GradeGroups({ grades }: { grades: GradeView[] }) {
 }
 
 const explainStyle: React.CSSProperties = {
-  border: "1px solid #bfdbfe",
-  background: "#eff6ff",
+  border: `1px solid ${color.infoBorder}`,
+  background: color.infoBg,
   borderRadius: "10px",
   padding: "0.75rem 1rem",
   marginBottom: "1rem",
   fontSize: "0.9rem",
-  color: "#1f2937",
+  color: color.ink,
 };
 const explainListStyle: React.CSSProperties = {
   margin: 0,
@@ -164,7 +198,7 @@ const classDot: React.CSSProperties = {
   width: "0.7rem",
   height: "0.7rem",
   borderRadius: "3px",
-  border: "1px solid #d1d5db",
+  border: `1px solid ${color.border}`,
   background: "#fff",
   verticalAlign: "middle",
 };
@@ -173,21 +207,25 @@ const scopeDot: React.CSSProperties = {
   width: "0.7rem",
   height: "0.7rem",
   borderRadius: "3px",
-  border: "1px solid #93c5fd",
-  background: "#dbeafe",
+  border: `1px solid ${color.infoBorder}`,
+  background: color.infoBg,
   verticalAlign: "middle",
 };
-const mutedStyle: React.CSSProperties = { color: "#6b7280" };
-const mutedSmallStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "0.85rem", margin: 0 };
+const mutedStyle: React.CSSProperties = { color: color.muted };
+const mutedSmallStyle: React.CSSProperties = {
+  color: color.muted,
+  fontSize: fontSize.sm,
+  margin: 0,
+};
 const deptCardStyle: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
+  border: `1px solid ${color.border}`,
   borderRadius: "10px",
   padding: "1rem",
 };
 const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
 const gradeTitleStyle: React.CSSProperties = {
-  fontSize: "0.95rem",
-  color: "#374151",
+  fontSize: fontSize.md,
+  color: color.neutralFg,
   margin: 0,
 };
 const headerRowStyle: React.CSSProperties = {
@@ -198,16 +236,32 @@ const headerRowStyle: React.CSSProperties = {
   marginBottom: "0.5rem",
   flexWrap: "wrap",
 };
-// 「共通（全体）」編集ボタン: クラスの白チップと明確に区別する青いピル。
+// 「前回のクラスを再開」: 最頻アクションなのでブランドのアクション色で最も目立たせる（タップ 48px）。
+const resumeBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  minHeight: "48px",
+  padding: "0.6rem 1.2rem",
+  background: color.primary,
+  color: "#fff",
+  borderRadius: radius.md,
+  fontSize: "1rem",
+  fontWeight: 700,
+  textDecoration: "none",
+};
+// 「共通（全体）」編集ボタン: クラスの白チップと明確に区別する青いピル（文字はブランドブルー）。
+// タブレット/タッチ前提で最小 44px のタップ領域を確保する（UIUX-02）。
 const scopeBtnStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.35rem",
+  minHeight: "44px",
   padding: "0.45rem 0.9rem",
-  border: "1px solid #93c5fd",
-  borderRadius: "999px",
-  background: "#dbeafe",
-  color: "#1d4ed8",
+  border: `1px solid ${color.infoBorder}`,
+  borderRadius: radius.pill,
+  background: color.infoBg,
+  color: color.blueStrong,
   fontSize: "0.9rem",
   fontWeight: 600,
   textDecoration: "none",
@@ -215,10 +269,10 @@ const scopeBtnStyle: React.CSSProperties = {
 };
 const scopeBtnSmallStyle: React.CSSProperties = {
   ...scopeBtnStyle,
-  padding: "0.25rem 0.7rem",
-  fontSize: "0.8rem",
+  padding: "0.35rem 0.8rem",
+  fontSize: fontSize.sm,
 };
-const classGroupLabel: React.CSSProperties = { fontSize: "0.8rem", color: "#6b7280" };
+const classGroupLabel: React.CSSProperties = { fontSize: fontSize.sm, color: color.muted };
 const classListStyle: React.CSSProperties = {
   listStyle: "none",
   margin: 0,
@@ -231,11 +285,13 @@ const classLinkStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.5rem",
-  padding: "0.5rem 0.9rem",
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
+  minHeight: "44px",
+  padding: "0.5rem 1rem",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
   textDecoration: "none",
-  color: "#1f2937",
+  color: color.ink,
   background: "#fff",
+  fontSize: "1rem",
 };
-const classMetaStyle: React.CSSProperties = { color: "#9ca3af", fontSize: "0.78rem" };
+const classMetaStyle: React.CSSProperties = { color: color.muted, fontSize: fontSize.xs };

@@ -69,9 +69,12 @@ function renderPanel(existingNotices: { text: string; isHighlight?: boolean }[] 
   );
 }
 
-/** パネルを開いてメモを入力し「AIで連絡を作る」を押す（user-event は未導入ゆえ fireEvent）。 */
+/** パネルを開いてメモを入力し「AIで連絡を作る」を押す（user-event は未導入ゆえ fireEvent）。
+ * UIUX-02 で既定タブが「おまかせ」に変わったため、連絡ストリーミング UI を出すには
+ * まず「連絡」タブへ切り替える（旧既定=連絡を前提にした手順を新既定に追従させた・本体挙動は不変）。 */
 function openAndGenerate(memo = "明日は短縮授業") {
   fireEvent.click(screen.getByRole("button", { name: "AIアシスタントを開く" }));
+  fireEvent.click(screen.getByRole("tab", { name: "連絡" }));
   fireEvent.change(screen.getByPlaceholderText(/短縮授業/), { target: { value: memo } });
   fireEvent.click(screen.getByRole("button", { name: "AIで連絡を作る" }));
 }
@@ -85,6 +88,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("EditorAssistant（ストリーミング・カード UI）", () => {
+  // UIUX-02（AI 前面化）: 既定タブを「おまかせ」先頭に変更した回帰を pin する。
+  // 旧既定は「連絡」。パネルを開いた瞬間に選択されるのが「おまかせ」であることを固定する
+  // （Reviewer: 旧既定 pin テストは削除でなく新既定へ更新する方針 / STAGING-HANDOFF-uiux-02）。
+  it("既定タブは「おまかせ」（先頭・選択済み）で、連絡ストリーミング UI は既定では出さない", () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "AIアシスタントを開く" }));
+
+    const omakase = screen.getByRole("tab", { name: "おまかせ" });
+    const renraku = screen.getByRole("tab", { name: "連絡" });
+    expect(omakase).toHaveAttribute("aria-selected", "true");
+    expect(renraku).toHaveAttribute("aria-selected", "false");
+    // 既定（おまかせ）では連絡ストリーミングの入口（プレースホルダ/ボタン）は描画されない。
+    expect(screen.queryByPlaceholderText(/短縮授業/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "AIで連絡を作る" })).not.toBeInTheDocument();
+  });
+
   it("生成すると連絡が 1 件ずつカードに反映される", async () => {
     h.streamNoticeDraft.mockReturnValue(
       gen([
