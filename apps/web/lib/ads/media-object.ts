@@ -57,3 +57,26 @@ export function isValidAdMediaKey(key: unknown): key is string {
 export function adMediaServingPath(key: string): string {
   return `/ad-media/${key}`;
 }
+
+/**
+ * アップロード保存先のオブジェクトキーを組み立てる: `ads/<schoolId>/<objectId>.<ext>`。
+ *
+ * - **per-school prefix**: `schoolId` を第1階層に置き（upload_storage と同規律）、将来 IAM condition で
+ *   prefix 単位の境界を張れる土台にする。`schoolId` はサーバ（セッション）由来で client は渡さない。
+ * - **objectId はサーバ生成 UUID**、**ext は検証済み MIME 由来**（クライアントのファイル名を path に使わない
+ *   = path traversal 防止）。生成キーは必ず {@link isValidAdMediaKey} を満たす。
+ *
+ * @throws RangeError 各要素が空、または `/`・`.` 等の区切りを含むとき（prefix 境界を跨ぐ injection を防ぐ）。
+ */
+export function buildAdMediaObjectKey(schoolId: string, objectId: string, ext: string): string {
+  if (!schoolId || schoolId.includes("/")) {
+    throw new RangeError("buildAdMediaObjectKey: schoolId が不正");
+  }
+  if (!objectId || objectId.includes("/")) {
+    throw new RangeError("buildAdMediaObjectKey: objectId が不正");
+  }
+  if (!ext || ext.includes("/") || ext.includes(".")) {
+    throw new RangeError("buildAdMediaObjectKey: ext が不正");
+  }
+  return `${AD_MEDIA_OBJECT_PREFIX}/${schoolId}/${objectId}.${ext}`;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AD_MEDIA_OBJECT_PREFIX,
   adMediaServingPath,
+  buildAdMediaObjectKey,
   isValidAdMediaKey,
 } from "../../lib/ads/media-object";
 
@@ -54,5 +55,29 @@ describe("isValidAdMediaKey", () => {
 describe("adMediaServingPath", () => {
   it("キーを同一オリジン配信パス /ad-media/<key> に変換する", () => {
     expect(adMediaServingPath("ads/abc/def.png")).toBe("/ad-media/ads/abc/def.png");
+  });
+});
+
+describe("buildAdMediaObjectKey", () => {
+  const SCHOOL = "22222222-2222-2222-2222-222222222222";
+  const OBJ = "33333333-3333-3333-3333-333333333333";
+
+  it("ads/<schoolId>/<objectId>.<ext> を組み立て、生成キーは isValidAdMediaKey を満たす", () => {
+    const key = buildAdMediaObjectKey(SCHOOL, OBJ, "png");
+    expect(key).toBe(`ads/${SCHOOL}/${OBJ}.png`);
+    expect(isValidAdMediaKey(key)).toBe(true);
+  });
+
+  it("各要素に区切り文字が混入すると RangeError（prefix 境界跨ぎを防ぐ）", () => {
+    expect(() => buildAdMediaObjectKey("a/b", OBJ, "png")).toThrow(RangeError);
+    expect(() => buildAdMediaObjectKey(SCHOOL, "a/b", "png")).toThrow(RangeError);
+    expect(() => buildAdMediaObjectKey(SCHOOL, OBJ, "p/g")).toThrow(RangeError);
+    expect(() => buildAdMediaObjectKey(SCHOOL, OBJ, "pn.g")).toThrow(RangeError);
+  });
+
+  it("空要素は RangeError", () => {
+    expect(() => buildAdMediaObjectKey("", OBJ, "png")).toThrow(RangeError);
+    expect(() => buildAdMediaObjectKey(SCHOOL, "", "png")).toThrow(RangeError);
+    expect(() => buildAdMediaObjectKey(SCHOOL, OBJ, "")).toThrow(RangeError);
   });
 });
