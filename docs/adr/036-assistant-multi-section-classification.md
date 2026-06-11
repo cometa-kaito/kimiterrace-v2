@@ -17,7 +17,7 @@
 
 ## 決定
 
-1. **分類は単一の AI 呼び出しで 3 配列を返す**。新 system プロンプト `ALL_ASSIST_SYSTEM` が `{"schedules":[...],"notices":[...],"assignments":[...]}` を出力する。**PII マスク/soft-gate/レート/監査の単一パイプライン（`runSectionDraft` を spec 駆動に一般化した `runDraft`）を予定/連絡/提出物/おまかせの 4 経路で共有**する（セキュリティ不変条件を 1 か所に保つ、ルール4）。`assistDraftAllAction` / `assistDraftAllFromFileAction` を追加。
+1. **分類は単一の AI 呼び出しで 3 配列を返す**。新 system プロンプト `ALL_ASSIST_SYSTEM` が `{"schedules":[...],"notices":[...],"assignments":[...]}` を出力する。**PII マスク/soft-gate/レート/監査の単一パイプライン（`runSectionDraft` を spec 駆動 = `DraftSpec` に一般化）を予定/連絡/提出物/おまかせの 4 経路で共有**する（セキュリティ不変条件を 1 か所に保つ、ルール4）。`assistDraftAllAction` / `assistDraftAllFromFileAction` を追加。
 2. **分類の最終確定は人間**。AI 出力は採用前にカードでその場編集可（可逆プレビュー, ADR-033）。各セクションの最終検証は既存 `validate*Items`（period 1..12・重複, deadline 実在日付）が強制する。プロンプトは「period が判別できない事項は予定に入れず連絡へ」「締切を計算できない課題は作らない」と誘導し、**確信が持てない/必須フィールドが欠ける項目は notices に寄せるか省く**（捏造禁止）。
 3. **保存は per-section を順に実行し、原子性は求めない**。採用反映は section ごとに「既存 + 採用分」で該当 save action を呼ぶ（採用 0 件の section はスキップ）。**1 つが失敗しても成功済みは巻き戻さない**（各 section は独立カラムの upsert ＝ 冪等で、再実行で復旧可能）。UI はどの section が成功/失敗したかを明示する。理由: 跨りトランザクションを新設するコスト > 便益。daily_data の section は独立で、部分適用しても他 section を壊さない。
 4. **PII override は入力（リクエスト）単位**。soft-gate は分類入力全体に効き、override（`acknowledgePii`）は per-request（per-item ではない）。セクション別モードと同一。
@@ -34,4 +34,4 @@
 
 - 良い影響: 「話すだけで予定・連絡・提出物が埋まる」最小工数 UX。PII/監査は 4 経路で単一パイプライン共有（divergence リスク減）。誤分類は採用前編集 + セクション別タブで吸収。
 - トレードオフ: 分類精度は Vertex Gemini 依存でユニットは mock 検証に留まり、実精度は staging（AI_ENABLED=true）で要検証（[[ref_idp_password_floor_and_login_static_cache]] と同様、実挙動は live 依存）。部分保存失敗時に「一部だけ反映済み」状態が起こりうる（明示報告 + 冪等再実行で緩和）。
-- 実装分割: **PR-6a**=本 ADR + 分類バックエンド（`runDraft` 一般化 + ALL 経路 + テスト）、**PR-6b**=統合 UI（おまかせタブ + 3 セクションカード + per-section 保存 + 部分失敗表示 + テスト）。各 ≤500 行・緑で段階導入（ADR-033 §7 と同方針）。
+- 実装分割: **PR-6a**=本 ADR + 分類バックエンド（`runSectionDraft` の spec 駆動一般化 + ALL 経路 + テスト）、**PR-6b**=統合 UI（おまかせタブ + 3 セクションカード + per-section 保存 + 部分失敗表示 + テスト）。各 ≤500 行・緑で段階導入（ADR-033 §7 と同方針）。
