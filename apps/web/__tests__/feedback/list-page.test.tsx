@@ -43,7 +43,7 @@ describe("SystemFeedbackPage 認可配線", () => {
       schoolId: null,
     } as never);
 
-    await SystemFeedbackPage();
+    await SystemFeedbackPage({ searchParams: Promise.resolve({}) });
 
     expect(requireRoleMock).toHaveBeenCalledWith(SYSTEM_ADMIN_ROLES);
     expect(listFeedbackMock).toHaveBeenCalledTimes(1);
@@ -52,7 +52,9 @@ describe("SystemFeedbackPage 認可配線", () => {
   it("非 system_admin は requireRole が弾く (redirect 相当の throw) → DB に到達しない", async () => {
     requireRoleMock.mockRejectedValue(new Error("NEXT_REDIRECT /forbidden"));
 
-    await expect(SystemFeedbackPage()).rejects.toThrow(/NEXT_REDIRECT/);
+    await expect(SystemFeedbackPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
+      /NEXT_REDIRECT/,
+    );
     expect(withSessionMock).not.toHaveBeenCalled();
     expect(listFeedbackMock).not.toHaveBeenCalled();
   });

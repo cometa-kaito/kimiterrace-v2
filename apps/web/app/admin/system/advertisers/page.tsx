@@ -1,30 +1,49 @@
 import { requireRole } from "@/lib/auth/guard";
+import { withSession } from "@/lib/db";
+import { ADVERTISER_SORT_KEYS, listAdvertisersPage } from "@/lib/system-admin/advertiser-list";
 import {
   ADVERTISER_STATUS_LABEL,
+  ADVERTISER_STATUS_ORDER,
   type AdvertiserStatus,
 } from "@/lib/system-admin/advertisers-core";
-import { listAdvertisers } from "@/lib/system-admin/advertisers-queries";
-import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
+import { DataListControls } from "../../_components/datalist/DataListControls";
+import { DataTable } from "../../_components/datalist/DataTable";
+import { PaginationNav } from "../../_components/datalist/PaginationNav";
+import { type RawSearchParams, parseListParams } from "../../_components/datalist/list-params";
 import { AdvertiserActiveToggle } from "./_components/AdvertiserActiveToggle";
 
+const { color, fontSize, radius, space } = tokens;
+
+const BASE_PATH = "/admin/system/advertisers";
+
 /**
- * F10 (#46): システム管理者の広告主一覧 (`/admin/system/advertisers`)。**Server Component**。
+ * F10 (#46) / UIUX-03: システム管理者の広告主一覧 (`/admin/system/advertisers`)。**Server Component**。
+ *
+ * UIUX-03 で共通 DataList 基盤 (検索 / 列ソート / ステータスフィルタ / 登録日範囲 / ページング) を
+ * 適用し、データ取得は `listAdvertisersPage` (apps/web/lib) がサーバーサイドで絞り込む (全件スキャン
+ * 廃止)。各行の操作 (稼働トグル / 広告 / 編集) と新規登録導線は従来どおり。
  *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え `requireRole(SYSTEM_ADMIN_ROLES)`
  * (system_admin のみ)。広告主マスタ (CRM) は cross-tenant の横断データで system_admin 専用、
- * school_admin / teacher は 403 (`/forbidden`)。`withSession` の RLS context 下で `listAdvertisers` を
- * 呼ぶ — 可視範囲は advertisers の RLS (`system_admin_full_access`) が決める。
- *
- * 本スライス (#46 第1弾) は**一覧の閲覧のみ**。新規登録 / 詳細 / 編集 (契約・コミュニケーション含む)
- * は follow-up に切り出す。サイドナビ (`lib/nav.ts`) への導線追加は、同ファイルを編集中の F08 (#264)
- * と衝突するため #264 land 後の follow-up とする (本ページは URL 直アクセスで到達可)。
+ * school_admin / teacher は 403 (`/forbidden`)。`withSession` の RLS context 下で `listAdvertisersPage`
+ * を呼ぶ — 可視範囲は advertisers の RLS (`system_admin_full_access`) が決める (ルール2)。
  */
-export default async function SystemAdvertisersPage() {
+export default async function SystemAdvertisersPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   await requireRole(SYSTEM_ADMIN_ROLES);
-  const advertisers = await withSession((tx) => listAdvertisers(tx));
-  const activeCount = advertisers.filter((a) => a.isActive).length;
+  const params = parseListParams(await searchParams, {
+    sortKeys: ADVERTISER_SORT_KEYS,
+    defaultSort: "companyName",
+    defaultDir: "asc",
+    filterKeys: ["status"],
+  });
+  const { rows, total, activeTotal } = await withSession((tx) => listAdvertisersPage(tx, params));
 
   return (
     <section>
@@ -32,7 +51,7 @@ export default async function SystemAdvertisersPage() {
         <h1 style={titleStyle}>広告主一覧</h1>
         <div style={headerRightStyle}>
           <span style={countStyle}>
-            稼働 {activeCount} / 全 {advertisers.length} 社
+            稼働 {activeTotal} / 全 {total} 社
           </span>
           <Link href="/admin/system/advertisers/new" style={newLinkStyle}>
             ＋ 新規登録
@@ -40,53 +59,66 @@ export default async function SystemAdvertisersPage() {
         </div>
       </header>
 
-      {advertisers.length === 0 ? (
-        <p style={emptyStyle}>登録されている広告主がありません。</p>
-      ) : (
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>会社名</th>
-              <th style={thStyle}>業種</th>
-              <th style={thStyle}>担当連絡先</th>
-              <th style={thStyle}>状態</th>
-              <th style={thStyle}>登録日</th>
-              <th style={thStyle}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {advertisers.map((a) => (
-              <tr key={a.id}>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>{a.companyName}</td>
-                <td style={tdStyle}>{a.industry ?? "—"}</td>
-                <td style={tdStyle}>{a.contactEmail ?? "—"}</td>
-                <td style={tdStyle}>
-                  <span style={statusCellStyle}>
-                    <StatusBadge status={a.status} />
-                    <AdvertiserActiveToggle
-                      advertiserId={a.id}
-                      isActive={a.isActive}
-                      companyName={a.companyName}
-                    />
-                  </span>
-                </td>
-                <td style={tdStyle}>{formatJstDate(a.createdAt)}</td>
-                <td style={tdStyle}>
-                  <span style={{ display: "inline-flex", gap: "0.75rem" }}>
-                    {/* #46 運営側広告 CRM: この広告主の広告を入稿・管理する導線。 */}
-                    <Link href={`/admin/system/advertisers/${a.id}/ads`} style={editLinkStyle}>
-                      広告
-                    </Link>
-                    <Link href={`/admin/system/advertisers/${a.id}/edit`} style={editLinkStyle}>
-                      編集
-                    </Link>
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <DataListControls
+        basePath={BASE_PATH}
+        params={params}
+        searchPlaceholder="会社名・業種・担当メール"
+        selects={[
+          {
+            name: "status",
+            label: "ステータス",
+            // enum (advertiser_status) 全値を網羅するセレクト。並び・ラベルは core を単一ソースに使う。
+            options: ADVERTISER_STATUS_ORDER.map((status) => ({
+              value: status,
+              label: ADVERTISER_STATUS_LABEL[status],
+            })),
+          },
+        ]}
+        dateRange
+        dateRangeLabel="登録日"
+      />
+
+      <DataTable
+        basePath={BASE_PATH}
+        params={params}
+        empty="条件に合う広告主がありません。"
+        columns={[
+          { key: "companyName", label: "会社名", sortable: true },
+          { key: "industry", label: "業種", sortable: true },
+          { key: "contactEmail", label: "担当連絡先" },
+          { key: "status", label: "状態", sortable: true },
+          { key: "createdAt", label: "登録日", sortable: true },
+          { key: "actions", label: "操作" },
+        ]}
+        rows={rows.map((a) => ({
+          key: a.id,
+          cells: [
+            <strong key="name">{a.companyName}</strong>,
+            a.industry ?? "—",
+            a.contactEmail ?? "—",
+            <span key="status" style={statusCellStyle}>
+              <StatusBadge status={a.status} />
+              <AdvertiserActiveToggle
+                advertiserId={a.id}
+                isActive={a.isActive}
+                companyName={a.companyName}
+              />
+            </span>,
+            formatJstDate(a.createdAt),
+            <span key="actions" style={actionsLinksStyle}>
+              {/* #46 運営側広告 CRM: この広告主の広告を入稿・管理する導線。 */}
+              <Link href={`/admin/system/advertisers/${a.id}/ads`} style={editLinkStyle}>
+                広告
+              </Link>
+              <Link href={`/admin/system/advertisers/${a.id}/edit`} style={editLinkStyle}>
+                編集
+              </Link>
+            </span>,
+          ],
+        }))}
+      />
+
+      <PaginationNav basePath={BASE_PATH} params={params} total={total} />
     </section>
   );
 }
@@ -113,55 +145,42 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
   justifyContent: "space-between",
-  marginBottom: "1rem",
+  marginBottom: space.md,
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700 };
 const headerRightStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "1rem",
+  gap: space.lg,
 };
-const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
+const countStyle: React.CSSProperties = { fontSize: fontSize.sm, color: color.muted };
 const newLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
+  fontSize: fontSize.sm,
   color: "#fff",
-  background: "#1d4ed8",
+  background: color.primary,
   padding: "0.4rem 0.9rem",
   borderRadius: "6px",
   textDecoration: "none",
 };
-const emptyStyle: React.CSSProperties = { color: "#6b7280" };
 const editLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: "#2563eb",
+  fontSize: fontSize.sm,
+  color: color.primary,
   textDecoration: "none",
 };
-const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  padding: "0.4rem 0.6rem",
-  borderBottom: "1px solid #e5e7eb",
-};
-const tdStyle: React.CSSProperties = {
-  padding: "0.5rem 0.6rem",
-  borderBottom: "1px solid #f3f4f6",
-  fontSize: "0.9rem",
-};
+const actionsLinksStyle: React.CSSProperties = { display: "inline-flex", gap: space.md };
 const statusCellStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "0.6rem",
 };
 const badgeBaseStyle: React.CSSProperties = {
-  fontSize: "0.75rem",
-  padding: "0.1rem 0.5rem",
-  borderRadius: "999px",
+  fontSize: fontSize.xs,
+  padding: `0.1rem ${space.sm}`,
+  borderRadius: radius.pill,
 };
-/** ステータスごとのバッジ配色。色のみに依存しないよう必ずラベルと併記する (NFR05)。 */
+/** ステータスごとのバッジ配色 (tokens のステータストーン)。色のみに依存しないよう必ずラベルと併記する (NFR05)。 */
 const statusBadgeStyle: Record<AdvertiserStatus, React.CSSProperties> = {
-  prospect: { ...badgeBaseStyle, background: "#fef9c3", color: "#854d0e" },
-  active: { ...badgeBaseStyle, background: "#dcfce7", color: "#166534" },
-  paused: { ...badgeBaseStyle, background: "#f3f4f6", color: "#6b7280" },
+  prospect: { ...badgeBaseStyle, background: color.warningBg, color: color.warningFg },
+  active: { ...badgeBaseStyle, background: color.successBg, color: color.successFg },
+  paused: { ...badgeBaseStyle, background: color.neutralBg, color: color.muted },
 };
