@@ -25,11 +25,14 @@ vi.mock("@/lib/editor/notice-assignment-actions", () => ({
 vi.mock("@/lib/editor/schedule-actions", () => ({ setScheduleAction: vi.fn() }));
 vi.mock("@/lib/editor/assistant-actions", () => ({
   assistDraftNoticesFromFileAction: (...a: unknown[]) => h.fileAction(...a),
-  // SectionDraftPanel（予定/提出物タブ）が transitive に import するため stub を置く（連絡テストでは未使用）。
+  // SectionDraftPanel（予定/提出物）・AllDraftPanel（おまかせ）が transitive に import するため stub を置く
+  // （連絡タブの本テストでは未使用）。
   assistDraftScheduleAction: vi.fn(),
   assistDraftScheduleFromFileAction: vi.fn(),
   assistDraftAssignmentAction: vi.fn(),
   assistDraftAssignmentFromFileAction: vi.fn(),
+  assistDraftAllAction: vi.fn(),
+  assistDraftAllFromFileAction: vi.fn(),
 }));
 vi.mock("@/lib/teacher-input/use-speech-to-text", () => ({
   useSpeechToText: () => ({
