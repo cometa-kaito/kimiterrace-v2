@@ -63,9 +63,10 @@ const HTML_ENTITIES: Record<string, string> = {
 function htmlToText(html: string): string {
   return (
     html
-      // script/style はブロックごと除去。閉じタグは `</script >`（空白入り）や大文字も拾う（\b + \s*）。
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "\n")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "\n")
+      // script/style はブロックごと除去。閉じタグは `</script >` `</script\n bar>` 等の空白・余剰文字・大文字も
+      // 取りこぼさないよう `<\/script[^>]*>`（> 以外を許容）にする（CodeQL js/bad-tag-filter 準拠）。
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, "\n")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, "\n")
       .replace(/<[^>]+>/g, "\n")
       // 実体参照は 1 パスで復号（二重復号を避ける。`&amp;` を個別に先に戻さない）。
       .replace(/&(amp|lt|gt|nbsp|#8203);/gi, (m, e: string) => HTML_ENTITIES[e.toLowerCase()] ?? m)

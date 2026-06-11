@@ -47,8 +47,8 @@ describe("parseMeitetsuStatus", () => {
     expect(parseMeitetsuStatus("")).toBeNull();
   });
 
-  it("空白入りの閉じタグ `</script >` でも script ブロックを除去する", () => {
-    const html = '<body><script>var s="遅延が発生";</script ><p>平常運転中です。</p></body>';
+  it("閉じタグに空白・余剰文字（`</script foo>`）があっても script ブロックを除去する", () => {
+    const html = '<body><script>var s="遅延が発生";</script foo><p>平常運転中です。</p></body>';
     expect(parseMeitetsuStatus(html)).toEqual({
       hasDisruption: false,
       statusText: "平常運転中です。",
