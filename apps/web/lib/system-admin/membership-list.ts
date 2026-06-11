@@ -5,7 +5,7 @@ import {
   escapeLike,
   pageWindow,
 } from "@/app/admin/_components/datalist/list-params";
-import { maskIdentifier } from "./mask";
+import { maskIdentifier, maskPersonName } from "./mask";
 
 /**
  * UIUX-03: memberships (ユーザー × クラス所属) **読み取り専用**ビューア
@@ -18,9 +18,10 @@ import { maskIdentifier } from "./mask";
  *
  * ## PII (ルール4) — 表示名は必ずマスク
  * memberships は users (生徒含む) に結合する。生徒の表示名は PII のため、**本モジュールが
- * `maskIdentifier` (mask.ts) でマスクしてから返し、生の displayName / userId を呼出側 (ページ) に
- * 一切渡さない** (表示層に生 PII を持ち込まない多層防御)。突合用に userId もマスク済み
- * (両端のみ) で返す。email 等その他の users 列は射影しない。
+ * 人名 `maskPersonName` (全伏字)・userId `maskIdentifier` (両端) でマスクしてから返し、生の
+ * displayName / userId を呼出側 (ページ) に一切渡さない** (表示層に生 PII を持ち込まない多層防御)。
+ * ISSUE-2: 旧実装は displayName にも `maskIdentifier` を使い 2〜4 文字の日本語氏名で姓が露出していた。
+ * email 等その他の users 列は射影しない。
  *
  * ## 置き場所 (並行レーン回避)
  * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く。テーブルは barrel から import し、
@@ -69,7 +70,7 @@ export type MembershipListEntry = Pick<
   schoolName: string;
   className: string;
   academicYear: number;
-  /** maskIdentifier 済みの表示名 (例: "田中••")。生 PII は本モジュール外に出さない。 */
+  /** maskPersonName 済みの表示名 (全伏字 "••")。生 PII は本モジュール外に出さない。 */
   userDisplayMasked: string;
   /** maskIdentifier 済みの user uuid (両端のみ)。同名マスクの突合用。 */
   userIdMasked: string;
@@ -164,7 +165,7 @@ export async function listMembershipPage(
     // 生の displayName / userId はここで落とし、マスク済みのみ返す (モジュール doc「PII」)。
     rows: rows.map(({ displayName, userId, ...rest }) => ({
       ...rest,
-      userDisplayMasked: maskIdentifier(displayName),
+      userDisplayMasked: maskPersonName(displayName),
       userIdMasked: maskIdentifier(userId),
     })),
     total: totals[0]?.value ?? 0,
