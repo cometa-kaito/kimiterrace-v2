@@ -58,8 +58,8 @@ export default async function SystemAiChatSessionPage({
         <span style={countStyle}>{totalMessages} 発話</span>
       </header>
       <p style={noteStyle}>
-        本文は保存時に PII マスキング済み（{"{{STUDENT_001}}"}
-        等のトークン表示が正常）。逆変換はできません。本閲覧は監査ログに記録されました。
+        本文は保存時 PII マスキング済み（{"{{STUDENT_001}}"} 等のトークン表示が正常）＋表示時に
+        残存氏名を伏字化（●●）。逆変換はできません。本閲覧は監査ログに記録されました。
       </p>
 
       <dl style={metaStyle}>

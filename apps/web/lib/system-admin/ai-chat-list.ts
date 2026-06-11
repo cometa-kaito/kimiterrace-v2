@@ -1,3 +1,4 @@
+import { redactSuspectedNames } from "@kimiterrace/ai";
 import { type TenantTx, aiChatMessages, aiChatSessions, classes, schools } from "@kimiterrace/db";
 import type { InferSelectModel } from "drizzle-orm";
 import {
@@ -27,7 +28,8 @@ import {
  *
  * 統制は docs/compliance/admin-viewer-policy.md（DRAFT）に従う:
  * - `content_text` は **保存時マスク済み**（ルール4・{{STUDENT_001}} トークン化）。本層は
- *   逆変換（トークン→実名）を一切しない・マスキング辞書に触れない。
+ *   逆変換（トークン→実名）を一切しない・マスキング辞書に触れない。さらに **表示時に
+ *   name-heuristic で残存氏名を伏字化**する多層防御 (`redactContentForDisplay`・ISSUE-1)。
  * - 呼び出し側（ページ）は閲覧のたびに `writeViewAccessAudit` を同一 tx で記録すること。
  * - エクスポートなし（SELECT は画面描画分のみ）。
  *
@@ -185,6 +187,24 @@ export async function listAiChatSessionsPage(
   };
 }
 
+/** 表示用 content_text の追加防御の上限（描画爆発防止）。 */
+const CONTENT_DISPLAY_LIMIT = 2000;
+
+/**
+ * ISSUE-1 (Opus 検証): content_text は保存時に roster ベース maskPII 済みだが、生徒/保護者は
+ * 匿名設計で roster が無く (ADR-003/016)、本文に生で書かれた氏名は確定マスク対象外で残りうる
+ * (ADR-030 の Low 残存)。ビューアが PR4 でこれを**新たに verbatim 可視化**するため、表示時に
+ * name-heuristic (氏名+ひらがな敬称) で検出した氏名部分を伏字化する多層防御の上積み。
+ * 確定マスクではない (漢字敬称/ひらがな名は対象外・ADR-030) ＝**保証ではなく低減**。
+ * 既存の {{STUDENT_001}} トークンには触れない (逆変換しない)。
+ */
+export function redactContentForDisplay(text: string): string {
+  const out = redactSuspectedNames(text);
+  return out.length > CONTENT_DISPLAY_LIMIT
+    ? `${out.slice(0, CONTENT_DISPLAY_LIMIT)}…(全${out.length}文字)`
+    : out;
+}
+
 /** セッション詳細のメッセージ表示上限（暴走セッションでの描画爆発防止。超過は件数表示）。 */
 export const SESSION_MESSAGES_LIMIT = 500;
 
@@ -259,7 +279,8 @@ export async function getAiChatSessionDetail(
       className: s.className,
       route: s.magicLinkId !== null ? "student" : "teacher",
     },
-    messages,
+    // 表示時の追加 PII 低減 (ADR-030 残存名の伏字。保存データは不変・逆変換しない)。
+    messages: messages.map((m) => ({ ...m, contentText: redactContentForDisplay(m.contentText) })),
     totalMessages: totals[0]?.value ?? 0,
   };
 }

@@ -139,3 +139,17 @@ export function hasSuspectedPersonalName(text: string): boolean {
   }
   return false;
 }
+
+/**
+ * 検出した「氏名 + 敬称」の**氏名部分のみ**を伏字 (●●) にし敬称は残す (例 `"田中さん"`→`"●●さん"`)。
+ * ADR-030 の warn-only ヒューリスティックを「表示 / Vertex 送信前の best-effort 伏字」として使う薄い
+ * ラッパ。**確定マスクではない**（漢字敬称 `君`/`様`・ひらがな名は対象外）＝保証ではなく**低減**。
+ * 純関数・ReDoS 不能（{@link findSuspectedPersonalNames} 同様）。後方から置換し index ずれを防ぐ。
+ */
+export function redactSuspectedNames(text: string): string {
+  let out = text;
+  for (const s of [...findSuspectedPersonalNames(text)].sort((a, b) => b.index - a.index)) {
+    out = `${out.slice(0, s.index)}●●${s.honorific}${out.slice(s.index + s.surface.length)}`;
+  }
+  return out;
+}

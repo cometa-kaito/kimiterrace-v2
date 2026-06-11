@@ -8,6 +8,7 @@ import {
   classifyScope,
   findUnmaskedPii,
   maskPII,
+  redactSuspectedNames,
 } from "@kimiterrace/ai";
 import type { RagAudience, TenantTx } from "@kimiterrace/db";
 import {
@@ -287,7 +288,11 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
 
   // 3) 質問の PII マスキング (ルール4)。RAG が embedding 化する前に必ずマスクし、生 PII を
   //    Vertex embedding / grounding 検索へ持ち込まない。
-  const maskedQuestion = maskPII(validated.question, piiEntries);
+  //    ISSUE-1(b): 生徒/保護者は匿名設計で roster が無く (ADR-003/016)、roster ベース maskPII では
+  //    自由文氏名が残る (ADR-030 Low 残存)。name-heuristic で best-effort 伏字化してから下流
+  //    (embedding/LLM/保存 content_text) へ。確定マスクではない (漢字敬称/ひらがな名は対象外)＝低減。
+  const qMasked = maskPII(validated.question, piiEntries);
+  const maskedQuestion = { ...qMasked, masked: redactSuspectedNames(qMasked.masked) };
 
   // 4) スコープ分類 (ADR-028 §2: Gemini 呼出前に判定)。学習・進路など掲示物外の質問は
   //    **embedding / RAG / Gemini を一切呼ばず**、決定論の多言語拒否文を即返す
@@ -319,7 +324,12 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
   const maskedContexts: ChatContext[] = rawContexts.map((c) => {
     const t = maskPII(c.title, piiEntries);
     const b = maskPII(c.body, piiEntries);
-    return { id: c.id, title: t.masked, body: b.masked };
+    // ISSUE-1(b): roster 非存在の残存氏名も Vertex 前に best-effort 伏字化 (質問と同様・低減)。
+    return {
+      id: c.id,
+      title: redactSuspectedNames(t.masked),
+      body: redactSuspectedNames(b.masked),
+    };
   });
   // fail-closed: マスク漏れがあれば LLM へ送らない (defense-in-depth、ルール4)。
   const leaks = [
