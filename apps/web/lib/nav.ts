@@ -77,6 +77,13 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "イベント生ログ", href: "/admin/system/events" },
     { label: "監査ログ", href: "/admin/system/audit" },
     { label: "AIチャット監査", href: "/admin/system/ai-chat" },
+    // UIUX-03 (PR5): 残ビューア群。公開履歴 / 学校設定 (quiet hours 等の編集) / メンバーシップ
+    // (読み取り+マスクのみ) / TV コマンド・ダウンタイムの全校横断ログ。
+    { label: "公開履歴", href: "/admin/system/publishes" },
+    { label: "学校設定", href: "/admin/system/school-configs" },
+    { label: "メンバーシップ", href: "/admin/system/memberships" },
+    { label: "TVコマンド履歴", href: "/admin/system/tv-commands" },
+    { label: "TVダウンタイム", href: "/admin/system/tv-downtime" },
     // 自分のパスワード変更 (個人 email/password アカウント)。ログイン後にここから再設定できる。
     // 対象ロールは PASSWORD_CHANGE_ROLES (system_admin / school_admin) と揃える (password-policy.ts)。
     { label: "パスワード変更", href: "/admin/account/password" },
