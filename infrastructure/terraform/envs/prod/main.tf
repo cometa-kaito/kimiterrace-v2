@@ -534,6 +534,21 @@ module "cloud_run_job_weather" {
   # deletion_protection はモジュール既定 true（prod）
 }
 
+# パターン2 鉄道運行情報取得 Job（名鉄スクレイピング、ADR-035）。prod は scaffold（有効化は別途人間判断）。
+module "cloud_run_job_railway_status" {
+  source                 = "../../modules/cloud_run_job_railway_status"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # prod は scaffold。staging 検証後に有効化判断（ADR-035）
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/railway-status/railway-status-job.js"]
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
+  # deletion_protection はモジュール既定 true（prod）
+}
+
 # F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。
 # image = jobs:<tag>（weather と同じ jobs イメージを共有・command/args だけ差し替え）。container_args で
 # tv-liveness-job を起動。DATABASE_URL は既存 app DSN secret（kimiterrace_app、down/recover 反映は run.ts が

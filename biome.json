@@ -94,6 +94,7 @@
         "**/apps/jobs/src/embedding/embed-job.ts",
         "**/apps/jobs/src/reports/report-job.ts",
         "**/apps/jobs/src/weather/weather-job.ts",
+        "**/apps/jobs/src/railway-status/railway-status-job.ts",
         "**/apps/jobs/src/tv-liveness/tv-liveness-job.ts",
         "**/packages/db/src/migrate-cli.ts",
         "**/packages/db/src/seed-staging-cli.ts",
