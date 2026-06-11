@@ -19,6 +19,23 @@ const { color, fontSize, radius, space } = tokens;
 
 const BASE_PATH = "/admin/system/advertisers";
 
+/** portal (社内 ops) の admin URL (AppShell と同規約・env 上書き可・公開 URL のため env 直読み可)。 */
+function portalAdminUrl(): string {
+  return process.env.PORTAL_ADMIN_URL ?? "https://kimiteras.rebounder.jp/admin";
+}
+
+const retirementNoteStyle: React.CSSProperties = {
+  fontSize: fontSize.sm,
+  color: color.infoFg,
+  background: color.infoBg,
+  border: `1px solid ${color.infoBorder}`,
+  borderRadius: radius.sm,
+  padding: `${space.sm} ${space.md}`,
+  marginBottom: space.md,
+};
+
+const retirementLinkStyle: React.CSSProperties = { color: color.infoFg, fontWeight: 600 };
+
 /**
  * F10 (#46) / UIUX-03: システム管理者の広告主一覧 (`/admin/system/advertisers`)。**Server Component**。
  *
@@ -47,6 +64,17 @@ export default async function SystemAdvertisersPage({
 
   return (
     <section>
+      {/* UIUX-03 PR8 (商流 UI 退役・段階1): 商流の SoR は portal (実装設計書 §26/§42.2/§43)。
+          本画面は「配信割当 (どの学校・クラスに何を出すか)」の管理用に残し、商流レコードの
+          新規・編集は portal へ誘導する。ルートは温存 (物理削除は参照ゼロ実証後の別 PR)。 */}
+      <p style={retirementNoteStyle}>
+        商流（広告主マスタ・契約・コミュニケーション）の正本は{" "}
+        <a href={portalAdminUrl()} style={retirementLinkStyle}>
+          Rebounder 社内ポータル ↗
+        </a>{" "}
+        に移行しました。この画面は<strong>広告配信割当</strong>
+        （各広告主の「広告」から配信先を設定）の管理用です。
+      </p>
       <header style={headerStyle}>
         <h1 style={titleStyle}>広告主一覧</h1>
         <div style={headerRightStyle}>
