@@ -70,6 +70,10 @@ const SECONDARY_TONES: { key: NoticeTone; label: string }[] = [
  * - **PII soft-gate（ADR-030）**: 氏名らしき語を検出したら警告し、「承知して続ける」で override 再実行。
  *   個人情報を含む可能性で除外された項目（`notice_redacted`）は件数を表示する。
  *
+ * UIUX-02（AI 前面化）: 一番簡単な「おまかせ」（1入力→AI分類→3セクション同時）を**主役**にする。
+ * タブの先頭 + 既定タブを「おまかせ」にし、`hero` を渡すとページ内（FAB に隠さない位置）に
+ * 「話す・書く・ファイル → まとめて下書き」の入口カードを描画する（パネル/ボトムシート資産は流用）。
+ *
  * トーン調整 / 項目ごと作り直し / ファイルのストリーミング化 / キーボード操作は後続スライス（PR-4/5）。
  */
 export function EditorAssistant({
@@ -79,6 +83,7 @@ export function EditorAssistant({
   existingNotices,
   existingSchedules = [],
   existingAssignments = [],
+  hero = false,
 }: {
   scope: string;
   targetId: string;
@@ -86,12 +91,14 @@ export function EditorAssistant({
   existingNotices: NoticeItem[];
   existingSchedules?: ScheduleItem[];
   existingAssignments?: AssignmentItem[];
+  /** ページ内に「AI におまかせ」入口カードを描画する（クラスエディタで使用・UIUX-02）。 */
+  hero?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  // 作成する種類（タブ）。連絡=ストリーミング（本体）、予定/提出物=SectionDraftPanel、おまかせ=AllDraftPanel
-  // （1入力→AI分類→3セクション同時, ADR-036）。既定は連絡。
-  const [mode, setMode] = useState<"notices" | "schedules" | "assignments" | "all">("notices");
+  // 作成する種類（タブ）。おまかせ=AllDraftPanel（1入力→AI分類→3セクション同時, ADR-036）が主役で既定、
+  // 連絡=ストリーミング（本体）、予定/提出物=SectionDraftPanel。
+  const [mode, setMode] = useState<"notices" | "schedules" | "assignments" | "all">("all");
   const [text, setText] = useState("");
   const [instruction, setInstruction] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -290,6 +297,32 @@ export function EditorAssistant({
 
   return (
     <>
+      {hero ? (
+        // ページを開いた瞬間に見える「おまかせ」入口（UIUX-02: AI を FAB だけに隠さない）。
+        <section className={styles.hero} aria-label="AI でまとめて作成">
+          <div className={styles.heroText}>
+            <strong className={styles.heroTitle}>
+              <span aria-hidden="true">🤖</span> AI におまかせ
+            </strong>
+            <p className={styles.heroCopy}>
+              話す・書く・ファイルを入れるだけ。予定・連絡・提出物の下書きを AI
+              がまとめて作ります。確認して反映するだけ。
+            </p>
+          </div>
+          <button
+            type="button"
+            className={styles.heroBtn}
+            aria-expanded={open}
+            onClick={() => {
+              setMode("all");
+              setOpen(true);
+            }}
+          >
+            🎤 おまかせで作る
+          </button>
+        </section>
+      ) : null}
+
       <button
         type="button"
         className={styles.fab}
@@ -312,7 +345,7 @@ export function EditorAssistant({
             </button>
           </div>
 
-          {/* 作成する種類のタブ（連絡 / 予定 / 提出物 / おまかせ）。既定は連絡（既存ストリーミング UI）。 */}
+          {/* 作成する種類のタブ。一番簡単な「おまかせ」を先頭・既定にする（UIUX-02 AI 前面化）。 */}
           <div
             role="tablist"
             aria-label="作成する種類"
@@ -320,10 +353,10 @@ export function EditorAssistant({
           >
             {(
               [
+                ["all", "おまかせ"],
                 ["notices", "連絡"],
                 ["schedules", "予定"],
                 ["assignments", "提出物"],
-                ["all", "おまかせ"],
               ] as const
             ).map(([m, label]) => (
               <button
@@ -334,7 +367,11 @@ export function EditorAssistant({
                 className={styles.ghost}
                 style={
                   mode === m
-                    ? { fontWeight: 700, borderBottom: "2px solid #2563eb", color: "#1d4ed8" }
+                    ? {
+                        fontWeight: 700,
+                        borderBottom: "2px solid var(--brand-blue-strong)",
+                        color: "var(--brand-blue-strong)",
+                      }
                     : undefined
                 }
                 onClick={() => setMode(m)}

@@ -37,6 +37,25 @@ export default async function TeacherInputPage() {
         編集できる掲示の草稿を作成します。草稿はエディタで確認・修正してから公開できます。
         音声は端末内で文字起こしし、サーバーには文字だけを送ります。
       </p>
+      {/* UIUX-02 導線整理: サイネージに出す内容（予定/連絡/提出物）はクラスエディタの「おまかせ」が最短。
+          本ページの入力は contents → RAG（生徒/教員 Q&A ボットの知識）系統であることを明示し、迷いを防ぐ。 */}
+      <p
+        style={{
+          border: `1px solid ${tokens.color.infoBorder}`,
+          background: tokens.color.infoBg,
+          borderRadius: "10px",
+          padding: "0.6rem 0.9rem",
+          margin: "0 0 1rem",
+          fontSize: "0.9rem",
+        }}
+      >
+        💡 教室のサイネージに出す<strong>予定・連絡・提出物</strong>は、
+        <Link href="/admin/editor" style={{ color: tokens.color.blueStrong, fontWeight: 600 }}>
+          エディタの「AI におまかせ」
+        </Link>
+        からまとめて作るのが最短です。このページの入力は、掲示物 Q&A
+        チャットの知識（掲示コンテンツ）になります。
+      </p>
       <TeacherInputComposer />
       <div style={{ marginTop: "1.5rem" }}>
         <FileUploadForm />
