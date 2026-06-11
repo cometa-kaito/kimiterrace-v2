@@ -5,6 +5,7 @@ import {
   SIGNAGE_DESIGN_PATTERNS,
   SIGNAGE_DESIGN_PATTERN_LABELS,
   type SignageDesignPattern,
+  applyDesignPatternToUrl,
   getDesignPatternFromUrl,
   stripDesignParam,
 } from "@/lib/signage/design-pattern";
@@ -84,6 +85,13 @@ export function TvConfigEditForm({
       weekdays: s.weekdays.map((checked, i) => (i === index ? !checked : checked)),
     }));
   }
+
+  // 選択中の design を素の URL に合成した「端末が実際に開く URL」。dropdown を変えると即更新され、開く/コピー
+  // できる。これが無いと、URL 欄は design を含まない素の URL を表示するため、デザインを変えても見た目が変わらず
+  // 「変更できていない」ように見えてしまう（保存前でも ?design は URL 側で効くのでプレビューで pattern2 を確認可）。
+  const composedSignageUrl = signageUrl.trim()
+    ? applyDesignPatternToUrl(signageUrl.trim(), design)
+    : "";
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -171,10 +179,44 @@ export function TvConfigEditForm({
           ))}
         </select>
         <span style={hintStyle}>
-          この TV デバイスの盤面デザイン。保存するとサイネージ URL に反映され、各 TV
-          が次回ポーリング（最大 60 秒以内）で切り替わります。
+          この TV デバイスの盤面デザイン。各 TV は保存後の次回ポーリング（最大 60
+          秒以内）で切り替わります。 下の「配信される
+          URL」で、選択中デザインのプレビューを開けます。
         </span>
       </label>
+
+      {composedSignageUrl ? (
+        <div style={fieldStyle}>
+          <span style={labelTextStyle}>配信される URL（端末が実際に開く URL）</span>
+          <input
+            type="text"
+            readOnly
+            value={composedSignageUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            style={{ ...inputStyle, background: "#f9fafb" }}
+          />
+          <span style={hintStyle}>
+            選択中のデザインを反映した URL です（パターン2 は <code>?design=pattern2</code>{" "}
+            が付きます）。 動作確認はこの URL を開いてください（上の「サイネージ URL」欄は design
+            を含まない素の URL）。{" "}
+            <a
+              href={composedSignageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={previewLinkStyle}
+            >
+              プレビューを開く ↗
+            </a>{" "}
+            <button
+              type="button"
+              onClick={() => copyText(composedSignageUrl, "composed")}
+              style={inlineBtnStyle}
+            >
+              {copied === "composed" ? "コピーしました ✓" : "URL をコピー"}
+            </button>
+          </span>
+        </div>
+      ) : null}
 
       <label style={fieldStyle}>
         <span style={labelTextStyle}>Webhook URL</span>
@@ -301,6 +343,15 @@ export function TvConfigEditForm({
 }
 
 const formStyle: React.CSSProperties = { display: "grid", gap: "1rem", maxWidth: "560px" };
+const previewLinkStyle: React.CSSProperties = { color: "#2563eb", fontWeight: 600 };
+const inlineBtnStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  borderRadius: "0.3rem",
+  background: "#fff",
+  padding: "0.1rem 0.5rem",
+  fontSize: "0.8rem",
+  cursor: "pointer",
+};
 const fieldStyle: React.CSSProperties = { display: "grid", gap: "0.3rem" };
 const labelTextStyle: React.CSSProperties = {
   fontSize: "0.85rem",
