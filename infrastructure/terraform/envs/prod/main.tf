@@ -143,7 +143,7 @@ locals {
   #   ② ここを旧版番号（投入直前の latest。例 "3"）に設定 → apply（web image も二重受理コードへ bump）。
   #     → TV_POLL_SECRET=latest(新)・TV_POLL_SECRET_LEGACY=旧 を両受理（無停止）。
   #   ③全 TV 端末を新キーへ更新後、ここを "" へ戻して apply → 旧キー失効。旧版は disable/destroy（gcloud secrets versions disable）。
-  tv_poll_secret_legacy_version = "3" # 2026-06-11 cutover: 旧版(v3=旧/漏洩値)を移行期だけ LEGACY 受理。全機器が新キー(v4)に乗ったら "" へ戻す
+  tv_poll_secret_legacy_version = "" # 2026-06-11 closeout: 本番モニタ3台が新キー(v4)に乗ったので旧キー(v3/漏洩値)受理を停止（73f65bf0私物は失効OK）
 
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
