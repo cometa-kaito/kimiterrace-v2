@@ -3,11 +3,17 @@
 import { assistDraftNoticesFromFileAction } from "@/lib/editor/assistant-actions";
 import type { AssistDraftResult, NoticeTone } from "@/lib/editor/assistant-core";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
-import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
+import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import { streamNoticeDraft } from "@/lib/editor/notice-draft-client";
+import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import {
+  ASSIGNMENT_DRAFT_CONFIG,
+  SCHEDULE_DRAFT_CONFIG,
+  SectionDraftPanel,
+} from "./SectionDraftPanel";
 import styles from "./editor-assistant.module.css";
 
 /** 採用前にその場で編集できるドラフトカード（採用するまで保存に触れない＝可逆プレビュー, ADR-033）。 */
@@ -70,14 +76,20 @@ export function EditorAssistant({
   targetId,
   date,
   existingNotices,
+  existingSchedules = [],
+  existingAssignments = [],
 }: {
   scope: string;
   targetId: string;
   date: string;
   existingNotices: NoticeItem[];
+  existingSchedules?: ScheduleItem[];
+  existingAssignments?: AssignmentItem[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // 作成する種類（タブ）。連絡=ストリーミング（本体）、予定/提出物=非ストリーミング（SectionDraftPanel）。
+  const [mode, setMode] = useState<"notices" | "schedules" | "assignments">("notices");
   const [text, setText] = useState("");
   const [instruction, setInstruction] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -292,179 +304,220 @@ export function EditorAssistant({
       {open ? (
         <div className={styles.panel} role="dialog" aria-label="AI アシスタント">
           <div className={styles.header}>
-            <strong>AI で連絡を作成</strong>
+            <strong>AI アシスタント</strong>
             <button type="button" className={styles.ghost} onClick={() => setOpen(false)}>
               閉じる
             </button>
           </div>
 
-          <p className={styles.hint}>
-            話す・入力する・ファイル（PDF / Word / Excel）から、AI が「連絡」の下書きを作ります。
-            完成した順に確認し、採用するものだけ反映してください。
-          </p>
-
-          <textarea
-            className={styles.textarea}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="例: 明日は短縮授業で午後は部活なし。図書室の返却は金曜まで。"
-            rows={3}
-            disabled={streaming}
-          />
-
-          <div className={styles.row}>
-            {speech.supported ? (
+          {/* 作成する種類のタブ（連絡 / 予定 / 提出物）。既定は連絡（既存ストリーミング UI）。 */}
+          <div
+            role="tablist"
+            aria-label="作成する種類"
+            style={{ display: "flex", gap: "0.25rem", margin: "0 0 0.5rem" }}
+          >
+            {(
+              [
+                ["notices", "連絡"],
+                ["schedules", "予定"],
+                ["assignments", "提出物"],
+              ] as const
+            ).map(([m, label]) => (
               <button
+                key={m}
                 type="button"
-                className={speech.listening ? styles.micOn : styles.ghost}
-                onClick={toggleMic}
+                role="tab"
+                aria-selected={mode === m}
+                className={styles.ghost}
+                style={
+                  mode === m
+                    ? { fontWeight: 700, borderBottom: "2px solid #2563eb", color: "#1d4ed8" }
+                    : undefined
+                }
+                onClick={() => setMode(m)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "schedules" ? (
+            <SectionDraftPanel
+              scope={scope}
+              targetId={targetId}
+              date={date}
+              existing={existingSchedules}
+              config={SCHEDULE_DRAFT_CONFIG}
+            />
+          ) : mode === "assignments" ? (
+            <SectionDraftPanel
+              scope={scope}
+              targetId={targetId}
+              date={date}
+              existing={existingAssignments}
+              config={ASSIGNMENT_DRAFT_CONFIG}
+            />
+          ) : (
+            <>
+              <p className={styles.hint}>
+                話す・入力する・ファイル（PDF / Word / Excel）から、AI
+                が「連絡」の下書きを作ります。
+                完成した順に確認し、採用するものだけ反映してください。
+              </p>
+
+              <textarea
+                className={styles.textarea}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="例: 明日は短縮授業で午後は部活なし。図書室の返却は金曜まで。"
+                rows={3}
                 disabled={streaming}
-              >
-                {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className={styles.ghost}
-              disabled={streaming}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              📄 ファイルから
-            </button>
-            {streaming ? (
-              <button type="button" className={styles.ghost} onClick={stop}>
-                ■ 停止
-              </button>
-            ) : (
-              <button
-                type="button"
-                className={styles.primary}
-                disabled={!canGenerate}
-                onClick={() => {
-                  clearFile();
-                  runTextStream(false);
-                }}
-              >
-                AIで連絡を作る
-              </button>
-            )}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={FILE_ACCEPT}
-            aria-label="ファイルを選択（PDF・Word・Excel）"
-            style={{ display: "none" }}
-            onChange={onFilePicked}
-          />
-          {pendingFile ? (
-            <p className={styles.interim}>
-              {streaming ? "ファイルを読み取り中… " : "選択中: "}
-              {pendingFile.name}
-            </p>
-          ) : null}
-          {speech.listening ? <p className={styles.interim}>{speech.interim}</p> : null}
+              />
 
-          {/* ストリーミング状況（aria-live で逐次読み上げ, NFR05）。 */}
-          <div aria-live="polite" className={styles.interim}>
-            {streaming ? (
-              <span className={styles.pulse}>● AI が連絡を作成中…（完成した順に表示されます）</span>
-            ) : null}
-          </div>
-
-          {warnSurfaces ? (
-            <div className={styles.warn}>
-              個人名らしき語が含まれている可能性があります（{warnSurfaces.join("、")}）。
-              掲示に個人名を載せないのが原則です。承知の上で続けますか？
               <div className={styles.row}>
-                <button
-                  type="button"
-                  className={styles.primary}
-                  disabled={streaming}
-                  onClick={acknowledgeAndRetry}
-                >
-                  承知して続ける
-                </button>
+                {speech.supported ? (
+                  <button
+                    type="button"
+                    className={speech.listening ? styles.micOn : styles.ghost}
+                    onClick={toggleMic}
+                    disabled={streaming}
+                  >
+                    {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={styles.ghost}
-                  onClick={() => setWarnSurfaces(null)}
+                  disabled={streaming}
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  やめる
+                  📄 ファイルから
                 </button>
+                {streaming ? (
+                  <button type="button" className={styles.ghost} onClick={stop}>
+                    ■ 停止
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.primary}
+                    disabled={!canGenerate}
+                    onClick={() => {
+                      clearFile();
+                      runTextStream(false);
+                    }}
+                  >
+                    AIで連絡を作る
+                  </button>
+                )}
               </div>
-            </div>
-          ) : null}
-
-          {cards.length > 0 ? (
-            <div className={styles.proposal}>
-              <div className={styles.proposalHead}>
-                <strong>AI の下書き</strong>
-                <span className={styles.count}>
-                  採用 {acceptedCount} / {cards.length} 件
-                </span>
-              </div>
-              <ul className={styles.list}>
-                {cards.map((c) => (
-                  <li key={c.id} className={`${styles.card} ${c.accepted ? "" : styles.cardOff}`}>
-                    <textarea
-                      className={styles.cardText}
-                      value={c.text}
-                      rows={2}
-                      aria-label="連絡本文（編集できます）"
-                      onChange={(e) => updateCard(c.id, { text: e.target.value })}
-                    />
-                    <div className={styles.cardActions}>
-                      <button
-                        type="button"
-                        className={c.accepted ? styles.acceptOn : styles.ghost}
-                        aria-pressed={c.accepted}
-                        onClick={() => updateCard(c.id, { accepted: !c.accepted })}
-                      >
-                        {c.accepted ? "✓ 採用" : "採用する"}
-                      </button>
-                      <button
-                        type="button"
-                        className={c.isHighlight ? styles.hiOn : styles.ghost}
-                        aria-pressed={c.isHighlight}
-                        onClick={() => updateCard(c.id, { isHighlight: !c.isHighlight })}
-                      >
-                        {c.isHighlight ? "⚠ 重要" : "重要にする"}
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        onClick={() => removeCard(c.id)}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {redactedCount > 0 ? (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={FILE_ACCEPT}
+                aria-label="ファイルを選択（PDF・Word・Excel）"
+                style={{ display: "none" }}
+                onChange={onFilePicked}
+              />
+              {pendingFile ? (
                 <p className={styles.interim}>
-                  個人情報を含む可能性のある {redactedCount} 件を除外しました。
+                  {streaming ? "ファイルを読み取り中… " : "選択中: "}
+                  {pendingFile.name}
                 </p>
               ) : null}
-              {text.trim().length > 0 ? (
-                <div className={styles.toneBar} aria-label="トーン・長さの調整">
-                  <span className={styles.toneLabel}>調整して作り直す:</span>
-                  {PRIMARY_TONES.map((t) => (
+              {speech.listening ? <p className={styles.interim}>{speech.interim}</p> : null}
+
+              {/* ストリーミング状況（aria-live で逐次読み上げ, NFR05）。 */}
+              <div aria-live="polite" className={styles.interim}>
+                {streaming ? (
+                  <span className={styles.pulse}>
+                    ● AI が連絡を作成中…（完成した順に表示されます）
+                  </span>
+                ) : null}
+              </div>
+
+              {warnSurfaces ? (
+                <div className={styles.warn}>
+                  個人名らしき語が含まれている可能性があります（{warnSurfaces.join("、")}）。
+                  掲示に個人名を載せないのが原則です。承知の上で続けますか？
+                  <div className={styles.row}>
                     <button
-                      key={t.key}
                       type="button"
-                      className={styles.tone}
+                      className={styles.primary}
                       disabled={streaming}
-                      onClick={() => runTextStream(false, { tone: t.key })}
+                      onClick={acknowledgeAndRetry}
                     >
-                      {t.label}
+                      承知して続ける
                     </button>
-                  ))}
-                  <details className={styles.toneMore}>
-                    <summary className={styles.toneSummary}>他の調整</summary>
-                    <div className={styles.toneMoreRow}>
-                      {SECONDARY_TONES.map((t) => (
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      onClick={() => setWarnSurfaces(null)}
+                    >
+                      やめる
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {cards.length > 0 ? (
+                <div className={styles.proposal}>
+                  <div className={styles.proposalHead}>
+                    <strong>AI の下書き</strong>
+                    <span className={styles.count}>
+                      採用 {acceptedCount} / {cards.length} 件
+                    </span>
+                  </div>
+                  <ul className={styles.list}>
+                    {cards.map((c) => (
+                      <li
+                        key={c.id}
+                        className={`${styles.card} ${c.accepted ? "" : styles.cardOff}`}
+                      >
+                        <textarea
+                          className={styles.cardText}
+                          value={c.text}
+                          rows={2}
+                          aria-label="連絡本文（編集できます）"
+                          onChange={(e) => updateCard(c.id, { text: e.target.value })}
+                        />
+                        <div className={styles.cardActions}>
+                          <button
+                            type="button"
+                            className={c.accepted ? styles.acceptOn : styles.ghost}
+                            aria-pressed={c.accepted}
+                            onClick={() => updateCard(c.id, { accepted: !c.accepted })}
+                          >
+                            {c.accepted ? "✓ 採用" : "採用する"}
+                          </button>
+                          <button
+                            type="button"
+                            className={c.isHighlight ? styles.hiOn : styles.ghost}
+                            aria-pressed={c.isHighlight}
+                            onClick={() => updateCard(c.id, { isHighlight: !c.isHighlight })}
+                          >
+                            {c.isHighlight ? "⚠ 重要" : "重要にする"}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.ghost}
+                            onClick={() => removeCard(c.id)}
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {redactedCount > 0 ? (
+                    <p className={styles.interim}>
+                      個人情報を含む可能性のある {redactedCount} 件を除外しました。
+                    </p>
+                  ) : null}
+                  {text.trim().length > 0 ? (
+                    <div className={styles.toneBar} aria-label="トーン・長さの調整">
+                      <span className={styles.toneLabel}>調整して作り直す:</span>
+                      {PRIMARY_TONES.map((t) => (
                         <button
                           key={t.key}
                           type="button"
@@ -475,88 +528,104 @@ export function EditorAssistant({
                           {t.label}
                         </button>
                       ))}
+                      <details className={styles.toneMore}>
+                        <summary className={styles.toneSummary}>他の調整</summary>
+                        <div className={styles.toneMoreRow}>
+                          {SECONDARY_TONES.map((t) => (
+                            <button
+                              key={t.key}
+                              type="button"
+                              className={styles.tone}
+                              disabled={streaming}
+                              onClick={() => runTextStream(false, { tone: t.key })}
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </details>
                     </div>
-                  </details>
+                  ) : null}
+                  {text.trim().length > 0 ? (
+                    <div className={styles.toneBar} aria-label="加筆・部分修正の指示">
+                      <input
+                        type="text"
+                        className={styles.instructionInput}
+                        value={instruction}
+                        onChange={(e) => setInstruction(e.target.value)}
+                        placeholder="例: 部活の連絡も足して / もっとやさしく"
+                        maxLength={200}
+                        disabled={streaming}
+                        aria-label="加筆・修正の指示"
+                      />
+                      <button
+                        type="button"
+                        className={styles.tone}
+                        disabled={streaming || instruction.trim().length === 0}
+                        onClick={() => runTextStream(false, { instruction: instruction.trim() })}
+                      >
+                        この指示で作り直す
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className={styles.row}>
+                    <button
+                      type="button"
+                      className={styles.primary}
+                      disabled={saving || streaming}
+                      onClick={apply}
+                    >
+                      {saving ? "反映中…" : `連絡に反映する（${acceptedCount}）`}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      disabled={streaming}
+                      onClick={() => setAllAccepted(true)}
+                    >
+                      すべて採用
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      disabled={streaming}
+                      onClick={() => setAllAccepted(false)}
+                    >
+                      すべて解除
+                    </button>
+                    {text.trim().length > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        disabled={streaming}
+                        onClick={() => runTextStream(false)}
+                      >
+                        ↻ 全部作り直す
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      disabled={streaming || saving}
+                      onClick={() => {
+                        setCards([]);
+                        setRedactedCount(0);
+                        clearFile();
+                      }}
+                    >
+                      破棄
+                    </button>
+                  </div>
                 </div>
               ) : null}
-              {text.trim().length > 0 ? (
-                <div className={styles.toneBar} aria-label="加筆・部分修正の指示">
-                  <input
-                    type="text"
-                    className={styles.instructionInput}
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    placeholder="例: 部活の連絡も足して / もっとやさしく"
-                    maxLength={200}
-                    disabled={streaming}
-                    aria-label="加筆・修正の指示"
-                  />
-                  <button
-                    type="button"
-                    className={styles.tone}
-                    disabled={streaming || instruction.trim().length === 0}
-                    onClick={() => runTextStream(false, { instruction: instruction.trim() })}
-                  >
-                    この指示で作り直す
-                  </button>
-                </div>
-              ) : null}
-              <div className={styles.row}>
-                <button
-                  type="button"
-                  className={styles.primary}
-                  disabled={saving || streaming}
-                  onClick={apply}
-                >
-                  {saving ? "反映中…" : `連絡に反映する（${acceptedCount}）`}
-                </button>
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  disabled={streaming}
-                  onClick={() => setAllAccepted(true)}
-                >
-                  すべて採用
-                </button>
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  disabled={streaming}
-                  onClick={() => setAllAccepted(false)}
-                >
-                  すべて解除
-                </button>
-                {text.trim().length > 0 ? (
-                  <button
-                    type="button"
-                    className={styles.ghost}
-                    disabled={streaming}
-                    onClick={() => runTextStream(false)}
-                  >
-                    ↻ 全部作り直す
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  disabled={streaming || saving}
-                  onClick={() => {
-                    setCards([]);
-                    setRedactedCount(0);
-                    clearFile();
-                  }}
-                >
-                  破棄
-                </button>
-              </div>
-            </div>
-          ) : null}
 
-          {msg ? (
-            <p className={styles.msg} role="status">
-              {msg}
-            </p>
-          ) : null}
+              {msg ? (
+                <p className={styles.msg} role="status">
+                  {msg}
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </>

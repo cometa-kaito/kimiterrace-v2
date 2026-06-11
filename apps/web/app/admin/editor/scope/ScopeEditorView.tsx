@@ -110,6 +110,8 @@ export async function ScopeEditorView({
         targetId={assistantTargetId}
         date={data.date}
         existingNotices={data.notices}
+        existingSchedules={data.schedule}
+        existingAssignments={data.assignments}
       />
     </>
   );

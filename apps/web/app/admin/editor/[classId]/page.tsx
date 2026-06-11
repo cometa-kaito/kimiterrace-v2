@@ -147,6 +147,8 @@ export default async function ClassEditorPage({
         targetId={classId}
         date={date}
         existingNotices={notices.items}
+        existingSchedules={schedule.items}
+        existingAssignments={assignments.items}
       />
     </>
   );
