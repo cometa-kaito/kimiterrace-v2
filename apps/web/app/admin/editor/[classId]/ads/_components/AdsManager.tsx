@@ -289,10 +289,14 @@ function AdForm({
           }
         }}
       />
+      {/* アップロードした相対パス（/ad-media/…）も受けるため type="url" にしない（type="url" は絶対 URL のみ許容で
+          相対値を constraint validation で弾く・#828 Reviewer C1）。最終検証は Server Action 側 validateAdInput
+          （同一オリジン相対 or http(s) 絶対）が担う。 */}
       <input
         name="mediaUrl"
         ref={mediaUrlRef}
-        type="url"
+        type="text"
+        inputMode="url"
         placeholder="メディア URL（上のアップロード or https://… を直接入力）"
         required
         defaultValue={initial?.mediaUrl}

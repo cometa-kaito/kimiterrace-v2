@@ -21,6 +21,22 @@ import { useId, useRef, useState, useTransition } from "react";
  */
 
 const ALLOWED_MIME = new Set(ALLOWED_AD_MEDIA_UPLOAD_TYPES.map((t) => t.mime));
+const MEDIA_TYPES = new Set<string>(ALLOWED_AD_MEDIA_UPLOAD_TYPES.map((t) => t.mediaType));
+
+/** 受口レスポンスを検証する: `url` は同一オリジン配信パス、`mediaType` は許可種別のみ受ける。 */
+function parseUploadResponse(data: unknown): { url: string; mediaType: AdMediaTypeValue } | null {
+  if (typeof data !== "object" || data === null) {
+    return null;
+  }
+  const { url, mediaType } = data as { url?: unknown; mediaType?: unknown };
+  if (typeof url !== "string" || !url.startsWith("/ad-media/")) {
+    return null;
+  }
+  if (typeof mediaType !== "string" || !MEDIA_TYPES.has(mediaType)) {
+    return null;
+  }
+  return { url, mediaType: mediaType as AdMediaTypeValue };
+}
 
 export function AdMediaUpload({
   onUploaded,
@@ -60,8 +76,14 @@ export function AdMediaUpload({
           setError(adUploadErrorMessage(res.status));
           return;
         }
-        const data = (await res.json()) as { url: string; mediaType: AdMediaTypeValue };
-        onUploaded(data.url, data.mediaType);
+        // レスポンス形を検証してから親へ渡す（無検証キャストを避ける・#828 Reviewer M1）。
+        const data: unknown = await res.json();
+        const parsed = parseUploadResponse(data);
+        if (!parsed) {
+          setError("アップロード結果を解釈できませんでした。");
+          return;
+        }
+        onUploaded(parsed.url, parsed.mediaType);
         setOkName(file.name);
         if (inputRef.current) {
           inputRef.current.value = "";

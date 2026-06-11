@@ -60,6 +60,23 @@ describe("AdMediaUpload", () => {
     expect(onUploaded).not.toHaveBeenCalled();
   });
 
+  it("201 だが不正な body（url が /ad-media/ で始まらない）は onUploaded を呼ばずエラー表示", async () => {
+    mockFetch(() =>
+      Promise.resolve({
+        ok: true,
+        status: 201,
+        json: async () => ({ url: "https://evil.example/x.png", mediaType: "image" }),
+      } as Response),
+    );
+    const onUploaded = vi.fn();
+    render(<AdMediaUpload onUploaded={onUploaded} />);
+    selectFile(1024, "image/png");
+    fireEvent.click(screen.getByRole("button", { name: "アップロード" }));
+
+    await waitFor(() => screen.getByText(/解釈できませんでした/));
+    expect(onUploaded).not.toHaveBeenCalled();
+  });
+
   it("クライアント検証: 許可外 MIME は fetch せずエラー表示", () => {
     const fetchFn = mockFetch(() => Promise.resolve({ ok: true, status: 201 } as Response));
     render(<AdMediaUpload onUploaded={vi.fn()} />);

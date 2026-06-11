@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { adMediaServingPath, buildAdMediaObjectKey } from "../../lib/ads/media-object";
 import type { AuthUser } from "../../lib/auth/session";
 import { toAdsActor, validateAdInput } from "../../lib/school-admin/ads-core";
 
@@ -51,6 +52,30 @@ describe("validateAdInput", () => {
     expect(validateAdInput({ ...valid, mediaUrl: "not a url" }).ok).toBe(false);
     expect(validateAdInput({ ...valid, mediaUrl: "javascript:alert(1)" }).ok).toBe(false);
     expect(validateAdInput({ ...valid, mediaUrl: "ftp://x.test/a.png" }).ok).toBe(false);
+  });
+
+  // #828 Reviewer C1: アップロード由来の同一オリジン配信パス（/ad-media/<key>）が submit で拒否されていた回帰を固定。
+  it("mediaUrl: アップロード由来の同一オリジン配信パス /ad-media/<key> を許可（ADR-037）", () => {
+    // 受口が返す URL を実コードで合成（buildAdMediaObjectKey → adMediaServingPath）して round-trip を pin。
+    const uploaded = adMediaServingPath(
+      buildAdMediaObjectKey(
+        "22222222-2222-2222-2222-222222222222",
+        "33333333-3333-3333-3333-333333333333",
+        "png",
+      ),
+    );
+    expect(uploaded).toMatch(/^\/ad-media\/ads\//);
+    const r = validateAdInput({ ...valid, mediaUrl: uploaded });
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.value.mediaUrl).toBe(uploaded);
+  });
+
+  it("mediaUrl: /ad-media/ 配下でも接頭辞 ads/ 外・traversal・他の相対パスは拒否", () => {
+    expect(validateAdInput({ ...valid, mediaUrl: "/ad-media/../uploads/x.png" }).ok).toBe(false);
+    expect(validateAdInput({ ...valid, mediaUrl: "/ad-media/uploads/x.png" }).ok).toBe(false);
+    expect(validateAdInput({ ...valid, mediaUrl: "/ad-media/ads/" }).ok).toBe(false);
+    expect(validateAdInput({ ...valid, mediaUrl: "/etc/passwd" }).ok).toBe(false);
+    expect(validateAdInput({ ...valid, mediaUrl: "/foo/bar.png" }).ok).toBe(false);
   });
 
   it("mediaType は image / video 以外を拒否", () => {
