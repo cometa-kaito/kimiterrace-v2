@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "fc21f81"
+  migrate_image_tag = "25587e3"
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "08e8ba5"
+  jobs_image_tag = "25587e3"
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -221,7 +221,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "ac37c9e"
+  web_image_tag = "25587e3"
 }
 
 module "network" {
@@ -553,7 +553,7 @@ module "cloud_run_job_railway_status" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false
+  enabled                = true  # 2026-06-11 有効化: jobs image 25587e3 同梱・staging デプロイ（ADR-035）
   deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/railway-status/railway-status-job.js"]
