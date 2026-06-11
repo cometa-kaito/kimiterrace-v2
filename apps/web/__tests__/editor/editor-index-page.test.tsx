@@ -13,6 +13,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("../../lib/school-admin/hub-queries", () => ({ getSchoolHierarchy: vi.fn() }));
+// 「前回のクラスを再開」(UIUX-02) が読む cookie。リクエストスコープ外で throw しないよう空 cookie を返す。
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => ({ get: () => undefined })),
+}));
 
 import EditorIndexPage from "../../app/admin/editor/page";
 import { requireRole } from "../../lib/auth/guard";
@@ -51,7 +55,7 @@ beforeEach(() => {
 
 describe("EditorIndexPage scope 対象リンク", () => {
   it("学校全体 / 学科全体 / 学年全体 / クラスのリンクを正しい href で出す", async () => {
-    render(await EditorIndexPage());
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
 
     const school = screen.getByRole("link", { name: "学校全体の共通を編集" });
     expect(school).toHaveAttribute("href", "/admin/editor/scope/school");
@@ -73,7 +77,7 @@ describe("EditorIndexPage scope 対象リンク", () => {
 
   it("クラス 0 件でも学校全体リンクは出る (学校全体は常に編集可能)", async () => {
     getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
-    render(await EditorIndexPage());
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByRole("link", { name: "学校全体の共通を編集" })).toHaveAttribute(
       "href",
       "/admin/editor/scope/school",

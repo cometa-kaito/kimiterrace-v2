@@ -12,6 +12,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
+import { RememberLastClass } from "./_components/RememberLastClass";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { EditorBoard } from "./_components/EditorBoard";
 import { NoticeEditor } from "./_components/NoticeEditor";
@@ -78,8 +79,9 @@ export default async function ClassEditorPage({
       <EditorBoard
         header={
           <header style={{ marginBottom: "1rem" }}>
+            {/* ?stay=1: 単一クラス teacher の自動直行（エディタ着地）とのループを防ぎ、選択画面に留まれるようにする。 */}
             <Link
-              href="/admin/editor"
+              href="/admin/editor?stay=1"
               style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
             >
               ← 編集対象の選択へ戻る
@@ -146,6 +148,7 @@ export default async function ClassEditorPage({
       />
       <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
       <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+      <RememberLastClass classId={classId} />
       <EditorAssistant
         scope="class"
         targetId={classId}
