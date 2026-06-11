@@ -1,6 +1,12 @@
 import type { TvPollResult } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
-import { EVERYDAY_DAYS_MASK, toLpConfigResponse, weekdaysToCalendarMask } from "@/lib/tv/lp-compat";
+import {
+  EVERYDAY_DAYS_MASK,
+  MAX_FCM_TOKEN_LENGTH,
+  normalizeFcmToken,
+  toLpConfigResponse,
+  weekdaysToCalendarMask,
+} from "@/lib/tv/lp-compat";
 
 /**
  * F15 / ADR-022: LP 互換ポーリング応答変換の単体検証。実機 tvbridge（旧 LP 向け）が解釈できる
@@ -80,5 +86,28 @@ describe("toLpConfigResponse", () => {
   it("未登録(unknown)は version 0 + config null + commands {}", () => {
     const out = toLpConfigResponse({ unknown: true, version: 0 });
     expect(out).toEqual({ version: 0, config: null, commands: {} });
+  });
+});
+
+describe("normalizeFcmToken（遠隔起動: 空送信無視 + 上限ガード）", () => {
+  it("null / undefined は undefined（報告なし → 既存値を触らない）", () => {
+    expect(normalizeFcmToken(null)).toBeUndefined();
+    expect(normalizeFcmToken(undefined)).toBeUndefined();
+  });
+
+  it("空文字 / 空白のみは undefined（空送信で既存トークンを消さない）", () => {
+    expect(normalizeFcmToken("")).toBeUndefined();
+    expect(normalizeFcmToken("   ")).toBeUndefined();
+    expect(normalizeFcmToken("\t\n")).toBeUndefined();
+  });
+
+  it("通常トークンは trim して返す", () => {
+    expect(normalizeFcmToken("  fcm-token-abc123  ")).toBe("fcm-token-abc123");
+  });
+
+  it("上限長ちょうどは通す / 超過は undefined（壊れたトークンを保存しない）", () => {
+    const atLimit = "a".repeat(MAX_FCM_TOKEN_LENGTH);
+    expect(normalizeFcmToken(atLimit)).toBe(atLimit);
+    expect(normalizeFcmToken("a".repeat(MAX_FCM_TOKEN_LENGTH + 1))).toBeUndefined();
   });
 });

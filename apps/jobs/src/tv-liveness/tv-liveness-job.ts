@@ -1,4 +1,5 @@
 import { env, exit } from "node:process";
+import { deliverTvWakeOnDown } from "./fcm.js";
 import { type RunTvLivenessConfig, resolveThresholds, runTvLivenessCheckBatch } from "./run.js";
 import { deliverTvLivenessAlerts } from "./slack.js";
 
@@ -18,10 +19,18 @@ import { deliverTvLivenessAlerts } from "./slack.js";
  * （`tv-liveness.ts` に OFF 時間帯の「アラート skip」分岐は無く、閾値を揃えれば緩和は完全に消える）。
  * env `TV_DOWN_THRESHOLD_SEC` / `TV_OFF_HOURS_THRESHOLD_SEC` での上書きは引き続き可能だが、既定を 120/120 に倒す。
  *
+ * ## 遠隔起動（F16 拡張）
+ * 上記 down エッジ（`downDevices`）の各端末に `fcm_token` があれば FCM HTTP v1 で `data.action=wake` を送り、
+ * 端末の常駐サービスを起こし直す（fcm.ts の `deliverTvWakeOnDown` → `@kimiterrace/fcm`）。OAuth は ADC /
+ * Workload Identity（鍵ファイル禁止、ルール5）。送信先プロジェクトは `GCP_PROJECT_ID` env（無ければ
+ * no-op）。送信失敗で Job は落とさない（Slack と同じ可用性規律）。
+ *
  * 必須 env:
  * - `DATABASE_URL`: **kimiterrace_app ロール**（非 BYPASSRLS）。Secret Manager 経由で注入し、コード/
  *   コミットされる env にハードコードしない（ルール5）。
  * 任意 env:
+ * - `GCP_PROJECT_ID`（無ければ `GOOGLE_CLOUD_PROJECT`）: FCM 送信先 Firebase プロジェクト（公開値＝非 secret、
+ *   Cloud Run module が注入済）。未設定なら遠隔起動は no-op（件数ログのみ）。
  * - `SLACK_WEBHOOK_URL`: Slack Incoming Webhook（Secret Manager 経由）。未設定なら配信 no-op（ルール5）。
  * - `TV_LIVENESS_HEARTBEAT`: "1"/"true" のとき日次ハートビート（✅ 監視稼働中）を 1 件足す（dead-man's-switch）。
  *   毎分起動でこれを常時立てるとスパムになるため、日次起動の Scheduler でのみ立てる想定。
@@ -32,8 +41,9 @@ import { deliverTvLivenessAlerts } from "./slack.js";
  *
  * ## 非スコープ（follow-up）
  * - Cloud Run Job 定義 + Cloud Scheduler（毎分化）+ Slack シークレットコンテナは Terraform で管理する
- *   （ルール8、別 PR）。本 Job をスケジュール起動する配線・シークレット定義は含めない。
- * - Sentry / メール配信（F16 §4）。本 PR は Slack 配信のみ。
+ *   （ルール8）。本 Job をスケジュール起動する配線・シークレット定義はここには含めない（FCM 送信 SA 権限の
+ *   Terraform 化は本機能の PR に同梱する）。
+ * - Sentry / メール配信（F16 §4）。本 Job は Slack 配信 + FCM 遠隔起動。
  */
 
 /** 24/7 タイト監視の既定閾値（秒）。OFF 緩和を撤廃し通常/OFF を同値に揃える（F16 §9）。 */
@@ -108,6 +118,11 @@ async function main(): Promise<void> {
     boolEnv("TV_LIVENESS_HEARTBEAT"),
     boolEnv("TV_ALERT_ON_RECOVERY"),
   );
+
+  // 遠隔起動（F16 拡張）: down エッジの各端末に fcm_token があれば FCM wake を送り常駐サービスを起こし直す。
+  // GCP_PROJECT_ID 未設定なら no-op（件数ログのみ）。送信失敗で Job は落とさない（Slack と同じ可用性規律）。
+  // Slack 通知（人への可視化）と FCM 起動（端末の自動復旧）は独立した副作用ゆえ順に実行する。
+  await deliverTvWakeOnDown(summary);
 }
 
 main().catch((err) => {

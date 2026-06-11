@@ -187,4 +187,43 @@ describeOrSkip("RLS: F15/F16 tv_devices", () => {
     const result = await pollTvConfig(db, { deviceId: DEV_DEL, lastKnownIp: null }, APP);
     expect(result).toEqual({ unknown: true, version: 0 });
   });
+
+  it("pollTvConfig: fcmToken 指定で fcm_token を UPSERT（遠隔起動の宛先）", async () => {
+    const DEV_FCM = "44444444-4444-4444-8444-444444444444";
+    await sql`
+      INSERT INTO tv_devices (school_id, device_id, label, version)
+      VALUES (${fx.schoolA}, ${DEV_FCM}, 'FCM 報告テスト', 1)
+    `;
+    const before = await sql<{ fcm_token: string | null }[]>`
+      SELECT fcm_token FROM tv_devices WHERE device_id = ${DEV_FCM}
+    `;
+    expect(before[0].fcm_token).toBeNull();
+
+    await pollTvConfig(db, { deviceId: DEV_FCM, lastKnownIp: null, fcmToken: "tok-aaa-111" }, APP);
+    const after1 = await sql<{ fcm_token: string | null }[]>`
+      SELECT fcm_token FROM tv_devices WHERE device_id = ${DEV_FCM}
+    `;
+    expect(after1[0].fcm_token).toBe("tok-aaa-111");
+
+    // 再報告で最新トークンに更新される（端末がトークン rotate したケース）。
+    await pollTvConfig(db, { deviceId: DEV_FCM, lastKnownIp: null, fcmToken: "tok-bbb-222" }, APP);
+    const after2 = await sql<{ fcm_token: string | null }[]>`
+      SELECT fcm_token FROM tv_devices WHERE device_id = ${DEV_FCM}
+    `;
+    expect(after2[0].fcm_token).toBe("tok-bbb-222");
+  });
+
+  it("pollTvConfig: fcmToken 未指定（undefined）は既存 fcm_token を触らない（旧 APK 無影響）", async () => {
+    const DEV_KEEP = "55555555-5555-4555-8555-555555555555";
+    await sql`
+      INSERT INTO tv_devices (school_id, device_id, label, version, fcm_token)
+      VALUES (${fx.schoolA}, ${DEV_KEEP}, 'トークン保持テスト', 1, 'tok-keep-existing')
+    `;
+    // fcmToken を渡さない（lp-config に &fcmToken= が無い旧 APK 経路）。
+    await pollTvConfig(db, { deviceId: DEV_KEEP, lastKnownIp: null }, APP);
+    const after = await sql<{ fcm_token: string | null }[]>`
+      SELECT fcm_token FROM tv_devices WHERE device_id = ${DEV_KEEP}
+    `;
+    expect(after[0].fcm_token).toBe("tok-keep-existing");
+  });
 });

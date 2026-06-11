@@ -48,6 +48,18 @@ resource "google_project_iam_member" "runtime_cloudsql_client" {
   member  = "serviceAccount:${google_service_account.job_runtime[0].email}"
 }
 
+# FCM 送信（遠隔起動 / F16 拡張）: down エッジ端末に FCM HTTP v1 (messages:send) で wake を送るための権限。
+# `cloudmessaging.messages.create` を含む roles/firebasecloudmessaging.admin を本プロジェクトに付与する
+# （送信先 = 本プロジェクトの Firebase。鍵ファイルは使わず Workload Identity で OAuth、ルール5）。
+# fcm_token 未報告（旧 APK）端末には送らない＝送信は best-effort・失敗で Job は落とさない（fcm.ts）。
+resource "google_project_iam_member" "runtime_fcm_sender" {
+  count = var.enabled ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/firebasecloudmessaging.admin"
+  member  = "serviceAccount:${google_service_account.job_runtime[0].email}"
+}
+
 # DATABASE_URL secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
 resource "google_secret_manager_secret_iam_member" "runtime_database_url" {
   count = var.enabled && var.database_url_secret_id != "" ? 1 : 0
@@ -153,6 +165,13 @@ resource "google_cloud_run_v2_job" "tv_liveness" {
               }
             }
           }
+        }
+        # FCM 送信（遠隔起動）先プロジェクト ID。Cloud Run は GOOGLE_CLOUD_PROJECT を自動設定しないため
+        # 明示注入する（fcm.ts は GCP_PROJECT_ID→GOOGLE_CLOUD_PROJECT の順で読み、未設定なら送信 no-op）。
+        # 公開値（非 secret）ゆえ value で直接渡す。
+        env {
+          name  = "GCP_PROJECT_ID"
+          value = var.project_id
         }
         # 閾値 override（任意）。空文字なら env を設定せず Job entrypoint の既定 120/120（F16 §9 24/7 tight）が効く。
         # secret ではない平文の運用パラメータゆえ value で直接渡す。

@@ -74,6 +74,13 @@ export type TvPollInput = {
   deviceId: string;
   /** x-forwarded-for 由来の最終ポーリング元 IP（運用診断用、null 可）。 */
   lastKnownIp: string | null;
+  /**
+   * 端末が報告する FCM 登録トークン（遠隔起動の宛先、F16 拡張）。lp-config ポーリングの `&fcmToken=`
+   * クエリ由来。**指定（非 null）のときだけ** UPSERT し、`undefined`（未報告 = 旧 APK / クエリ無し）は
+   * fcm_token を一切触らない（既存値を保持）。呼び出し側は空文字を正規化して `undefined` に倒すこと
+   * （空トークンで既存を消さない・空送信無視の規律）。
+   */
+  fcmToken?: string | null;
 };
 
 /**
@@ -87,6 +94,9 @@ export type TvPollInput = {
  *  - `system_admin` role context（cross-tenant 可視）で device_id に一致しソフトデリートされていない
  *    行を `last_seen_at=now()` / `last_known_ip` に UPDATE し、設定列を RETURNING で受ける。
  *  - 0 行（未登録 / ソフトデリート済）なら `{ unknown: true, version: 0 }`。
+ *  - `input.fcmToken` が指定（非 undefined）のときだけ `fcm_token` も同 UPDATE で UPSERT する（遠隔起動の
+ *    宛先、F16 拡張）。`undefined`（lp-config に `&fcmToken=` が無い旧 APK 経路）は fcm_token を触らない。
+ *    呼び出し側が空文字を `undefined` に正規化する前提で、空トークンによる既存値消去は起きない。
  *
  * `updated_at` は心拍では**意図的に進めない**（last_seen_at が心拍の単一ソース。updated_at は設定変更の
  * 監査用に温存する）。これは「UPDATE では updated_at を明示設定する」規律の対象外＝心拍は設定更新では
@@ -110,7 +120,13 @@ export async function pollTvConfig(
       // 解決しない（撤去/退役 TV を「未登録」扱いにし、設定配信も死活計上もしない）。
       const updated = await tx
         .update(tvDevices)
-        .set({ lastSeenAt: sql`now()`, lastKnownIp: input.lastKnownIp })
+        .set({
+          lastSeenAt: sql`now()`,
+          lastKnownIp: input.lastKnownIp,
+          // fcmToken は指定時のみ UPSERT。undefined は Drizzle が SET から除外する（既存値保持）。
+          // 心拍 touch と同じく updated_at は進めない（last_seen_at が心拍の単一ソース、上記 doc 参照）。
+          ...(input.fcmToken !== undefined ? { fcmToken: input.fcmToken } : {}),
+        })
         .where(and(eq(tvDevices.deviceId, input.deviceId), isNull(tvDevices.deletedAt)))
         .returning({
           version: tvDevices.version,
@@ -212,6 +228,28 @@ export async function getTvDeviceConfig(
       notes: tvDevices.notes,
       version: tvDevices.version,
     })
+    .from(tvDevices)
+    .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * 遠隔起動（「起こす」）が読む 1 デバイスの **送信宛先トークン**（F16 拡張）。`id`（行 PK）で取得する。
+ * 可視範囲は RLS が決める（school_admin = 自校 / system_admin = 全校）。他校 / ソフトデリート済 / 不可視は
+ * `undefined`（→ 呼び出し側 Action が not_found に写像）。手書きの `WHERE school_id` は書かない（ルール2、
+ * getTvDeviceConfig と同方針）。呼び出し側は非 BYPASSRLS 接続（kimiterrace_app）を RLS context 下で使うこと。
+ *
+ * `fcm_token` は端末が報告した最新トークン。NULL = 未報告（旧 APK / 報告前）で送信対象外（呼び出し側で判定）。
+ */
+export type TvDeviceWakeTarget = Pick<TvDeviceRow, "id" | "fcmToken">;
+
+export async function getTvDeviceFcmToken(
+  db: Selectable,
+  id: string,
+): Promise<TvDeviceWakeTarget | undefined> {
+  const rows = await db
+    .select({ id: tvDevices.id, fcmToken: tvDevices.fcmToken })
     .from(tvDevices)
     .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
     .limit(1);

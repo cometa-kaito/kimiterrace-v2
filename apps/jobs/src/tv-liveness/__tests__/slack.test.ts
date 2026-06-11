@@ -21,6 +21,9 @@ const downBase = {
   label: "電子工学科 1年",
   lastSeenAt: new Date(NOW.getTime() - 180_000), // 3 分前
   wentDownAt: new Date(NOW.getTime() - 180_000),
+  // F16 拡張（遠隔起動）で downDevices に追加された宛先トークン。Slack フォーマッタはこれを使わないが
+  // 型（downDevices 要素）を満たすため null を置く。
+  fcmToken: null,
 };
 
 describe("tv-liveness slack: 純フォーマッタ", () => {

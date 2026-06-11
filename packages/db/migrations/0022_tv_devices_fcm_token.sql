@@ -1,0 +1,31 @@
+-- =====================================================================
+-- 0022_tv_devices_fcm_token.sql
+-- 目的: tv_devices に FCM 登録トークン列 fcm_token（nullable）を追加する。
+--       端末アプリ（com.kimiterrace.tvbridge）が lp-config ポーリング時に `&fcmToken=<token>` で
+--       報告する最新トークンを保持し、down 検知時の遠隔起動（FCM data メッセージ action=wake）と
+--       管理画面「起こす」操作の宛先にする（F16 拡張 / 遠隔起動）。
+--
+-- 前提: drizzle/20260602024915_f15_tv_devices.sql で tv_devices が作成済であること
+--       （collectMigrationFiles は drizzle/* を全て適用 → migrations/* を全て適用するため、
+--        本 0022 は tv_devices 作成後に流れる。migrations/README.md 順序契約）。
+--
+-- RLS について（ルール2）:
+--   tv_devices の RLS は 0016_tv_devices_rls.sql で tenant_isolation + system_admin_full_access の
+--   2 policy を FOR ALL（全列対象）で付与済。**列追加は policy に影響しない**（policy は school_id /
+--   role に対する行レベル述語で、列単位の権限制御ではない）。よって本 migration は列追加のみで
+--   policy 変更は不要（ADR-019 二層 RLS は維持される）。fcm_token の保存も pollTvConfig が
+--   system_admin context（system_admin_full_access policy）で行い、BYPASSRLS は使わない。
+--
+-- PII について（ルール4）:
+--   FCM トークンは端末固有の不透明文字列で、それ自体は生徒・保護者を識別する情報でない。
+--   device_id と同様に推測不能なため UI ではフル値を出さず保有有無のみを示す（管理画面側）。
+--
+-- 監査について（ルール1）:
+--   tv_devices の created_by/updated_by FK・auditColumns は 0016 で付与済。列追加に伴う監査 FK の
+--   追加は不要（新規 FK 列ではない）。トークン報告は高頻度ポーリングの副作用ゆえ last_seen と同じく
+--   audit_log には残さない（pollTvConfig の doc 参照。心拍 touch と同じ扱い）。
+--
+-- 冪等性: ADD COLUMN IF NOT EXISTS で再適用安全（auto-discovery loader が毎回全件流すため）。
+-- =====================================================================
+
+ALTER TABLE tv_devices ADD COLUMN IF NOT EXISTS fcm_token text;
