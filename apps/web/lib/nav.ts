@@ -97,21 +97,22 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "パスワード変更", href: "/admin/account/password" },
     // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   ],
-  // 教員: スケジュール/連絡/宿題エディタ + コンテンツ公開 (F04) + 掲示物 Q&A (F06)。
+  // 教員: スケジュール/連絡/宿題エディタ **のみ**。
   //
-  // **校務DX原則 (監視系は学校側に持たせない)**: ダッシュボード (F08) / 月次レポート (F09) / センサー管理
-  // (F13) は「自校の運営を見る」監視・閲覧系で、先生に新たな工数を発生させない方針に反する (見る人 = 運営)。
-  // 運営 (system_admin) 専用に集約し teacher の nav からは撤去する。各ページ/API も requireRole(
-  // SYSTEM_ADMIN_ROLES) で URL 直打ち・API 直叩きを 403 にする (UX 撤去 + 認可第一層の二段で締める)。
-  teacher: [
-    { label: "エディタ", href: "/admin/editor" },
-    { label: "音声/チャット入力", href: "/admin/teacher-input" },
-    { label: "コンテンツ", href: "/admin/contents" },
-    // F06 (#370): 教員も使える掲示物 Q&A チャット (/admin/chat → /api/teacher/chat)。teacher も
-    // PUBLISHER_ROLES に含まれるため出す (requireRole(PUBLISHER_ROLES) で許可 → 死リンクにならない)。
-    { label: "掲示物 Q&A", href: "/admin/chat" },
-    // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
-  ],
+  // **教員 UX はエディタ 1 枚に集約する (2026-06-11 ユーザー判断)**。サイネージ (TV) に表示されるのは
+  // エディタが書く `daily_data` (予定/連絡/提出物) だけ — `getSignageDisplayData` は contents/publishes を
+  // 読まない。一方「音声/チャット入力」(F02)・「コンテンツ」(F04)・「掲示物 Q&A」(F06) は、音声/ファイル →
+  // contents → embedding → RAG → **生徒向け Q&A チャットボットの裏方**であり、サイネージには出ない別系統。
+  // よって教員が「サイネージに出す」目的では不要 → nav 導線から撤去し、先生を迷わせない (校務DX原則: 先生の
+  // 工数を増やさない)。
+  //
+  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。機能・ページ・
+  // 認可 (requireRole の PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置**し、teacher は URL 直打ちで
+  // 引き続き到達できる。生徒向け Q&A ボットとコンテンツ系統も存続し、コンテンツ投入 (ボット知識) の導線は
+  // school_admin nav に残す (上の school_admin ブロック参照)。「コンテンツ投入を今後誰が担うか」は別途設計。
+  // ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で運営 (system_admin) 専用に
+  // 撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
+  teacher: [{ label: "エディタ", href: "/admin/editor" }],
 };
 
 /** 管理エリアに入れるロールか (純粋判定、guard から利用)。 */
