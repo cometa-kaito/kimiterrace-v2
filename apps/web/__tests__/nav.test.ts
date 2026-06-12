@@ -110,7 +110,7 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + パスワード変更（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + イベントログ + 監査ログ + AIチャット + 公開履歴 + 学校設定 + メンバーシップ + TVコマンド + TVダウンタイム + パスワード変更（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
@@ -121,6 +121,14 @@ describe("navItemsForRole", () => {
       "/admin/tv-devices",
       "/admin/system/reports",
       "/admin/system/feedback",
+      "/admin/system/events",
+      "/admin/system/audit",
+      "/admin/system/ai-chat",
+      "/admin/system/publishes",
+      "/admin/system/school-configs",
+      "/admin/system/memberships",
+      "/admin/system/tv-commands",
+      "/admin/system/tv-downtime",
       "/admin/account/password",
     ]);
     expect(hrefs).not.toContain("/admin/editor");

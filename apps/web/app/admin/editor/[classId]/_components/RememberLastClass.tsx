@@ -16,6 +16,7 @@ export const LAST_CLASS_COOKIE = "kt_last_class";
 export function RememberLastClass({ classId }: { classId: string }) {
   useEffect(() => {
     const maxAge = 60 * 60 * 24 * 180; // 180日
+    // biome-ignore lint/suspicious/noDocumentCookie: クライアント側のUX補助cookie(非機密のclassIdのみ・httpOnly不要)。Server Component描画中はcookie不可ゆえclientで書く。読む側がRLSスコープ自校階層と突合(改竄無効化)。
     document.cookie = `${LAST_CLASS_COOKIE}=${encodeURIComponent(classId)}; path=/admin; max-age=${maxAge}; samesite=lax`;
   }, [classId]);
   return null;
