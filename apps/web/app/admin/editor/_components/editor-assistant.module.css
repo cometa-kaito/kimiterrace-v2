@@ -1,5 +1,49 @@
 /* 段C: エディタ AI アシスタント浮遊UI。PC=右下のボタン+カード、スマホ=下部の大きいシート。 */
 
+/* UIUX-02: ページ先頭の「AI におまかせ」入口カード（FAB に隠さない・ブランドの暖色トーン）。 */
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  border-radius: 12px;
+}
+.heroText {
+  flex: 1 1 16rem;
+  display: grid;
+  gap: 0.15rem;
+}
+.heroTitle {
+  font-size: 1rem;
+  color: var(--brand-ink, #1f2937);
+}
+.heroCopy {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--brand-muted, #6b7280);
+}
+.heroBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 48px;
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--brand-primary, #ea580c);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.heroBtn:hover {
+  background: var(--brand-primary-hover, #c2410c);
+}
+
 .fab {
   position: fixed;
   right: 1.25rem;

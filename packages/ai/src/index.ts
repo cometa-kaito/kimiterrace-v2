@@ -11,6 +11,7 @@ export type { MaskResult, MaskOptions, PiiCategory, PiiEntry } from "./pii/types
 export {
   findSuspectedPersonalNames,
   hasSuspectedPersonalName,
+  redactSuspectedNames,
   HONORIFICS,
   EXCLUDED_BASE,
 } from "./pii/name-heuristic.js";

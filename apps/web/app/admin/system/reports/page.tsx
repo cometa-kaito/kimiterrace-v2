@@ -17,6 +17,21 @@ import {
   listMonthlyReports,
 } from "@kimiterrace/db";
 import Link from "next/link";
+import { DataTable } from "../../_components/datalist/DataTable";
+import {
+  type ListParams,
+  type RawSearchParams,
+  listQueryString,
+  parseListParams,
+} from "../../_components/datalist/list-params";
+
+const BASE_PATH = "/admin/system/reports";
+
+/**
+ * PDF 履歴テーブルの列ソート allowlist (UIUX-03)。DataTable の列 key と 1 箇所で対応させる。
+ * 既定は従来の `listMonthlyReports` の並び (対象月降順) に合わせる。
+ */
+const REPORT_SORT_KEYS = ["targetMonth", "schoolName", "pdfSizeBytes", "generatedAt"] as const;
 
 /**
  * F09 (#45 / #430): システム管理者の月次レポート画面 (`/admin/system/reports`)。**Server Component**。
@@ -29,6 +44,14 @@ import Link from "next/link";
  *  2. **生成済 PDF 履歴**: 生成バッチ (apps/jobs reports) が Cloud Storage へ保存し `monthly_reports` に
  *     記録した履歴を全校横断で一覧し、各行から PDF を **認証付き DL** (`/api/reports/{id}/download`) できる導線。
  *
+ * UIUX-03: PDF 履歴テーブルを共通 DataTable 化し、列ソート (`?sort=&dir=`、**メモリ内**) を付けた。
+ * - 月ナビの `?ym=` は filterKeys 経由で `ListParams.filters` に通し、ソートリンク (listQueryString) が
+ *   ym を温存する / 月ナビリンクがソート状態を温存する、の両立を URL 1 本で実現する。
+ * - **ページングは付けない**: 行数は「学校数 × 生成済み月数」規模 (現状 数十〜数百行) で、全件
+ *   メモリ内ソート + 一括表示で十分。件数が四桁に達したら PaginationNav + SQL 側 limit/offset を検討。
+ * - 広告主別テーブルは DataTable 化**しない**: 同一 URL の `?sort=` を 2 テーブルで共有すると列 key が
+ *   衝突する。広告主別は「合計反応数が多い順」のランキング表示が仕様 (F09) のため固定順のまま温存する。
+ *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に限定する。横断 (全校) レポートの閲覧/取得は
  * system_admin 専用で、school_admin / teacher は 403 (`/forbidden`)。自校スコープの月次サマリー画面は
@@ -37,31 +60,43 @@ import Link from "next/link";
  * 行を返す (`withSession` は system_admin の role/uid で RLS context を張る、ルール2)。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きの `<table>` + `<th scope>` で提示し
- * 色のみに依存しない。対象月ナビは `<nav>` + リンクテキストで読み上げ可能にする。
+ * 色のみに依存しない (PDF 履歴は DataTable が `aria-sort` を付す)。対象月ナビは `<nav>` + リンクテキスト
+ * で読み上げ可能にする。
  */
 export default async function SystemReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ym?: string }>;
+  searchParams: Promise<RawSearchParams>;
 }) {
   await requireRole(SYSTEM_ADMIN_ROLES);
 
+  const params = parseListParams(await searchParams, {
+    sortKeys: REPORT_SORT_KEYS,
+    defaultSort: "targetMonth",
+    defaultDir: "desc",
+    // ?ym= (月ナビ) を filters に通して、ソートリンク往復で月選択が消えないようにする。
+    filterKeys: ["ym"],
+  });
+
   const current = currentJstYearMonth();
   // ?ym=YYYY-MM を検証。不正・未指定・未来月は現在の JST 暦月へ丸める (未来はデータ不在のため)。
-  const requested = parseYearMonth((await searchParams).ym);
+  const requested = parseYearMonth(params.filters.ym);
   const target = requested && !isAfterMonth(requested, current) ? requested : current;
 
   // 広告主別の月次集計 (全校横断、system_admin context)。CRM 表は RLS で system_admin のみ可視。
   const advertiserReport = await withSession((tx) =>
     getMonthlyAdvertiserReport(tx, { year: target.year, month: target.month }),
   );
-  // 生成済 PDF 履歴 (全校横断、対象月に依存しない一覧)。
-  const reports = await withSession((tx) => listMonthlyReports(tx));
+  // 生成済 PDF 履歴 (全校横断、対象月に依存しない一覧)。並び替えはメモリ内 (上記コメント参照)。
+  const reports = sortReports(await withSession((tx) => listMonthlyReports(tx)), params);
 
   const prev = shiftMonth(target, -1);
   const next = shiftMonth(target, +1);
   // 翌月リンクは「現在月より前のときだけ」有効 (未来月はデータ不在で打ち止め)。
   const hasNext = !isSameMonth(target, current);
+  // 月ナビは listQueryString で組み、ソート状態 (?sort=&dir=) を温存したまま ym だけ差し替える。
+  const monthHref = (ym: { year: number; month: number }) =>
+    `${BASE_PATH}${listQueryString(params, { filters: { ym: toYmParam(ym) }, page: null })}`;
 
   return (
     <section>
@@ -76,14 +111,14 @@ export default async function SystemReportsPage({
       </p>
 
       <nav style={monthNavStyle} aria-label="対象月の切り替え">
-        <Link style={navLinkStyle} href={`?ym=${toYmParam(prev)}`} rel="prev" prefetch={false}>
+        <Link style={navLinkStyle} href={monthHref(prev)} rel="prev" prefetch={false}>
           ← {formatYm(prev)}
         </Link>
         <span style={monthLabelStyle} aria-current="date">
           {formatYm(target)}
         </span>
         {hasNext ? (
-          <Link style={navLinkStyle} href={`?ym=${toYmParam(next)}`} rel="next" prefetch={false}>
+          <Link style={navLinkStyle} href={monthHref(next)} rel="next" prefetch={false}>
             {formatYm(next)} →
           </Link>
         ) : (
@@ -131,36 +166,35 @@ export default async function SystemReportsPage({
       <h2 style={{ ...sectionTitleStyle, marginTop: "2.25rem" }}>生成済み PDF 履歴</h2>
       <p style={countStyle}>{reports.length} 件</p>
 
-      {reports.length === 0 ? (
-        <p style={emptyStyle}>生成済みの月次レポートがありません。</p>
-      ) : (
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>対象月</th>
-              <th style={thStyle}>学校名</th>
-              <th style={thStyle}>サイズ</th>
-              <th style={thStyle}>生成日時</th>
-              <th style={thStyle} />
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map((r) => (
-              <tr key={r.id}>
-                <td style={tdStyle}>{formatYearMonth(r.targetYear, r.targetMonth)}</td>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>{r.schoolName}</td>
-                <td style={tdStyle}>{formatBytes(r.pdfSizeBytes)}</td>
-                <td style={tdStyle}>{formatJstDateTime(r.generatedAt)}</td>
-                <td style={tdStyle}>
-                  <Link href={`/api/reports/${r.id}/download`} style={dlLinkStyle} prefetch={false}>
-                    PDF ダウンロード
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <DataTable
+        basePath={BASE_PATH}
+        params={params}
+        empty="生成済みの月次レポートがありません。"
+        columns={[
+          { key: "targetMonth", label: "対象月", sortable: true },
+          { key: "schoolName", label: "学校名", sortable: true },
+          { key: "pdfSizeBytes", label: "サイズ", sortable: true },
+          { key: "generatedAt", label: "生成日時", sortable: true },
+          { key: "actions", label: "" },
+        ]}
+        rows={reports.map((r) => ({
+          key: r.id,
+          cells: [
+            formatYearMonth(r.targetYear, r.targetMonth),
+            <strong key="school">{r.schoolName}</strong>,
+            formatBytes(r.pdfSizeBytes),
+            formatJstDateTime(r.generatedAt),
+            <Link
+              key="dl"
+              href={`/api/reports/${r.id}/download`}
+              style={dlLinkStyle}
+              prefetch={false}
+            >
+              PDF ダウンロード
+            </Link>,
+          ],
+        }))}
+      />
 
       <p style={footnoteStyle}>
         集計は日本時間 (JST)
@@ -185,6 +219,44 @@ function AdvertiserRow({ row }: { row: AdvertiserMonthlyReport }) {
       <td style={tdNumTotalStyle}>{row.total.toLocaleString("ja-JP")}</td>
     </tr>
   );
+}
+
+/** ソートキー → 比較値。対象月は year*100+month の数値で年→月の辞書順にする。 */
+function reportSortValue(r: MonthlyReportListItem, key: string): string | number {
+  switch (key) {
+    case "schoolName":
+      return r.schoolName;
+    case "pdfSizeBytes":
+      return r.pdfSizeBytes;
+    case "generatedAt":
+      return r.generatedAt.getTime();
+    default:
+      return r.targetYear * 100 + r.targetMonth;
+  }
+}
+
+/**
+ * PDF 履歴を **メモリ内**で並べ替える (非破壊)。行数は学校数 × 月数規模なので SQL に持ち込まない
+ * (ページ docstring 参照)。同値は dir に依らず 学校名 → id 昇順で決定的にする (既定ソートの
+ * 「対象月降順 → 校名昇順 → id 昇順」が従来の `listMonthlyReports` の並びと一致する)。
+ */
+function sortReports(
+  rows: readonly MonthlyReportListItem[],
+  params: Pick<ListParams, "sort" | "dir">,
+): MonthlyReportListItem[] {
+  const sign = params.dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = reportSortValue(a, params.sort);
+    const vb = reportSortValue(b, params.sort);
+    const primary =
+      typeof va === "number" && typeof vb === "number"
+        ? va - vb
+        : String(va).localeCompare(String(vb), "ja");
+    if (primary !== 0) {
+      return primary * sign;
+    }
+    return a.schoolName.localeCompare(b.schoolName, "ja") || a.id.localeCompare(b.id);
+  });
 }
 
 /** 対象年月を `YYYY年M月` で表示する (ゼロ詰めしない、日本語月)。 */
@@ -235,7 +307,6 @@ const subtitleStyle: React.CSSProperties = {
 };
 const countStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280" };
 const emptyStyle: React.CSSProperties = { color: "#6b7280" };
-const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
 const metricTableStyle: React.CSSProperties = {
   borderCollapse: "collapse",
   width: "100%",
@@ -271,13 +342,6 @@ const captionStyle: React.CSSProperties = {
   fontSize: "0.8rem",
   marginBottom: "0.5rem",
 };
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  padding: "0.4rem 0.6rem",
-  borderBottom: "1px solid #e5e7eb",
-};
 const thLeftStyle: React.CSSProperties = {
   textAlign: "left",
   padding: "0.5rem 0.6rem",
@@ -290,11 +354,6 @@ const thNumStyle: React.CSSProperties = {
   borderBottom: "2px solid #e5e7eb",
   fontWeight: 600,
   width: "5.5rem",
-};
-const tdStyle: React.CSSProperties = {
-  padding: "0.5rem 0.6rem",
-  borderBottom: "1px solid #f3f4f6",
-  fontSize: "0.9rem",
 };
 const tdLeftStyle: React.CSSProperties = {
   textAlign: "left",

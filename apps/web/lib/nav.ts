@@ -50,10 +50,13 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用)。自校ビュー /admin/school/members
     // (school_admin 専用) とは別ルート。ロール変更/無効化の操作系の土台 (ADR-026)。
     { label: "教職員管理", href: "/admin/system/users" },
-    // F10 (#46): 広告主 CRM (system_admin 専用、cross-tenant)。広告主マスタ/契約/コミュニケーションと
-    // 月次レポートの集計対象。ページ群は requireRole(SYSTEM_ADMIN_ROLES) 済で実装・テスト済だが nav 配線
-    // が漏れており URL 直打ちでしか到達できなかった (収益中核機能が UI から不可視) ため導線を追加する。
-    { label: "広告主", href: "/admin/system/advertisers" },
+    // F10 (#46) → UIUX-03 PR8 (商流 UI 退役・段階1): 商流 (広告主マスタ/契約/コミュニケーション) の
+    // SoR は portal に確定 (実装設計書 §26/§42.2/§43)。v2 の重複 CRM 管理面はナビから退役する。
+    // ⚠ ただし「広告クリエイティブのクラス割当 (どの画面に何を出すか) = 配信」は v2 に残すため
+    // (UIUX-03 C-3)、その入口である一覧ページはラベルを「広告配信割当」に改めて温存する (#46 の
+    // 「収益中核機能が nav から不可視」の再発防止)。商流レコードの編集ページ群はルート温存のまま
+    // 一覧バナーで portal へ誘導。物理削除は参照ゼロ実証後の別 PR (Opus/ユーザー判断)。
+    { label: "広告配信割当", href: "/admin/system/advertisers" },
     // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。校務DX原則で
     // 自校ビュー (/admin/dashboard) も system_admin 限定に締めたため、ダッシュボードは運営専用に一本化。
     { label: "全校ダッシュボード", href: "/admin/system/dashboard" },
@@ -70,6 +73,20 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 自校の月次サマリービュー (/admin/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
     { label: "月次レポート", href: "/admin/system/reports" },
     { label: "フィードバック", href: "/admin/system/feedback" },
+    // UIUX-03 (PR2-4): 不足ビューア群 (system_admin 専用、cross-tenant)。events / audit_log / ai_chat の
+    // 生データ閲覧。PII 近接のため「表示時マスキング + 閲覧自体の監査記録」を各ページが実装する
+    // (docs/compliance/admin-viewer-policy.md DRAFT)。nav 配線は 3 ビューア分をまとめて PR4 で追加
+    // (nav.ts の 3 連続編集を避ける)。
+    { label: "イベント生ログ", href: "/admin/system/events" },
+    { label: "監査ログ", href: "/admin/system/audit" },
+    { label: "AIチャット監査", href: "/admin/system/ai-chat" },
+    // UIUX-03 (PR5): 残ビューア群。公開履歴 / 学校設定 (quiet hours 等の編集) / メンバーシップ
+    // (読み取り+マスクのみ) / TV コマンド・ダウンタイムの全校横断ログ。
+    { label: "公開履歴", href: "/admin/system/publishes" },
+    { label: "学校設定", href: "/admin/system/school-configs" },
+    { label: "メンバーシップ", href: "/admin/system/memberships" },
+    { label: "TVコマンド履歴", href: "/admin/system/tv-commands" },
+    { label: "TVダウンタイム", href: "/admin/system/tv-downtime" },
     // 自分のパスワード変更 (個人 email/password アカウント)。ログイン後にここから再設定できる。
     // 対象ロールは PASSWORD_CHANGE_ROLES (system_admin / school_admin) と揃える (password-policy.ts)。
     { label: "パスワード変更", href: "/admin/account/password" },

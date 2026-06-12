@@ -1,4 +1,5 @@
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
+import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
@@ -6,11 +7,14 @@ import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
+import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
 import { getCalloutsForClass, getVisitorsForClass } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EditorAssistant } from "@/app/admin/editor/_components/EditorAssistant";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
+import { RememberLastClass } from "./_components/RememberLastClass";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { EditorBoard } from "./_components/EditorBoard";
 import { NoticeEditor } from "./_components/NoticeEditor";
@@ -46,6 +50,10 @@ export default async function ClassEditorPage({
   // 生徒/サイネージ アクセスリンク発行は teacher / school_admin（= 本ページの EDITOR_ROLES と同集合）。
   // 死リンク防止のため発行可ロールのみ導線を出す（magic-link ページは MAGIC_LINK_ISSUER_ROLES で 403 ガード）。
   const canIssueMagicLink = isRoleAllowed(user.role, MAGIC_LINK_ISSUER_ROLES);
+  // 教員 nav は「エディタ」1 項目に集約済み（2026-06-11 ユーザー判断）。教員が必要とする AI 系
+  // （掲示物 Q&A / 音声・チャット入力と履歴）はクラスエディタ内から辿れるようにする（UIUX-02・隠さない）。
+  const canChat = isRoleAllowed(user.role, PUBLISHER_ROLES);
+  const canTeacherInput = isRoleAllowed(user.role, TEACHER_INPUT_STAFF_ROLES);
   const { date: dateParam } = await searchParams;
   const date =
     dateParam && isValidDate(dateParam)
@@ -76,57 +84,90 @@ export default async function ClassEditorPage({
     <>
       <EditorBoard
         header={
-          <header style={{ marginBottom: "1rem" }}>
-            <Link href="/admin/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-              ← 編集対象の選択へ戻る
-            </Link>
-            <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{schedule.className}</h1>
-            {/*
+          <>
+            <header style={{ marginBottom: "1rem" }}>
+              {/* ?stay=1: 単一クラス teacher の自動直行（エディタ着地）とのループを防ぎ、選択画面に留まれるようにする。 */}
+              <Link
+                href="/admin/editor?stay=1"
+                style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
+              >
+                ← 編集対象の選択へ戻る
+              </Link>
+              <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
+                {schedule.className}
+              </h1>
+              {/*
               編集中の内容が「生徒のサイネージに今どう出るか」をその場で確認する導線 (#48-E1 の
               signage-preview への入口)。盤面を見ずに編集する死角を解消する。EDITOR_ROLES ⊂ ADMIN_ROLES
               ゆえ teacher でも 403 にならない (preview は ADMIN_ROLES ガード)。別タブで開き、編集を続けながら
               プレビューを再読込できるようにする。
             */}
-            <p style={{ margin: "0 0 0.25rem" }}>
-              <Link
-                href={`/admin/signage-preview/${classId}?date=${date}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  fontSize: "0.9rem",
-                  fontWeight: 600,
-                  color: "#c2410c",
-                }}
-              >
-                サイネージ表示を確認（別タブ） →
-              </Link>
-            </p>
-            {canManageAds || canManageQuietHours || canIssueMagicLink ? (
-              <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                {canIssueMagicLink ? (
-                  <Link href={`/admin/editor/${classId}/magic-link`} style={{ fontSize: "0.9rem" }}>
-                    サイネージ・生徒リンク →
-                  </Link>
-                ) : null}
-                {canManageAds ? (
-                  <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-                    広告管理 →
-                  </Link>
-                ) : null}
-                {canManageQuietHours ? (
-                  <Link
-                    href={`/admin/editor/${classId}/quiet-hours`}
-                    style={{ fontSize: "0.9rem" }}
-                  >
-                    静粛時間 →
-                  </Link>
-                ) : null}
+              <p style={{ margin: "0 0 0.25rem" }}>
+                <Link
+                  href={`/admin/signage-preview/${classId}?date=${date}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    fontSize: "0.9rem",
+                    fontWeight: 600,
+                    color: tokens.color.primaryHover,
+                  }}
+                >
+                  サイネージ表示を確認（別タブ） →
+                </Link>
               </p>
-            ) : null}
-          </header>
+              {canManageAds || canManageQuietHours || canIssueMagicLink || canChat ? (
+                <p
+                  style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}
+                >
+                  {canIssueMagicLink ? (
+                    <Link
+                      href={`/admin/editor/${classId}/magic-link`}
+                      style={{ fontSize: "0.9rem" }}
+                    >
+                      サイネージ・生徒リンク →
+                    </Link>
+                  ) : null}
+                  {canManageAds ? (
+                    <Link href={`/admin/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                      広告管理 →
+                    </Link>
+                  ) : null}
+                  {canManageQuietHours ? (
+                    <Link
+                      href={`/admin/editor/${classId}/quiet-hours`}
+                      style={{ fontSize: "0.9rem" }}
+                    >
+                      静粛時間 →
+                    </Link>
+                  ) : null}
+                  {canChat ? (
+                    <Link href="/admin/chat" style={{ fontSize: "0.9rem" }}>
+                      掲示物 Q&A →
+                    </Link>
+                  ) : null}
+                  {canTeacherInput ? (
+                    <Link href="/admin/teacher-input" style={{ fontSize: "0.9rem" }}>
+                      音声/チャット入力・履歴 →
+                    </Link>
+                  ) : null}
+                </p>
+              ) : null}
+            </header>
+            {/* AI おまかせ入口はページを開いた瞬間に見せる（UIUX-02: FAB だけに隠さない）。 */}
+            <EditorAssistant
+              scope="class"
+              targetId={classId}
+              date={date}
+              existingNotices={notices.items}
+              existingSchedules={schedule.items}
+              existingAssignments={assignments.items}
+              hero
+            />
+          </>
         }
         schedule={
           <ScheduleEditor
@@ -142,14 +183,7 @@ export default async function ClassEditorPage({
       />
       <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
       <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
-      <EditorAssistant
-        scope="class"
-        targetId={classId}
-        date={date}
-        existingNotices={notices.items}
-        existingSchedules={schedule.items}
-        existingAssignments={assignments.items}
-      />
+      <RememberLastClass classId={classId} />
     </>
   );
 }

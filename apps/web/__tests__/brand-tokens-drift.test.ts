@@ -34,6 +34,7 @@ for (const m of css.matchAll(BRAND_VAR_RE)) {
 const SHARED: Record<string, string> = {
   "brand-orange": tokens.color.orange,
   "brand-blue": tokens.color.blue,
+  "brand-blue-strong": tokens.color.blueStrong,
   "brand-ink": tokens.color.ink,
   "brand-muted": tokens.color.muted,
   "brand-border": tokens.color.border,

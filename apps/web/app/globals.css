@@ -14,6 +14,8 @@
 :root {
   --brand-orange: #e0823c;
   --brand-blue: #6fa8c7;
+  /* ブランドブルー（LP と共通・UIUX-00）。見出し/リンク強調用。白背景テキスト 4.5:1 充足。 */
+  --brand-blue-strong: #2b4acb;
   --brand-ink: #1f2937;
   --brand-muted: #6b7280;
   --brand-border: #e5e7eb;
