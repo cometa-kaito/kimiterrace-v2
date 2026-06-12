@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea72d65" # 2026-06-11 cutover: tv-liveness に FCM 送信コード(#791)同梱のため bump（weather/railway 同梱・コード不変）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "e8092c0" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
+  web_image_tag = "96d0d5d" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
 }
 
 module "network" {
@@ -485,7 +485,8 @@ module "cloud_run" {
 
   # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
-  ai_enabled          = false # TODO(prod hardening): 検証完了後に true へ flip（停止は false に戻して apply で即 OFF）
+  ai_enabled          = true # 2026-06-12 flip: UIUX-02 AI go-live。マスキング強化(redactSuspectedNames)+test+Reviewer+aiplatform API有効を確認済。停止は false に戻して apply で即 OFF
+
   memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
   deletion_protection = true  # prod は誤削除防止（モジュール既定 true・明示）
 
