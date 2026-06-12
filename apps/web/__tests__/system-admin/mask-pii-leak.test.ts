@@ -45,6 +45,7 @@ describe("maskJsonForDisplay: 人名 / 連絡先キーは全伏字", () => {
     const out = maskJsonForDisplay({
       studentName: "田中太郎",
       parentName: "田中花子",
+      teacherName: "佐藤先生",
       phone: "090-1111-2222",
       address: "岐阜県各務原市…",
       email: "kaito@example.jp",
@@ -52,6 +53,7 @@ describe("maskJsonForDisplay: 人名 / 連絡先キーは全伏字", () => {
     expect(out).toEqual({
       studentName: "••",
       parentName: "••",
+      teacherName: "••",
       phone: "••",
       address: "••",
       email: "••",

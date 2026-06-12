@@ -25,7 +25,7 @@ const SENSITIVE_KEY_RE = /(mac|client|session|token|secret|credential|device_id|
  * 構造化 payload は発生源側の allowlist で守る (events.payload 参照)。
  */
 const NAME_KEY_RE =
-  /(display_?name|full_?name|first_?name|last_?name|family_?name|student_?name|parent_?name|guardian_?name|user_?name|nick_?name|kana|furigana|ruby|^name$|^names$|^students?$|^members?$|^attendees?$|roster|e_?mail|phone|^tel$|mobile|address|^addr|zip|postal|birth)/;
+  /(display_?name|full_?name|first_?name|last_?name|family_?name|student_?name|parent_?name|guardian_?name|teacher_?name|staff_?name|user_?name|nick_?name|kana|furigana|ruby|^name$|^names$|^students?$|^members?$|^attendees?$|roster|e_?mail|phone|^tel$|mobile|address|^addr|zip|postal|birth)/;
 
 /** 自由テキストの表示上限 (超過分は文字数表記で畳む)。 */
 export const TEXT_TRUNCATE_LIMIT = 120;
