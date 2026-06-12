@@ -143,7 +143,7 @@ locals {
   #   ② ここを旧版番号（投入直前の latest。例 "3"）に設定 → apply（web image も二重受理コードへ bump）。
   #     → TV_POLL_SECRET=latest(新)・TV_POLL_SECRET_LEGACY=旧 を両受理（無停止）。
   #   ③全 TV 端末を新キーへ更新後、ここを "" へ戻して apply → 旧キー失効。旧版は disable/destroy（gcloud secrets versions disable）。
-  tv_poll_secret_legacy_version = "" # gitleaks:allow（バージョン番号であり値ではない）
+  tv_poll_secret_legacy_version = "" # 2026-06-11 closeout: 本番モニタ3台が新キー(v4)に乗ったので旧キー(v3/漏洩値)受理を停止（73f65bf0私物は失効OK）
 
   # TV プロビジョニング agent 認証 共有シークレット（PROVISION_AGENT_SECRET）の Secret Manager secret ID
   # （ルール5・値は別途投入）。C方式 / PR4: /api/tv/provisioning/* の agent 認証。TV_POLL_SECRET とは別 secret。
@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "c40ab97" # 2026-06-11 deploy: pattern2(0023/0024/0025) + K3 partner idempotency 等 main HEAD 反映
+  migrate_image_tag = "ea72d65" # 2026-06-11 cutover: FCM migration 0022(tv_devices.fcm_token) 適用のため bump（#791・lock修正ea72d65）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -182,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "c40ab97" # 2026-06-11: railway-status-job 同梱（鉄道Job有効化・ADR-035）。weather/liveness も同梱の main HEAD
+  jobs_image_tag = "ea72d65" # 2026-06-11 cutover: tv-liveness に FCM 送信コード(#791)同梱のため bump（weather/railway 同梱・コード不変）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "9691ece" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
+  web_image_tag = "ea72d65" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
 }
 
 module "network" {
