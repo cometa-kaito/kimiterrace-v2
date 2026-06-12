@@ -190,6 +190,11 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
 
   // ---- 正常系（200） ----
   it("正鍵 + 正常 payload → 200 + applied + advertiserId", async () => {
+    const rehostCalls: Array<{ url: string; objectId: string }> = [];
+    rehostImpl = async (u, id) => {
+      rehostCalls.push({ url: u, objectId: id });
+      return u;
+    };
     const res = await POST(makeReq(validBody(), { key: SECRET }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -200,6 +205,10 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     // 再ホスト後の mediaUrl が DB 入力に載る（assetFetchUrl をそのまま渡す passthrough）。
     const input = applyPartnerDelivery.mock.calls[0]?.[1] as { ads: { mediaUrl: string }[] };
     expect(input.ads[0]?.mediaUrl).toBe("https://signed.example.com/asset.png?token=abc");
+    // 再ホストの objectId は portalPlacementId（冪等キー）で配線される
+    expect(rehostCalls).toEqual([
+      { url: "https://signed.example.com/asset.png?token=abc", objectId: PORTAL_PLACEMENT },
+    ]);
   });
 
   // ---- 【要件1】null contract ----
