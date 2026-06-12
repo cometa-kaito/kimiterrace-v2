@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { Storage } from "@google-cloud/storage";
+import { AD_MEDIA_OBJECT_PREFIX, adMediaServingPath, isValidAdMediaKey } from "../ads/media-object";
 import { isBlockedInternalHost } from "../tv/config-edit-core";
 
 /**
@@ -10,9 +11,17 @@ import { isBlockedInternalHost } from "../tv/config-edit-core";
  * ## なぜ再ホストするか
  * `assetFetchUrl` は短命（10 分）なので、そのまま `media_url` に保存するとサイネージ端末が後で GET したとき
  * 失効している。サイネージは `ads.media_url` を `<img>`/`<video>` で**直接 GET** する（公開掲示物・PII 無し、
- * `infrastructure/terraform/modules/ad_media` の公開バケット）。よって取得 → 公開バケットへ保存 → その公開 URL を
+ * `infrastructure/terraform/modules/ad_media` の公開バケット）。よって取得 → 公開バケットへ保存 → その配信 URL を
  * 返す必要がある。広告は企業の認知広告であり生徒 PII を含まない（教員アップロード `UPLOAD_BUCKET` の per-school
  * 非公開素材とは正反対のポリシー、ad_media モジュール doc）。
+ *
+ * ## 配信 URL は同一オリジン `/ad-media/<key>`（ADR-037）
+ * サイネージ実機は県教委 Wi-Fi の **FQDN 許可リスト**下にあり `app.school-signage.net` のみ到達可で、
+ * `storage.googleapis.com` 直 URL は遮断されうる。そのため `/admin` アップロード経路（`/api/ads/media`）と同じく、
+ * 保存キーは `ads/partner/<portalPlacementId>`、`media_url` には同一オリジン相対パス
+ * `/ad-media/ads/partner/<id>`（`adMediaServingPath`）を返す。配信 Route（`app/ad-media/[...key]/route.ts`）が
+ * バケットから stream する。GCS 直 URL を返していた旧実装の partner 広告は、portal からの再配信（冪等 upsert）で
+ * 同一オリジン URL に置き換わる。
  *
  * ## 【要件2】エラー方針（portal の再送判断: 4xx=fatal / 5xx=transient）
  * `assetFetchUrl` の取得失敗（署名 URL 期限切れ・ネットワーク断）と GCS アップロード失敗は **transient**
@@ -27,15 +36,11 @@ import { isBlockedInternalHost } from "../tv/config-edit-core";
  * `assertPublicHttpsTarget` で https 限定 + ホスト名リテラル + **解決済み IP** を `isBlockedInternalHost` で
  * 内部レンジと突合（DNS-rebinding 対策）し、`redirect:'manual'` でリダイレクトを追わない。
  *
- * ## 現状（GCS バケット未プロビジョニング・ルール8 = この PR で Terraform を足さない）
- * 公開 ad-media バケットは Terraform `modules/ad_media` で定義済みだが各 env で **enabled=false**（実体未生成）で、
- * このルートが使う env（`AD_MEDIA_BUCKET`）も未配線。したがって既定は **passthrough**:
- *   - `AD_MEDIA_BUCKET` 未設定なら **再ホストせず assetFetchUrl をそのまま** `media_url` として返す（暫定）。
- *     これにより受け口は今日から機能し、署名 URL の短命さは「短期検証用途では許容」する暫定運用とする。
- *   - バケットが配線されたら（Terraform で `ad_media` を enabled 化 + Cloud Run に `AD_MEDIA_BUCKET` を注入）、
- *     自動で取得 → 再ホスト経路に切り替わる（コード変更不要）。
- * **TODO（別 Issue・ルール8 Terraform 管轄）**: `modules/ad_media` を各 env で enabled 化し、Cloud Run service へ
- * `AD_MEDIA_BUCKET` を env 注入する。それまでは passthrough（要 GCS 再ホスト）。
+ * ## passthrough フォールバック（`AD_MEDIA_BUCKET` 未設定の env のみ）
+ * 公開 ad-media バケットは Terraform `modules/ad_media` で **staging/prod とも enabled=true・
+ * `AD_MEDIA_BUCKET` 注入済み**（2026-06-08 bring-up・#46/#48-F）。バケット未配線の env（ローカル等）に限り
+ * **再ホストせず assetFetchUrl をそのまま** `media_url` として返す（受け口を止めない・要件2）。
+ * 署名 URL は短命のため passthrough は短期検証用途専用。
  */
 
 /** 取得 / アップロードの transient 失敗（要件2: route が 5xx に写す）。 */
@@ -132,7 +137,11 @@ export function createPassthroughAssetRehost(): AssetRehostPort {
 export type GcsAssetRehostConfig = {
   /** 公開 ad-media バケット名（env `AD_MEDIA_BUCKET` 由来、ハードコード禁止・ルール5）。 */
   bucket: string;
-  /** 保存キーの prefix（既定 `partner`）。サイネージ広告の出所を分ける。 */
+  /**
+   * 保存キーの prefix（既定 `ads/partner`）。`ads/` 始まりは配信 Route（`/ad-media/<key>`）が
+   * serve する条件（`isValidAdMediaKey`・ADR-037）。`/partner` でアップロード経路（`ads/<schoolId>/…`）
+   * と出所を分ける（schoolId は UUID のため衝突しない）。
+   */
   prefix?: string;
   /** 注入用 `@google-cloud/storage` クライアント（テスト/モック用）。未指定なら ADC で生成。 */
   storage?: Storage;
@@ -154,7 +163,7 @@ export function createGcsAssetRehost(config: GcsAssetRehostConfig): AssetRehostP
   }
   const storage = config.storage ?? new Storage();
   const bucket = storage.bucket(config.bucket);
-  const prefix = config.prefix ?? "partner";
+  const prefix = config.prefix ?? `${AD_MEDIA_OBJECT_PREFIX}/partner`;
   const doFetch = config.fetchImpl ?? fetch;
   const lookupAll: LookupAll = config.lookupImpl ?? ((h) => lookup(h, { all: true }));
 
@@ -199,15 +208,20 @@ export function createGcsAssetRehost(config: GcsAssetRehostConfig): AssetRehostP
       const body = Buffer.from(arrayBuf);
 
       // 2. 公開バケットへ保存（transient: GCS 障害 → AssetRehostError → route 5xx）。
+      // 生成キーは配信 Route の受理条件（isValidAdMediaKey）を必ず満たすことを多層防御で確認。
       const objectPath = `${prefix}/${objectId}`;
+      if (!isValidAdMediaKey(objectPath)) {
+        throw new AssetPolicyError(`不正な object key: ${objectPath}`);
+      }
       try {
         await bucket.file(objectPath).save(body, { contentType, resumable: false });
       } catch (cause) {
         throw new AssetRehostError("asset upload failed", { cause });
       }
 
-      // 3. 公開 read URL（ad_media バケットは allUsers:objectViewer・公開掲示物）。
-      return `https://storage.googleapis.com/${config.bucket}/${objectPath}`;
+      // 3. 同一オリジン配信パス `/ad-media/<key>` を返す（ADR-037・FQDN 許可リスト対応）。
+      //    サイネージ・管理画面とも app.school-signage.net 配下で解決される相対 URL。
+      return adMediaServingPath(objectPath);
     },
   };
 }

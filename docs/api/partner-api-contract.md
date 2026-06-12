@@ -67,7 +67,7 @@ POST /api/partner/delivery
   "ads": [ { "portalPlacementId":"uuid","v2SchoolId":"uuid","scope":"school|grade|department|class","mediaType":"image|video","durationSec":7,"displayOrder":1,"assetFetchUrl":"https://…(短命署名URL)","caption":"…?","linkUrl":"…?" } ]
 }
 ```
-- **挙動**: `portalCompanyId`/`portalContractId`/`portalPlacementId` を**冪等キー**に `advertisers`/`contracts`/`ads` を upsert。`assetFetchUrl` を v2 が取得して **GCS へ再ホスト** → `ads.media_url` に GCS パス。
+- **挙動**: `portalCompanyId`/`portalContractId`/`portalPlacementId` を**冪等キー**に `advertisers`/`contracts`/`ads` を upsert。`assetFetchUrl` を v2 が取得して **GCS（ad-media バケット・キー `ads/partner/<portalPlacementId>`）へ再ホスト** → `ads.media_url` には**同一オリジン配信パス `/ad-media/<key>`**（ADR-037・県教委 Wi-Fi FQDN 許可リスト対応。API レスポンス契約には影響しない v2 内部表現）。
 - **200**: `{ "applied": { "advertisers":1, "contracts":1, "ads":3 }, "advertiserId":"uuid" }`。
 - **冪等**: 同じ portal ID で再送しても二重作成しない（Outbox 再送・§42.1 と整合）。
 - **要スキーマ（別PR・schema先行）**: v2 `advertisers` に `portal_company_id uuid unique`、`contracts` に `portal_contract_id unique`、`ads` に `portal_placement_id unique`（+ §13 `ad_slots`/`ads.slot_id`）。**全テーブル監査カラム（ルール1）・RLS（ルール2）・Drizzle 型（ルール3）厳守**。

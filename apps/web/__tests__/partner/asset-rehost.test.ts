@@ -1,8 +1,10 @@
+import type { Storage } from "@google-cloud/storage";
 import { describe, expect, it, vi } from "vitest";
 import {
   AssetPolicyError,
   AssetRehostError,
   assertPublicHttpsTarget,
+  createGcsAssetRehost,
 } from "@/lib/partner/asset-rehost";
 
 /**
@@ -80,5 +82,76 @@ describe("assertPublicHttpsTarget (SSRF ガード)", () => {
     await expect(assertPublicHttpsTarget("not a url", publicLookup)).rejects.toBeInstanceOf(
       AssetPolicyError,
     );
+  });
+});
+
+/**
+ * 再ホスト本体（ADR-037）: 保存キーは `ads/partner/<objectId>`（配信 Route の受理条件 `ads/` 始まり）、
+ * 返却 URL は **同一オリジン相対パス** `/ad-media/<key>`。サイネージ実機は県教委 Wi-Fi の FQDN 許可リスト下で
+ * `app.school-signage.net` のみ到達可のため、`storage.googleapis.com` 直 URL を返してはならない（回帰防止）。
+ */
+describe("createGcsAssetRehost (同一オリジン再ホスト・ADR-037)", () => {
+  /** 保存呼び出しを記録する Storage モック。 */
+  function makeStorageMock() {
+    const save = vi.fn(async () => undefined);
+    const file = vi.fn(() => ({ save }));
+    const bucket = vi.fn(() => ({ file }));
+    return { storage: { bucket } as unknown as Storage, file, save };
+  }
+
+  const okFetch = (async () =>
+    new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    })) as unknown as typeof fetch;
+
+  it("保存キー=ads/partner/<id>・返却=同一オリジン /ad-media/<key>（GCS 直 URL を返さない）", async () => {
+    const { storage, file } = makeStorageMock();
+    const rehost = createGcsAssetRehost({
+      bucket: "ad-media-test",
+      storage,
+      fetchImpl: okFetch,
+      lookupImpl: publicLookup,
+    });
+
+    const url = await rehost.rehost(
+      "https://cdn.example.com/a.png",
+      "11112222-3333-4444-5555-666677778888",
+    );
+
+    expect(file).toHaveBeenCalledWith("ads/partner/11112222-3333-4444-5555-666677778888");
+    expect(url).toBe("/ad-media/ads/partner/11112222-3333-4444-5555-666677778888");
+    expect(url).not.toContain("storage.googleapis.com");
+  });
+
+  it("objectId に path injection（`..`・`/`）→ AssetPolicyError（fetch 前に拒否）", async () => {
+    const { storage, save } = makeStorageMock();
+    const fetchSpy = vi.fn(okFetch);
+    const rehost = createGcsAssetRehost({
+      bucket: "ad-media-test",
+      storage,
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+      lookupImpl: publicLookup,
+    });
+
+    await expect(
+      rehost.rehost("https://cdn.example.com/a.png", "../escape"),
+    ).rejects.toBeInstanceOf(AssetPolicyError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("取得が 200 以外 → AssetRehostError（transient・再送可能）", async () => {
+    const { storage } = makeStorageMock();
+    const rehost = createGcsAssetRehost({
+      bucket: "ad-media-test",
+      storage,
+      fetchImpl: (async () => new Response("expired", { status: 403 })) as unknown as typeof fetch,
+      lookupImpl: publicLookup,
+    });
+
+    await expect(
+      rehost.rehost("https://cdn.example.com/a.png", "11112222-3333-4444-5555-666677778888"),
+    ).rejects.toBeInstanceOf(AssetRehostError);
   });
 });
