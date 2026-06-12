@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { Storage } from "@google-cloud/storage";
 import { AD_MEDIA_OBJECT_PREFIX, adMediaServingPath, isValidAdMediaKey } from "../ads/media-object";
@@ -208,8 +209,14 @@ export function createGcsAssetRehost(config: GcsAssetRehostConfig): AssetRehostP
       const body = Buffer.from(arrayBuf);
 
       // 2. 公開バケットへ保存（transient: GCS 障害 → AssetRehostError → route 5xx）。
+      // キーは **内容アドレス**: `<prefix>/<objectId>-<sha256先頭16hex>`。配信 Route は
+      // `immutable` 長期キャッシュ（+ SW cache-first）を返すため、placement 固定のキーだと
+      // クリエイティブ差し替え時に実機が旧画像を実質無期限に保持してしまう（Reviewer M-1）。
+      // 内容が変われば URL が変わり（自然なキャッシュバスト）、同一内容の再送は同一キー（冪等）。
+      // 旧内容のオブジェクトは無害な孤児として残る（公開掲示物・PII なし）。
+      const digest = createHash("sha256").update(body).digest("hex").slice(0, 16);
+      const objectPath = `${prefix}/${objectId}-${digest}`;
       // 生成キーは配信 Route の受理条件（isValidAdMediaKey）を必ず満たすことを多層防御で確認。
-      const objectPath = `${prefix}/${objectId}`;
       if (!isValidAdMediaKey(objectPath)) {
         throw new AssetPolicyError(`不正な object key: ${objectPath}`);
       }

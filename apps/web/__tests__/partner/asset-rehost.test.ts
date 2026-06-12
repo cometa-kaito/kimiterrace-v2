@@ -105,7 +105,10 @@ describe("createGcsAssetRehost (同一オリジン再ホスト・ADR-037)", () =
       headers: { "content-type": "image/png" },
     })) as unknown as typeof fetch;
 
-  it("保存キー=ads/partner/<id>・返却=同一オリジン /ad-media/<key>（GCS 直 URL を返さない）", async () => {
+  // bytes [1,2,3] の sha256 先頭 16 hex（内容アドレスキーの期待値）
+  const CONTENT_DIGEST = "039058c6f2c0cb49";
+
+  it("保存キー=ads/partner/<id>-<内容hash>・返却=同一オリジン /ad-media/<key>（GCS 直 URL を返さない）", async () => {
     const { storage, file } = makeStorageMock();
     const rehost = createGcsAssetRehost({
       bucket: "ad-media-test",
@@ -119,9 +122,35 @@ describe("createGcsAssetRehost (同一オリジン再ホスト・ADR-037)", () =
       "11112222-3333-4444-5555-666677778888",
     );
 
-    expect(file).toHaveBeenCalledWith("ads/partner/11112222-3333-4444-5555-666677778888");
-    expect(url).toBe("/ad-media/ads/partner/11112222-3333-4444-5555-666677778888");
+    const expectedKey = `ads/partner/11112222-3333-4444-5555-666677778888-${CONTENT_DIGEST}`;
+    expect(file).toHaveBeenCalledWith(expectedKey);
+    expect(url).toBe(`/ad-media/${expectedKey}`);
     expect(url).not.toContain("storage.googleapis.com");
+  });
+
+  it("内容が変わるとキー（=URL）が変わる: 差し替えが immutable キャッシュを自然にバストする", async () => {
+    const { storage, file } = makeStorageMock();
+    const fetchV2 = (async () =>
+      new Response(new Uint8Array([9, 9, 9]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      })) as unknown as typeof fetch;
+    const rehost = createGcsAssetRehost({
+      bucket: "ad-media-test",
+      storage,
+      fetchImpl: fetchV2,
+      lookupImpl: publicLookup,
+    });
+
+    const url = await rehost.rehost(
+      "https://cdn.example.com/b.png",
+      "11112222-3333-4444-5555-666677778888",
+    );
+
+    expect(url).not.toBe(
+      `/ad-media/ads/partner/11112222-3333-4444-5555-666677778888-${CONTENT_DIGEST}`,
+    );
+    expect(file).toHaveBeenCalledTimes(1);
   });
 
   it("objectId に path injection（`..`・`/`）→ AssetPolicyError（fetch 前に拒否）", async () => {
