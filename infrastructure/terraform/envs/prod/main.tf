@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea72d65" # 2026-06-11 cutover: tv-liveness に FCM 送信コード(#791)同梱のため bump（weather/railway 同梱・コード不変）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "e8092c0" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
+  web_image_tag = "96d0d5d" # 2026-06-11 deploy: 広告メディア /admin アップロード(#825/#832/#834) + /ad-media 公開ミドルウェア修正(#836) 反映（schema 無変更=migrate 不要）
 }
 
 module "network" {
