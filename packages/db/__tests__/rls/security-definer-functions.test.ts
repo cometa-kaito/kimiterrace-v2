@@ -11,7 +11,7 @@ const describeOrSkip = url ? describe : describe.skip;
  * 誤用すると tenant 越境 SELECT を生む（ADR-019 §代替E が却下した形）。本スイートは
  * threat-model E-02（SEC-025）の防御を敵対的・監査的に検証する:
  *
- *   1. prosecdef=true（SECURITY DEFINER）のアプリ定義関数が許可リスト 2 本のみであること
+ *   1. prosecdef=true（SECURITY DEFINER）のアプリ定義関数が許可リスト 3 本のみであること
  *      = 将来誰かが安易に SECURITY DEFINER 関数を足したら CI が落ちて検知する（回帰防止）。
  *   2. 各関数が search_path を固定していること
  *      = SECURITY DEFINER + 可変 search_path は、呼び出し側が search_path を攻撃者スキーマへ
@@ -31,7 +31,16 @@ const describeOrSkip = url ? describe : describe.skip;
  */
 
 // 許可された SECURITY DEFINER 関数。これ以外が現れたら設計レビュー必須（ADR-019）。
-const ALLOWED_SECURITY_DEFINER = ["resolve_magic_link", "submit_feedback"] as const;
+// 配列は pg_proc の ORDER BY proname と一致させるため **アルファベット順** に保つこと。
+// - advertiser_is_deliverable: 休止広告主の配信除外判定 (migrations/0026, BUG-1)。boolean のみ
+//   返し CRM PII 非露出・search_path 固定・PUBLIC 剥奪。ADR-019「RLS をくぐる細い扉」の踏襲。
+// - resolve_magic_link: 生徒匿名アクセスの class token 解決 (migrations/0012)。
+// - submit_feedback: 匿名フィードバック INSERT 扉（SELECT 面は開かない）。
+const ALLOWED_SECURITY_DEFINER = [
+  "advertiser_is_deliverable",
+  "resolve_magic_link",
+  "submit_feedback",
+] as const;
 
 describeOrSkip("RLS / SECURITY DEFINER 監査 (E-02 / SEC-025)", () => {
   // biome-ignore lint/style/noNonNullAssertion: describe.skip 時は実行されない
