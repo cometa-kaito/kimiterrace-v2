@@ -1,6 +1,6 @@
 # ADR-024: 文書テキスト抽出と画像 OCR の外部委託境界
 
-- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）
+- 状態: Accepted（2026-06-01 ユーザーレビューで Proposed → Accepted）／**決定2（画像 OCR バックエンド = Cloud Vision）は [ADR-038](038-image-ocr-gemini-multimodal-residency.md) が supersede（2026-06-13、データレジデンシー優先で Gemini マルチモーダル直送へ）。決定1/3/4 は有効。**
 - 日付: 2026-05-31
 - 関連: [#12](https://github.com/cometa-kaito/kimiterrace-v2/issues/12), [#180 (抽出レイヤ scaffold)](https://github.com/cometa-kaito/kimiterrace-v2/pull/180), [ADR-005 (Vertex AI)](005-vertex-ai.md), [ADR-017 (Gemini 構造化 + confidence)](017-gemini-ai-structuring-with-confidence.md), [CLAUDE.md ルール4 (PII マスキング)](../../CLAUDE.md)
 
@@ -33,6 +33,8 @@
 - Document AI / 外部パース API は **却下**（後述 代替C）。
 
 ### 2. 画像 OCR は **Google Cloud Vision API (Document Text Detection)**、ただし送信ガードを必須化
+
+> ⚠ **[ADR-038](038-image-ocr-gemini-multimodal-residency.md) が本決定2を supersede（2026-06-13）**: Cloud Vision の asia-northeast1 データレジデンシー保証が NFR07 を満たせるか未確定のため、画像 OCR を **Vertex Gemini マルチモーダル直送（asia-northeast1）** に変更。下記の送信ガード（オプトイン / 監査 / 下流マスキング）は ADR-038 でも継承・強化。代替B（下記）の「生成モデルへの PII 露出」懸念は ADR-038 の残存リスクとして受容。
 
 - バックエンド: **Cloud Vision API**（`@google-cloud/vision`）を asia-northeast1 で使用。Workload Identity 認証（[CLAUDE.md ルール5](../../CLAUDE.md)、JSON キー禁止）。
 - **Gemini Vision（マルチモーダル LLM）は却下**（後述 代替B）。OCR はテキスト座標抽出で足り、画像を生成モデルのコンテキスト/ログに残す必要がない。
