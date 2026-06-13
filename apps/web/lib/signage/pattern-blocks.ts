@@ -8,6 +8,10 @@
  * 散らばっており（pattern1 校でも来校者/呼び出しエディタを無条件描画する等、指摘ログ finding①）、ドリフトの
  * 温床だった。本モジュールに集約してドリフトを機械的に排す。
  *
+ * **現在の consumer**: データ層 `signage-display.ts`（取得ゲート）＋盤面 `SignageClient`（region ドリフト
+ * ガードで一致を機械担保）。エディタ（不要セクションの無条件描画の解消）と AI アシスタント（振り分け先）の
+ * consume は後続レーン（UI / AI レーン）が本マッピングを import して行う＝本モジュールはその keystone。
+ *
  * ## 将来パターン拡張前提（if 分岐ハードコード禁止・ユーザー指示）
  * 「今後もサイネージパターンは増える可能性がある」前提で設計する。**新パターン追加＝{@link PATTERN_BLOCKS}
  * に 1 行**（＋新ブロックなら {@link SignageBlockKind} と {@link SIGNAGE_BLOCK_META} に 1 エントリ＋盤面
