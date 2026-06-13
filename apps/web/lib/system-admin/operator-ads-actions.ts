@@ -53,27 +53,39 @@ function auditView(v: AdInput): Record<string, unknown> {
   };
 }
 
-/** audit_log に 1 行追記。school_id は対象校、actor は system_admin。row_hash はトリガが計算。 */
+/**
+ * audit_log に 1 行追記。school_id は対象校。row_hash はトリガが計算。
+ *
+ * **system_admin は users テーブルに存在しない**（system_admins で別管理・テナント外）。
+ * audit_log の `actor_user_id` / `created_by` / `updated_by` は `users(id)` への FK
+ * （migration 0004）なので、system_admin の uid をそのまま入れると **FK 違反 (23503)** に
+ * なる（delete は再 throw で HTTP 500、create はロールバックして誤った「競合」表示）。
+ * そこで actor 参照は system_admin では null とし、本人は FK の無い `actor_identity_uid`
+ * 側に保持する（advertisers-actions.ts の writeAdvertiserUpdateAudit と同方針）。
+ */
 async function writeAudit(
   tx: TenantTx,
   params: {
-    actorUserId: string;
+    actor: { uid: string; role: string };
     schoolId: string;
     recordId: string;
     operation: "insert" | "delete";
     diff: unknown;
   },
 ): Promise<void> {
+  const isSystemAdmin = params.actor.role === "system_admin";
+  const actorRef = isSystemAdmin ? null : params.actor.uid;
   await tx.insert(auditLog).values({
-    actorUserId: params.actorUserId,
+    actorUserId: actorRef,
+    actorIdentityUid: params.actor.uid,
     schoolId: params.schoolId,
     tableName: "ads",
     recordId: params.recordId,
     operation: params.operation,
     diff: params.diff as object,
     rowHash: "",
-    createdBy: params.actorUserId,
-    updatedBy: params.actorUserId,
+    createdBy: actorRef,
+    updatedBy: actorRef,
   });
 }
 
@@ -134,7 +146,7 @@ export async function createOperatorAdAction(raw: {
         throw new NotFoundError("広告の作成に失敗しました。");
       }
       await writeAudit(tx, {
-        actorUserId: user.uid,
+        actor: user,
         schoolId,
         recordId: newId,
         operation: "insert",
@@ -179,7 +191,7 @@ export async function deleteOperatorAdAction(
       }
       await tx.delete(ads).where(and(eq(ads.id, adId), isNotNull(ads.advertiserId)));
       await writeAudit(tx, {
-        actorUserId: user.uid,
+        actor: user,
         schoolId: target.schoolId,
         recordId: adId,
         operation: "delete",
@@ -193,6 +205,10 @@ export async function deleteOperatorAdAction(
   } catch (error) {
     if (error instanceof NotFoundError) {
       return notFound(error.message);
+    }
+    // create と対称に制約違反を握って意味あるメッセージに（本番マスクの 500 を防ぐ）。
+    if (isConstraintViolation(error)) {
+      return conflict("他の操作と競合しました。最新の内容を読み込み直してください。");
     }
     throw error;
   }

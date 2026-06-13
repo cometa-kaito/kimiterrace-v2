@@ -24,6 +24,7 @@ vi.mock("../../lib/system-admin/advertisers-queries", () => ({
   getAdvertiserDetail: (...a: unknown[]) => getAdvertiserDetailMock(...a),
 }));
 
+import { ads, auditLog } from "@kimiterrace/db";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import {
@@ -33,6 +34,13 @@ import {
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
+
+// tx.insert(table).values(v) を {table, values} で捕捉する（FK 違反の原因＝
+// audit_log の actor 参照に system_admin uid を入れていないかを検証するため）。
+type CapturedInsert = { table: unknown; values: Record<string, unknown> };
+let capturedInserts: CapturedInsert[] = [];
+const auditInsert = () => capturedInserts.find((i) => i.table === auditLog)?.values;
+const adsInsert = () => capturedInserts.find((i) => i.table === ads)?.values;
 
 const ADV_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
@@ -49,23 +57,34 @@ const VALID = {
 };
 
 /** insert(.values/.returning) / delete(.where) / select(.from/.where/.limit) を満たす fake tx。 */
-function makeTx(selectRows: unknown[]) {
-  const chain = {
-    values: () => chain,
-    returning: () => Promise.resolve([{ id: "new-ad-1" }]),
-    where: () => Promise.resolve(undefined),
+function makeTx(selectRows: unknown[], inserts: CapturedInsert[]) {
+  const insertChain = (table: unknown) => {
+    const chain = {
+      values: (v: Record<string, unknown>) => {
+        inserts.push({ table, values: v });
+        return chain;
+      },
+      returning: () => Promise.resolve([{ id: "new-ad-1" }]),
+      where: () => Promise.resolve(undefined),
+    };
+    return chain;
   };
   const selectChain = {
     from: () => selectChain,
     where: () => selectChain,
     limit: () => Promise.resolve(selectRows),
   };
-  return { insert: () => chain, delete: () => chain, select: () => selectChain };
+  return {
+    insert: (table: unknown) => insertChain(table),
+    delete: () => insertChain(null),
+    select: () => selectChain,
+  };
 }
 
 function useTx(selectRows: unknown[] = []) {
+  capturedInserts = [];
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
-    Promise.resolve(fn(makeTx(selectRows), sysAdmin))) as typeof withSession);
+    Promise.resolve(fn(makeTx(selectRows, capturedInserts), sysAdmin))) as typeof withSession);
 }
 
 beforeEach(() => {
@@ -118,6 +137,22 @@ describe("createOperatorAdAction", () => {
     expect(res).toEqual({ ok: true, data: { id: "new-ad-1" } });
     expect(withSessionMock).toHaveBeenCalledTimes(1);
   });
+
+  // BUG-6 回帰: system_admin は users に居ないため audit_log の actor 参照
+  // (actor_user_id/created_by/updated_by=users(id) FK) に uid を入れると FK 違反で失敗する。
+  it("audit_log の actor 参照は system_admin では null（FK 違反回避）・本人は actor_identity_uid に保持", async () => {
+    await createOperatorAdAction(VALID);
+    expect(auditInsert()).toMatchObject({
+      operation: "insert",
+      actorUserId: null,
+      createdBy: null,
+      updatedBy: null,
+      actorIdentityUid: USER_ID,
+    });
+    // ads には created_by の FK が無い（migration 0004 対象外）ので uid のままで良い＝
+    // 過剰に null 化していないことも確認。
+    expect(adsInsert()).toMatchObject({ createdBy: USER_ID, updatedBy: USER_ID });
+  });
 });
 
 describe("deleteOperatorAdAction", () => {
@@ -137,5 +172,18 @@ describe("deleteOperatorAdAction", () => {
     const res = await deleteOperatorAdAction(AD_ID);
     expect(res).toEqual({ ok: true, data: { id: AD_ID } });
     expect(requireRoleMock).toHaveBeenCalledWith(["system_admin"]);
+  });
+
+  // BUG-6 回帰: 削除時の audit_log insert で actor 参照に uid を入れると FK 違反 (23503)
+  // → 旧コードは catch せず再 throw で HTTP 500 になっていた（本番マスク digest 2791236024）。
+  it("audit_log の actor 参照は system_admin では null（削除時の FK 違反＝500 回避）", async () => {
+    await deleteOperatorAdAction(AD_ID);
+    expect(auditInsert()).toMatchObject({
+      operation: "delete",
+      actorUserId: null,
+      createdBy: null,
+      updatedBy: null,
+      actorIdentityUid: USER_ID,
+    });
   });
 });
