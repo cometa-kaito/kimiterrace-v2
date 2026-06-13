@@ -102,9 +102,9 @@ describe("SignageClient view impression (#43 / F07)", () => {
     expect(sendSignageEvent).not.toHaveBeenCalled();
   });
 
-  it("ヘッダーに学科・学年・クラスの識別ラベルを表示する (#243)", () => {
+  it("ヘッダーに識別ラベルを表示する (#243・学科制は 学科 学年 で組は出さない BUG-3)", () => {
     render(<SignageClient classToken={TOKEN} initial={payload([])} />);
-    expect(screen.getByText("電子工学科 1年 A組")).toBeInTheDocument();
+    expect(screen.getByText("電子工学科 1年")).toBeInTheDocument();
   });
 
   it("clientId が空なら clientId キーを載せない (無効値を送らない)", () => {

@@ -14,6 +14,7 @@ type Row = {
   academicYear: number;
   grade: number;
   gradeName: string | null;
+  departmentName: string | null;
 };
 
 /** select(...).from(...).leftJoin(...).where(...).orderBy(...) を満たし、最後に rows を解決する fake。 */
@@ -29,15 +30,58 @@ function fakeTx(rows: Row[]): TenantTx {
 }
 
 describe("listSchoolClassesForAdPlacement", () => {
-  it("行を射影し、gradeName null は『（学年未割当）』にフォールバックする", async () => {
+  it("行を射影し、gradeName null は『（学年未割当）』に、departmentName を通す", async () => {
     const rows: Row[] = [
-      { classId: "c1", className: "1組", academicYear: 2026, grade: 1, gradeName: "1年" },
-      { classId: "c2", className: "未割当", academicYear: 2026, grade: 0, gradeName: null },
+      // クラス制(学科なし)
+      {
+        classId: "c1",
+        className: "1組",
+        academicYear: 2026,
+        grade: 1,
+        gradeName: "1年",
+        departmentName: null,
+      },
+      {
+        classId: "c2",
+        className: "未割当",
+        academicYear: 2026,
+        grade: 0,
+        gradeName: null,
+        departmentName: null,
+      },
+      // 学科制(学科あり) — departmentName をそのまま射影する (表示分岐に使う、BUG-3)
+      {
+        classId: "c3",
+        className: "A組",
+        academicYear: 2026,
+        grade: 1,
+        gradeName: "1年",
+        departmentName: "電子工学科",
+      },
     ];
     const result = await listSchoolClassesForAdPlacement(fakeTx(rows), "school-1");
     expect(result).toEqual([
-      { classId: "c1", className: "1組", academicYear: 2026, gradeName: "1年" },
-      { classId: "c2", className: "未割当", academicYear: 2026, gradeName: "（学年未割当）" },
+      {
+        classId: "c1",
+        className: "1組",
+        academicYear: 2026,
+        gradeName: "1年",
+        departmentName: null,
+      },
+      {
+        classId: "c2",
+        className: "未割当",
+        academicYear: 2026,
+        gradeName: "（学年未割当）",
+        departmentName: null,
+      },
+      {
+        classId: "c3",
+        className: "A組",
+        academicYear: 2026,
+        gradeName: "1年",
+        departmentName: "電子工学科",
+      },
     ]);
   });
 
