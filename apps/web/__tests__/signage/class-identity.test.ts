@@ -6,10 +6,16 @@ import { formatClassIdentity } from "@/lib/signage/class-identity";
  */
 
 describe("formatClassIdentity", () => {
-  it("学科・学年・クラスが揃えば 学科 学年 クラス を連結", () => {
+  it("学科制(学科あり)は 学科 学年 を連結し組(className)は出さない (BUG-3)", () => {
     expect(
       formatClassIdentity({ departmentName: "電子工学科", gradeName: "1年", className: "A組" }),
-    ).toBe("電子工学科 1年 A組");
+    ).toBe("電子工学科 1年");
+  });
+
+  it("学科制では組名が何であっても出さない (BUG-3)", () => {
+    expect(
+      formatClassIdentity({ departmentName: "機械科", gradeName: "3年", className: "B組" }),
+    ).toBe("機械科 3年");
   });
 
   it("学科が無ければ 学年 クラス（class モードの学校）", () => {
