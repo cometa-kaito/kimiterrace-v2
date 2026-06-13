@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "ea72d65" # 2026-06-11 cutover: FCM migration 0022(tv_devices.fcm_token) 適用のため bump（#791・lock修正ea72d65）
+  migrate_image_tag = "98ea09a" # 2026-06-13 BUG-1: migration 0026(休止広告主の配信除外=SECURITY DEFINER関数+VIEW再作成) 適用のため bump（#846）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -182,7 +182,7 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "ea72d65" # 2026-06-11 cutover: tv-liveness に FCM 送信コード(#791)同梱のため bump（weather/railway 同梱・コード不変）
+  jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   web_image_tag = "f528862" # 2026-06-13 deploy: サイネージ pattern2 デザイン刷新(#850) + 学科制クラス識別(BUG-3 #848) 反映（schema 無変更=migrate 不要）
