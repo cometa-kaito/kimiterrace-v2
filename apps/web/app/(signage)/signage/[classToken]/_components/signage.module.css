@@ -552,95 +552,145 @@
   display: none;
 }
 
-/* ===================== 11b. パターン2 盤面（予定/来校者/呼び出し/センサ/天気/鉄道） =====================
-   左カラム（infoArea）を 2 列グリッドで分割し、予定は横幅いっぱい・他は枠で並べる。右の広告（adArea）と
-   ヘッダー帯（adHeader）はパターン1と共有する。本 PR は予定・天気を実描画し、残りは「準備中」プレースホルダー。 */
+/* ===================== 11b. パターン2 盤面（予定/呼び出し/来校者/鉄道/センサ） =====================
+   左カラム（infoArea）を「優先順位 = 面積」で縦 3 段に積む:
+     第1段 = 予定（主役・横幅いっぱい・3列・天気を日付ヘッダーに内包）
+     第2段 = 人に関わる情報（生徒呼び出し ＋ 来校者一覧 を 2 列）
+     第3段 = ステータス帯（鉄道 ＋ 人感センサを小さく 2 列）
+   右の広告（adArea）とヘッダー帯（adHeader）はパターン1と共有。旧 2 列均質の「右下空きセル」を解消する。 */
 .p2Grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-auto-rows: minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--content-gap);
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
-.p2Wide {
-  grid-column: 1 / -1;
-}
-/* 鉄道（運行情報）: 事業者名 + メッセージ本文。乱れ時は赤強調、古い時は注記。 */
-.p2Train {
-  flex: 1;
+/* 第1段: 予定。見出し・外枠を持たず 3 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。 */
+.p2Schedule {
+  flex: 46 1 0;
   min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6vmin;
+  overflow: hidden;
+}
+/* 第2段: 人に関わる情報（呼び出し・来校者）を 2 列で対に。 */
+.p2People {
+  flex: 36 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--content-gap);
+  overflow: hidden;
+}
+/* 第3段: ステータス帯（鉄道・センサ）を均等 2 列で小さく。 */
+.p2Status {
+  flex: 18 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--content-gap);
+  overflow: hidden;
+}
+/* ステータス帯のタイル（鉄道・センサ）。surface-muted で「副次情報」と一目で分かる小さめの枠。 */
+.p2StatusTile {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.3vmin 1vmin;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 0.25rem;
+  gap: 0.1rem;
+  min-height: 0;
+  overflow: hidden;
 }
-.p2TrainOperator {
-  font-size: clamp(0.7rem, 1vw, 0.9rem);
+.p2StatusLabel {
+  font-size: clamp(0.62rem, 0.9vw, 0.82rem);
   font-weight: 700;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 鉄道: 事業者はラベルに併記、運行状況はこの行（乱れ時は赤・古い時は注記を後置）。 */
+.p2TrainBody {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 0.4rem;
+  min-width: 0;
 }
 .p2TrainStatus {
-  font-size: clamp(0.85rem, 1.4vw, 1.2rem);
+  font-size: clamp(0.85rem, 1.35vw, 1.2rem);
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.25;
   color: var(--primary-color);
+  overflow: hidden;
 }
 .p2TrainDisrupted {
   color: var(--urgent-color);
 }
 .p2TrainStale {
-  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
+  font-size: clamp(0.6rem, 0.85vw, 0.76rem);
   color: var(--text-muted);
   font-weight: 600;
 }
 .p2Muted {
   color: var(--text-muted);
-  font-size: clamp(0.8rem, 1.2vw, 1rem);
+  font-size: clamp(0.78rem, 1.1vw, 0.98rem);
   font-weight: 600;
-  padding: 0.3rem 0;
+  padding: 0.2rem 0;
 }
-.p2Hint {
-  flex-shrink: 0;
-  margin-top: 0.2rem;
-  align-self: flex-end;
-  color: var(--text-muted);
-  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
-}
-/* 予定: 今後3平日を 3 列で（パターン1の grid を簡素化した list 版）。 */
-.p2ScheduleScroll {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5vmin;
-}
+/* 予定の 1 日（1 列）。surface-muted の枠で 3 列を見せる。今日は日付ヘッダーを黒ベタで強調。 */
 .p2ScheduleDay {
   background: var(--surface-muted);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 0.4vmin;
+  padding: 0.4vmin 0.5vmin;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
+/* 日付ヘッダー: 日付ラベル（左）＋ 天気アイコン（右）。今日は黒ベタ。 */
 .p2ScheduleDate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
   font-weight: 700;
-  font-size: clamp(0.85rem, 1.3vw, 1.15rem);
+  font-size: clamp(0.9rem, 1.35vw, 1.2rem);
   border-bottom: 1px solid var(--border-color);
-  padding: 0.1rem 0.3rem;
-  margin-bottom: 0.2rem;
+  padding: 0.15rem 0.35rem;
+  margin-bottom: 0.25rem;
   flex-shrink: 0;
   color: var(--primary-color);
   white-space: nowrap;
+  overflow: hidden;
 }
 .p2ScheduleToday .p2ScheduleDate {
   background: var(--primary-color);
   color: #fff;
   border-radius: var(--radius-sm);
+  border-bottom-color: var(--primary-color);
+}
+.p2ScheduleDateLabel {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 日付の右に添える天気（単色グリフのみ。意味は親 span の aria-label が担保・#847 と同作法・色非依存 NFR05）。 */
+.p2ScheduleWeather {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.p2ScheduleWeatherGlyph {
+  font-size: 1.15em;
+  line-height: 1;
 }
 .p2ScheduleRows {
   flex: 1;
@@ -648,20 +698,20 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.12rem;
 }
 .p2ScheduleItem {
   display: flex;
   flex-direction: column;
   min-width: 0;
   border-bottom: 1px dotted var(--border-color);
-  padding: 0.1rem 0;
+  padding: 0.12rem 0;
 }
-/* 時限 + 内容（1 行・はみ出しは省略）。 */
+/* 時限 + 内容（1 行・はみ出しは省略）。視認性のため本文を一段大きく。 */
 .p2ScheduleMain {
-  font-size: clamp(0.72rem, 1.1vw, 1rem);
+  font-size: clamp(0.82rem, 1.25vw, 1.18rem);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -681,59 +731,14 @@
 .p2ScheduleMetaSep {
   color: var(--border-color);
 }
-/* 天気予報: 日付ごとの小カードを横並び。 */
-.p2WeatherRow {
-  flex: 1;
-  min-height: 0;
+/* 人感センサ: 件数を控えめに（指標が予定より目立つ逆転を避け降格）。ステータス帯タイル内に置く。 */
+.p2SensorValue {
   display: flex;
-  gap: 0.5vmin;
-  overflow: hidden;
-}
-.p2WeatherDay {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.15rem;
-  background: var(--surface-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0.3vmin;
-  min-width: 0;
-}
-.p2WeatherDate {
-  font-size: clamp(0.6rem, 0.9vw, 0.8rem);
-  font-weight: 700;
-  color: var(--primary-color);
-  white-space: nowrap;
-}
-.p2WeatherGlyph {
-  font-size: clamp(1.1rem, 2.2vw, 1.8rem);
-  line-height: 1;
-}
-.p2WeatherText {
-  font-size: clamp(0.6rem, 0.9vw, 0.8rem);
-  font-weight: 600;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-/* 人感センサカウンタ: 大きな件数 + 単位「回」+ 「本日の検知」ラベル。 */
-.p2SensorCount {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: center;
-  align-content: center;
-  gap: 0.2rem 0.3rem;
+  gap: 0.15rem;
 }
 .p2SensorNum {
-  font-size: clamp(2rem, 6vw, 4.5rem);
+  font-size: clamp(1.2rem, 2.4vw, 2rem);
   font-weight: 800;
   line-height: 1;
   color: var(--primary-color);
@@ -741,18 +746,11 @@
   letter-spacing: -0.02em;
 }
 .p2SensorUnit {
-  font-size: clamp(1rem, 2vw, 1.6rem);
+  font-size: clamp(0.7rem, 1.1vw, 0.95rem);
   font-weight: 700;
   color: var(--primary-color);
 }
-.p2SensorLabel {
-  flex-basis: 100%;
-  text-align: center;
-  font-size: clamp(0.7rem, 1vw, 0.9rem);
-  font-weight: 600;
-  color: var(--text-muted);
-}
-/* 来校者一覧: 時刻 + 氏名（+所属）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。 */
+/* 生徒呼び出し / 来校者一覧: 時刻 + 氏名（+所属/呼出先）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。 */
 .p2VisitorList {
   list-style: none;
   flex: 1;
@@ -760,19 +758,19 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.12rem;
 }
 .p2VisitorItem {
   display: flex;
   flex-direction: column;
   min-width: 0;
   border-bottom: 1px dotted var(--border-color);
-  padding: 0.1rem 0;
+  padding: 0.15rem 0;
 }
 .p2VisitorMain {
-  font-size: clamp(0.78rem, 1.2vw, 1.05rem);
+  font-size: clamp(0.82rem, 1.2vw, 1.1rem);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -791,6 +789,10 @@
   color: var(--accent-color);
   font-weight: 700;
   margin-left: 0.3rem;
+}
+/* 呼び出しが 1 件以上ある時だけ左にアクセント線（提出物の期限切れ行と同じ inset box-shadow 作法）。 */
+.p2CalloutsActive {
+  box-shadow: inset 3px 0 0 0 var(--accent-color);
 }
 
 /* ===================== 12. レスポンシブ ===================== */
@@ -909,17 +911,20 @@
   }
 }
 
-/* パターン2 のモバイル: 2 列 → 1 列に積み、予定の 3 列も 1 列にしてスクロールで見せる。 */
+/* パターン2 のモバイル: 縦 3 段の flex 比率を解除し、各段（予定3列/人物2列/ステータス2列）を 1 列に積んで
+   カードを自然高さでスクロール表示にする。 */
 @media (max-width: 899px) {
   .p2Grid {
-    grid-template-columns: 1fr;
-    grid-auto-rows: auto;
     overflow: visible;
   }
-  .p2ScheduleScroll {
+  .p2Schedule,
+  .p2People,
+  .p2Status {
+    flex: none;
     grid-template-columns: 1fr;
+    overflow: visible;
   }
-  .p2WeatherRow {
-    flex-wrap: wrap;
+  .p2ScheduleDay {
+    overflow: visible;
   }
 }
