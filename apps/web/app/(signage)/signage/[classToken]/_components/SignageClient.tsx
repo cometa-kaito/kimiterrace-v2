@@ -653,9 +653,6 @@ function ScheduleColumn({
             <span aria-hidden="true" className={styles.scheduleWeatherGlyph}>
               {WEATHER_ICON_GLYPH[weatherDay.icon]}
             </span>
-            <span className={styles.scheduleWeatherText}>
-              {weatherDay.weatherText ?? weatherDay.iconLabel}
-            </span>
           </span>
         ) : null}
       </div>

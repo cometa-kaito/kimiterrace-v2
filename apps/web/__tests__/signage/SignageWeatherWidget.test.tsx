@@ -3,17 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 
 /**
  * F14 (#128 / ADR-021): サイネージ天気ウィジェットの表示配線を検証する。SignageClient に天気ペイロードを
- * 流し込み、(a) 予定列ヘッダーへの天気表示（アイコンラベル + 天気テキスト）、(b) isStale 注記、
+ * 流し込み、(a) 予定列ヘッダーへの天気アイコン表示、(b) isStale 注記、
  * (c) 空/stale の graceful 表示 (weather=null は枠ごと非表示) を確かめる。
  *
  * 2026-06-07 リデザイン: 天気はヘッダー帯から予定列ヘッダーへ移動（ユーザー確定）。各列は
  * scheduleDays[].date と weather.days[].forecastDate を突合して天気を表示する。
  *
- * NFR05 (色非依存): アイコンは glyph + 日本語ラベル併記。本テストはラベルテキストが必ず出ることで色非依存を固定。
+ * 2026-06-13 リデザイン: 予定列ヘッダーの天気は **アイコンのみ（文字なし）** に変更（ユーザー確定）。
+ * 天気テキストは可視描画しない代わりに、アイコンの親 span の aria-label に保持しスクリーンリーダーへ伝える。
+ *
+ * NFR05 (色非依存): アイコンは色でなく **形状で区別できる単色グリフ**（☀☁☂❄⚡）。色に依存せず意味が伝わる。
+ * AT 向けの代替テキストは aria-label が担う。本テストはグリフが出ること＋ラベルが aria-label に入ること、
+ * かつ天気テキストが可視描画されないことを固定する。
  * fail-soft: weather=null でも時間割等の本体は描画され続ける (画面が壊れない)。
  *
  * 純変換 (weatherIconFor / 鮮度判定) は weather.test.ts で別途カバーする。ここは「ウィジェットが
- * その出力をテキストで正しく描く」配線部分のみを見る。
+ * その出力を正しく描く」配線部分のみを見る。
  */
 
 // SignageClient はマウント時に SW 登録・media prefetch・event beacon を走らせるので no-op 化して副作用を断つ
@@ -33,6 +38,10 @@ import type { SignagePayload } from "../../lib/signage/signage-display";
 import type { SignageWeather, WeatherDay } from "../../lib/signage/weather";
 
 const TOKEN = "TOK";
+
+// 天気アイコンのグリフ（SignageClient の WEATHER_ICON_GLYPH と対応）
+const GLYPH_SUNNY = "☀";
+const GLYPH_CLOUDY = "☁";
 
 const emptySection = { items: [] as never[], source: null };
 const daily = {
@@ -93,31 +102,40 @@ function payload(
 }
 
 describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
-  it("scheduleDays に対応する天気日が存在するとき予定列ヘッダーに天気テキストを出す", () => {
+  it("scheduleDays に対応する天気日があるとき予定列ヘッダーにアイコンを出し、文字は出さない", () => {
     render(
       <SignageClient
         classToken={TOKEN}
         initial={payload(weather({}), [scheduleDay("2026-06-02")])}
       />,
     );
-    // 天気テキスト (weatherText 優先) が列ヘッダー内に出る。
-    expect(screen.getByText("晴れ")).toBeInTheDocument();
+    // アイコン（グリフ）が列ヘッダー内に出る。
+    expect(screen.getByText(GLYPH_SUNNY)).toBeInTheDocument();
+    // 天気テキストは **可視描画しない**（アイコンのみ、2026-06-13 ユーザー）。
+    expect(screen.queryByText("晴れ")).toBeNull();
+    // ただし意味は aria-label に保持し AT へ伝える（色非依存・NFR05）。
+    expect(screen.getByLabelText("晴れ")).toBeInTheDocument();
     // 気温・降水・取得時刻は **出さない** (情報量を絞る、2026-06-07 ユーザー)。
     expect(screen.queryByText(/最高/)).toBeNull();
     expect(screen.queryByText(/降水/)).toBeNull();
     expect(screen.queryByText(/時点/)).toBeNull();
   });
 
-  it("weatherText が無ければアイコンラベルを本文に出す (色非依存のフォールバック)", () => {
+  it("weatherText が無ければ aria-label にアイコンラベルを入れる (色非依存のフォールバック)", () => {
     render(
       <SignageClient
         classToken={TOKEN}
-        initial={payload(weather({ days: [day({ weatherText: null, iconLabel: "くもり" })] }), [
-          scheduleDay("2026-06-02"),
-        ])}
+        initial={payload(
+          weather({ days: [day({ weatherText: null, icon: "cloudy", iconLabel: "くもり" })] }),
+          [scheduleDay("2026-06-02")],
+        )}
       />,
     );
-    expect(screen.getByText("くもり")).toBeInTheDocument();
+    // くもりのグリフが出る。
+    expect(screen.getByText(GLYPH_CLOUDY)).toBeInTheDocument();
+    // 文字は可視描画されないが aria-label にラベルが入る。
+    expect(screen.queryByText("くもり")).toBeNull();
+    expect(screen.getByLabelText("くもり")).toBeInTheDocument();
   });
 
   it("isStale のとき鮮度劣化を色だけでなくテキストで明示する (F14 §3 / NFR05)", () => {
@@ -132,15 +150,15 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
     );
     // 古い予報でも last-known-good を出し続け (NFR02)、簡潔な注記で明示する。
     expect(screen.getByText("古い予報")).toBeInTheDocument();
-    expect(screen.getByText("晴れ")).toBeInTheDocument(); // 予報自体は残す。
+    expect(screen.getByText(GLYPH_SUNNY)).toBeInTheDocument(); // アイコン自体は残す。
   });
 
   it("weather=null なら天気を出さない (fail-soft) が、本体 (予定等) は描画され続ける", () => {
     render(
       <SignageClient classToken={TOKEN} initial={payload(null, [scheduleDay("2026-06-02")])} />,
     );
-    // 天気テキストは存在しない。
-    expect(screen.queryByText("晴れ")).toBeNull();
+    // 天気アイコンは存在しない。
+    expect(screen.queryByText(GLYPH_SUNNY)).toBeNull();
     // 画面の他要素 (予定セクション等) は壊れず出る。
     expect(screen.getByRole("region", { name: "予定" })).toBeInTheDocument();
   });
@@ -160,10 +178,12 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
         ])}
       />,
     );
-    // 対応する2日は表示。
-    expect(screen.getByText("予報A")).toBeInTheDocument();
-    expect(screen.getByText("予報B")).toBeInTheDocument();
+    // 対応する2日はアイコン（aria-label で識別）を表示。
+    expect(screen.getByLabelText("予報A")).toBeInTheDocument();
+    expect(screen.getByLabelText("予報B")).toBeInTheDocument();
+    // 表示されたアイコンは2列ぶん。
+    expect(screen.getAllByText(GLYPH_SUNNY)).toHaveLength(2);
     // scheduleDays に無い日の天気は出ない。
-    expect(screen.queryByText("予報C")).toBeNull();
+    expect(screen.queryByLabelText("予報C")).toBeNull();
   });
 });
