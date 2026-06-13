@@ -35,7 +35,11 @@ export default async function SchoolAdPlacementPage({
       return null;
     }
     const classList = await listSchoolClassesForAdPlacement(tx, id);
-    return { schoolName: detail.school.name, classList };
+    return {
+      schoolName: detail.school.name,
+      hierarchyMode: detail.school.hierarchyMode,
+      classList,
+    };
   });
   if (!data) {
     notFound();
@@ -70,19 +74,28 @@ export default async function SchoolAdPlacementPage({
         />
       ) : (
         <ul style={listStyle}>
-          {data.classList.map((c) => (
-            <li key={c.classId} style={itemStyle}>
-              <span>
-                <strong>{c.className}</strong>
-                <span style={metaStyle}>
-                  {c.gradeName} / {c.academicYear}年度
+          {data.classList.map((c) => {
+            // 学科制(department)では「電子工学科 1年」を主表記にし、組(className=A組)は出さない (BUG-3)。
+            // 学科制では各「学科 × 学年」に組は 1 つだけで識別子にならないため。クラス制は従来どおり組が主。
+            const isDepartmentMode = data.hierarchyMode === "department";
+            const primaryLabel = isDepartmentMode
+              ? [c.departmentName, c.gradeName].filter(Boolean).join(" ") || c.className
+              : c.className;
+            const metaLabel = isDepartmentMode
+              ? `${c.academicYear}年度`
+              : `${c.gradeName} / ${c.academicYear}年度`;
+            return (
+              <li key={c.classId} style={itemStyle}>
+                <span>
+                  <strong>{primaryLabel}</strong>
+                  <span style={metaStyle}>{metaLabel}</span>
                 </span>
-              </span>
-              <Link href={`/admin/editor/${c.classId}/ads`} style={manageLinkStyle}>
-                広告管理 →
-              </Link>
-            </li>
-          ))}
+                <Link href={`/admin/editor/${c.classId}/ads`} style={manageLinkStyle}>
+                  広告管理 →
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
