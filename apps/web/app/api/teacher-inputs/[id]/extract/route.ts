@@ -6,8 +6,9 @@ import { extractTeacherInput } from "../../../../../lib/ai/extract-teacher-input
 /**
  * F03 (#154): AI 構造化抽出トリガ `POST /api/teacher-inputs/:id/extract` (ADR-008 Route Handlers)。
  *
- * 教員が対象入力の transcript を AI 構造化 (schedule / announcement / summary / tag) にかける。
- * 認証・role ゲート (teacher / school_admin)・schoolId 強制・ai_extractions 監査は seam が担保。
+ * 学校管理者が対象入力の transcript を AI 構造化 (schedule / announcement / summary / tag) にかける。
+ * 認証・role ゲート (EXTRACTION_AUTHOR_ROLES=school_admin のみ・teacher は finding⑧ で除外)・schoolId 強制・
+ * ai_extractions 監査は seam が担保。
  * 本 route は入力 (kind) 検証と {@link extractTeacherInput} の結果 → HTTP 写像のみ担う。
  *
  * 応答: 200 (成功/失敗いずれも監査済) / 400 (kind 不正) / 401 / 403 / 404 (transcript 無) /
