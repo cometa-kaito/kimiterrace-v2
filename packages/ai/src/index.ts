@@ -100,6 +100,16 @@ export type {
   NoticeDraftStreamResult,
 } from "./model/notice-draft-stream.js";
 
+// finding 2b (ADR-033/036 の発展) 会話型 AI アシスタントの構造化オブジェクト・ストリーミングクライアント
+// （streamObject object partialObjectStream で reply + 予定/連絡/提出物 の 1 ターンを漸進確定）
+export { createVertexAssistantChatClient } from "./model/assistant-chat-stream.js";
+export type {
+  VertexAssistantChatClient,
+  VertexAssistantChatConfig,
+  AssistantTurnPartial,
+  AssistantChatStreamResult,
+} from "./model/assistant-chat-stream.js";
+
 // F06 (#365, ADR-007) Vertex テキスト embedding アダプタ（RAG: コンテンツ/質問の embedding 生成、768 次元）
 export { EMBEDDING_DIM, EmbeddingError, createVertexEmbeddingClient } from "./model/embed.js";
 export type { EmbeddingClient, VertexEmbeddingConfig } from "./model/embed.js";
