@@ -866,7 +866,11 @@ function formatClock(d: Date): string {
   });
 }
 
-/** 絵文字 glyph (装飾)。意味はラベルテキストが担保するため aria-hidden で出す (NFR05 色非依存)。 */
+/**
+ * 絵文字 glyph (装飾) なので aria-hidden で出す。意味は併記要素が担保する:
+ * pattern1（予定列ヘッダー）は親 span の aria-label、pattern2 は可視テキスト (.p2WeatherText)。
+ * いずれも色でなく形状で区別できる単色グリフ + 代替テキストで NFR05（色非依存）を満たす。
+ */
 const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
   sunny: "☀",
   cloudy: "☁",
