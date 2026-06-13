@@ -25,11 +25,7 @@ import {
   parseChatTurns,
   sanitizeDraft,
 } from "./assistant-chat-core";
-import {
-  buildAssistantChatSystem,
-  buildAssistantChatUser,
-  userAuthoredText,
-} from "./assistant-chat-prompt";
+import { buildAssistantChatSystem, buildAssistantChatUser } from "./assistant-chat-prompt";
 import type { EditorActor, EditorTarget } from "./schedule-core";
 
 /**
@@ -47,7 +43,8 @@ import type { EditorActor, EditorTarget } from "./schedule-core";
  * - **PII（ルール4）= 単一マスク往復**: 会話履歴 + 現在の下書きを 1 つの user プロンプトへ平坦化し
  *   （assistant-chat-prompt）、**1 回だけ** `maskPII`（電話/メール）+ `findUnmaskedPii` fail-closed。
  *   モデル応答（reply + 下書き）を**同じ辞書**で逆マスクし、逆マスク後も fail-closed で再検査（漏れたら中止）。
- *   氏名らしき高確信パターン（ADR-030 soft-gate）は **先生が書いた入力**に対して検査し、未 override は送信せず警告。
+ *   氏名らしき高確信パターン（ADR-030 soft-gate）は **Vertex に送る平坦化プロンプト全体**（会話履歴 + 下書き）に
+ *   対して検査し（gate を素通りする経路を作らない）、未 override は送信せず警告。
  * - **パターン準拠（finding①）**: `allowedSections` 外のセクションは system で禁止 + 出力を
  *   `filterDraftToSections` で落とす二段。来校者/呼び出しは下書き型に無い（ADR-034・型で除外）。
  * - **RLS/監査（ルール1/2）**: 生成は DB 非依存。成功ターンの最後に LLM 呼び出しを `audit_log` に記録する短い
@@ -58,6 +55,20 @@ import type { EditorActor, EditorTarget } from "./schedule-core";
 /** 名前付き SSE フレーム（`event: <name>\ndata: <json>\n\n`）。 */
 function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+/**
+ * マスク空間の reply 全文 `masked` の、オフセット `from` 以降で **マスクトークン {{...}} を途中で分割しない**
+ * 安全な emit 終端を返す。partial 境界でトークンが割れると逆マスクのオフセットがずれて表示が壊れるため、
+ * 末尾に未終端の `{{`（対応する `}}` が無い）があればその手前で止め、トークンが揃う次の partial まで保留する。
+ */
+function safeEmitEnd(masked: string, from: number): number {
+  const lastOpen = masked.lastIndexOf("{{");
+  if (lastOpen < from) {
+    return masked.length;
+  }
+  const closeAfter = masked.indexOf("}}", lastOpen);
+  return closeAfter === -1 ? lastOpen : masked.length;
 }
 
 /** request-level の拒否を JSON で返す（200 SSE を開く前の 503/400 用）。 */
@@ -179,8 +190,15 @@ export async function respondWithAssistantChat(
           allowedSections: args.allowedSections,
         });
 
-        // ADR-030 soft-gate: 先生が書いた入力（user ターン）に氏名らしき高確信パターン → 未 override は送信せず警告。
-        const suspects = findSuspectedPersonalNames(userAuthoredText(turns));
+        // Vertex 送信サーフェスを **1 回だけ**組み立てる（会話履歴 + 現在の下書きを平坦化）。soft-gate と
+        // マスクは「実際に送る文字列そのもの」にかける（gate を素通りする経路を作らない・Reviewer HIGH）。
+        const dateLabel = jstDateLabel(now);
+        const userPrompt = buildAssistantChatUser(turns, draft, args.allowedSections);
+
+        // ADR-030 soft-gate: **送信サーフェス全体**（user/assistant ターン + 下書き JSON）の氏名らしき高確信
+        // パターンを検査。氏名は書式マスク対象外ゆえ本 gate が唯一の名前制御で、assistant ターンや draft 経由の
+        // 名前混入も捕捉する（未 override は送信せず警告）。override は per-request（ADR-030/036）。
+        const suspects = findSuspectedPersonalNames(userPrompt);
         if (suspects.length > 0 && !acknowledgePii) {
           sendError(send, 409, "pii_warning", {
             suspectedSurfaces: Array.from(new Set(suspects.map((s) => s.surface))),
@@ -194,11 +212,9 @@ export async function respondWithAssistantChat(
           return;
         }
 
-        // 単一マスク往復: 会話 + 現在の下書きを 1 つの user に平坦化し、1 回だけ電話/メールをマスク。
-        // fail-closed: マスク後に残存（辞書化漏れ）なら送らず中止（ルール4）。
-        const dateLabel = jstDateLabel(now);
+        // 単一マスク往復: 上の userPrompt に 1 回だけ電話/メールをマスク。fail-closed: 残存（辞書化漏れ）なら
+        // 送らず中止（ルール4）。
         const system = buildAssistantChatSystem(args.allowedSections, dateLabel);
-        const userPrompt = buildAssistantChatUser(turns, draft, args.allowedSections);
         const { masked, dictionary } = maskPII(userPrompt, []);
         if (findUnmaskedPii(masked, []).length > 0) {
           sendError(send, 422, "pii_leak");
@@ -206,24 +222,26 @@ export async function respondWithAssistantChat(
         }
 
         // 漸進ストリーム: reply の伸長を message delta に、下書きスナップショットを draft フレームに写像。
+        // emittedReplyLen は **マスク空間（partial.reply）** のオフセット（逆マスクで長さが変わっても安定）。
         let emittedReplyLen = 0;
-        let lastDraft: AssistantDraft = EMPTY_DRAFT;
+        let lastDraft: AssistantDraft = { ...EMPTY_DRAFT };
         let lastDraftJson = JSON.stringify(EMPTY_DRAFT);
         try {
           const result = deps.streamClient.stream({ system, user: masked });
           for await (const partial of result.partialStream) {
-            // 会話応答（partial.reply は確定済みの「ここまで全文」）。同じ辞書で逆マスク → fail-closed。
+            // 会話応答（partial.reply は「ここまでのマスク済み全文」）。マスク空間で delta を切り、**マスク
+            // トークンを分割しない安全境界**まで emit して同じ辞書で逆マスク（境界跨ぎで表示が壊れるのを防ぐ）。
             if (typeof partial.reply === "string") {
-              const unmaskedReply = unmaskPII(partial.reply, dictionary);
-              if (findUnmaskedPii(unmaskedReply, []).length > 0) {
-                sendError(send, 422, "pii_leak");
-                return;
-              }
-              if (unmaskedReply.length > emittedReplyLen) {
-                send(ASSISTANT_CHAT_EVENTS.message, {
-                  delta: unmaskedReply.slice(emittedReplyLen),
-                });
-                emittedReplyLen = unmaskedReply.length;
+              const end = safeEmitEnd(partial.reply, emittedReplyLen);
+              if (end > emittedReplyLen) {
+                const delta = unmaskPII(partial.reply.slice(emittedReplyLen, end), dictionary);
+                // 逆マスク後の delta に PII 残存（モデルが生の電話/メールを書いた等）なら中止（ルール4）。
+                if (findUnmaskedPii(delta, []).length > 0) {
+                  sendError(send, 422, "pii_leak");
+                  return;
+                }
+                send(ASSISTANT_CHAT_EVENTS.message, { delta });
+                emittedReplyLen = end;
               }
             }
 

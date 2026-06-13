@@ -51,18 +51,14 @@ export function buildAssistantChatSystem(
   return lines.join("\n");
 }
 
-/** user 役ターンの本文を連結する（ADR-030 soft-gate の検査対象＝先生が書いた入力のみ）。 */
-export function userAuthoredText(messages: readonly ChatTurn[]): string {
-  return messages
-    .filter((m) => m.role === "user")
-    .map((m) => m.content)
-    .join("\n");
-}
-
 /**
  * user プロンプト（現在の下書き + これまでの会話を平坦化）。下書きは許可セクションだけに絞って渡す
  * （許可外を文脈に入れない・finding①）。handler はこの文字列全体に **1 回だけ** PII マスクをかけ、
  * 応答（reply + 下書き）を同じ辞書で逆マスクする（辞書衝突を避ける単一往復）。
+ *
+ * 役割ラベルは「教員」「アシスタント」を使う（敬称「先生」を避ける）。本文字列は **そのまま ADR-030
+ * soft-gate の走査対象**になる（handler は Vertex 送信サーフェスと同一文字列を gate する＝gate を素通りする
+ * 経路を作らない）。ラベルに敬称が混じると氏名検出ヒューリスティックを誤発火させるため避ける。
  */
 export function buildAssistantChatUser(
   messages: readonly ChatTurn[],
@@ -71,13 +67,13 @@ export function buildAssistantChatUser(
 ): string {
   const filtered = filterDraftToSections(draft, allowed);
   const transcript = messages
-    .map((m) => `${m.role === "user" ? "先生" : "アシスタント"}: ${m.content}`)
+    .map((m) => `${m.role === "user" ? "教員" : "アシスタント"}: ${m.content}`)
     .join("\n");
   return [
     "【現在の下書き（この内容を起点に、最新の指示で更新してください）】",
     JSON.stringify(filtered),
     "",
-    "【これまでの会話（最後の「先生」の発言が今回の指示です）】",
+    "【これまでの会話（最後の「教員」の発言が今回の指示です）】",
     transcript,
   ].join("\n");
 }

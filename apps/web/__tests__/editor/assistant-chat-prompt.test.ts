@@ -3,7 +3,6 @@ import type { AssistantDraft, ChatTurn } from "../../lib/editor/assistant-chat-c
 import {
   buildAssistantChatSystem,
   buildAssistantChatUser,
-  userAuthoredText,
 } from "../../lib/editor/assistant-chat-prompt";
 
 /**
@@ -39,23 +38,19 @@ describe("buildAssistantChatSystem", () => {
   });
 });
 
-describe("userAuthoredText", () => {
-  it("user ターンのみを連結する（assistant 応答は soft-gate 対象外）", () => {
-    expect(userAuthoredText(TURNS)).toBe("明日の予定を作って\n2限を英語に");
-  });
-});
-
 describe("buildAssistantChatUser", () => {
-  it("会話の平坦化（先生/アシスタント）と現在の下書き JSON を含む", () => {
+  it("会話の平坦化（教員/アシスタント・敬称ラベルを避ける）と現在の下書き JSON を含む", () => {
     const draft: AssistantDraft = {
       schedules: [{ period: 1, subject: "数学" }],
       notices: [],
       assignments: [],
     };
     const user = buildAssistantChatUser(TURNS, draft, ["schedules", "notices", "assignments"]);
-    expect(user).toContain("先生: 明日の予定を作って");
+    expect(user).toContain("教員: 明日の予定を作って");
     expect(user).toContain("アシスタント: 作成しました");
-    expect(user).toContain("先生: 2限を英語に");
+    expect(user).toContain("教員: 2限を英語に");
+    // 役割ラベルに敬称「先生」を使わない（soft-gate ヒューリスティックの誤発火を避ける）。
+    expect(user).not.toContain("先生:");
     expect(user).toContain('"schedules":[{"period":1,"subject":"数学"}]');
   });
 

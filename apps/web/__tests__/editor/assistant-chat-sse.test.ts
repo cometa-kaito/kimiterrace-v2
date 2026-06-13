@@ -165,6 +165,31 @@ describe("respondWithAssistantChat", () => {
     expect(h.insertValues).not.toHaveBeenCalled();
   });
 
+  it("assistant ターンや下書きに混入した名前も soft-gate で捕捉する（送信サーフェス全体を走査・Reviewer HIGH）", async () => {
+    // 入力に依存して検出するフェイク（gate が user ターンだけでなく送信文字列全体を見ていることを証明）。
+    h.findSuspectedPersonalNames.mockImplementation((t: string) =>
+      t.includes("田中太郎") ? [{ surface: "田中太郎" }] : [],
+    );
+    const d = deps([{ reply: "x" }]);
+    // 名前は assistant ターンに混入、user ターンは無害。旧実装（user ターンのみ走査）なら素通りした。
+    const res = await respondWithAssistantChat(
+      ARGS,
+      req({
+        messages: [
+          { role: "assistant", content: "田中太郎さんは欠席です" },
+          { role: "user", content: "予定を作って" },
+        ],
+      }),
+      d,
+    );
+    const fr = await frames(res);
+    expect(fr.find((f) => f.event === "error")?.data).toMatchObject({
+      status: 409,
+      reason: "pii_warning",
+    });
+    expect(d.streamClient.stream).not.toHaveBeenCalled();
+  });
+
   it("レート制限超過は rate_limited（生成しない）", async () => {
     const d = deps([{ reply: "x" }], { acquire: false });
     const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
