@@ -284,11 +284,13 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
     expect(warnMock).not.toHaveBeenCalled();
   });
 
-  it("監査: table=users / op=update / school_id=対象校 / actor NULL (system_admin) / diff before-after", async () => {
+  it("監査: table=users / op=update / school_id=対象校 / actor NULL だが actor_identity_uid に IdP uid (system_admin) / diff before-after", async () => {
     targetRow = { role: "school_admin", isActive: true, schoolId: SCHOOL_ID };
     await setStaffActiveAction({ userId: ADMIN_ID, isActive: false });
     expect(auditValues).toMatchObject({
+      // system_admin は actor 系を FK 制約で NULL、実行者は actor_identity_uid に保持 (#858/#859 同型)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
       schoolId: SCHOOL_ID,
       createdBy: null,
       updatedBy: null,

@@ -125,11 +125,13 @@ describe("createSchoolAction (DB 経路)", () => {
     });
   });
 
-  it("監査: operation=insert / actor 系 NULL / school_id=新規校 id", async () => {
+  it("監査: operation=insert / actor 系 NULL だが actor_identity_uid に IdP uid / school_id=新規校 id", async () => {
     await createSchoolAction(validRaw);
     const audit = captured.find((v) => v.tableName === "schools");
     expect(audit).toMatchObject({
+      // system_admin は actor 系を FK 制約で NULL、実行者は actor_identity_uid に保持 (#858/#859 同型)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
       createdBy: null,
       updatedBy: null,
       schoolId: NEW_ID,

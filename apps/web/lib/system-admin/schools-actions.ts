@@ -48,8 +48,9 @@ import {
  *
  * **監査 (ルール1)**: 編集を同一 tx で audit_log に追記する。system_admin は `users` 行ではないため
  * `actor_user_id` / `created_by` / `updated_by` は NULL とする (FK は users(id)、#110 policy が
- * system_admin context の NULL actor を許可)。`school_id` には**対象校 id** を記録し追跡可能にする
- * (system_admin context では任意 school_id が許可される、0005 policy)。
+ * system_admin context の NULL actor を許可) が、FK の無い `actor_identity_uid` に IdP uid を載せて
+ * 「誰が」を audit_log 上で特定可能にする (#858/#859 同型)。`school_id` には**対象校 id** を記録し
+ * 追跡可能にする (system_admin context では任意 school_id が許可される、0005 policy)。
  */
 
 /**
@@ -264,7 +265,9 @@ export async function deleteSchoolAction(raw: {
 
 /**
  * audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。
- * system_admin は users 行ではないため actor 系は NULL、school_id には対象校 id を記録する。
+ * system_admin は users 行ではないため `actor_user_id` / `created_by` / `updated_by` は FK 制約で NULL
+ * とするが、FK の無い `actor_identity_uid` に IdP uid を載せて「誰が」を audit_log 上で特定可能にする
+ * (view-audit / advertisers と同方針、#858/#859 同型)。school_id には対象校 id を記録する。
  */
 async function writeSchoolAudit(
   tx: TenantTx,
@@ -276,6 +279,7 @@ async function writeSchoolAudit(
   const isSystemAdmin = user.role === "system_admin";
   await tx.insert(auditLog).values({
     actorUserId: isSystemAdmin ? null : user.uid,
+    actorIdentityUid: user.uid,
     schoolId,
     tableName: "schools",
     recordId: schoolId,
