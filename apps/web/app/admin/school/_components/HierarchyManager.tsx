@@ -14,18 +14,23 @@ import {
 import type { ActionResult } from "@/lib/school-admin/hub-core";
 import type { SchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, type ReactNode, useId, useState, useTransition } from "react";
 
 /**
- * 学校管理者ハブの階層 CRUD UI (#48-K / #48-K2)。**Client Component**・**ツリー（枝分かれ）表示**。
+ * 学校管理者ハブの階層 CRUD UI (#48-K / #48-K2 / #48-K3 UI再設計)。**Client Component**・**ツリー表示**。
  *
- * ユーザー要望(2026-06-06)で「学科 → 学年 → クラス」を**入れ子のツリー**にし、各ノード直下に
- * 「＋追加」を置く（学科の中で学年を、学年の中でクラスを足す）。学年/クラスがどの親に属するかが
- * 視覚的に明確になり、フラット一覧での迷いを解消する。各ノードに編集・削除も備える。
+ * 「学科 → 学年 → クラス」を入れ子で管理する。各ノードの操作 (名称編集 / モード切替 / 削除) は
+ * 行末の `⋯` メニューに集約し、平常時の視覚ノイズを抑える。削除は **restrict**（配下があれば不可・
+ * ガード表示／配下が空のときだけ確認のうえ削除）。要整理（学科未所属の学年）は `学科へ移動` セレクトで
+ * 解消できる。一括追加は `一括操作` に畳む。
  *
- * 学年名は学校内で一意制約があるため、学科配下での学年追加・一括追加は **`{学科名}{入力}`**（例:
- * 電子工学科1年）で衝突を避ける（サイネージ表示にも学科が出て自然）。認可・検証・cross-tenant・監査・
- * RLS は Server Action 側 + RLS が担保し、本コンポーネントは入力収集と `router.refresh()` に徹する。
+ * 学年は `hasClasses` で 2 通り:
+ * - **クラス単位** (`hasClasses=true`): 1組・2組… を持つ。
+ * - **学年単位** (`hasClasses=false`): 組に分けず学年そのものが 1 表示単位。エディタ/サイネージ/QR は
+ *   クラス基準のため、学年単位でも学年名と同名の「裏方クラス」を 1 つ持つ。
+ *
+ * 認可・検証・cross-tenant・監査・RLS は Server Action 側 + RLS が担保し、本コンポーネントは入力収集と
+ * `router.refresh()` に徹する。配色は 3 色（ウォームグレー基調 + ブランドのオレンジ + 削除の赤）。
  */
 
 type Result = ActionResult<{ id: string }>;
@@ -48,6 +53,7 @@ function deriveGradeNumber(gradeName: string): number {
 export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const { departments, grades } = hierarchy;
   const hasDepartments = departments.length > 0;
 
@@ -62,49 +68,56 @@ export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) 
 
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
+  const isEmpty = !hasDepartments && grades.length === 0;
 
   return (
-    <div style={{ display: "grid", gap: "1rem", maxWidth: "820px" }}>
+    <div style={pageStyle}>
+      <div style={headerRowStyle}>
+        <h1 style={h1Style}>学校管理</h1>
+        {hasDepartments ? (
+          <button type="button" style={toolbarBtnStyle} onClick={() => setBulkOpen((v) => !v)}>
+            一括操作 <span aria-hidden>{bulkOpen ? "▴" : "▾"}</span>
+          </button>
+        ) : null}
+      </div>
+
       {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
-          {msg.text}
-        </output>
+        <output style={{ ...msgStyle, color: msg.ok ? C.teal : C.danger }}>{msg.text}</output>
       ) : null}
 
       <p style={hintStyle}>
         「学科 → 学年 →
-        クラス」を枝分かれで作成します。各行の「＋」で配下を追加、「編集／削除」で変更できます。
+        クラス」で校内の構成を管理します。学年は組に分けても、学年そのものを掲示単位に
+        してもかまいません。
       </p>
 
-      {hasDepartments ? (
+      {hasDepartments && bulkOpen ? (
+        <BulkAddYears departments={departments} report={report} />
+      ) : null}
+
+      {isEmpty ? (
+        <EmptyState report={report} />
+      ) : hasDepartments ? (
         <>
-          <BulkAddYears departments={departments} report={report} />
-          <ul style={treeRootStyle}>
+          <div style={treeRootStyle}>
             {departments.map((d) => (
               <DepartmentNode key={d.id} dept={d} grades={gradesOf(d.id)} report={report} />
             ))}
-          </ul>
+          </div>
           {orphanGrades.length > 0 ? (
-            <div style={orphanBoxStyle}>
-              <p style={orphanLabelStyle}>学科に紐づかない学年（要整理）:</p>
-              <ul style={treeRootStyle}>
-                {orphanGrades.map((g) => (
-                  <GradeNode key={g.id} grade={g} report={report} />
-                ))}
-              </ul>
-            </div>
+            <OrphanBox orphans={orphanGrades} departments={departments} report={report} />
           ) : null}
           <AddDepartmentForm report={report} />
         </>
       ) : (
         <>
-          <ul style={treeRootStyle}>
+          <div style={treeRootStyle}>
             {grades.map((g) => (
               <GradeNode key={g.id} grade={g} report={report} />
             ))}
-          </ul>
+          </div>
           <AddGradeForm report={report} />
-          <p style={hintStyle}>※ 学科制にすると「学科 → 学年 → クラス」の3階層で管理できます。</p>
+          <p style={hintStyle}>学科制にすると「学科 → 学年 → クラス」の3階層で管理できます。</p>
         </>
       )}
     </div>
@@ -112,7 +125,60 @@ export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) 
 }
 
 /* ------------------------------------------------------------------ *
- *  再利用: ノード見出し（名前 + 表示順 の編集 / 確認付き削除）
+ *  行末メニュー（⋯）— 名称編集 / モード切替 / 削除 を集約
+ * ------------------------------------------------------------------ */
+
+type MenuItem = { label: string; danger?: boolean; onSelect: () => void };
+
+function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={iconBtnStyle}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span aria-hidden style={{ fontSize: "1.05rem", lineHeight: 1 }}>
+          ⋯
+        </span>
+      </button>
+      {open ? (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            style={overlayStyle}
+            onClick={() => setOpen(false)}
+          />
+          <span role="menu" style={menuStyle}>
+            {items.map((it) => (
+              <button
+                type="button"
+                role="menuitem"
+                key={it.label}
+                style={{ ...menuItemStyle, color: it.danger ? C.danger : C.inkSecondary }}
+                onClick={() => {
+                  setOpen(false);
+                  it.onSelect();
+                }}
+              >
+                {it.label}
+              </button>
+            ))}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ *  共通ノード見出し（学科 / 学年）: 名称・表示順編集 + restrict 削除 + 任意の追加メニュー項目
  * ------------------------------------------------------------------ */
 
 function NodeHeader({
@@ -120,26 +186,37 @@ function NodeHeader({
   defaultOrder,
   entity,
   badge,
+  childCount,
+  childLabel,
+  deleteGuardMessage,
+  extraItems,
+  leading,
+  trailing,
   onSave,
   onDelete,
   report,
-  deleteWarn,
 }: {
   name: string;
   defaultOrder: number;
   entity: string;
   badge: string;
+  childCount: number;
+  childLabel: string;
+  deleteGuardMessage?: string;
+  extraItems?: MenuItem[];
+  leading?: ReactNode;
+  trailing?: ReactNode;
   onSave: (v: {
     name: FormDataEntryValue | null;
     displayOrder: FormDataEntryValue | null;
   }) => Promise<Result>;
   onDelete: () => Promise<Result>;
   report: Reporter;
-  deleteWarn?: string;
 }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -153,7 +230,7 @@ function NodeHeader({
 
   if (editing) {
     return (
-      <form onSubmit={save} style={formStyle}>
+      <form onSubmit={save} style={editFormStyle}>
         <input
           name="name"
           defaultValue={name}
@@ -168,7 +245,7 @@ function NodeHeader({
           style={orderInputStyle}
           aria-label="表示順"
         />
-        <button type="submit" disabled={pending} style={btnStyle}>
+        <button type="submit" disabled={pending} style={primaryBtnStyle}>
           {pending ? "保存中…" : "保存"}
         </button>
         <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
@@ -178,50 +255,78 @@ function NodeHeader({
     );
   }
 
+  const items: MenuItem[] = [
+    { label: "名称・表示順を編集", onSelect: () => setEditing(true) },
+    ...(extraItems ?? []),
+    {
+      label: "削除",
+      danger: true,
+      onSelect: () => (childCount > 0 ? setBlocked(true) : setConfirming(true)),
+    },
+  ];
+
   return (
-    <div style={headerRowStyle}>
-      <span style={nameStyle}>
+    <div>
+      <div style={nodeHeaderRowStyle}>
+        {leading}
         <span style={badgeStyle}>{badge}</span>
-        {name}
-      </span>
+        <span style={nodeNameStyle}>{name}</span>
+        {trailing}
+        <span
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <RowMenu items={items} label={`${entity}の操作`} />
+        </span>
+      </div>
+
       {confirming ? (
-        <span style={actionsStyle}>
-          <span style={confirmTextStyle}>
-            削除しますか？{deleteWarn ? `（${deleteWarn}）` : ""}
+        <div style={confirmBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            「{name}」を削除しますか？この操作は取り消せません。
           </span>
-          <button
-            type="button"
-            disabled={pending}
-            style={dangerBtnStyle}
-            onClick={() =>
-              start(async () => {
-                const res = await onDelete();
-                report(res, `${entity}を削除しました。`);
-              })
-            }
-          >
-            {pending ? "削除中…" : "削除する"}
+          <span style={{ display: "inline-flex", gap: "0.4rem" }}>
+            <button
+              type="button"
+              disabled={pending}
+              style={dangerBtnStyle}
+              onClick={() =>
+                start(async () => {
+                  const res = await onDelete();
+                  report(res, `${entity}を削除しました。`);
+                })
+              }
+            >
+              {pending ? "削除中…" : "削除する"}
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
+              やめる
+            </button>
+          </span>
+        </div>
+      ) : null}
+
+      {blocked ? (
+        <div style={guardBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            {deleteGuardMessage ??
+              `配下に${childLabel}があるため削除できません。先に${childLabel}を移動または削除してください。`}
+          </span>
+          <button type="button" onClick={() => setBlocked(false)} style={ghostBtnStyle}>
+            閉じる
           </button>
-          <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
-            やめる
-          </button>
-        </span>
-      ) : (
-        <span style={actionsStyle}>
-          <button type="button" onClick={() => setEditing(true)} style={ghostBtnStyle}>
-            編集
-          </button>
-          <button type="button" onClick={() => setConfirming(true)} style={dangerGhostBtnStyle}>
-            削除
-          </button>
-        </span>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- *  学科ノード（配下: 学年）
+ *  学科ノード（アコーディオン・配下: 学年）
  * ------------------------------------------------------------------ */
 
 function DepartmentNode({
@@ -233,45 +338,111 @@ function DepartmentNode({
   grades: Grade[];
   report: Reporter;
 }) {
+  const [open, setOpen] = useState(true);
   return (
-    <li style={deptNodeStyle}>
+    <section style={deptNodeStyle}>
       <NodeHeader
         name={dept.name}
         defaultOrder={dept.displayOrder}
         entity="学科"
         badge="学科"
-        deleteWarn="配下に学年があると削除不可"
+        childCount={grades.length}
+        childLabel="学年"
+        leading={
+          <button
+            type="button"
+            aria-label={open ? "折りたたむ" : "展開する"}
+            aria-expanded={open}
+            style={chevronBtnStyle}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <span aria-hidden>{open ? "▾" : "▸"}</span>
+          </button>
+        }
+        trailing={<span style={summaryStyle}>{grades.length}学年</span>}
         onSave={(v) =>
           updateDepartmentAction({ id: dept.id, name: v.name, displayOrder: v.displayOrder })
         }
         onDelete={() => deleteDepartmentAction(dept.id)}
         report={report}
       />
-      <ul style={childListStyle}>
-        {grades.map((g) => (
-          <GradeNode key={g.id} grade={g} report={report} />
-        ))}
-        <li>
+      {open ? (
+        <div style={childListStyle}>
+          {grades.map((g) => (
+            <GradeNode key={g.id} grade={g} report={report} />
+          ))}
           <AddGradeForm department={dept} report={report} />
-        </li>
-      </ul>
-    </li>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 /* ------------------------------------------------------------------ *
- *  学年ノード（配下: クラス）
+ *  学年ノード（配下: クラス、または学年単位）
  * ------------------------------------------------------------------ */
 
 function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
+  const [pending, start] = useTransition();
+  const modeLabel = grade.hasClasses ? "クラス単位" : "学年単位";
+
+  // モード切替: クラス単位 → 学年単位（裏方クラスを 1 つ用意 + hasClasses=false）/ 学年単位 → クラス単位。
+  const toUnit = () =>
+    start(async () => {
+      const create = await createClassAction({
+        gradeId: grade.id,
+        name: grade.name,
+        academicYear: new Date().getFullYear(),
+        grade: deriveGradeNumber(grade.name),
+      });
+      if (!create.ok) {
+        report(create, "");
+        return;
+      }
+      const res = await updateGradeAction({
+        id: grade.id,
+        name: grade.name,
+        displayOrder: grade.displayOrder,
+        hasClasses: false,
+        departmentId: grade.departmentId ?? undefined,
+      });
+      report(res, "学年単位にしました。");
+    });
+
+  const toClasses = () =>
+    start(async () => {
+      const res = await updateGradeAction({
+        id: grade.id,
+        name: grade.name,
+        displayOrder: grade.displayOrder,
+        hasClasses: true,
+        departmentId: grade.departmentId ?? undefined,
+      });
+      report(res, "クラス単位に切り替えました。");
+    });
+
+  const extraItems: MenuItem[] = grade.hasClasses
+    ? grade.classes.length === 0
+      ? [{ label: "学年単位にする（組に分けない）", onSelect: toUnit }]
+      : []
+    : [{ label: "クラスに分ける", onSelect: toClasses }];
+
   return (
-    <li style={gradeNodeStyle}>
+    <div style={gradeNodeStyle}>
       <NodeHeader
         name={grade.name}
         defaultOrder={grade.displayOrder}
         entity="学年"
         badge="学年"
-        deleteWarn="配下にクラスがあると削除不可"
+        childCount={grade.classes.length}
+        childLabel="クラス"
+        deleteGuardMessage={
+          grade.hasClasses
+            ? undefined
+            : "学年単位の学年です。削除するには先に「クラスに分ける」で組表示に戻してください。"
+        }
+        extraItems={extraItems}
+        trailing={<span style={modeChipStyle}>{modeLabel}</span>}
         onSave={(v) =>
           updateGradeAction({
             id: grade.id,
@@ -285,27 +456,35 @@ function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
         onDelete={() => deleteGradeAction(grade.id)}
         report={report}
       />
-      <ul style={childListStyle}>
-        {grade.classes.length === 0 ? (
-          <li style={emptyGradeStyle}>
-            <span style={emptyGradeTextStyle}>
-              掲示・サイネージにはクラス（表示単位）が必要です。組に分けない学年は「1まとまり」にできます。
-            </span>
-            <MakeGradeUnitButton grade={grade} report={report} />
-          </li>
-        ) : (
-          grade.classes.map((c) => <ClassNode key={c.id} cls={c} report={report} />)
-        )}
-        <li>
+
+      {!grade.hasClasses ? (
+        <p style={unitNoteStyle}>クラス分けなし・学年そのものが掲示単位です（{grade.name}）。</p>
+      ) : grade.classes.length === 0 ? (
+        <div style={childListStyle}>
+          <div style={onboardCardStyle}>
+            <p style={onboardTextStyle}>
+              この学年を組に分けますか？ サイネージは「表示単位」ごとに配信されます。
+            </p>
+            <AddClassForm grade={grade} report={report} />
+            <button type="button" disabled={pending} style={secondaryBtnStyle} onClick={toUnit}>
+              {pending ? "設定中…" : "組に分けず学年単位にする"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={childListStyle}>
+          {grade.classes.map((c) => (
+            <ClassNode key={c.id} cls={c} report={report} />
+          ))}
           <AddClassForm grade={grade} report={report} />
-        </li>
-      </ul>
-    </li>
+        </div>
+      )}
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------ *
- *  クラスノード（末端・編集/削除）
+ *  クラスノード（末端）
  * ------------------------------------------------------------------ */
 
 function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
@@ -331,74 +510,246 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
 
   if (editing) {
     return (
-      <li>
-        <form onSubmit={save} style={formStyle}>
-          <input
-            name="name"
-            defaultValue={cls.name}
-            required
-            style={inputStyle}
-            aria-label="クラス名"
-          />
-          <input
-            name="academicYear"
-            type="number"
-            defaultValue={cls.academicYear}
-            required
-            style={orderInputStyle}
-            aria-label="年度"
-          />
-          <button type="submit" disabled={pending} style={btnStyle}>
-            {pending ? "保存中…" : "保存"}
-          </button>
-          <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
-            やめる
-          </button>
-        </form>
-      </li>
+      <form onSubmit={save} style={editFormStyle}>
+        <input
+          name="name"
+          defaultValue={cls.name}
+          required
+          style={inputStyle}
+          aria-label="クラス名"
+        />
+        <input
+          name="academicYear"
+          type="number"
+          defaultValue={cls.academicYear}
+          required
+          style={orderInputStyle}
+          aria-label="年度"
+        />
+        <button type="submit" disabled={pending} style={primaryBtnStyle}>
+          {pending ? "保存中…" : "保存"}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
+          やめる
+        </button>
+      </form>
     );
   }
 
   return (
-    <li style={headerRowStyle}>
-      <span style={classNameStyle}>
+    <div>
+      <div style={classRowStyle}>
         <span style={classBadgeStyle}>クラス</span>
-        {cls.name}
-        <span style={classMetaStyle}>
-          （{cls.academicYear}年度・{cls.grade}年）
+        <span style={classNameStyle}>{cls.name}</span>
+        <span style={{ marginLeft: "auto" }}>
+          <RowMenu
+            label="クラスの操作"
+            items={[
+              { label: "名称・年度を編集", onSelect: () => setEditing(true) },
+              { label: "削除", danger: true, onSelect: () => setConfirming(true) },
+            ]}
+          />
         </span>
-      </span>
+      </div>
       {confirming ? (
-        <span style={actionsStyle}>
-          <span style={confirmTextStyle}>削除しますか？</span>
-          <button
-            type="button"
-            disabled={pending}
-            style={dangerBtnStyle}
-            onClick={() =>
-              start(async () => {
-                const res = await deleteClassAction(cls.id);
-                report(res, "クラスを削除しました。");
-              })
-            }
-          >
-            {pending ? "削除中…" : "削除する"}
-          </button>
-          <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
-            やめる
-          </button>
+        <div style={confirmBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            「{cls.name}」を削除しますか？このクラスの予定・公開内容も失われます。
+          </span>
+          <span style={{ display: "inline-flex", gap: "0.4rem" }}>
+            <button
+              type="button"
+              disabled={pending}
+              style={dangerBtnStyle}
+              onClick={() =>
+                start(async () => {
+                  const res = await deleteClassAction(cls.id);
+                  report(res, "クラスを削除しました。");
+                })
+              }
+            >
+              {pending ? "削除中…" : "削除する"}
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
+              やめる
+            </button>
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ *  要整理（学科に紐づかない学年）: 学科へ移動セレクト + restrict 削除
+ * ------------------------------------------------------------------ */
+
+function OrphanBox({
+  orphans,
+  departments,
+  report,
+}: {
+  orphans: Grade[];
+  departments: Dept[];
+  report: Reporter;
+}) {
+  return (
+    <div style={orphanBoxStyle}>
+      <div style={orphanLabelStyle}>
+        <span aria-hidden style={{ color: C.orange }}>
+          ●
         </span>
-      ) : (
-        <span style={actionsStyle}>
-          <button type="button" onClick={() => setEditing(true)} style={ghostBtnStyle}>
-            編集
+        要整理：学科に未所属の学年（{orphans.length}件）
+      </div>
+      <div style={{ display: "grid", gap: "0.5rem" }}>
+        {orphans.map((g) => (
+          <OrphanRow key={g.id} grade={g} departments={departments} report={report} />
+        ))}
+      </div>
+      <p style={orphanHintStyle}>所属する学科を選ぶと整理できます。</p>
+    </div>
+  );
+}
+
+function OrphanRow({
+  grade,
+  departments,
+  report,
+}: {
+  grade: Grade;
+  departments: Dept[];
+  report: Reporter;
+}) {
+  const [pending, start] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const selectId = useId();
+  const childCount = grade.classes.length;
+
+  function move(e: FormEvent<HTMLSelectElement>) {
+    const departmentId = e.currentTarget.value;
+    if (!departmentId) return;
+    start(async () => {
+      const res = await updateGradeAction({
+        id: grade.id,
+        name: grade.name,
+        displayOrder: grade.displayOrder,
+        hasClasses: grade.hasClasses,
+        departmentId,
+      });
+      report(res, "学年を学科へ移動しました。");
+    });
+  }
+
+  return (
+    <div>
+      <div style={orphanRowStyle}>
+        <span style={badgeStyle}>学年</span>
+        <span style={nodeNameStyle}>{grade.name}</span>
+        <label htmlFor={selectId} style={srOnlyStyle}>
+          {grade.name}の学科へ移動
+        </label>
+        <select
+          id={selectId}
+          defaultValue=""
+          disabled={pending}
+          onChange={move}
+          style={{ ...selectStyle, marginLeft: "auto" }}
+        >
+          <option value="">学科へ移動 …</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        <RowMenu
+          label="学年の操作"
+          items={[
+            {
+              label: "削除",
+              danger: true,
+              onSelect: () => (childCount > 0 ? setBlocked(true) : setConfirming(true)),
+            },
+          ]}
+        />
+      </div>
+      {confirming ? (
+        <div style={confirmBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            「{grade.name}」を削除しますか？
+          </span>
+          <span style={{ display: "inline-flex", gap: "0.4rem" }}>
+            <button
+              type="button"
+              disabled={pending}
+              style={dangerBtnStyle}
+              onClick={() =>
+                start(async () => {
+                  const res = await deleteGradeAction(grade.id);
+                  report(res, "学年を削除しました。");
+                })
+              }
+            >
+              {pending ? "削除中…" : "削除する"}
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
+              やめる
+            </button>
+          </span>
+        </div>
+      ) : null}
+      {blocked ? (
+        <div style={guardBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            配下にクラスがあるため削除できません。先にクラスを移動または削除してください。
+          </span>
+          <button type="button" onClick={() => setBlocked(false)} style={ghostBtnStyle}>
+            閉じる
           </button>
-          <button type="button" onClick={() => setConfirming(true)} style={dangerGhostBtnStyle}>
-            削除
-          </button>
-        </span>
-      )}
-    </li>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ *  空状態（新規校）
+ * ------------------------------------------------------------------ */
+
+function EmptyState({ report }: { report: Reporter }) {
+  const [showDept, setShowDept] = useState(false);
+  const [pending, start] = useTransition();
+  if (showDept) {
+    return <AddDepartmentForm report={report} autoFocus />;
+  }
+  return (
+    <div style={emptyStateStyle}>
+      <p style={{ fontSize: "0.95rem", color: C.inkPrimary, margin: "0 0 0.25rem" }}>
+        まだ学科・学年がありません
+      </p>
+      <p style={{ fontSize: "0.82rem", color: C.inkMuted, margin: "0 0 1rem" }}>
+        学校の構成を作ると、各クラスにサイネージを割り当てられます。
+      </p>
+      <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", flexWrap: "wrap" }}>
+        <button type="button" style={primaryBtnStyle} onClick={() => setShowDept(true)}>
+          最初の学科を追加
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          style={secondaryBtnStyle}
+          onClick={() =>
+            start(async () => {
+              const res = await createGradeAction({ name: "1年" });
+              report(res, "学年を追加しました（普通科）。");
+            })
+          }
+        >
+          {pending ? "作成中…" : "普通科（学科なし）で始める"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -406,7 +757,7 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
  *  追加フォーム群
  * ------------------------------------------------------------------ */
 
-function AddDepartmentForm({ report }: { report: Reporter }) {
+function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?: boolean }) {
   const [pending, start] = useTransition();
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -423,10 +774,25 @@ function AddDepartmentForm({ report }: { report: Reporter }) {
   }
   return (
     <form onSubmit={add} style={addFormStyle}>
-      <span style={plusStyle}>＋</span>
-      <input name="name" placeholder="学科名（例: 電子工学科）" required style={inputStyle} />
-      <input name="displayOrder" type="number" placeholder="表示順" style={orderInputStyle} />
-      <button type="submit" disabled={pending} style={btnStyle}>
+      <span aria-hidden style={plusStyle}>
+        ＋
+      </span>
+      <input
+        name="name"
+        placeholder="学科名（例: 電子工学科）"
+        required
+        style={growInputStyle}
+        // biome-ignore lint/a11y/noAutofocus: 「最初の学科を追加」直後の入力欄に限定したフォーカス誘導。
+        autoFocus={autoFocus}
+      />
+      <input
+        name="displayOrder"
+        type="number"
+        placeholder="表示順"
+        style={orderInputStyle}
+        aria-label="表示順"
+      />
+      <button type="submit" disabled={pending} style={secondaryBtnStyle}>
         {pending ? "追加中…" : "学科を追加"}
       </button>
     </form>
@@ -458,47 +824,25 @@ function AddGradeForm({ department, report }: { department?: Dept; report: Repor
     });
   }
   return (
-    <form onSubmit={add} style={addFormStyle}>
-      <span style={plusStyle}>＋</span>
-      <input
-        name="name"
-        placeholder={department ? "学年（例: 1年・学科名が自動で付きます）" : "学年名（例: 1年）"}
-        required
-        style={inputStyle}
-      />
-      <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        {pending ? "追加中…" : department ? "この学科に学年を追加" : "学年を追加"}
-      </button>
-    </form>
-  );
-}
-
-/**
- * 「この学年を1まとまりにする」: 組に分けない学年の表示単位を 1 つ用意する。エディタ/サイネージ/QR は
- * クラス基準のため、学年名と同名のクラスを 1 つ作り「学年＝1画面」として扱えるようにする（ユーザーは
- * クラスを個別に名付け・管理しなくてよい。完全な学年スコープ対応の最小実装）。年度=今年・学年数=学年名から。
- */
-function MakeGradeUnitButton({ grade, report }: { grade: Grade; report: Reporter }) {
-  const [pending, start] = useTransition();
-  return (
-    <button
-      type="button"
-      disabled={pending}
-      style={secondaryBtnStyle}
-      onClick={() =>
-        start(async () => {
-          const res = await createClassAction({
-            gradeId: grade.id,
-            name: grade.name,
-            academicYear: new Date().getFullYear(),
-            grade: deriveGradeNumber(grade.name),
-          });
-          report(res, "この学年を1まとまりにしました。");
-        })
-      }
-    >
-      {pending ? "設定中…" : "この学年を1まとまりにする"}
-    </button>
+    <div>
+      <form onSubmit={add} style={addFormStyle}>
+        <span aria-hidden style={plusStyle}>
+          ＋
+        </span>
+        <input
+          name="name"
+          placeholder={department ? "学年（例: 1年）" : "学年名（例: 1年）"}
+          required
+          style={growInputStyle}
+        />
+        <button type="submit" disabled={pending} style={secondaryBtnStyle}>
+          {pending ? "追加中…" : department ? "この学科に追加" : "学年を追加"}
+        </button>
+      </form>
+      {department ? (
+        <p style={fieldHintStyle}>学科名が自動で付きます（例：{department.name}1年）。</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -521,18 +865,18 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
     });
   }
   return (
-    <form onSubmit={add} style={addFormStyle}>
-      <span style={plusStyle}>＋</span>
-      <input
-        name="name"
-        placeholder="クラス名（例: 1組／組が無ければ『全体』）"
-        required
-        style={inputStyle}
-      />
-      <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        {pending ? "追加中…" : "この学年にクラスを追加"}
-      </button>
-    </form>
+    <div>
+      <form onSubmit={add} style={addFormStyle}>
+        <span aria-hidden style={plusStyle}>
+          ＋
+        </span>
+        <input name="name" placeholder="クラス名（例: 1組）" required style={growInputStyle} />
+        <button type="submit" disabled={pending} style={secondaryBtnStyle}>
+          {pending ? "追加中…" : "この学年に追加"}
+        </button>
+      </form>
+      <p style={fieldHintStyle}>組がなければ空欄でOK。学年そのものが掲示対象になります。</p>
+    </div>
   );
 }
 
@@ -567,19 +911,15 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
           "",
         );
       } else {
-        report(
-          { ok: true, data: { id: "" } },
-          `全 ${departments.length} 学科に「${base}」を追加しました。`,
-        );
+        report({ ok: true, data: { id: "" } }, `すべての学科に「${base}」を追加しました。`);
       }
       form.reset();
     });
   }
   return (
     <form onSubmit={add} style={bulkBoxStyle}>
-      <span style={bulkLabelStyle}>一括: 全 {departments.length} 学科に</span>
-      <input name="base" placeholder="学年名（例: 1年）" style={inputStyle} />
-      <span style={bulkLabelStyle}>を追加</span>
+      <span style={bulkLabelStyle}>すべての学科（{departments.length}件）に学年を追加</span>
+      <input name="base" placeholder="学年名（例: 1年）" style={growInputStyle} />
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
         {pending ? "追加中…" : "全学科に一括追加"}
       </button>
@@ -588,158 +928,296 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
 }
 
 /* ------------------------------------------------------------------ *
- *  styles
+ *  styles — 3 色（ウォームグレー基調 + ブランドのオレンジ + 削除の赤）
  * ------------------------------------------------------------------ */
 
-const hintStyle: React.CSSProperties = { color: "#6b7280", fontSize: "0.85rem", margin: 0 };
-const treeRootStyle: React.CSSProperties = {
-  listStyle: "none",
+const C = {
+  inkPrimary: "#1c1917",
+  inkSecondary: "#57534e",
+  inkMuted: "#78716c",
+  inkTertiary: "#a8a29e",
+  border: "#e7e5e4",
+  borderLight: "#f5f5f4",
+  surface: "#fafaf9",
+  orange: "#ea580c",
+  teal: "#0f766e",
+  danger: "#b91c1c",
+  dangerBg: "#fef2f2",
+  dangerBorder: "#fca5a5",
+} as const;
+
+const pageStyle: React.CSSProperties = { display: "grid", gap: "0.85rem", maxWidth: "820px" };
+const headerRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  gap: "0.75rem",
+};
+const h1Style: React.CSSProperties = { fontSize: "1.3rem", margin: 0, color: C.inkPrimary };
+const msgStyle: React.CSSProperties = { display: "block", fontSize: "0.85rem" };
+const hintStyle: React.CSSProperties = {
+  color: C.inkMuted,
+  fontSize: "0.82rem",
   margin: 0,
-  padding: 0,
+  lineHeight: 1.6,
+};
+const treeRootStyle: React.CSSProperties = { display: "grid", gap: "0.6rem" };
+const childListStyle: React.CSSProperties = {
+  margin: "0.5rem 0 0",
+  padding: "0 0 0 0.9rem",
+  borderLeft: `2px solid ${C.borderLight}`,
+  display: "grid",
+  gap: "0.45rem",
+};
+const deptNodeStyle: React.CSSProperties = {
+  border: `1px solid ${C.border}`,
+  borderRadius: "8px",
+  padding: "0.7rem 0.85rem",
+  background: "#fff",
+};
+const gradeNodeStyle: React.CSSProperties = {
+  background: C.surface,
+  borderRadius: "6px",
+  padding: "0.5rem 0.65rem",
+};
+const nodeHeaderRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
+  flexWrap: "wrap",
+};
+const nodeNameStyle: React.CSSProperties = {
+  fontWeight: 500,
+  fontSize: "0.92rem",
+  color: C.inkPrimary,
+};
+const summaryStyle: React.CSSProperties = { fontSize: "0.75rem", color: C.inkTertiary };
+const classRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
+};
+const classNameStyle: React.CSSProperties = { fontSize: "0.88rem", color: C.inkPrimary };
+const badgeStyle: React.CSSProperties = {
+  fontSize: "0.68rem",
+  fontWeight: 500,
+  color: C.inkSecondary,
+  background: C.borderLight,
+  borderRadius: "999px",
+  padding: "0.1rem 0.5rem",
+};
+const classBadgeStyle: React.CSSProperties = { ...badgeStyle };
+const modeChipStyle: React.CSSProperties = {
+  fontSize: "0.68rem",
+  color: C.inkMuted,
+  border: `1px solid ${C.border}`,
+  borderRadius: "999px",
+  padding: "0.05rem 0.5rem",
+};
+const unitNoteStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: C.inkTertiary,
+  margin: "0.4rem 0 0 0.9rem",
+};
+const onboardCardStyle: React.CSSProperties = {
+  background: "#fff",
+  border: `1px solid ${C.border}`,
+  borderRadius: "8px",
+  padding: "0.7rem",
   display: "grid",
   gap: "0.6rem",
 };
-const childListStyle: React.CSSProperties = {
-  listStyle: "none",
-  margin: "0.4rem 0 0",
-  padding: "0 0 0 1rem",
-  borderLeft: "2px solid #e5e7eb",
-  display: "grid",
-  gap: "0.4rem",
-};
-const deptNodeStyle: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: "8px",
-  padding: "0.75rem",
-};
-const gradeNodeStyle: React.CSSProperties = {
-  background: "#f9fafb",
-  borderRadius: "6px",
-  padding: "0.5rem 0.6rem",
+const onboardTextStyle: React.CSSProperties = {
+  fontSize: "0.8rem",
+  color: C.inkSecondary,
+  margin: 0,
+  lineHeight: 1.6,
 };
 const orphanBoxStyle: React.CSSProperties = {
-  border: "1px dashed #f59e0b",
+  border: `1px solid ${C.border}`,
+  borderLeft: `3px solid ${C.orange}`,
   borderRadius: "8px",
-  padding: "0.75rem",
-  background: "#fffbeb",
+  padding: "0.7rem 0.85rem",
+  background: "#fff",
+  display: "grid",
+  gap: "0.6rem",
 };
 const orphanLabelStyle: React.CSSProperties = {
-  margin: "0 0 0.5rem",
   fontSize: "0.85rem",
-  color: "#b45309",
-};
-const headerRowStyle: React.CSSProperties = {
+  fontWeight: 500,
+  color: C.inkPrimary,
   display: "flex",
   alignItems: "center",
-  justifyContent: "space-between",
-  gap: "0.5rem",
+  gap: "0.4rem",
+};
+const orphanRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
   flexWrap: "wrap",
 };
-const nameStyle: React.CSSProperties = {
-  fontWeight: 600,
-  display: "inline-flex",
+const orphanHintStyle: React.CSSProperties = { fontSize: "0.76rem", color: C.inkMuted, margin: 0 };
+const emptyStateStyle: React.CSSProperties = {
+  border: `1px dashed ${C.inkTertiary}`,
+  borderRadius: "10px",
+  padding: "1.75rem 1.25rem",
+  textAlign: "center",
+};
+const confirmBoxStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
-  gap: "0.4rem",
+  gap: "0.5rem",
+  margin: "0.45rem 0 0",
+  padding: "0.5rem 0.6rem",
+  background: C.dangerBg,
+  border: `1px solid ${C.dangerBorder}`,
+  borderRadius: "6px",
 };
-const classNameStyle: React.CSSProperties = {
-  fontSize: "0.92rem",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.4rem",
-};
-const badgeStyle: React.CSSProperties = {
-  fontSize: "0.68rem",
-  fontWeight: 700,
-  color: "#1d4ed8",
-  background: "#eff6ff",
-  border: "1px solid #bfdbfe",
-  borderRadius: "999px",
-  padding: "0.05rem 0.45rem",
-};
-const classBadgeStyle: React.CSSProperties = {
-  ...badgeStyle,
-  color: "#166534",
-  background: "#ecfdf5",
-  border: "1px solid #a7f3d0",
-};
-const classMetaStyle: React.CSSProperties = {
-  color: "#6b7280",
-  fontSize: "0.8rem",
-  fontWeight: 400,
-};
-const actionsStyle: React.CSSProperties = {
-  display: "inline-flex",
-  gap: "0.4rem",
-  alignItems: "center",
-};
-const confirmTextStyle: React.CSSProperties = { fontSize: "0.8rem", color: "#b91c1c" };
+const guardBoxStyle: React.CSSProperties = { ...confirmBoxStyle };
 const bulkBoxStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
   gap: "0.5rem",
   padding: "0.6rem 0.75rem",
-  background: "#f7f8fa",
-  border: "1px solid #e5e7eb",
+  background: C.surface,
+  border: `1px solid ${C.border}`,
   borderRadius: "8px",
 };
-const bulkLabelStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#374151" };
-const emptyGradeStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: "0.5rem",
-};
-const emptyGradeTextStyle: React.CSSProperties = { fontSize: "0.82rem", color: "#6b7280" };
+const bulkLabelStyle: React.CSSProperties = { fontSize: "0.82rem", color: C.inkSecondary };
 const addFormStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: "0.4rem",
   alignItems: "center",
 };
-const plusStyle: React.CSSProperties = { color: "#6b7280", fontWeight: 700 };
-const formStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "0.4rem",
-  alignItems: "center",
+const editFormStyle: React.CSSProperties = { ...addFormStyle };
+const fieldHintStyle: React.CSSProperties = {
+  fontSize: "0.72rem",
+  color: C.inkTertiary,
+  margin: "0.3rem 0 0 1.2rem",
 };
+const plusStyle: React.CSSProperties = { color: C.inkMuted, fontWeight: 500 };
 const inputStyle: React.CSSProperties = {
   padding: "0.4rem 0.6rem",
-  border: "1px solid #d1d5db",
+  border: `1px solid ${C.border}`,
   borderRadius: "6px",
+  fontSize: "0.85rem",
+  minWidth: 0,
 };
-const orderInputStyle: React.CSSProperties = { ...inputStyle, width: "6rem" };
-const btnStyle: React.CSSProperties = {
+const growInputStyle: React.CSSProperties = { ...inputStyle, flex: "1 1 200px" };
+const orderInputStyle: React.CSSProperties = { ...inputStyle, width: "5rem", flex: "0 0 auto" };
+const selectStyle: React.CSSProperties = {
+  padding: "0.35rem 0.5rem",
+  border: `1px solid ${C.border}`,
+  borderRadius: "6px",
+  fontSize: "0.82rem",
+  background: "#fff",
+  color: C.inkSecondary,
+};
+const primaryBtnStyle: React.CSSProperties = {
   padding: "0.4rem 0.9rem",
-  background: "#1f2937",
+  background: C.orange,
   color: "#fff",
   border: "none",
   borderRadius: "6px",
   cursor: "pointer",
+  fontSize: "0.82rem",
 };
 const secondaryBtnStyle: React.CSSProperties = {
-  ...btnStyle,
+  padding: "0.4rem 0.9rem",
   background: "#fff",
-  color: "#1f2937",
-  border: "1px solid #d1d5db",
+  color: C.inkSecondary,
+  border: `1px solid ${C.border}`,
+  borderRadius: "6px",
+  cursor: "pointer",
+  fontSize: "0.82rem",
 };
+const toolbarBtnStyle: React.CSSProperties = { ...secondaryBtnStyle, marginLeft: "auto" };
 const ghostBtnStyle: React.CSSProperties = {
   padding: "0.3rem 0.7rem",
   background: "transparent",
-  color: "#1d4ed8",
-  border: "1px solid #d1d5db",
+  color: C.inkSecondary,
+  border: `1px solid ${C.border}`,
   borderRadius: "6px",
   cursor: "pointer",
-  fontSize: "0.82rem",
+  fontSize: "0.8rem",
 };
-const dangerGhostBtnStyle: React.CSSProperties = { ...ghostBtnStyle, color: "#b91c1c" };
 const dangerBtnStyle: React.CSSProperties = {
-  padding: "0.3rem 0.7rem",
-  background: "#b91c1c",
-  color: "#fff",
+  padding: "0.3rem 0.8rem",
+  background: C.dangerBg,
+  color: C.danger,
+  border: `1px solid ${C.dangerBorder}`,
+  borderRadius: "6px",
+  cursor: "pointer",
+  fontSize: "0.8rem",
+};
+const iconBtnStyle: React.CSSProperties = {
+  width: "1.85rem",
+  height: "1.85rem",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  background: "#fff",
+  color: C.inkSecondary,
+  border: `1px solid ${C.border}`,
+  borderRadius: "6px",
+  cursor: "pointer",
+};
+const chevronBtnStyle: React.CSSProperties = {
+  width: "1.5rem",
+  height: "1.5rem",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  background: "transparent",
+  color: C.inkMuted,
+  border: "none",
+  cursor: "pointer",
+};
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  cursor: "default",
+  zIndex: 10,
+};
+const menuStyle: React.CSSProperties = {
+  position: "absolute",
+  right: 0,
+  top: "2.1rem",
+  minWidth: "11rem",
+  background: "#fff",
+  border: `1px solid ${C.border}`,
+  borderRadius: "8px",
+  padding: "0.25rem",
+  display: "grid",
+  gap: "0.1rem",
+  zIndex: 11,
+  boxShadow: "0 4px 16px rgba(28,25,23,0.08)",
+};
+const menuItemStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "0.45rem 0.6rem",
+  background: "transparent",
   border: "none",
   borderRadius: "6px",
   cursor: "pointer",
   fontSize: "0.82rem",
+  width: "100%",
+};
+const srOnlyStyle: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
 };
