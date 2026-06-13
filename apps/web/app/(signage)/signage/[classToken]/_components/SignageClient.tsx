@@ -335,13 +335,15 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 }
 
 /**
- * パターン2: 掲示盤面（予定 / 来校者一覧 / 生徒呼び出し / 人感センサカウンタ / 天気予報 / 鉄道）。右側の広告は
- * パターン1と同一（`AdAside` 共有・ユーザー指定）。
+ * パターン2: 掲示盤面（予定 / 生徒呼び出し / 来校者一覧 / 鉄道 / 人感センサ）。右側の広告はパターン1と同一
+ * （`AdAside` 共有・ユーザー指定）。
  *
- * **本 PR は「TVデバイスごとの切替の仕組み」+「パターン2のレイアウト骨格」**まで。予定・天気は既存データで
- * 実描画し、来校者 / 呼び出し / センサ / 鉄道は後続スライス（データモデル・エディタ・外部取得 Job）まで
- * 「準備中」プレースホルダーを出す。これで admin/tv-devices から端末ごとに P1/P2 を切替えられることを保証し、
- * 各ウィジェットは別 PR で中身を詰める（盤面は壊さない＝fail-soft）。
+ * **レイアウトは「優先順位 = 面積」の縦 3 段構成**（2026-06-13 ユーザーとデザイン確定）:
+ *   第1段 = 予定（主役・横幅いっぱい・今後3平日の3列・天気を日付ヘッダーにアイコンで内包）
+ *   第2段 = 人に関わる情報（生徒呼び出し ＋ 来校者一覧 を 2 列で対に）
+ *   第3段 = ステータス帯（鉄道 ＋ 人感センサを小さく 2 列。指標が予定より目立つ逆転を避け降格）
+ * 旧 2 列均質グリッドの「右下空きセル」を解消し、面積で素直に優先順位を表す。各ウィジェットは取得失敗・
+ * 不在を fail-soft 表示にする（盤面を壊さない）。
  */
 function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
   return (
@@ -350,12 +352,19 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
       <div className={styles.container}>
         <main className={styles.infoArea}>
           <div className={styles.p2Grid}>
-            <Pattern2Schedule days={data.scheduleDays} today={data.date} />
-            <Pattern2Weather weather={data.weather ?? null} />
-            <Pattern2Visitors visitors={data.visitors} />
-            <Pattern2Callouts callouts={data.callouts} />
-            <Pattern2SensorCount count={data.presenceCount} />
-            <Pattern2Train train={data.trainStatus} />
+            <Pattern2Schedule
+              days={data.scheduleDays}
+              today={data.date}
+              weather={data.weather ?? null}
+            />
+            <div className={styles.p2People}>
+              <Pattern2Callouts callouts={data.callouts} />
+              <Pattern2Visitors visitors={data.visitors} />
+            </div>
+            <div className={styles.p2Status}>
+              <Pattern2Train train={data.trainStatus} />
+              <Pattern2SensorCount count={data.presenceCount} />
+            </div>
           </div>
         </main>
         <AdAside
@@ -372,36 +381,57 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
 }
 
 /**
- * パターン2の予定（横幅いっぱい・今後3平日の3列）。day/曜（列ヘッダー）+ 時限 + 内容（科目・補足）に加え、
- * **場所 / 対象者**（任意・教員がエディタで入力）を各コマの下に小さく添える（PR3）。未設定の場所/対象者は
- * 行を出さない（fail-soft、盤面を詰めて見せる）。
+ * パターン2の予定（主役・横幅いっぱい・今後3平日の3列）。**見出し「予定」と外枠は持たず 3 列をそのまま開放
+ * 配置**して主役を強調する（自己説明できる日付＋時限ヘッダーがラベルを兼ねる）。見える見出しは外すが section の
+ * `aria-label="予定"` で領域名・読み上げは維持（NFR05）。各列は day/曜（列ヘッダー）+ 時限 + 内容（科目・補足）に
+ * 加え、**場所 / 対象者**（任意・教員入力）を各コマの下に小さく添える。天気は当日の予報を**列ヘッダーにアイコン
+ * のみ**で内包する（パターン1 #847 と同作法。意味は aria-label が担保し色非依存・NFR05）。未設定の場所/対象者・
+ * 該当日の予報無しは出さない（fail-soft、盤面を詰めて見せる）。
  */
-function Pattern2Schedule({ days, today }: { days: ScheduleDay[]; today: string }) {
+function Pattern2Schedule({
+  days,
+  today,
+  weather,
+}: {
+  days: ScheduleDay[];
+  today: string;
+  weather: SignageWeather | null;
+}) {
   return (
-    <section aria-label="予定" className={`${styles.card} ${styles.p2Wide}`}>
-      <h2 className={styles.cardTitle}>予定</h2>
-      <div className={styles.p2ScheduleScroll}>
-        {days.map((day) => {
-          const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
-          const isToday = day.date === today;
-          return (
-            <div
-              key={day.date}
-              className={`${styles.p2ScheduleDay} ${isToday ? styles.p2ScheduleToday : ""}`}
-            >
-              <span className={styles.p2ScheduleDate}>{scheduleHeaderLabel(day.date)}</span>
-              <div className={styles.p2ScheduleRows}>
-                {rows.length === 0 ? (
-                  <span className={styles.p2Muted}>予定はありません</span>
-                ) : (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                  rows.map((row, i) => <Pattern2ScheduleRow key={i} row={row} />)
-                )}
-              </div>
+    <section aria-label="予定" className={styles.p2Schedule}>
+      {days.map((day) => {
+        const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
+        const isToday = day.date === today;
+        const weatherDay = weather?.days.find((d) => d.forecastDate === day.date) ?? null;
+        return (
+          <div
+            key={day.date}
+            className={`${styles.p2ScheduleDay} ${isToday ? styles.p2ScheduleToday : ""}`}
+          >
+            <div className={styles.p2ScheduleDate}>
+              <span className={styles.p2ScheduleDateLabel}>{scheduleHeaderLabel(day.date)}</span>
+              {weatherDay ? (
+                <span
+                  className={styles.p2ScheduleWeather}
+                  aria-label={weatherDay.weatherText ?? weatherDay.iconLabel}
+                >
+                  <span aria-hidden="true" className={styles.p2ScheduleWeatherGlyph}>
+                    {WEATHER_ICON_GLYPH[weatherDay.icon]}
+                  </span>
+                </span>
+              ) : null}
             </div>
-          );
-        })}
-      </div>
+            <div className={styles.p2ScheduleRows}>
+              {rows.length === 0 ? (
+                <span className={styles.p2Muted}>予定はありません</span>
+              ) : (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                rows.map((row, i) => <Pattern2ScheduleRow key={i} row={row} />)
+              )}
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -430,37 +460,6 @@ function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
   );
 }
 
-/** パターン2の天気予報（既存 weather を流用）。未取得は fail-soft でセクションを残し「準備中」表示にしない。 */
-function Pattern2Weather({ weather }: { weather: SignageWeather | null }) {
-  const hasDays = weather != null && weather.days.length > 0;
-  return (
-    <section aria-label="天気予報" className={styles.card}>
-      <h2 className={styles.cardTitle}>天気予報</h2>
-      {hasDays ? (
-        <div className={styles.p2WeatherRow}>
-          {weather.days.map((d) => (
-            <div key={d.forecastDate} className={styles.p2WeatherDay}>
-              <span className={styles.p2WeatherDate}>{scheduleHeaderLabel(d.forecastDate)}</span>
-              <span aria-hidden="true" className={styles.p2WeatherGlyph}>
-                {WEATHER_ICON_GLYPH[d.icon]}
-              </span>
-              <span className={styles.p2WeatherText}>{d.weatherText ?? d.iconLabel}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className={styles.p2Muted}>天気情報はありません</p>
-      )}
-    </section>
-  );
-}
-
-/**
- * パターン2の人感センサカウンタ（F13 / ADR-020）。このクラスの **本日の検知回数（累計）** を表示する。
- * PIR は瞬間検知で滞在時間を測れない（ADR-020）ため「在室人数」ではなく「本日何回検知したか」を出す
- * （2026-06-10 ユーザー確定）。件数は `getTodayPresenceCount`（RLS 自校限定）由来。取得失敗（`null`）は
- * 「計測なし」表示に倒す（fail-soft）。検知ゼロは `0 回` を出す（センサーは在るが今日まだ反応なし）。
- */
 /**
  * パターン2の来校者一覧（クラス×当日）。時刻 + 氏名（+ 所属）を上段に、用件 / 対応者を下段に小さく出す。
  * 来校者無し・取得失敗（`null`）はともに「本日の来校者はありません」（fail-soft）。氏名は当該クラスの端末に
@@ -512,8 +511,14 @@ function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }
  */
 function Pattern2Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
   const list = callouts ?? [];
+  // 呼び出しが 1 件以上ある時だけ左にアクセント線を立て、名指しされた生徒が気づきやすくする（提出物の
+  // 期限切れ行と同じ inset box-shadow 作法）。0 件は線なしで他カードと等価に保つ（ユーザー指定 2026-06-13）。
+  const hasCallouts = list.length > 0;
   return (
-    <section aria-label="生徒呼び出し" className={styles.card}>
+    <section
+      aria-label="生徒呼び出し"
+      className={`${styles.card} ${hasCallouts ? styles.p2CalloutsActive : ""}`}
+    >
       <h2 className={styles.cardTitle}>生徒呼び出し</h2>
       {list.length === 0 ? (
         <p className={styles.p2Muted}>呼び出しはありません</p>
@@ -545,16 +550,15 @@ function Pattern2Callouts({ callouts }: { callouts: SignagePayload["callouts"] }
  */
 function Pattern2SensorCount({ count }: { count: number | null }) {
   return (
-    <section aria-label="人感センサカウンタ" className={styles.card}>
-      <h2 className={styles.cardTitle}>人感センサカウンタ</h2>
+    <section aria-label="人感センサカウンタ" className={styles.p2StatusTile}>
+      <span className={styles.p2StatusLabel}>本日の検知</span>
       {count == null ? (
-        <p className={styles.p2Muted}>計測なし</p>
+        <span className={styles.p2Muted}>計測なし</span>
       ) : (
-        <div className={styles.p2SensorCount}>
+        <span className={styles.p2SensorValue}>
           <span className={styles.p2SensorNum}>{count.toLocaleString("ja-JP")}</span>
           <span className={styles.p2SensorUnit}>回</span>
-          <span className={styles.p2SensorLabel}>本日の検知</span>
-        </div>
+        </span>
       )}
     </section>
   );
@@ -567,24 +571,23 @@ function Pattern2SensorCount({ count }: { count: number | null }) {
  */
 function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
   return (
-    <section aria-label="鉄道" className={styles.card}>
-      <h2 className={styles.cardTitle}>鉄道</h2>
+    <section aria-label="鉄道" className={styles.p2StatusTile}>
+      <span className={styles.p2StatusLabel}>鉄道{train ? `・${train.operatorName}` : ""}</span>
       {train == null ? (
-        <p className={styles.p2Muted}>運行情報は取得できていません</p>
+        <span className={styles.p2Muted}>運行情報は取得できていません</span>
       ) : (
-        <div className={styles.p2Train}>
-          <span className={styles.p2TrainOperator}>{train.operatorName}</span>
-          <p
+        <span className={styles.p2TrainBody}>
+          <span
             className={`${styles.p2TrainStatus} ${train.hasDisruption ? styles.p2TrainDisrupted : ""}`}
           >
             {train.statusText}
-          </p>
+          </span>
           {train.isStale ? (
             <span className={styles.p2TrainStale} role="status">
               （情報が古い可能性）
             </span>
           ) : null}
-        </div>
+        </span>
       )}
     </section>
   );
@@ -867,9 +870,9 @@ function formatClock(d: Date): string {
 }
 
 /**
- * 絵文字 glyph (装飾) なので aria-hidden で出す。意味は併記要素が担保する:
- * pattern1（予定列ヘッダー）は親 span の aria-label、pattern2 は可視テキスト (.p2WeatherText)。
- * いずれも色でなく形状で区別できる単色グリフ + 代替テキストで NFR05（色非依存）を満たす。
+ * 絵文字 glyph (装飾) なので aria-hidden で出す。意味は親 span の aria-label が担保する:
+ * pattern1・pattern2 いずれも予定列ヘッダーにアイコンのみを添え、可視テキストは出さない（2026-06-13 統一）。
+ * 色でなく形状で区別できる単色グリフ + 代替テキスト（aria-label）で NFR05（色非依存）を満たす。
  */
 const WEATHER_ICON_GLYPH: Readonly<Record<WeatherIcon, string>> = {
   sunny: "☀",
