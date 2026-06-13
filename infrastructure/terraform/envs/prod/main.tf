@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "f528862" # 2026-06-13 deploy: サイネージ pattern2 デザイン刷新(#850) + 学科制クラス識別(BUG-3 #848) 反映（schema 無変更=migrate 不要）
+  web_image_tag = "0d74d6d" # 2026-06-13 deploy: 0d74d6d は 98ea09a の app code + 本 infra bump commit（app コード同一）。商流SoR削除(advertisers new/contracts/communications/memberships #853) + BUG-3 学科制クラス識別(#848) + pattern2(#850) 反映（schema 無変更=migrate 不要・疎通200/no-cache 確認済）
 }
 
 module "network" {
