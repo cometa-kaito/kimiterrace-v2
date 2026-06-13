@@ -81,9 +81,12 @@ export type LpSchedule = {
 export type LpConfigResponse = {
   version: number;
   config: {
-    target_mac: string | null;
-    webhook_url: string | null;
-    signage_url: string | null;
+    // 以下3つは toLpConfigResponse で null を空文字へ畳むため **必ず string**（旧実機の
+    // optString "null" 化 → target_mac=NULL クラッシュ回避の不変条件を型で固定）。
+    target_mac: string;
+    webhook_url: string;
+    signage_url: string;
+    // device_label は端末が読まない表示専用フィールドのため null 許容のまま。
     device_label: string | null;
     schedule: LpSchedule | null;
   } | null;
