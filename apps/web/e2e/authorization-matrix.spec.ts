@@ -168,15 +168,16 @@ type ApiCase = {
 };
 
 const API_CASES: readonly ApiCase[] = [
-  // POST /api/magic-links = MAGIC_LINK_ISSUER_ROLES (teacher/school_admin)。system_admin は schoolId 無しで 403。
-  // route は **認可 (requireIssuer) をボディ検証より前に評価**する。許可ロールには空ボディを送り、認可
-  // 通過後に classId 欠落の 400 で返させる (リンクを実際に発行せず副作用ゼロ・決定的)。誤ロールは 403。
+  // POST /api/magic-links = MAGIC_LINK_ISSUER_ROLES (**school_admin/system_admin**)。teacher は除外
+  // （生徒リンク発行は管理者へ移管・finding④）。route は **認可 (requireIssuer) をボディ検証より前に評価**
+  // する。許可ロールには空ボディを送り、認可通過後に classId 欠落の 400 で返させる (リンクを実際に発行せず
+  // 副作用ゼロ・決定的。system_admin も空ボディなら学校解決前に 400 で返る)。誤ロール (teacher 等) は 403。
   {
-    label: "POST /api/magic-links (issuer roles; system_admin 403)",
+    label: "POST /api/magic-links (issuer roles; teacher 403)",
     method: "POST",
     path: "/api/magic-links",
     body: {},
-    allow: ["school_admin", "teacher"],
+    allow: ["school_admin", "system_admin"],
     denyStatus: 403,
   },
   // POST /api/teacher/chat = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403。

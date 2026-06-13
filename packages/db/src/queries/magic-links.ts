@@ -5,20 +5,32 @@ import { classes } from "../schema/classes.js";
 import { magicLinks } from "../schema/magic-links.js";
 
 /**
- * magic_links の発行/失効を audit_log に追記する (NFR04 / CLAUDE.md ルール1)。
+ * magic link 操作の実行者。
+ *
+ * - **school_admin**: `userId` は `users.id`（FK 列 created_by/updated_by/actor_user_id に載る）。
+ * - **system_admin**: `users` 行ではなく `system_admins` 行のため、FK を持つ列には入れられず `userId=null`。
+ *   FK の無い `actor_identity_uid` に IdP uid（`identityUid`）を載せ「誰が」を audit_log 上で追跡可能にする
+ *   （system-admin 監査 actor の作法。config-edit / schools-actions と同型。ルール1）。
+ */
+export type MagicLinkActor = { userId: string | null; identityUid: string };
+
+/**
+ * magic_links の発行/失効/延長を audit_log に追記する (NFR04 / CLAUDE.md ルール1)。
  *
  * magic link は生徒の匿名アクセス credential であり、「誰がいつ発行/失効したか」は漏洩時に
  * 最も追跡したい情報。`prev_hash`/`row_hash` は BEFORE INSERT トリガ (migration 0003) が
- * 計算するため渡さない。`actor_user_id` は audit_log_insert policy 充足のため必ず actor を載せる。
- * **token_hash や平文 token は diff に含めない** (ルール5: credential を監査ログに残さない)。
+ * 計算するため渡さない。`actor_user_id` は audit_log_insert policy が「自分自身 / system_admin / null」を
+ * 許可する（system_admin context では null actor + 任意 school_id が通る）。FK 列に載せられない system_admin
+ * は `actor_identity_uid` で追跡する。**token_hash や平文 token は diff に含めない** (ルール5)。
  */
 async function writeMagicLinkAudit(
   tx: TenantTx,
-  actor: { userId: string; schoolId: string },
+  actor: MagicLinkActor & { schoolId: string },
   params: { recordId: string; operation: "insert" | "update"; diff: object },
 ): Promise<void> {
   await tx.insert(auditLog).values({
     actorUserId: actor.userId,
+    actorIdentityUid: actor.identityUid,
     schoolId: actor.schoolId,
     tableName: "magic_links",
     recordId: params.recordId,
@@ -77,14 +89,19 @@ export async function resolveMagicLink(
 
 /** 新規クラスリンク発行のパラメータ。 */
 export type CreateClassMagicLinkParams = {
+  /**
+   * 発行先クラスの学校。school_admin は自校 id、**system_admin は発行対象クラスから解決した学校 id**
+   * （cross-tenant。`getVisibleClassSchoolId` で取得）。INSERT は magic_links の `system_admin_full_access`
+   * もしくは `tenant_isolation` WITH CHECK のいずれかで通る。
+   */
   schoolId: string;
   classId: string;
   /** ハッシュ済 token。平文は渡さない。 */
   tokenHash: string;
-  /** 省略時は DB デフォルト (now() + 90 日)。教員 UI が短縮/延長する場合のみ指定。 */
+  /** 省略時は DB デフォルト (now() + 90 日)。発行 API は既定 1 年を明示算出して渡す。 */
   expiresAt?: Date;
-  /** 発行者 (監査カラム created_by/updated_by)。 */
-  actorUserId: string;
+  /** 発行者（監査カラム created_by/updated_by + audit_log actor）。system_admin は userId=null。 */
+  actor: MagicLinkActor;
 };
 
 /** 発行されたクラスリンクの公開可能な属性 (token_hash は返さない)。 */
@@ -126,6 +143,24 @@ export async function classBelongsToTenant(tx: TenantTx, classId: string): Promi
 }
 
 /**
+ * 可視クラスの `school_id` を返す（別テナント / 不存在は null）。**system_admin が発行対象クラスの学校を
+ * cross-tenant に解決**するのに使う（`system_admin_full_access` 下では全校のクラスが可視、自校 RLS 下では
+ * 自校のクラスのみ）。解決した school_id を `createClassMagicLink` の `schoolId` に渡すことで、system_admin
+ * でも当該クラスの正しい学校に紐づく magic_links 行を INSERT できる。
+ */
+export async function getVisibleClassSchoolId(
+  tx: TenantTx,
+  classId: string,
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ schoolId: classes.schoolId })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1);
+  return row?.schoolId ?? null;
+}
+
+/**
  * 教員がクラスに magic link を発行する。RLS context (自校) を張った tx 内で呼ぶ。
  *
  * 二層の防御:
@@ -150,8 +185,8 @@ export async function createClassMagicLink(
       classId: params.classId,
       tokenHash: params.tokenHash,
       ...(params.expiresAt ? { expiresAt: params.expiresAt } : {}),
-      createdBy: params.actorUserId,
-      updatedBy: params.actorUserId,
+      createdBy: params.actor.userId,
+      updatedBy: params.actor.userId,
     })
     .returning(ISSUED_COLUMNS);
   if (!row) {
@@ -160,7 +195,7 @@ export async function createClassMagicLink(
   }
   await writeMagicLinkAudit(
     tx,
-    { userId: params.actorUserId, schoolId: params.schoolId },
+    { ...params.actor, schoolId: params.schoolId },
     {
       recordId: row.id,
       operation: "insert",
@@ -180,11 +215,11 @@ export async function createClassMagicLink(
 export async function revokeMagicLink(
   tx: TenantTx,
   id: string,
-  actorUserId: string,
+  actor: MagicLinkActor,
 ): Promise<IssuedMagicLink | undefined> {
   const [row] = await tx
     .update(magicLinks)
-    .set({ revokedAt: sql`now()`, updatedBy: actorUserId, updatedAt: sql`now()` })
+    .set({ revokedAt: sql`now()`, updatedBy: actor.userId, updatedAt: sql`now()` })
     .where(and(eq(magicLinks.id, id), isNull(magicLinks.revokedAt)))
     // schoolId は audit 記録に使うため内部的に取得する (公開戻り値には含めない)。
     .returning({ ...ISSUED_COLUMNS, schoolId: magicLinks.schoolId });
@@ -193,7 +228,7 @@ export async function revokeMagicLink(
   }
   await writeMagicLinkAudit(
     tx,
-    { userId: actorUserId, schoolId: row.schoolId },
+    { ...actor, schoolId: row.schoolId },
     {
       recordId: row.id,
       operation: "update",
@@ -221,7 +256,7 @@ export async function extendMagicLink(
   tx: TenantTx,
   id: string,
   newExpiresAt: Date,
-  actorUserId: string,
+  actor: MagicLinkActor,
 ): Promise<IssuedMagicLink | undefined> {
   // 監査の before 値 (旧期限) を取るため更新前に読む。同一 tx・同一 WHERE で直後に UPDATE するため
   // 取り違えは起きない (単一テナント seam、UPDATE も revoked_at IS NULL を再評価)。
@@ -236,7 +271,7 @@ export async function extendMagicLink(
     .update(magicLinks)
     // expiresAt は drizzle ORM 経由で Date を bind (createClassMagicLink と同方式、
     // raw sql の timestamptz Date-bind 罠を踏まない)。updatedAt は DB now() で監査整合。
-    .set({ expiresAt: newExpiresAt, updatedBy: actorUserId, updatedAt: sql`now()` })
+    .set({ expiresAt: newExpiresAt, updatedBy: actor.userId, updatedAt: sql`now()` })
     .where(and(eq(magicLinks.id, id), isNull(magicLinks.revokedAt)))
     .returning(ISSUED_COLUMNS);
   if (!row) {
@@ -244,7 +279,7 @@ export async function extendMagicLink(
   }
   await writeMagicLinkAudit(
     tx,
-    { userId: actorUserId, schoolId: before.schoolId },
+    { ...actor, schoolId: before.schoolId },
     {
       recordId: row.id,
       operation: "update",

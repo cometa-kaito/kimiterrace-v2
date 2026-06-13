@@ -1,28 +1,29 @@
 import { revokeMagicLink, withTenantContext } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "../../../../../lib/auth/session";
 import { getDb } from "../../../../../lib/db";
-import { isIssuerRole, isUuid } from "../../../../../lib/magic-link/request";
+import {
+  requireIssuer,
+  tenantContextForIssuer,
+  toMagicLinkActor,
+} from "../../../../../lib/magic-link/issuer";
+import { isUuid } from "../../../../../lib/magic-link/request";
 
 /**
  * F05: クラス magic link の失効 API (ADR-008 / ADR-019)。
  *
- * `POST /api/magic-links/{id}/revoke` — 教員/学校管理者がリンクを即時失効。漏洩検知時の
- * 一次対応 (F05: 漏洩検知時の即時失効フロー)。失効後の生徒アクセスは 410 Gone になる
- * (resolve_magic_link が `revoked_at IS NULL` を要求するため)。冪等: 既に失効済 / 存在しない /
- * 他校のリンクはすべて 404 (RLS で他校行は不可視)。
+ * `POST /api/magic-links/{id}/revoke` — 学校管理者 / 運営がリンクを即時失効。漏洩検知時の一次対応
+ * (F05)。失効後の生徒アクセスは 410 Gone になる (resolve_magic_link が `revoked_at IS NULL` を要求)。
+ * 冪等: 既に失効済 / 存在しない / 不可視のリンクはすべて 404。認可は `requireIssuer`（school_admin /
+ * system_admin。system_admin は cross-tenant・`system_admin_full_access` で他校リンクも失効可）。
  */
 
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
-  if (!isIssuerRole(user.role) || !user.schoolId) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const auth = await requireIssuer();
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { id } = await context.params;
@@ -30,10 +31,8 @@ export async function POST(
     return NextResponse.json({ error: "invalid_id" }, { status: 400 });
   }
 
-  const revoked = await withTenantContext(
-    getDb(),
-    { userId: user.uid, schoolId: user.schoolId, role: user.role },
-    (tx) => revokeMagicLink(tx, id, user.uid),
+  const revoked = await withTenantContext(getDb(), tenantContextForIssuer(auth.issuer), (tx) =>
+    revokeMagicLink(tx, id, toMagicLinkActor(auth.issuer)),
   );
 
   if (!revoked) {

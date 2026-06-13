@@ -7,6 +7,7 @@ import {
   classBelongsToTenant,
   createClassMagicLink,
   extendMagicLink,
+  getVisibleClassSchoolId,
   listClassMagicLinks,
   resolveMagicLink,
   revokeMagicLink,
@@ -264,7 +265,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
           schoolId: fx.schoolA,
           classId: classA,
           tokenHash: "hash-created-A",
-          actorUserId: fx.userA,
+          actor: { userId: fx.userA, identityUid: fx.userA },
         });
       });
       expect(issued.classId).toBe(classA);
@@ -303,7 +304,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
             schoolId: fx.schoolA,
             classId: classB,
             tokenHash: "hash-twisted",
-            actorUserId: fx.userA,
+            actor: { userId: fx.userA, identityUid: fx.userA },
           });
         }),
       ).rejects.toThrow(MagicLinkClassNotFoundError);
@@ -349,10 +350,69 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
             schoolId: fx.schoolB,
             classId: classA,
             tokenHash: "hash-cross-tenant",
-            actorUserId: fx.userA,
+            actor: { userId: fx.userA, identityUid: fx.userA },
           });
         }),
       ).rejects.toThrow();
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("createClassMagicLink: system_admin は cross-tenant で他校クラスに発行でき、監査は actor_user_id=NULL + actor_identity_uid (finding④)", async () => {
+    // system_admin（school に属さない運営）が schoolB の classB へ cross-tenant 発行できることを検証する。
+    // context は **role のみ**（school スコープ無し）→ `system_admin_full_access` が INSERT を許可。発行対象の
+    // 学校は `getVisibleClassSchoolId` でクラスから解決する。監査は users 行でないため actor_user_id=NULL、
+    // FK の無い actor_identity_uid に IdP uid を載せて「誰が」を追跡する（schools-actions / config-edit と同型）。
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      const issued = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'system_admin', true)`);
+        const schoolId = await getVisibleClassSchoolId(tx, classB);
+        // 他校クラスでも system_admin_full_access で可視 → schoolB を解決できる。
+        expect(schoolId).toBe(fx.schoolB);
+        if (!schoolId) throw new Error("system_admin が classB の学校を解決できなかった");
+        return createClassMagicLink(tx, {
+          schoolId,
+          classId: classB,
+          tokenHash: "hash-sysadmin-xtenant",
+          actor: { userId: null, identityUid: "idp-sysadmin-1" },
+        });
+      });
+      expect(issued.classId).toBe(classB);
+
+      // 発行リンクは匿名解決でき、school_id=schoolB に正しく紐づく。
+      const db2 = drizzle(sql);
+      await sql.unsafe("SET ROLE kimiterrace_app");
+      try {
+        const r = await resolveMagicLink(db2, "hash-sysadmin-xtenant");
+        expect(r?.schoolId).toBe(fx.schoolB);
+        expect(r?.classId).toBe(classB);
+      } finally {
+        await sql.unsafe("RESET ROLE");
+      }
+
+      // 監査: actor_user_id=NULL（FK 列に system_admin を入れない）+ actor_identity_uid=IdP uid + school_id=schoolB。
+      const audit = await sql<
+        {
+          actor_user_id: string | null;
+          actor_identity_uid: string | null;
+          school_id: string;
+          operation: string;
+        }[]
+      >`
+        SELECT actor_user_id, actor_identity_uid, school_id, operation FROM audit_log
+        WHERE table_name = 'magic_links' AND record_id = ${issued.id}
+      `;
+      expect(audit).toHaveLength(1);
+      expect(audit[0].operation).toBe("insert");
+      expect(audit[0].actor_user_id).toBeNull();
+      expect(audit[0].actor_identity_uid).toBe("idp-sysadmin-1");
+      expect(audit[0].school_id).toBe(fx.schoolB);
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
@@ -376,7 +436,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return revokeMagicLink(tx, id, fx.userA);
+        return revokeMagicLink(tx, id, { userId: fx.userA, identityUid: fx.userA });
       });
       expect(first?.revokedAt).not.toBeNull();
 
@@ -393,7 +453,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return revokeMagicLink(tx, id, fx.userA);
+        return revokeMagicLink(tx, id, { userId: fx.userA, identityUid: fx.userA });
       });
       expect(second).toBeUndefined();
 
@@ -497,7 +557,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return extendMagicLink(tx, id, newExpiresAt, fx.userA);
+        return extendMagicLink(tx, id, newExpiresAt, { userId: fx.userA, identityUid: fx.userA });
       });
       if (!updated) throw new Error("extendMagicLink が undefined を返した (更新できるはず)");
       // 返却の新期限が ~200 日後 (旧 30 日から延長された)。
@@ -541,7 +601,10 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), fx.userA);
+        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), {
+          userId: fx.userA,
+          identityUid: fx.userA,
+        });
       });
       expect(result).toBeUndefined();
     } finally {
@@ -575,7 +638,10 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), fx.userA);
+        return extendMagicLink(tx, id, new Date(Date.now() + 30 * 86_400_000), {
+          userId: fx.userA,
+          identityUid: fx.userA,
+        });
       });
       expect(updated).toBeDefined();
 
@@ -613,7 +679,10 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
         await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
         await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolB}, true)`);
         await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
-        return extendMagicLink(tx, id, new Date(Date.now() + 200 * 86_400_000), fx.userA);
+        return extendMagicLink(tx, id, new Date(Date.now() + 200 * 86_400_000), {
+          userId: fx.userA,
+          identityUid: fx.userA,
+        });
       });
       expect(result).toBeUndefined();
 

@@ -5,13 +5,20 @@ import type { TenantRole } from "@kimiterrace/db";
  */
 
 /**
- * magic link を発行・失効できるロール。生徒/保護者は不可。
- * system_admin は school に属さない (schoolId=null) ためテナント所属リンクを発行できず除外。
+ * magic link を発行・失効・延長できるロール = **school_admin / system_admin のみ**（指摘ログ finding④）。
+ *
+ * - **teacher を除外**: 生徒リンク発行は管理者業務であり、教員はコンテンツ編集に徹する（教員 UX をエディタ
+ *   1 枚に集約）。教員には発行導線・ページ・API すべてから到達不可にする（ページ `requireRole` と API の
+ *   二層で deny）。
+ * - **system_admin を追加**: 運営（cross-tenant）が任意校のクラスにも発行できる。system_admin は school に
+ *   属さない（schoolId=null）ので、API 側はクラスから学校を解決して system_admin context で発行する
+ *   （`system_admin_full_access` policy・監査は actor_user_id=null + actor_identity_uid。config-edit と同作法）。
+ *
  * `satisfies` で TenantRole の妥当性をコンパイル時に担保 (ルール3)。
  */
 export const MAGIC_LINK_ISSUER_ROLES = [
-  "teacher",
   "school_admin",
+  "system_admin",
 ] as const satisfies readonly TenantRole[];
 
 export function isIssuerRole(role: TenantRole): boolean {
