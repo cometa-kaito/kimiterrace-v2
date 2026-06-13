@@ -60,7 +60,7 @@
   - down 遷移: `tv_device_downtime` に行作成（`went_down_at`）、`alert_state='down'`、ダウンアラート発火（§4）
   - recover 遷移: 該当 downtime 行に `recovered_at` / `duration_sec` 記録、`alert_state='ok'`、復帰アラート
   - 遷移が無ければ no-op（**send-once**: down→down で連投しない）
-- [x] 誤報抑制: `schedule_json` の OFF 時間帯は `DOWN_THRESHOLD` を緩める（既定 30分）。閾値は環境変数で調整可 — 実装済（[#492](https://github.com/cometa-kaito/kimiterrace-v2/pull/492)、`tv-liveness.ts` `isSignageOffHours` + `offHoursThresholdSec`（既定 1800）、閾値は env 由来 `resolveThresholds`（`apps/jobs/src/tv-liveness/run.ts`）で調整可）
+- [x] 誤報抑制: `schedule_json` の OFF 時間帯は **死活評価をスキップ**（端末は生存・黒画面のみ＝応答なしに数えない）— 実装済（当初 [#492](https://github.com/cometa-kaito/kimiterrace-v2/pull/492) は OFF 閾値を緩めるのみだったが、運営整理 BUG-2 / PR #851 で「OFF は評価スキップ（状態凍結）」へ改訂。`tv-liveness.ts` `classifyTvLiveness` がループ先頭で `isSignageOffHours` をスキップ。`offHoursThresholdSec` は `@deprecated`（未使用・互換残置）。復帰不能の応答なしは ON 入り後に通常閾値で検出）
 - [ ] **チェッカ自体の死活**（cron が止まったら気づけない問題）: 最終実行時刻を観測し、[ADR-014](../../adr/014-observability.md) の dead man's switch / Cloud Monitoring uptime に乗せる — 未実装（`tv-liveness-job.ts` コメントで Terraform follow-up に明記。dead man's switch 配線なし）
 
 ### 3. TV → サーバ 起動報告（任意・精度向上）

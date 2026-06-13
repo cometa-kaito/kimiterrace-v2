@@ -148,9 +148,10 @@ describe("classifyTvLiveness: no-op（不変）", () => {
   });
 });
 
-describe("classifyTvLiveness: OFF 時間帯の閾値緩和", () => {
+describe("classifyTvLiveness: OFF 時間帯は死活評価を停止する（BUG-2）", () => {
   // schedule: 8〜18 時表示。NOW(JST 14:00) は ON 時間帯。
   const schedule = { enabled: true, onHour: 8, offHour: 18 };
+  const offNow = new Date("2026-06-01T17:00:00.000Z"); // JST 6/2 02:00 = OFF（8〜18 の外）
 
   it("ON 時間帯は通常閾値（3 分超で down）", () => {
     const lastSeenAt = new Date(NOW.getTime() - 5 * 60_000); // 5 分前
@@ -158,18 +159,32 @@ describe("classifyTvLiveness: OFF 時間帯の閾値緩和", () => {
     expect(newlyDown.length).toBe(1);
   });
 
-  it("OFF 時間帯は緩い閾値（5 分の途絶では down にしない）", () => {
-    // JST 02:00 = OFF（8〜18 の外）。
-    const offNow = new Date("2026-06-01T17:00:00.000Z"); // JST 6/2 02:00
-    const lastSeenAt = new Date(offNow.getTime() - 5 * 60_000); // 5 分前（< 30 分）
+  it("OFF 時間帯は短い途絶（5 分）では down にしない", () => {
+    const lastSeenAt = new Date(offNow.getTime() - 5 * 60_000);
     const { newlyDown } = classifyTvLiveness([device({ lastSeenAt, schedule })], offNow);
     expect(newlyDown).toEqual([]);
   });
 
-  it("OFF 時間帯でも緩い閾値（30 分）超なら down にする", () => {
-    const offNow = new Date("2026-06-01T17:00:00.000Z"); // JST 02:00
-    const lastSeenAt = new Date(offNow.getTime() - (T.offHoursThresholdSec + 60) * 1000); // 31 分前
+  it("OFF 時間帯は長時間（31 分超）の無応答でも down にしない（OFF をダウンに数えない）", () => {
+    const lastSeenAt = new Date(offNow.getTime() - 31 * 60_000);
     const { newlyDown } = classifyTvLiveness([device({ lastSeenAt, schedule })], offNow);
+    expect(newlyDown).toEqual([]);
+  });
+
+  it("OFF 中は down/recover を凍結する（鮮度 OK の down 中 TV も締めない）", () => {
+    const lastSeenAt = new Date(offNow.getTime() - 30_000); // offNow 基準で 30 秒前（鮮度 OK）
+    const { newlyDown, recovered } = classifyTvLiveness(
+      [device({ schedule, lastSeenAt, alertState: "down" })],
+      offNow,
+    );
+    expect(newlyDown).toEqual([]);
+    expect(recovered).toEqual([]); // OFF 中はスキップ（凍結）→ ON で再評価
+  });
+
+  it("OFF→ON: 夜通し無応答だった端末は ON 入り後に down 検出される（自力起動不能の検出）", () => {
+    // ON 時間帯 NOW(JST 14:00) に last_seen が前夜から 8 時間途絶 → ON の通常閾値超で down
+    const lastSeenAt = new Date(NOW.getTime() - 8 * 60 * 60_000);
+    const { newlyDown } = classifyTvLiveness([device({ lastSeenAt, schedule })], NOW);
     expect(newlyDown.length).toBe(1);
   });
 });
