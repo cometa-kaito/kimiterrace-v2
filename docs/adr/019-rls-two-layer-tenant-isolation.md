@@ -122,6 +122,12 @@ RLS policy 名は、grep 可能性・migration 追跡性・新規テーブル追
 ### 代替 E: SECURITY DEFINER 関数で cross-tenant 実装
 - 却下理由: SECURITY DEFINER は RLS をバイパスする副作用があり、誤用すると意図しないテナント越境
 - 副次理由: [CLAUDE.md ルール 2](../../CLAUDE.md) に NG パターンとして明記
+- **補足（限定的な例外＝監査付き「細い扉」）**: 「cross-tenant ロジック全般を SECURITY DEFINER で実装する」ことは却下のままだが、**構造的に RLS をくぐる必要がある単一目的**（テナント context 確立前の token 解決・匿名 INSERT・配信時の広告主状態判定）に限り、**boolean / 最小列のみ**返す SECURITY DEFINER 関数を**監査付き許可リスト**で運用する。許可リストは [`__tests__/rls/security-definer-functions.test.ts`](../../packages/db/__tests__/rls/security-definer-functions.test.ts)（SEC-025）が完全一致検査し、無断追加を CI で検知する。現行の許可関数:
+  - `resolve_magic_link`（migrations/0012・生徒匿名アクセスの class token 解決）
+  - `submit_feedback`（匿名フィードバック INSERT 扉・SELECT 面は開かない）
+  - `advertiser_is_deliverable`（migrations/0026・休止広告主の配信除外判定 / BUG-1）
+
+  いずれも `SET search_path=''`・PUBLIC から EXECUTE 剥奪・CRM/PII を一切返さない。
 
 ## 結果（Consequences）
 
