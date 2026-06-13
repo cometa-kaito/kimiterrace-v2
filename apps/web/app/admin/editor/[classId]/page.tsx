@@ -13,7 +13,6 @@ import { notFound } from "next/navigation";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { ClassEditorShell } from "./_components/ClassEditorShell";
-import { EditorBoard } from "./_components/EditorBoard";
 import { NoticeEditor } from "./_components/NoticeEditor";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { ScheduleEditor } from "./_components/ScheduleEditor";
@@ -118,20 +117,26 @@ export default async function ClassEditorPage({
                 ) : null}
               </p>
             ) : null}
-            <EditorBoard
-              header={null}
-              schedule={
+            {/* 盤面を編集タブ: 1 カラム全幅でセクションを積む（finding: 旧 2 カラムで提出物が窮屈→横スクロール
+                を解消）。広告/天気の read-only プレビューは「プレビュー」タブに集約したのでここには出さない。 */}
+            <div style={{ display: "grid", gap: "1rem" }}>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>予定</h2>
                 <ScheduleEditor
                   classId={schedule.classId}
                   date={schedule.date}
                   initialItems={schedule.items}
                 />
-              }
-              notices={<NoticeEditor classId={classId} date={date} initialItems={notices.items} />}
-              assignments={
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>連絡</h2>
+                <NoticeEditor classId={classId} date={date} initialItems={notices.items} />
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>提出物</h2>
                 <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
-              }
-            />
+              </section>
+            </div>
             <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
             <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
           </>
@@ -153,3 +158,14 @@ export default async function ClassEditorPage({
     </>
   );
 }
+
+// 盤面を編集タブの 1 カラムセクションカード（全幅・横スクロール解消）。
+const boardCardStyle: React.CSSProperties = {
+  border: `1px solid ${tokens.color.border}`,
+  borderRadius: tokens.radius.lg,
+  padding: "1rem 1.25rem",
+};
+const boardCardTitleStyle: React.CSSProperties = {
+  fontSize: "1.05rem",
+  margin: "0 0 0.5rem",
+};
