@@ -141,10 +141,13 @@ describe("updateSchoolAction (DB 経路)", () => {
     expect(res).toEqual({ ok: true, data: { id: SCHOOL_ID } });
   });
 
-  it("監査: system_admin は actor_user_id / created_by / updated_by を NULL、school_id に対象校 id", async () => {
+  it("監査: system_admin は actor_user_id / created_by / updated_by を NULL だが actor_identity_uid に IdP uid、school_id に対象校 id", async () => {
     await updateSchoolAction(validRaw);
     expect(capturedAuditValues).toMatchObject({
+      // system_admin は users 行が無いため actor 系は FK 制約で NULL、しかし実行者は actor_identity_uid に
+      // IdP uid を載せて「誰が」を立証可能にする (ルール1 / NFR04、#858/#859 同型)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
       createdBy: null,
       updatedBy: null,
       schoolId: SCHOOL_ID,
