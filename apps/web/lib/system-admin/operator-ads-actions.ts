@@ -57,11 +57,11 @@ function auditView(v: AdInput): Record<string, unknown> {
  * audit_log に 1 行追記。school_id は対象校。row_hash はトリガが計算。
  *
  * **system_admin は users テーブルに存在しない**（system_admins で別管理・テナント外）。
- * audit_log の `actor_user_id` / `created_by` / `updated_by` は `users(id)` への FK
- * （migration 0004）なので、system_admin の uid をそのまま入れると **FK 違反 (23503)** に
- * なる（delete は再 throw で HTTP 500、create はロールバックして誤った「競合」表示）。
- * そこで actor 参照は system_admin では null とし、本人は FK の無い `actor_identity_uid`
- * 側に保持する（advertisers-actions.ts の writeAdvertiserUpdateAudit と同方針）。
+ * audit_log の `created_by` / `updated_by` は `users(id)` への FK（migration 0004）なので、
+ * system_admin の uid を入れると **FK 違反 (23503)** になる（delete は再 throw で HTTP 500、
+ * create はロールバックして誤った「競合」表示）＝これが 500 の直接原因。`actor_user_id`
+ * 自体に物理 FK は無いが、RLS ポリシー（migration 0005）・他アクションとの整合のため同様に
+ * null とし、本人は FK の無い `actor_identity_uid` に保持して追跡可能にする（view-audit.ts と同方針）。
  */
 async function writeAudit(
   tx: TenantTx,
