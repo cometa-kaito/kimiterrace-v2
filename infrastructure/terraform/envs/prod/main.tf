@@ -524,18 +524,34 @@ resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
   member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
-# F06 embedding バッチの Cloud Run Job + Scheduler（#416）。雛形段階は enabled = false。
-# AI kill-switch は二重ゲート: ① enabled=false で Job 実体未生成、② ai_enabled=false で（Job 活性化後も）
-# バッチが実 Vertex を呼ばない（#593、ルール4 / ADR-030、web cloud_run と同方針）。enabled=true へ flip する
-# 際は image / vpc_connector(network) / database_url_secret_id(secret_manager) を設定し、PII マスキング設計 +
-# aiplatform API 有効化の検証が済んでから ai_enabled=true に上げる（停止/巻き戻しは ai_enabled=false で即 OFF）。
+# F06 embedding バッチの Cloud Run Job + Scheduler（#416, ADR-038）。生徒/保護者向け Q&A(RAG) の知識源を
+# 供給する。本番有効化（2026-06-13）: school_admin が `/admin/contents` で公開した content_versions を毎時
+# 走査し、PII マスク後テキストから embedding を生成して pgvector に投入する（生徒 Q&A が grounded 動作する）。
+#
+# 二重 kill-switch（多層防御、#593 / ルール4 / ADR-030、web cloud_run と同方針）:
+#   ① enabled  : Job 実体（Cloud Run Job + Scheduler + 専用 SA）の生成スイッチ。
+#   ② ai_enabled: 実体生成後も AI_ENABLED!="true" の間はバッチが実 Vertex を一切叩かず no-op で抜ける。
+# 停止/巻き戻しは ai_enabled=false で即 OFF（次回起動が aiDisabled で no-op、DB/Vertex 不接触）。
+#
+# 配線は weather/railway/tv_liveness Job と同形（同一 jobs:<tag> イメージを command/args で切替）:
+#   - image                 : 既ビルド済み jobs イメージ（embed-job 同梱、dist/embedding/embed-job.js）。
+#   - container_args        : embedding entry を起動（既定の src/... ではなく tsc emit 後の dist/...）。
+#   - database_url_secret_id: prod-db-url-app（kimiterrace_app ロール=非 BYPASSRLS、ルール2/5）。
+#   - vpc_connector         : Cloud SQL private IP への内部 egress（PRIVATE_RANGES_ONLY、外部 egress 不要）。
+# Scheduler はモジュール既定で毎時起動（schedule "0 * * * *" JST）。バッチは冪等（embedding IS NULL の
+# 残りだけ拾う）なので、初回起動で既存 content_versions を自動バックフィルし、以後は差分だけ処理する。
+# prod は deletion_protection 既定 true。
 module "cloud_run_job" {
-  source     = "../../modules/cloud_run_job"
-  project_id = var.project_id
-  region     = var.region
-  env        = local.env
-  enabled    = false # TODO(bring-up ③): true に切替
-  ai_enabled = false # 実 Vertex kill-switch（既定 OFF）。検証完了後に true へ flip（#593）。
+  source                 = "../../modules/cloud_run_job"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true # 2026-06-13 有効化: 生徒/保護者 Q&A の知識源供給（ADR-038）。jobs image 98ea09a 同梱・network(VPC)/secret 準備完了
+  ai_enabled             = true # 2026-06-12 prod web と同じく AI go-live 済（マスキング強化+aiplatform API 有効を確認）。停止は false に戻して apply で即 OFF
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/embedding/embed-job.js"] # ビルド済み embed-job（WORKDIR=/app/apps/jobs）。module 既定 src/... を上書き
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
   # deletion_protection はモジュール既定 true（prod）
 }
 

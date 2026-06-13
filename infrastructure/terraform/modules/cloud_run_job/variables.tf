@@ -42,9 +42,9 @@ variable "container_command" {
 }
 
 variable "container_args" {
-  description = "起動引数。`src/embedding/embed-job.ts` のビルド済み JS を起動する（Dockerfile は別 PR）。"
+  description = "起動引数。jobs.Dockerfile が tsc emit した `dist/embedding/embed-job.js` を起動する（WORKDIR=/app/apps/jobs）。weather/railway/tv_liveness と同じ dist/ 配下。"
   type        = list(string)
-  default     = ["src/embedding/embed-job.js"]
+  default     = ["dist/embedding/embed-job.js"]
 }
 
 variable "database_url_secret_id" {

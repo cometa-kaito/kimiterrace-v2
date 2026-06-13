@@ -49,6 +49,11 @@ RUN pnpm --filter @kimiterrace/jobs... build
 # MODULE_NOT_FOUND になるのを防ぐ）。
 RUN test -f /app/apps/jobs/dist/weather/weather-job.js
 
+# F06 embedding バッチ（ADR-038、生徒/保護者 Q&A の知識源）も同イメージから
+# `dist/embedding/embed-job.js` を起動する（Cloud Run Job の args 上書き）。weather と同様、部分ビルドで
+# 当該 entry が欠落したまま image を作らせない（runtime で MODULE_NOT_FOUND になる前に build を fail させる）。
+RUN test -f /app/apps/jobs/dist/embedding/embed-job.js
+
 # 推移依存 @kimiterrace/db の dist も検証する（defense-in-depth、feedback_cloudbuild_tsbuildinfo_partial_emit）。
 # jobs runtime は `@kimiterrace/db` の `.` バレル（= dist/index.js。これが dist/schema/index.js と
 # dist/queries/*.js を再エクスポートする）を解決するため、db 側の部分 emit でも runtime で MODULE_NOT_FOUND に
