@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("../../lib/school-admin/hub-queries", () => ({ getSchoolHierarchy: vi.fn() }));
+// クラスタイルのパターンバッジ用（学校レベル既定）。本ページは withSession 内で読むため mock 必須。
+vi.mock("../../lib/signage/signage-design", () => ({ getSignageDesignPattern: vi.fn() }));
 // 「前回のクラスを再開」(UIUX-02) が読む cookie をテストから制御する（既定は未設定）。
 const cookieState = vi.hoisted(() => ({ lastClass: undefined as string | undefined }));
 vi.mock("next/headers", () => ({
@@ -34,11 +36,13 @@ import EditorIndexPage from "../../app/admin/editor/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { getSchoolHierarchy } from "../../lib/school-admin/hub-queries";
+import { getSignageDesignPattern } from "../../lib/signage/signage-design";
 import { redirect } from "next/navigation";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
 const getSchoolHierarchyMock = vi.mocked(getSchoolHierarchy);
+const getSignageDesignPatternMock = vi.mocked(getSignageDesignPattern);
 const redirectMock = vi.mocked(redirect);
 
 const DEPT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -67,34 +71,35 @@ beforeEach(() => {
   withSessionMock.mockImplementation(((fn: (tx: unknown) => unknown) =>
     Promise.resolve(fn({}))) as typeof withSession);
   getSchoolHierarchyMock.mockResolvedValue(hierarchy as never);
+  getSignageDesignPatternMock.mockResolvedValue("pattern1" as never);
 });
 
 describe("EditorIndexPage scope 対象リンク", () => {
   it("学校全体 / 学科全体 / 学年全体 / クラスのリンクを正しい href で出す", async () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
 
-    const school = screen.getByRole("link", { name: "学校全体の共通を編集" });
+    const school = screen.getByRole("link", { name: "全クラス共通で出す" });
     expect(school).toHaveAttribute("href", "/admin/editor/scope/school");
 
-    const dept = screen.getByRole("link", { name: "この学科の共通を編集" });
+    const dept = screen.getByRole("link", { name: /この学科の共通/ });
     expect(dept).toHaveAttribute("href", `/admin/editor/scope/department/${DEPT_ID}`);
 
-    const grade = screen.getByRole("link", { name: "この学年の共通を編集" });
+    const grade = screen.getByRole("link", { name: /この学年の共通/ });
     expect(grade).toHaveAttribute("href", `/admin/editor/scope/grade/${GRADE_ID}`);
 
     // 既存クラスリンクは維持される。
     const cls = screen.getByRole("link", { name: /1年A組/ });
     expect(cls).toHaveAttribute("href", `/admin/editor/${CLASS_ID}`);
 
-    // 分かりやすさ改善: 範囲の概念（共通は配下の全クラスに表示・クラス個別が優先）を説明する。
-    expect(screen.getByText(/範囲を選んで/)).toBeInTheDocument();
-    expect(screen.getByText(/優先順位: クラス ＞ 学年 ＞ 学科 ＞ 学校全体/)).toBeInTheDocument();
+    // 見やすさ刷新: 範囲の概念（共通は全クラスに表示・クラス個別が優先）を 1 行で説明する。
+    expect(screen.getByText(/クラスを選ぶとそのクラスだけに表示/)).toBeInTheDocument();
+    expect(screen.getByText(/クラス個別の入力が優先されます/)).toBeInTheDocument();
   });
 
   it("クラス 0 件でも学校全体リンクは出る (学校全体は常に編集可能)", async () => {
     getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.getByRole("link", { name: "学校全体の共通を編集" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "全クラス共通で出す" })).toHaveAttribute(
       "href",
       "/admin/editor/scope/school",
     );
@@ -153,7 +158,7 @@ describe("EditorIndexPage 単一クラス teacher の自動直行（?stay ルー
   it("?stay=1 なら自動 redirect せず選択画面に留まる（無限ループ防止）", async () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({ stay: "1" }) }));
     expect(redirectMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "学校全体の共通を編集" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "全クラス共通で出す" })).toBeInTheDocument();
   });
 
   it("複数クラスなら（stay 無しでも）自動 redirect しない", async () => {
