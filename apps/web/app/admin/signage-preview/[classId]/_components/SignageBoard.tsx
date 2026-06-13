@@ -29,7 +29,7 @@ export function SignageBoard({
       <div style={gridStyle}>
         <Section title="予定" kind="schedules" section={daily.schedules} />
         <Section title="連絡" kind="notices" section={daily.notices} />
-        <Section title="課題" kind="assignments" section={daily.assignments} />
+        <Section title="提出物" kind="assignments" section={daily.assignments} />
         <Section title="静粛時間" kind="quietHours" section={daily.quietHours} />
       </div>
 
