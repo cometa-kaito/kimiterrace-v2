@@ -110,7 +110,7 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
   });
 
-  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + イベントログ + 監査ログ + AIチャット + 公開履歴 + 学校設定 + メンバーシップ + TVコマンド + TVダウンタイム + パスワード変更（自校エディタは出さない、MFA は意図的に nav 撤去）", () => {
+  it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + イベントログ + 監査ログ + AIチャット + 公開履歴 + 学校設定 + TVコマンド + TVダウンタイム + パスワード変更（自校エディタは出さない、メンバーシップ・ビューアは商流SoR一元化 Phase1 で撤去、MFA は意図的に nav 撤去）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
     expect(hrefs).toEqual([
       "/admin/system/schools",
@@ -126,12 +126,13 @@ describe("navItemsForRole", () => {
       "/admin/system/ai-chat",
       "/admin/system/publishes",
       "/admin/system/school-configs",
-      "/admin/system/memberships",
       "/admin/system/tv-commands",
       "/admin/system/tv-downtime",
       "/admin/account/password",
     ]);
     expect(hrefs).not.toContain("/admin/editor");
+    // 商流SoR一元化 Phase1 (2026-06-13): メンバーシップ・ビューアは nav から撤去 (テーブル/RLS は温存)。
+    expect(hrefs).not.toContain("/admin/system/memberships");
   });
 
   it("パスワード変更 (/admin/account/password) は個人 email/password アカウント (system_admin/school_admin) のみ。teacher (学校共通PW・ADR-032) には出さない (死リンク防止 / PASSWORD_CHANGE_ROLES と整合)", () => {

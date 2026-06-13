@@ -81,9 +81,9 @@ export default async function SystemAdvertisersPage({
           <span style={countStyle}>
             稼働 {activeTotal} / 全 {total} 社
           </span>
-          <Link href="/admin/system/advertisers/new" style={newLinkStyle}>
-            ＋ 新規登録
-          </Link>
+          {/* 商流SoR一元化 Phase1 (2026-06-13): 広告主の新規登録は portal (K3 自動生成) が一元管理する
+              ため、v2 の手動「新規登録」導線 (/admin/system/advertisers/new) は撤去した。本画面は
+              既存広告主の配信割当 (広告) と編集のみを担う。 */}
         </div>
       </header>
 
@@ -182,14 +182,6 @@ const headerRightStyle: React.CSSProperties = {
   gap: space.lg,
 };
 const countStyle: React.CSSProperties = { fontSize: fontSize.sm, color: color.muted };
-const newLinkStyle: React.CSSProperties = {
-  fontSize: fontSize.sm,
-  color: "#fff",
-  background: color.primary,
-  padding: "0.4rem 0.9rem",
-  borderRadius: "6px",
-  textDecoration: "none",
-};
 const editLinkStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   color: color.primary,
