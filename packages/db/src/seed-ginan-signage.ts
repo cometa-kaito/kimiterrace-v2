@@ -101,7 +101,7 @@ export function resolveSignageBaseUrl(raw: string | undefined): string {
 }
 
 /**
- * env から TTL（日）を解決する（未指定なら既定 3650 日）。正の整数でなければ fail-fast。
+ * env から TTL（日）を解決する（未指定なら既定 365 日＝1 年）。正の整数でなければ fail-fast。
  */
 export function resolveSignageTtlDays(raw: string | undefined): number {
   const v = (raw ?? "").trim();
