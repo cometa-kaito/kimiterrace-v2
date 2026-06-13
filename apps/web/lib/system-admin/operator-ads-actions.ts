@@ -194,6 +194,11 @@ export async function deleteOperatorAdAction(
     if (error instanceof NotFoundError) {
       return notFound(error.message);
     }
+    // createOperatorAdAction と同じく制約違反 (FK/unique/check) は 500 にせず conflict で返す。
+    // BUG-6: 旧実装は NotFoundError 以外を素通りで throw し、削除が HTTP 500 になっていた。
+    if (isConstraintViolation(error)) {
+      return conflict("他の操作と競合しました。最新の内容を読み込み直してください。");
+    }
     throw error;
   }
 }

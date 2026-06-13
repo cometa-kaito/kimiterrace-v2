@@ -138,4 +138,28 @@ describe("deleteOperatorAdAction", () => {
     expect(res).toEqual({ ok: true, data: { id: AD_ID } });
     expect(requireRoleMock).toHaveBeenCalledWith(["system_admin"]);
   });
+
+  it("削除中の制約違反 (23503) は throw せず conflict を返す (BUG-6)", async () => {
+    // select は対象を返すが delete で FK 制約違反が起きるケース。
+    // 旧実装は NotFoundError 以外を素通り throw し HTTP 500 になっていた。
+    const target = { id: AD_ID, schoolId: SCHOOL_ID, advertiserId: ADV_ID };
+    const fkError = Object.assign(new Error("update or delete on ads violates foreign key"), {
+      code: "23503",
+    });
+    const selectChain = {
+      from: () => selectChain,
+      where: () => selectChain,
+      limit: () => Promise.resolve([target]),
+    };
+    const tx = {
+      select: () => selectChain,
+      delete: () => ({ where: () => Promise.reject(fkError) }),
+      insert: () => ({ values: () => Promise.resolve(undefined) }),
+    };
+    withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
+      Promise.resolve(fn(tx, sysAdmin))) as typeof withSession);
+
+    const res = await deleteOperatorAdAction(AD_ID);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
 });
