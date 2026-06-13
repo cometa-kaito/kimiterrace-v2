@@ -36,12 +36,9 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
       </Link>
       <h1 style={titleStyle}>広告主の編集</h1>
       <AdvertiserEditForm advertiser={advertiser} />
-      <Link href={`/admin/system/advertisers/${id}/contracts`} style={contractsLinkStyle}>
-        契約管理 →
-      </Link>
-      <Link href={`/admin/system/advertisers/${id}/communications`} style={contractsLinkStyle}>
-        コミュニケーション履歴 →
-      </Link>
+      {/* 商流SoR一元化 Phase1 (2026-06-13): 契約管理・コミュニケーション履歴の正本は portal に一元化した
+          ため (実装設計書 §26/§42.2/§43)、v2 の重複ビュー (.../contracts, .../communications) への
+          導線は撤去した。本画面は広告主フィールドの編集のみを担う。 */}
     </section>
   );
 }
@@ -52,8 +49,3 @@ const backLinkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };
-const contractsLinkStyle: React.CSSProperties = {
-  fontSize: "0.9rem",
-  color: "#2563eb",
-  textDecoration: "none",
-};
