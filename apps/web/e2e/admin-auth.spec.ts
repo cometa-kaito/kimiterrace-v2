@@ -7,7 +7,8 @@ import { TEACHER_STORAGE_STATE, isSignageDbAvailable } from "./global-setup";
  * `auth.setup.ts` が Auth emulator + 実 `/api/auth/session` 経由で作った教員の `__session` を
  * storageState で再利用し、保護エリア `/admin` に到達する。teacher は `homePathForRole` で
  * `/admin/editor` にリダイレクトされ、**認証済みでないと描画されない要素** (ヘッダの role バッジ
- * 「教員」、エディタ着地の見出し、教員用サイドナビ) が見えることを検証する。
+ * 「教員」、エディタ着地の見出し) が見えること、および教員はサイドバー（メニュー）が撤去され全幅
+ * であることを検証する。
  *
  * これは middleware (cookie 存在) → requireRole (claims 検証 / 401・403) →
  * AppShell (role 別 nav) → withSession (RLS スコープ) を貫く認証経路の end-to-end 証明。
@@ -34,15 +35,10 @@ test.describe("認証済み教員の管理エリア到達 /admin", () => {
       // 1. AppShell ヘッダの role バッジ「教員」(claims.role=teacher が解決できた証)。
       await expect(page.getByText("教員", { exact: true })).toBeVisible();
       // 2. エディタ着地の見出し (requireRole(EDITOR_ROLES) を通過した証)。
-      await expect(
-        page.getByRole("heading", { name: "エディタ — 編集する範囲を選ぶ" }),
-      ).toBeVisible();
-      // 3. 教員用サイドナビ「エディタ」リンク (navItemsForRole(teacher))。
-      await expect(
-        page.getByRole("navigation", { name: "メインナビゲーション" }).getByRole("link", {
-          name: "エディタ",
-        }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "編集するクラスを選ぶ" })).toBeVisible();
+      // 3. 教員はナビが「エディタ」1 項目のみのため、AppShell がサイドバー（メインナビゲーション）を
+      //    撤去して全幅にする（ユーザー指摘 2026-06-13）。サイドバーが存在しないことを pin する。
+      await expect(page.getByRole("navigation", { name: "メインナビゲーション" })).toHaveCount(0);
     });
   });
 
