@@ -108,9 +108,16 @@ export function toLpConfigResponse(result: TvPollResult): LpConfigResponse {
   return {
     version: result.version,
     config: {
-      target_mac: result.config.targetMac,
-      webhook_url: result.config.webhookUrl,
-      signage_url: result.config.signageUrl,
+      // null は **空文字** で返す（JSON null にしない）。実機 tvbridge の旧 APK は
+      // `JSONObject.optString(name)` を使っており、Android の仕様で **値が JSON null だと
+      // 文字列 "null" を返す**。これを `applyConfigFields` が `takeIf { isNotBlank() }` を
+      // すり抜けて書き戻すと、target_mac が "NULL" になり `ScanFilter.setDeviceAddress("NULL")`
+      // が IllegalArgumentException → BleService.onCreate でアプリ全体がクラッシュする
+      // （SwitchBot 非設置のサイネージ専用機で再現。webhook_url/signage_url も同根）。
+      // 空文字なら端末側 `isNotBlank()` ガードが正しくスキップし、既定値/既存値を維持する。
+      target_mac: result.config.targetMac ?? "",
+      webhook_url: result.config.webhookUrl ?? "",
+      signage_url: result.config.signageUrl ?? "",
       device_label: result.config.deviceLabel,
       schedule,
     },

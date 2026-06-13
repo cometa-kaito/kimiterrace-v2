@@ -87,6 +87,27 @@ describe("toLpConfigResponse", () => {
     const out = toLpConfigResponse({ unknown: true, version: 0 });
     expect(out).toEqual({ version: 0, config: null, commands: {} });
   });
+
+  it('target_mac/webhook_url/signage_url が null は空文字へ畳む（旧実機 optString の "null" 化 → target_mac=NULL クラッシュ回避）', () => {
+    const out = toLpConfigResponse({
+      unknown: false,
+      version: 3,
+      config: {
+        deviceLabel: "1年1組",
+        targetMac: null,
+        signageUrl: null,
+        webhookUrl: null,
+        schedule: null,
+      },
+    });
+    // JSON null を返すと旧 APK が "null" 文字列化して書き戻し、BLE ScanFilter がクラッシュするため、
+    // 端末側 `isNotBlank()` ガードが効く空文字で返す。
+    expect(out.config?.target_mac).toBe("");
+    expect(out.config?.webhook_url).toBe("");
+    expect(out.config?.signage_url).toBe("");
+    // device_label は端末が optString で Android API に渡さない（表示専用）ため、null をそのまま許容。
+    expect(out.config?.device_label).toBe("1年1組");
+  });
 });
 
 describe("normalizeFcmToken（遠隔起動: 空送信無視 + 上限ガード）", () => {
