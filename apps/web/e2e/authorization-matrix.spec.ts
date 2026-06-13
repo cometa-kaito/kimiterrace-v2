@@ -78,11 +78,12 @@ const PAGE_CASES: readonly PageCase[] = [
     allow: ["school_admin", "teacher"],
     allowUrl: new RegExp(`/admin/editor/${SEED.CLASS_ID}`),
   },
-  // /admin/contents = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403 (自校用一覧)。
+  // /admin/contents = PUBLISHER_ROLES (**school_admin** のみ)。teacher は finding⑧ で除外（掲示物コンテンツは
+  // 学校管理者に集約）。system_admin は 403（自校用一覧）。
   {
-    label: "/admin/contents (PUBLISHER_ROLES; system_admin 403)",
+    label: "/admin/contents (PUBLISHER_ROLES; teacher/system_admin 403)",
     path: "/admin/contents",
-    allow: ["school_admin", "teacher"],
+    allow: ["school_admin"],
     allowUrl: /\/admin\/contents$/,
   },
   // /admin/system/schools = SYSTEM_ADMIN_ROLES (system_admin のみ)。school_admin/teacher は 403。
@@ -180,18 +181,19 @@ const API_CASES: readonly ApiCase[] = [
     allow: ["school_admin", "system_admin"],
     denyStatus: 403,
   },
-  // POST /api/teacher/chat = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403。
+  // POST /api/teacher/chat = PUBLISHER_ROLES (**school_admin** のみ)。teacher は finding⑧ で除外（掲示物 Q&A は
+  // 生徒/保護者向けに位置づけ・教員から撤去）。system_admin も 403。
   // **認可は SSE を開く前 + ボディ検証より前に評価される** (route 実装: getCurrentUser→role gate→
   // respondWithChatStream のボディ検証)。許可ロールには `question` 欠落ボディを送り、認可通過後に
   // ボディ検証 400 で**即同期 return** させる (SSE/Vertex を起動しない = 決定的・高速)。これで
-  // 「許可ロールは認可を超える (401/403 にならない)」を Vertex 環境非依存に確認できる。誤ロールは
-  // ボディに到達せず 403。
+  // 「許可ロールは認可を超える (401/403 にならない)」を Vertex 環境非依存に確認できる。誤ロール
+  // (teacher/system_admin) はボディに到達せず 403。
   {
-    label: "POST /api/teacher/chat (PUBLISHER_ROLES; system_admin 403)",
+    label: "POST /api/teacher/chat (PUBLISHER_ROLES; teacher/system_admin 403)",
     method: "POST",
     path: "/api/teacher/chat",
     body: { notQuestion: true },
-    allow: ["school_admin", "teacher"],
+    allow: ["school_admin"],
     denyStatus: 403,
   },
   // GET /api/reports/monthly = SYSTEM_ADMIN_ROLES (system_admin のみ)。校務DX原則で月次レポートは

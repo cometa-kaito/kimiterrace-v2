@@ -151,7 +151,7 @@ async function defaultRecordPiiOverride(params: {
   // gate-first: 監査も role を弾いてから書く (ルール2)。actor はセッション由来 (外部入力を信用しない)。
   const user = await getAuthorizedExtractionUser();
   if (user.schoolId === null) {
-    // teacher / school_admin は必ず school 所属。null は壊れたセッション → deny (publish soft-gate と同方針)。
+    // school_admin（抽出作者）は必ず school 所属。null は壊れたセッション → deny (publish soft-gate と同方針)。
     throw new ForbiddenError();
   }
   await withUserSession(user, (tx) =>

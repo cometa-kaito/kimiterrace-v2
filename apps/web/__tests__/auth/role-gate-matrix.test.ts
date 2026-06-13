@@ -1,6 +1,7 @@
 import type { TenantRole } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
+import { EXTRACTION_AUTHOR_ROLES } from "../../lib/ai/extraction-roles";
 import { PUBLISHER_ROLES } from "../../lib/contents/publish-core";
 import { ADMIN_ROLES } from "../../lib/nav";
 import { SYSTEM_ADMIN_ROLES } from "../../lib/system-admin/roles";
@@ -42,11 +43,20 @@ void _exhaustive;
 // gate (実装の定数) と allow (期待) がズレたら下のマトリクスが fail し、config 誤りを検知する。
 const GATES: { name: string; gate: readonly TenantRole[]; allow: ReadonlySet<string> }[] = [
   { name: "SYSTEM_ADMIN_ROLES", gate: SYSTEM_ADMIN_ROLES, allow: new Set(["system_admin"]) },
-  { name: "PUBLISHER_ROLES", gate: PUBLISHER_ROLES, allow: new Set(["school_admin", "teacher"]) },
+  // teacher は finding⑧ で PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES から除外（掲示物 Q&A / teacher-input
+  // を教員から撤去・school_admin に集約）。マトリクスが teacher → 拒否 を網羅検証する。
+  { name: "PUBLISHER_ROLES", gate: PUBLISHER_ROLES, allow: new Set(["school_admin"]) },
   {
     name: "TEACHER_INPUT_STAFF_ROLES",
     gate: TEACHER_INPUT_STAFF_ROLES,
-    allow: new Set(["teacher", "school_admin"]),
+    allow: new Set(["school_admin"]),
+  },
+  // teacher-input の AI 抽出 gate（別系統だが同一境界）。teacher を含めると撤去の裏口になるため
+  // teacher→拒否 を網羅検証する（finding⑧・本 PR で teacher 除外）。
+  {
+    name: "EXTRACTION_AUTHOR_ROLES",
+    gate: EXTRACTION_AUTHOR_ROLES,
+    allow: new Set(["school_admin"]),
   },
   {
     name: "ADMIN_ROLES",

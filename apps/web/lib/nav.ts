@@ -126,10 +126,11 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // よって教員が「サイネージに出す」目的では不要 → nav 導線から撤去し、先生を迷わせない (校務DX原則: 先生の
   // 工数を増やさない)。
   //
-  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。機能・ページ・
-  // 認可 (requireRole の PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置**し、teacher は URL 直打ちで
-  // 引き続き到達できる。生徒向け Q&A ボットとコンテンツ系統も存続し、コンテンツ投入 (ボット知識) の導線は
-  // school_admin nav に残す (上の school_admin ブロック参照)。「コンテンツ投入を今後誰が担うか」は別途設計。
+  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。
+  // **finding⑧ (2026-06-13)**: 音声/チャット入力・コンテンツ公開・掲示物 Q&A の認可（`PUBLISHER_ROLES` /
+  // `TEACHER_INPUT_STAFF_ROLES` / `EXTRACTION_AUTHOR_ROLES`）から **teacher を除外**したため、teacher は nav
+  // だけでなく **URL 直打ち・API 直叩きでも 403**（二層ガードで deny）。生徒向け Q&A ボットとコンテンツ系統は
+  // 存続し、知識源コンテンツの投入は **school_admin** に集約（上の school_admin ブロック・ADR-038）。
   // ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で運営 (system_admin) 専用に
   // 撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   teacher: [{ label: "エディタ", href: "/admin/editor" }],

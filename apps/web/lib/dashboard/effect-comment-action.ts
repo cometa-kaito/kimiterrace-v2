@@ -18,7 +18,7 @@ import { type GenerateEffectCommentDeps, defaultDeps, maskStats } from "./effect
 /**
  * F08 (#44, slice 2): **AI 効果コメント生成** Server Action（ダッシュボードの後続スライス）。
  *
- * 効果ダッシュボード (`/admin/dashboard`、school_admin / teacher) の「今月の反応」を、当月 vs 前月の
+ * 効果ダッシュボード (`/admin/dashboard`、PUBLISHER_ROLES=school_admin のみ・teacher は finding⑧ で除外) の「今月の反応」を、当月 vs 前月の
  * 集計から Gemini に 2〜3 文で要約させる。フロー:
  *
  *   requireRole(PUBLISHER_ROLES) → withSession (RLS context tx)
@@ -68,7 +68,7 @@ function getEffectCommentModel(): ModelClient {
 }
 
 /**
- * 当月の AI 効果コメントを生成する (school_admin / teacher、自校スコープ)。
+ * 当月の AI 効果コメントを生成する (PUBLISHER_ROLES=school_admin のみ・teacher は finding⑧ で除外、自校スコープ)。
  *
  * `deps` はテストで Vertex / 集計を差し替えるための注入点 (既定は実 Vertex + 実集計)。本関数は throw せず
  * (認証/権限を除く)、結果を {@link GenerateEffectCommentResult} に畳む。

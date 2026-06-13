@@ -32,7 +32,8 @@ const redirectMock = vi.mocked(redirect);
 const INPUT_ID = "11111111-1111-4111-8111-111111111111";
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
-const teacher = { uid: USER_ID, role: "teacher" as const, schoolId: SCHOOL_ID };
+// teacher-input の正常系 staff actor = school_admin（finding⑧ で teacher を TEACHER_INPUT_STAFF_ROLES から除外）。
+const teacher = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID };
 const student = { uid: USER_ID, role: "student" as const, schoolId: SCHOOL_ID };
 
 beforeEach(() => {

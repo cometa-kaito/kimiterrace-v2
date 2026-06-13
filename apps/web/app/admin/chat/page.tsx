@@ -10,7 +10,7 @@ import { TEACHER_CHAT_ENDPOINT } from "@/lib/student-qa/chat-client";
  * ({@link TEACHER_CHAT_ENDPOINT} = `/api/teacher/chat`) に向けてマウントする。
  *
  * **認可 (route と整合, #370)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
- * `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。**system_admin は早期 403**
+ * `requireRole(PUBLISHER_ROLES)` (**school_admin のみ**・teacher は finding⑧ で除外＝掲示物 Q&A は生徒/保護者向け) に限定する。**system_admin も早期 403**
  * (`/forbidden`) — `/api/teacher/chat` も system_admin を 403 にする (横断ロールで自校 grounding 対象外)
  * ため、nav からも本ページを出さず死リンクを防ぐ。認証/レート制限/RAG/PII マスクは route + chat-service
  * が担う (本ページは UI マウントのみ、ADR-028)。

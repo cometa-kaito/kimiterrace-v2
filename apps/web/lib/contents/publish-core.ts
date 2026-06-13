@@ -16,8 +16,15 @@ import type { AuthUser } from "../auth/session";
  * テストの両方から import する (node 環境で副作用なく unit テストできる)。
  */
 
-/** 公開操作を許可するロール。system_admin は school に属さない (cross-tenant) ため除外。 */
-export const PUBLISHER_ROLES = ["school_admin", "teacher"] as const;
+/**
+ * 公開操作を許可するロール = **school_admin のみ**（指摘ログ finding⑦/⑧）。
+ *
+ * 掲示物 Q&A(RAG) の知識源となる published contents は **生徒/保護者向け**コンテンツであり、その投入・公開は
+ * 学校管理者業務に集約する（教員はサイネージ盤面=daily_data のエディタに徹する）。よって **teacher を除外**し、
+ * 教員からは掲示物 Q&A(`/admin/chat`)・コンテンツ公開・効果コメントを到達不可にする（ADR-038 の知識源＝
+ * school_admin 管理と整合）。system_admin は school に属さない (cross-tenant) ため従来どおり除外。
+ */
+export const PUBLISHER_ROLES = ["school_admin"] as const;
 
 /**
  * 公開先スコープの許可値。実体は Drizzle `publishScope` enum (packages/db) が単一ソースで、

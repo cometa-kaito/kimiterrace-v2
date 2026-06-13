@@ -10,7 +10,7 @@ import { ContentStatusBadge } from "./_components/ContentStatusBadge";
  * F04: コンテンツ一覧 (`/admin/contents`)。**Server Component**。
  *
  * **認可 (#166)**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
- * `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定する。F04 は「自校の公開フロー」が
+ * `requireRole(PUBLISHER_ROLES)` (**school_admin のみ**・teacher は finding⑧ で除外) に限定する。F04 は「自校の公開フロー」が
  * 対象で、system_admin は `system_admin_full_access` policy (0002, ADR-019) により**全校横断で
  * 全件可視**になるため、学校識別の無いこの自校用一覧に混ぜると区別不能になる (UX 破綻)。
  * mutation 自体は `toActor`→null→forbidden で既に封じ済 (セキュリティ違反ではない) だが、

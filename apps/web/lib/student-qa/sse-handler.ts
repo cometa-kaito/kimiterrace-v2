@@ -17,7 +17,7 @@ import { type TenantContext, withTenantContext } from "@kimiterrace/db";
  * 1 件を SSE で返す」までを担う。これにより認証経路ごとに route を薄く保ち、SSE/HTTP 配線と
  * `executeChat` 呼び出しをここで単一ソース化する。本番経路:
  * - 生徒 (`/api/student/chat`): httpOnly cookie `__student_session` を再解決 (匿名、school_id context)。
- * - 教員 (`/api/teacher/chat`): Identity Platform セッションを role gate (teacher/school_admin, #370)。
+ * - 職員 (`/api/teacher/chat`): Identity Platform セッションを role gate (PUBLISHER_ROLES=school_admin のみ・teacher は finding⑧ で除外, #370)。
  *
  * ## 設計 (CLAUDE.md ルール2/4/5、元 route #373/#482 の設計を継承)
  * - **credential を URL/ログに載せない (ルール5)**: magic link トークンは F05 で httpOnly cookie に移し、

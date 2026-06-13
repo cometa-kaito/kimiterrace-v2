@@ -9,7 +9,7 @@ import { TeacherInputHistory } from "./_components/TeacherInputHistory";
  * F02 (#38, FR-08): 教員入力の履歴一覧 `/admin/teacher-input/history`。**Server Component**。
  *
  * **認可 (ルール2 多層防御)**: `/admin` layout 認証 + 本ページで `TEACHER_INPUT_STAFF_ROLES`
- * (teacher / school_admin) に限定 (生徒 / 保護者 / system_admin は 403 → /forbidden)。
+ * (**school_admin のみ**・teacher は finding⑧ で除外) に限定 (teacher / 生徒 / 保護者 / system_admin は 403 → /forbidden)。
  * teacher_inputs の RLS は school 境界のみで role 境界を守らないため、role 拒否は本ページで行う
  * ([[rls-tenant-not-role-boundary]] / 作成 API・composer と同一集合)。
  *

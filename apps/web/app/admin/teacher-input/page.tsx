@@ -8,8 +8,8 @@ import { TeacherInputComposer } from "./_components/TeacherInputComposer";
 /**
  * F02 (#38): 教員 音声 / チャット入力 ページ `/admin/teacher-input`。
  *
- * `/admin` 配下 (#48-C layout で認証) + 本ページで `TEACHER_INPUT_STAFF_ROLES` (teacher / school_admin)
- * に限定 (生徒 / 保護者 / system_admin は 403 → /forbidden)。teacher_inputs の RLS は role 境界を
+ * `/admin` 配下 (#48-C layout で認証) + 本ページで `TEACHER_INPUT_STAFF_ROLES` (**school_admin のみ**・teacher は
+ * finding⑧ で除外) に限定 (teacher / 生徒 / 保護者 / system_admin は 403 → /forbidden)。teacher_inputs の RLS は role 境界を
  * 守らない (school 境界のみ) ため、role 拒否は API handler と本ページの二層で行う
  * ([[rls-tenant-not-role-boundary]] / lib/teacher-input/roles.ts と同一集合)。
  *

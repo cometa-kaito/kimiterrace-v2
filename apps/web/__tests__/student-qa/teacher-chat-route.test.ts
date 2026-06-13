@@ -24,7 +24,9 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { executeChat } from "@/lib/student-qa/chat-service";
 
 type AuthUser = { uid: string; role: string; schoolId: string | null };
-const TEACHER: AuthUser = { uid: "u-1", role: "teacher", schoolId: "s-1" };
+// 掲示物 Q&A は school_admin に集約（teacher は finding⑧ で PUBLISHER_ROLES から除外）。identity.kind は
+// staff-chat 経路の固定ラベル "teacher"（ロール非依存・route が固定）なのでアサーションは不変。
+const SCHOOL_ADMIN: AuthUser = { uid: "u-1", role: "school_admin", schoolId: "s-1" };
 
 function makeRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/teacher/chat", {
@@ -47,7 +49,7 @@ function streamResult(chunks: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   // biome-ignore lint/suspicious/noExplicitAny: テスト用に AuthUser 形を流し込む (実型は session.ts)。
-  vi.mocked(getCurrentUser).mockResolvedValue(TEACHER as any);
+  vi.mocked(getCurrentUser).mockResolvedValue(SCHOOL_ADMIN as any);
   vi.mocked(executeChat).mockResolvedValue(streamResult(["はい", "、保護者会は6/20です"]));
 });
 afterEach(() => {
@@ -74,25 +76,25 @@ describe("POST /api/teacher/chat: 認証 + role gate (200 を開く前)", () => 
 
   it("role 不足 (system_admin) は 403 forbidden (PUBLISHER_ROLES 外)", async () => {
     // biome-ignore lint/suspicious/noExplicitAny: テスト用ロール差し込み。
-    vi.mocked(getCurrentUser).mockResolvedValue({ ...TEACHER, role: "system_admin" } as any);
+    vi.mocked(getCurrentUser).mockResolvedValue({ ...SCHOOL_ADMIN, role: "system_admin" } as any);
     const res = await POST(makeRequest({ question: "やあ" }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "forbidden" });
     expect(executeChat).not.toHaveBeenCalled();
   });
 
-  it("school_admin は許可 (PUBLISHER_ROLES)", async () => {
+  it("teacher は 403 forbidden (PUBLISHER_ROLES 外・finding⑧ で教員撤去)", async () => {
     // biome-ignore lint/suspicious/noExplicitAny: テスト用ロール差し込み。
-    vi.mocked(getCurrentUser).mockResolvedValue({ ...TEACHER, role: "school_admin" } as any);
+    vi.mocked(getCurrentUser).mockResolvedValue({ ...SCHOOL_ADMIN, role: "teacher" } as any);
     const res = await POST(makeRequest({ question: "やあ" }));
-    expect(res.status).toBe(200);
-    await res.text();
-    expect(executeChat).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(executeChat).not.toHaveBeenCalled();
   });
 
   it("school_id が null の壊れたアカウントは 403 forbidden (deny-by-default)", async () => {
     // biome-ignore lint/suspicious/noExplicitAny: テスト用に schoolId=null を差し込む。
-    vi.mocked(getCurrentUser).mockResolvedValue({ ...TEACHER, schoolId: null } as any);
+    vi.mocked(getCurrentUser).mockResolvedValue({ ...SCHOOL_ADMIN, schoolId: null } as any);
     const res = await POST(makeRequest({ question: "やあ" }));
     expect(res.status).toBe(403);
     expect(executeChat).not.toHaveBeenCalled();
