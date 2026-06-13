@@ -95,7 +95,12 @@ describe("setAdvertiserActiveAction", () => {
     // updated_at を明示更新する (auditColumns は UPDATE で自動更新しないため、ルール1)。
     expect(updateSet?.updatedAt).toBeInstanceOf(Date);
     expect(auditValues).toMatchObject({
+      // system_admin は users 行が無いため actor_user_id 等は FK 制約で NULL、しかし実行者は
+      // actor_identity_uid に IdP uid を載せて休止/再開の実行者を立証可能にする (ルール1 / NFR04)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
+      createdBy: null,
+      updatedBy: null,
       schoolId: null,
       tableName: "advertisers",
       recordId: ADV_ID,
