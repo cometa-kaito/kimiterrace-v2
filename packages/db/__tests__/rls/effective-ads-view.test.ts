@@ -29,6 +29,12 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
   let classA2: string; // grade_id NULL
   // School B
   let classB1: string;
+  // BUG-1: 広告主ステータス (休止=配信除外) 検証用
+  let advActive: string;
+  let advPaused: string;
+  let advToggle: string;
+  let classAdvStatic: string; // 稼働広告主 + 休止広告主の class 広告を載せる (grade_id NULL)
+  let classAdvToggle: string; // 休止→稼働トグル検証用 (grade_id NULL)
 
   beforeAll(async () => {
     fx = await seedBaseFixture(sql);
@@ -95,6 +101,47 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
     // --- School B の広告 (テナント分離検証用) ---
     await sql`INSERT INTO ads (school_id, scope, media_url, media_type, display_order)
       VALUES (${fx.schoolB}, 'school', 'https://ex.com/b-school.png', 'image', 10)`;
+
+    // --- BUG-1: 広告主ステータス (休止=配信除外) 検証用フィクスチャ (owner 接続で投入) ---
+    advActive = (
+      await sql<{ id: string }[]>`
+        INSERT INTO advertisers (company_name, status, is_active)
+        VALUES ('稼働広告主', 'active', true) RETURNING id
+      `
+    )[0].id;
+    advPaused = (
+      await sql<{ id: string }[]>`
+        INSERT INTO advertisers (company_name, status, is_active)
+        VALUES ('休止広告主', 'paused', false) RETURNING id
+      `
+    )[0].id;
+    advToggle = (
+      await sql<{ id: string }[]>`
+        INSERT INTO advertisers (company_name, status, is_active)
+        VALUES ('トグル広告主', 'paused', false) RETURNING id
+      `
+    )[0].id;
+    // grade_id NULL のクラス = 学校スコープ広告のみ継承 → 広告主紐付き class 広告を隔離検証できる
+    classAdvStatic = (
+      await sql<{ id: string }[]>`
+        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
+        VALUES (${fx.schoolA}, NULL, 2026, '広告主静的', 0) RETURNING id
+      `
+    )[0].id;
+    classAdvToggle = (
+      await sql<{ id: string }[]>`
+        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
+        VALUES (${fx.schoolA}, NULL, 2026, '広告主トグル', 0) RETURNING id
+      `
+    )[0].id;
+    // 稼働広告主の class 広告 (配信される) と 休止広告主の class 広告 (除外される)
+    await sql`INSERT INTO ads (school_id, scope, class_id, advertiser_id, media_url, media_type, display_order)
+      VALUES (${fx.schoolA}, 'class', ${classAdvStatic}, ${advActive}, 'https://ex.com/adv-active.png', 'image', 60)`;
+    await sql`INSERT INTO ads (school_id, scope, class_id, advertiser_id, media_url, media_type, display_order)
+      VALUES (${fx.schoolA}, 'class', ${classAdvStatic}, ${advPaused}, 'https://ex.com/adv-paused.png', 'image', 61)`;
+    // トグル広告主の class 広告 (初期は休止 → 除外。テスト内で再開して復帰を確認)
+    await sql`INSERT INTO ads (school_id, scope, class_id, advertiser_id, media_url, media_type, display_order)
+      VALUES (${fx.schoolA}, 'class', ${classAdvToggle}, ${advToggle}, 'https://ex.com/adv-toggle.png', 'image', 62)`;
   });
 
   beforeEach(async () => {
@@ -247,5 +294,47 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
     }
+  });
+
+  it("BUG-1: 休止広告主の広告は配信 VIEW から除外、稼働広告主・広告主なしは残る", async () => {
+    await sql.begin(async (tx) => {
+      // 配信と同じ非 system_admin (school_admin) コンテキスト = advertisers が不可視な文脈
+      await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+      await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+      await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+
+      const rows = await tx<{ media_url: string }[]>`
+        SELECT media_url FROM effective_ads_per_class WHERE class_id = ${classAdvStatic}
+      `;
+      const urls = rows.map((r) => r.media_url);
+      expect(urls).toContain("https://ex.com/adv-active.png"); // 稼働広告主 → 残る
+      expect(urls).toContain("https://ex.com/a-school.png"); // 広告主なし(学校広告) → 残る
+      expect(urls).not.toContain("https://ex.com/adv-paused.png"); // 休止広告主 → 除外
+    });
+  });
+
+  it("BUG-1: 広告主を再開すると当該広告が配信 VIEW に復帰する (停止/再開の往復)", async () => {
+    const toggleAdVisible = async (): Promise<boolean> => {
+      let found = false;
+      await sql.begin(async (tx) => {
+        await tx.unsafe("SET LOCAL ROLE kimiterrace_app");
+        await tx`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`;
+        await tx`SELECT set_config('app.current_user_role', 'school_admin', true)`;
+        const rows = await tx<{ media_url: string }[]>`
+          SELECT media_url FROM effective_ads_per_class WHERE class_id = ${classAdvToggle}
+        `;
+        found = rows.some((r) => r.media_url === "https://ex.com/adv-toggle.png");
+      });
+      return found;
+    };
+
+    // 初期 = 休止 → 除外
+    expect(await toggleAdVisible()).toBe(false);
+    // 再開 (status:active / is_active:true を同時 set、不変条件 PR #534) → 復帰
+    await sql`UPDATE advertisers SET status = 'active', is_active = true WHERE id = ${advToggle}`;
+    expect(await toggleAdVisible()).toBe(true);
+    // 再度休止 → また除外 (冪等)
+    await sql`UPDATE advertisers SET status = 'paused', is_active = false WHERE id = ${advToggle}`;
+    expect(await toggleAdVisible()).toBe(false);
   });
 });
