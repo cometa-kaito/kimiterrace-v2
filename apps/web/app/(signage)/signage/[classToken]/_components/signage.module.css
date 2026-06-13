@@ -251,28 +251,16 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* 予定列ヘッダー内の天気（アイコン + テキスト）。日付の右側に小さく添える。isToday の白継承で自動対応。 */
+/* 予定列ヘッダー内の天気（アイコンのみ・文字なし）。日付の右側に小さく添える。isToday の白継承で自動対応。 */
 .scheduleWeatherInline {
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
-  font-size: 0.78em;
-  font-weight: 600;
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
+  flex-shrink: 0;
 }
 .scheduleWeatherGlyph {
   flex-shrink: 0;
   font-size: 1.1em;
   line-height: 1;
-}
-.scheduleWeatherText {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1;
 }
 /* 5 行を常時確保（cqh で行内フォントを自動調整、非対応 WebView は clamp(vw) フォールバック） */
 .scheduleScrollArea {
