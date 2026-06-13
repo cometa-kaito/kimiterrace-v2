@@ -11,8 +11,10 @@ import type { TvSchedule } from "../schema/tv-devices.js";
  * ## 閾値（ADR-023 / F16 §2、環境変数で調整可）
  *  - `downThresholdSec`（既定 180 = 3 分）: `now - last_seen_at` がこれを超えたら down。60 秒ポーリング ×
  *    3 回欠落に相当（瞬断・1 回欠落の誤報を抑制、F16 §2 誤報抑制）。
- *  - `offHoursThresholdSec`（既定 1800 = 30 分）: `schedule_json` の OFF 時間帯（黒画面・夜間/休日）は
- *    閾値を緩める（F16 §2）。OFF 時間帯はそもそも表示していないため、短い無応答を down と誤報しない。
+ *  - `offHoursThresholdSec`: **非推奨・未使用**（運営整理 BUG-2）。旧仕様は OFF 時間帯に down 閾値を
+ *    緩めるだけだったが、本番ジョブで緩和は撤廃済（OFF=ON と同値）で OFF 中の誤検出が残っていた。
+ *    現仕様は **OFF 時間帯の死活評価そのものを停止する**（下記 classifyTvLiveness 参照）ため本閾値は
+ *    効かない。後方互換のため interface には残置（run.ts / job が渡すが無視される。plumbing 撤去は別 PR）。
  *
  * ## 遷移の定義（send-once / idempotent、F16 §2）
  *  - **down 遷移**: 「現に閾値超で無応答」かつ「まだ down 計上していない」(= `alertState==='ok'` かつ
@@ -58,7 +60,7 @@ export interface TvLivenessInput {
 export interface TvLivenessThresholds {
   /** 通常の down 閾値（秒）。既定 180（3 分）。 */
   downThresholdSec: number;
-  /** OFF 時間帯に緩める down 閾値（秒）。既定 1800（30 分）。 */
+  /** @deprecated BUG-2: OFF 時間帯は死活評価を停止するため未使用。互換のため残置（run.ts/job が渡す）。 */
   offHoursThresholdSec: number;
 }
 
@@ -128,15 +130,12 @@ export function isSignageOffHours(schedule: TvSchedule | null, at: Date): boolea
 
 /**
  * 1 TV の鮮度が down 閾値を超えているか（純関数）。`lastSeenAt===null` は「観測なし」で down としない。
- * OFF 時間帯は緩い閾値を使う。
+ * OFF 時間帯は呼び出し側 classifyTvLiveness で評価ごとスキップするため、本関数は常に通常閾値を使う。
  */
 function isStale(input: TvLivenessInput, now: Date, thresholds: TvLivenessThresholds): boolean {
   if (input.lastSeenAt === null) return false;
   const gapSec = (now.getTime() - input.lastSeenAt.getTime()) / 1000;
-  const threshold = isSignageOffHours(input.schedule, now)
-    ? thresholds.offHoursThresholdSec
-    : thresholds.downThresholdSec;
-  return gapSec > threshold;
+  return gapSec > thresholds.downThresholdSec;
 }
 
 /**
@@ -144,6 +143,9 @@ function isStale(input: TvLivenessInput, now: Date, thresholds: TvLivenessThresh
  *
  * 「現在計上中か」は `alertState==='down' || hasOpenDowntime` の論理和で見る（多層: 状態フラグと実体行の
  * どちらかでも down を示せば down 中とみなし、ズレからの二重計上を防ぐ）。
+ *
+ * **スケジュール OFF 時間帯はスキップ**（BUG-2）: その TV の死活は評価せず状態を凍結する（OFF 中の
+ * 黒画面は正常で、応答なしに数えない）。次に ON 時間帯で評価され、なお無応答なら down 検出される。
  */
 export function classifyTvLiveness(
   inputs: readonly TvLivenessInput[],
@@ -154,6 +156,12 @@ export function classifyTvLiveness(
   const recovered: TvRecovered[] = [];
 
   for (const input of inputs) {
+    // BUG-2: スケジュール OFF 時間帯（黒画面・夜間/休日。端末は生存し「表示しないだけ」）は死活評価を
+    // 停止する。OFF 中の無応答を応答なし(down)に数えない（運営整理 BUG-2: 正常な OFF と復帰不能の
+    // 応答なしを区別する）。復帰不能の本当の応答なしは、ON 時間帯に入って downThreshold を超えた時点で
+    // 検出される。down/recover どちらも OFF 中は触らず状態を凍結する（ON で次回評価）。
+    if (isSignageOffHours(input.schedule, now)) continue;
+
     const countedDown = input.alertState === "down" || input.hasOpenDowntime;
     const stale = isStale(input, now, thresholds);
 
