@@ -37,7 +37,11 @@ export const magicLinks = pgTable(
     classId: uuid("class_id"),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     tokenHash: varchar("token_hash", { length: 128 }).notNull(),
-    /** デフォルト 90 日 (F05)。教員 UI から短縮/延長可能。 */
+    /**
+     * 列デフォルトは 90 日だが**フォールバックのみ**。発行 API（`/api/magic-links`）は `EXPIRES_DEFAULT_DAYS`
+     * ＝既定 1 年（365 日・学年度カバー）でサーバ時刻起点の `expiresAt` を**明示算出**して渡すため、通常この
+     * 列デフォルトには倒れない（既定はアプリ層に集約・finding④）。発行者 UI から短縮/延長可能（F05）。
+     */
     expiresAt: timestamp("expires_at", { withTimezone: true })
       .notNull()
       .default(sql`now() + interval '90 days'`),

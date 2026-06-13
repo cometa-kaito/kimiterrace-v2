@@ -77,10 +77,10 @@ describe("resolveSignageBaseUrl", () => {
 });
 
 describe("resolveSignageTtlDays", () => {
-  it("未指定なら既定 3650 日（サイネージは長寿命）", () => {
+  it("未指定なら既定 365 日（1 年＝学年度カバー・10 年から是正 finding④）", () => {
     expect(resolveSignageTtlDays(undefined)).toBe(DEFAULT_SIGNAGE_TTL_DAYS);
     expect(resolveSignageTtlDays("")).toBe(DEFAULT_SIGNAGE_TTL_DAYS);
-    expect(DEFAULT_SIGNAGE_TTL_DAYS).toBe(3650);
+    expect(DEFAULT_SIGNAGE_TTL_DAYS).toBe(365);
   });
 
   it("正の整数を受け付ける", () => {
