@@ -142,14 +142,17 @@ describe("updateAdvertiserAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("監査: operation=update / diff は before+after / cross-tenant ゆえ school_id・actor は NULL", async () => {
+  it("監査: operation=update / diff は before+after / school_id・actor_user_id は NULL だが actor_identity_uid に IdP uid", async () => {
     await updateAdvertiserAction(ADV_ID, VALID_INPUT);
     expect(auditValues).toMatchObject({
       tableName: "advertisers",
       recordId: ADV_ID,
       operation: "update",
       schoolId: null,
+      // system_admin は users 行が無いため actor_user_id 等は FK 制約で NULL、しかし実行者は
+      // actor_identity_uid に IdP uid を載せて「誰が」を立証可能にする (ルール1 / NFR04)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
       createdBy: null,
       updatedBy: null,
       diff: { before: BEFORE_ROW, after: VALID_INPUT },

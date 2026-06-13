@@ -28,7 +28,8 @@ class AdvertiserNotFoundError extends Error {}
  * 対象特定であってテナント境界ではない)。
  *
  * **監査 (ルール1)**: 変更前後を同一 tx で audit_log に記録する。`before` は更新前に SELECT した編集可能
- * フィールド、`after` は検証済み入力。advertisers は cross-tenant なので school_id / actor は NULL。
+ * フィールド、`after` は検証済み入力。advertisers は cross-tenant なので school_id は NULL、actor_user_id は
+ * FK 制約で NULL だが actor_identity_uid に IdP uid を載せ「誰が」を立証可能にする。
  */
 export async function updateAdvertiserAction(
   id: unknown,
@@ -118,17 +119,21 @@ async function writeAdvertiserUpdateAudit(
   before: AdvertiserCreateInput,
   after: AdvertiserCreateInput,
 ): Promise<void> {
-  const isSystemAdmin = user.role === "system_admin";
+  // system_admin は users 行ではないため actor_user_id / created_by / updated_by は FK 制約で null
+  // にせざるを得ない。実行者は FK の無い actor_identity_uid に IdP uid を必ず載せて、users 行の有無に
+  // 依らず「誰がやったか」を立証可能にする (ルール1 / NFR04、operator-ads-actions・view-audit と同方針)。
+  const actorRef = user.role === "system_admin" ? null : user.uid;
   await tx.insert(auditLog).values({
-    actorUserId: isSystemAdmin ? null : user.uid,
+    actorUserId: actorRef,
+    actorIdentityUid: user.uid,
     schoolId: null,
     tableName: "advertisers",
     recordId: advertiserId,
     operation: "update",
     diff: { before, after },
     rowHash: "",
-    createdBy: isSystemAdmin ? null : user.uid,
-    updatedBy: isSystemAdmin ? null : user.uid,
+    createdBy: actorRef,
+    updatedBy: actorRef,
   });
 }
 
@@ -139,7 +144,8 @@ async function writeAdvertiserUpdateAudit(
  * 認可は `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin 限定)。UPDATE は advertisers の
  * `system_admin_full_access` policy で通る (ルール2)。対象が RLS で不可視 / 不存在なら UPDATE が 0 行と
  * なり `not_found` に倒す (手書き WHERE は対象特定であってテナント境界ではない)。状態変更を同一 tx で
- * audit_log に記録する (ルール1、advertisers は cross-tenant なので school_id / actor は NULL)。
+ * audit_log に記録する (ルール1、advertisers は cross-tenant なので school_id は NULL、actor_user_id は
+ * FK 制約で NULL だが actor_identity_uid に IdP uid を載せ「誰が」を立証可能にする)。
  */
 export async function setAdvertiserActiveAction(raw: {
   id?: unknown;
@@ -197,16 +203,19 @@ async function writeAdvertiserActiveAudit(
   isActive: boolean,
   status: AdvertiserStatus,
 ): Promise<void> {
-  const isSystemAdmin = user.role === "system_admin";
+  // 編集監査と同方針: system_admin は users 行が無く actor_user_id 等は FK 制約で null。実行者は
+  // FK の無い actor_identity_uid に IdP uid を載せ、休止/再開の実行者を立証可能にする (ルール1 / NFR04)。
+  const actorRef = user.role === "system_admin" ? null : user.uid;
   await tx.insert(auditLog).values({
-    actorUserId: isSystemAdmin ? null : user.uid,
+    actorUserId: actorRef,
+    actorIdentityUid: user.uid,
     schoolId: null,
     tableName: "advertisers",
     recordId: advertiserId,
     operation: "update",
     diff: { after: { isActive, status } },
     rowHash: "",
-    createdBy: isSystemAdmin ? null : user.uid,
-    updatedBy: isSystemAdmin ? null : user.uid,
+    createdBy: actorRef,
+    updatedBy: actorRef,
   });
 }
