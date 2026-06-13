@@ -13,10 +13,12 @@ import {
   draftHasItems,
 } from "@/lib/editor/assistant-chat-core";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
+import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import { formatSignageItem } from "@/lib/signage/section-format";
+import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { tokens } from "@kimiterrace/ui";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const { color, radius, fontSize } = tokens;
 
@@ -54,6 +56,17 @@ export function EditorChat({
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const streamingRef = useRef(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
+  const stt = useSpeechToText();
+
+  // 音声入力: 端末内 STT の確定テキストを入力欄へ流し込む（サーバには文字だけが乗る・プライバシー）。
+  useEffect(() => {
+    if (stt.transcript) {
+      setInput((prev) => (prev ? `${prev} ${stt.transcript}` : stt.transcript));
+      stt.reset();
+    }
+  }, [stt.transcript, stt.reset]);
 
   /** base（messages 確定済）に対し 1 ターン分の SSE を流して状態を更新する。 */
   const stream = useCallback(
@@ -150,6 +163,43 @@ export function EditorChat({
     }
   }, [saving, state.draft, scope, targetId, date]);
 
+  /** ファイル取り込み: PDF/Word/Excel/画像を既存 action で全セクション下書きに（非ストリーミング・保存しない）。 */
+  const onFile = useCallback(
+    async (file: File) => {
+      if (streamingRef.current || fileBusy) return;
+      setFileBusy(true);
+      setSaveMsg(null);
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const r = await assistDraftAllFromFileAction(scope, targetId, fd, {});
+        if (r.ok) {
+          setState((s) => ({
+            ...s,
+            status: "done",
+            error: null,
+            draft: { schedules: r.schedules, notices: r.notices, assignments: r.assignments },
+          }));
+        } else {
+          setState((s) => ({
+            ...s,
+            status: "error",
+            error: { reason: "no_result", message: "ファイルから読み取れませんでした。" },
+          }));
+        }
+      } catch {
+        setState((s) => ({
+          ...s,
+          status: "error",
+          error: { reason: "stream_failed", message: "ファイルの取り込みに失敗しました。" },
+        }));
+      } finally {
+        setFileBusy(false);
+      }
+    },
+    [fileBusy, scope, targetId],
+  );
+
   const streaming = state.status === "streaming";
   const pii = state.error?.reason === "pii_warning" ? state.error : null;
   const otherError = state.error && state.error.reason !== "pii_warning" ? state.error : null;
@@ -213,7 +263,25 @@ export function EditorChat({
       </div>
 
       <div style={composerStyle}>
-        <button type="button" style={iconBtnStyle} disabled title="ファイル取り込み（近日対応）">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onFile(f);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          style={iconBtnStyle}
+          onClick={() => fileRef.current?.click()}
+          disabled={streaming || fileBusy}
+          title="ファイルから取り込む（PDF / Word / Excel / 画像）"
+          aria-label="ファイルから取り込む"
+        >
           ＋
         </button>
         <textarea
@@ -230,14 +298,30 @@ export function EditorChat({
           rows={1}
           disabled={streaming}
         />
+        {stt.supported ? (
+          <button
+            type="button"
+            style={stt.listening ? micActiveStyle : micStyle}
+            onClick={() => {
+              if (streaming) return;
+              if (stt.listening) stt.stop();
+              else stt.start();
+            }}
+            aria-label={stt.listening ? "音声入力を止める" : "音声入力"}
+            aria-pressed={stt.listening}
+            title="音声入力"
+          >
+            🎤
+          </button>
+        ) : null}
         <button
           type="button"
           style={sendBtnStyle}
           onClick={onSend}
-          disabled={streaming || !input.trim()}
+          disabled={streaming || fileBusy || !input.trim()}
           aria-label="送信"
         >
-          送信
+          {fileBusy ? "読込中…" : "送信"}
         </button>
       </div>
     </section>
@@ -422,8 +506,25 @@ const iconBtnStyle: React.CSSProperties = {
   background: "#fff",
   color: color.muted,
   fontSize: "1.2rem",
-  cursor: "not-allowed",
+  cursor: "pointer",
   flex: "none",
+};
+const micStyle: React.CSSProperties = {
+  width: "44px",
+  minHeight: "44px",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.md,
+  background: "#fff",
+  color: color.ink,
+  fontSize: "1.2rem",
+  cursor: "pointer",
+  flex: "none",
+};
+const micActiveStyle: React.CSSProperties = {
+  ...micStyle,
+  background: color.primary,
+  color: "#fff",
+  border: "none",
 };
 const inputStyle: React.CSSProperties = {
   flex: 1,
