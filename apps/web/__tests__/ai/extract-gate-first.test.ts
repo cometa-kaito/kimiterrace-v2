@@ -76,9 +76,10 @@ vi.mock("@kimiterrace/ai", async () => {
 import { extractTeacherInput } from "../../lib/ai/extract-teacher-input";
 
 const SCHOOL_ID = "22222222-2222-2222-2222-222222222222";
-const TEACHER: AuthUser = {
+// 抽出作者 = school_admin（teacher は finding⑧ で EXTRACTION_AUTHOR_ROLES から除外）。
+const AUTHOR: AuthUser = {
   uid: "11111111-1111-1111-1111-111111111111",
-  role: "teacher",
+  role: "school_admin",
   schoolId: SCHOOL_ID,
 };
 
@@ -90,12 +91,14 @@ afterEach(() => {
 });
 
 describe("extractTeacherInput gate-first 順序の回帰ロック (#463 Med-1)", () => {
-  // 非作者 role は EXTRACTION_AUTHOR_ROLES (teacher / school_admin) 以外。代表として student / guardian。
+  // 非作者 role は EXTRACTION_AUTHOR_ROLES (school_admin のみ) 以外。**teacher も含む**（finding⑧ で除外＝
+  // 撤去の裏口を塞ぐ回帰ロック）。生徒/保護者に加え teacher が forbidden に畳まれ DB(PII) 読取へ到達しないこと。
   it.each([
+    "teacher",
     "student",
     "guardian",
   ] as const)("非作者 role=%s: forbidden に畳み、transcript/職員roster の DB 読取に到達しない", async (role) => {
-    mocks.getCurrentUser.mockResolvedValue({ ...TEACHER, role });
+    mocks.getCurrentUser.mockResolvedValue({ ...AUTHOR, role });
 
     // route と同じ呼び出し形（deps 無し = defaultDeps、既定 loaders を実走）。
     const res = await extractTeacherInput("input-1", "schedule");
@@ -119,8 +122,8 @@ describe("extractTeacherInput gate-first 順序の回帰ロック (#463 Med-1)",
 
   // 正常系の対照: 認可 role では既定 loaders が DB 読取に到達する。これが無いと「誰も loader を
   // 呼ばないから forbidden ケースが通る」vacuous な合格になりうる（gate の前後関係を実証できない）。
-  it("認可 role=teacher: 既定 loaders が transcript と職員roster の DB 読取に到達する（対照）", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+  it("認可 role=school_admin: 既定 loaders が transcript と職員roster の DB 読取に到達する（対照）", async () => {
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
 
     const res = await extractTeacherInput("input-1", "schedule");
 

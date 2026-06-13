@@ -52,7 +52,7 @@ import {
  * 認可拒否を audit_log に記録する余地を挟む (NFR04 不正検知、Issue #150 L-2)。
  *
  * - 未認証 → `/login` に redirect (`requireUser`、従来どおり)。
- * - publisher (school_admin / teacher) → 認可済み `AuthUser` を返す。
+ * - publisher (school_admin。teacher は finding⑧ で除外) → 認可済み `AuthUser` を返す。
  * - それ以外の role (student / guardian / system_admin 等) → **認可拒否**: 拒否試行を
  *   best-effort で監査記録した上で `/forbidden` に redirect する。**本番の UX は従来 requireRole と
  *   同一** (role 不足 → /forbidden)。差分は「拒否を監査に残す」点のみ。
@@ -124,7 +124,7 @@ async function writeContentAudit(
 }
 
 /**
- * F04: content を即公開する。publisher (school_admin / teacher) のみ。
+ * F04: content を即公開する。publisher (school_admin のみ・teacher は finding⑧ で除外)。
  *
  * **ADR-030 (#426) authoring soft-gate**: 公開対象本文に氏名らしき高確信パターン (敬称連接、
  * `findSuspectedPersonalNames`) を検出したら、**hard-block せず** `pii_warning` を返して投稿者の明示
@@ -183,7 +183,7 @@ export async function publishContentAction(
 }
 
 /**
- * F01/F02 (#509 S3a): content を draft で新規作成する。publisher (school_admin / teacher) のみ。
+ * F01/F02 (#509 S3a): content を draft で新規作成する。publisher (school_admin のみ・teacher は finding⑧ で除外)。
  *
  * 教員入力 (ファイル / 音声・チャット) の抽出結果を「編集してから公開」する下書きの受け皿。
  * 作成後に呼出側が `/admin/contents/{contentId}` へ誘導し、既存エディタで編集 → `publishContentAction` で公開する。

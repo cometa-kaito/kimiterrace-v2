@@ -8,9 +8,10 @@ import { canonicalizeMac } from "./switchbot";
  * `"use server"` ファイル (mutations-actions.ts) は async 関数しか export できない Next の制約のため、
  * 検証・型・定数はここに分離する (ads-core.ts / hub-core.ts と同じ構成)。
  *
- * **書き込みロール (teacher は書けない)**: 一覧ページ `/admin/sensors` は read を `PUBLISHER_ROLES`
- * (school_admin / teacher) に開くが、**mutation は school_admin のみ** (`SENSOR_WRITE_ROLES`)。
- * センサーの設置/設定は自校の運用管理操作であり、school_admin に限定する。teacher は閲覧のみ。
+ * **書き込みロール**: センサーページ `/admin/sensors` は現在 `requireRole(SYSTEM_ADMIN_ROLES)`（運営専用・
+ * 校務DX原則）で、**mutation は school_admin のみ** (`SENSOR_WRITE_ROLES`)。`SENSOR_WRITE_ROLES` は
+ * `PUBLISHER_ROLES` 等とは独立な定数で、finding⑧（teacher を PUBLISHER/TEACHER_INPUT から除外）の影響を受けない。
+ * センサーの設置/設定は自校の運用管理操作であり school_admin に限定する。
  * system_admin の全校横断センサー操作は別面 (`/admin/system/sensors`、本スライス非対象) に分けるため
  * 本集合には含めない ([[rls-tenant-not-role-boundary]] / advertisers と同じ per-surface 方針)。
  * 実データ越境は `sensor_devices` の RLS (tenant_isolation、ADR-019) が DB レベルで止め、本集合は

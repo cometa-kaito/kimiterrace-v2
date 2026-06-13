@@ -14,8 +14,8 @@ import { jsonError, respondWithChatStream } from "@/lib/student-qa/sse-handler";
  * ## 設計 (CLAUDE.md ルール2/4/5, ADR-028)
  * - **認証は `getCurrentUser` (page の `requireRole` は redirect するため API では使わない)**: 未認証は
  *   401、role 不足は 403 を **JSON で**返す (200 SSE を開く前)。許可 role は {@link PUBLISHER_ROLES}
- *   (school_admin / teacher)。**system_admin は除外** (単一自校コンテキストを持たない横断ロールで、自校
- *   grounding の対象外。F06 spec の対象 = 生徒 + 教員)。
+ *   (**school_admin のみ**。teacher は finding⑧ で除外＝掲示物 Q&A は生徒/保護者向けに位置づけ、
+ *   system_admin も自校 grounding 対象外で除外)。
  * - **user_id は認証済みセッションから導出 (confused-deputy 防止, #514 Reviewer)**: identity.userId /
  *   tenantContext は `getCurrentUser()` の結果のみから組み立て、リクエストボディの値は信用しない。
  *   レート制限は user_id 単一キー (ADR-028)、セッションは user_id キー (#370)。
@@ -34,7 +34,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!isRoleAllowed(user.role, PUBLISHER_ROLES)) {
     return jsonError(403, "forbidden");
   }
-  // PUBLISHER_ROLES (school_admin/teacher) は自校に所属するため school_id を持つ。万一 null
+  // PUBLISHER_ROLES (school_admin) は自校に所属するため school_id を持つ。万一 null
   // (claims 不整合の壊れたアカウント) なら自校 grounding が成立しないので 403 で弾く (deny-by-default)。
   if (!user.schoolId) {
     return jsonError(403, "forbidden");

@@ -7,6 +7,11 @@ import {
 import { insertAiExtraction } from "@kimiterrace/db";
 import { getCurrentUser } from "../auth/session";
 import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
+import { EXTRACTION_AUTHOR_ROLES } from "./extraction-roles";
+
+// 認可マトリクス等の node テストから引けるよう、定数は pure な `./extraction-roles` に分離した。既存 import
+// 元を壊さないよう本モジュールからも re-export する（実体は単一ソース）。
+export { EXTRACTION_AUTHOR_ROLES } from "./extraction-roles";
 
 /**
  * F03 (#154 item 2): 教員入力 → AI 構造化抽出 → `ai_extractions` 監査記録 を apps/web 側で配線する seam。
@@ -31,12 +36,9 @@ import { ForbiddenError, UnauthenticatedError, withUserSession } from "../db";
  * rateLimiter）を組み立てて渡す。実 Vertex 呼び出し結合テストと route/UX は #154 の後続スライス。
  */
 
-/** F01/F02 入力を構造化できる role（教員入力の作者）。生徒・保護者は不可。 */
-export const EXTRACTION_AUTHOR_ROLES = ["teacher", "school_admin"] as const;
-
 /**
  * 教員入力 AI 抽出経路の **gate-first 認可ヘルパ**。未認証 → {@link UnauthenticatedError}、
- * 抽出作者（teacher / school_admin）以外 → {@link ForbiddenError}。認可済み user を返す。
+ * 抽出作者（school_admin のみ・teacher は finding⑧ で除外）以外 → {@link ForbiddenError}。認可済み user を返す。
  *
  * transcript ロード・職員氏名 roster ロード・LLM 呼び出し**いずれより前**に呼ぶこと。RLS は
  * テナント境界のみを強制し role 境界は強制しない（ルール2）。よって同一校の非作者 role（生徒 /
@@ -66,7 +68,7 @@ export interface RunAndPersistParams {
  * 現在のセッションで AI 構造化抽出を実行し、成功・失敗いずれの試行も `ai_extractions` に監査記録する。
  *
  * @throws {UnauthenticatedError} 未認証
- * @throws {ForbiddenError} role が抽出作者（teacher / school_admin）でない
+ * @throws {ForbiddenError} role が抽出作者（school_admin のみ・teacher は finding⑧ で除外）でない
  * @throws RateLimitExceededError レート上限超過（ai_extractions には記録されず伝播、呼び出し側が 429 に）
  * @throws PiiLeakError マスク後 PII 残存（記録されず伝播、呼び出し側がログ/Sentry + 送信中止 UX に）
  */
@@ -77,7 +79,7 @@ export async function runAndPersistExtraction(
   const user = await getAuthorizedExtractionUser();
   const { schoolId } = user;
   if (schoolId === null) {
-    // teacher / school_admin は必ず school 所属。null は壊れたセッション (claims 不整合) → deny。
+    // school_admin（抽出作者）は必ず school 所属。null は壊れたセッション (claims 不整合) → deny。
     throw new ForbiddenError();
   }
 

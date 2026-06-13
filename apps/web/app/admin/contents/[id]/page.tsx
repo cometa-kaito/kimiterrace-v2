@@ -13,7 +13,7 @@ import { VersionTimeline } from "../_components/VersionTimeline";
 /**
  * F04: コンテンツ詳細 + 安全網 (`/admin/contents/[id]`)。**Server Component**。
  *
- * **認可 (#166)**: 一覧と同じく `requireRole(PUBLISHER_ROLES)` (school_admin / teacher) に限定。
+ * **認可 (#166)**: 一覧と同じく `requireRole(PUBLISHER_ROLES)` (**school_admin のみ**・teacher は finding⑧ で除外) に限定。
  * system_admin は cross-tenant 全件可視 (system_admin_full_access policy) のため自校公開フロー用の
  * 本画面では 403 に倒す (一覧 `page.tsx` の認可ノート参照、本 Issue 方針 A)。
  *

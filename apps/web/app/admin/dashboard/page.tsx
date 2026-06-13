@@ -44,7 +44,7 @@ import {
  * 避ける)。
  *
  * 注: **AI 効果コメント (`<EffectCommentPanel />`) は本ページから撤去した**。当該 Server Action
- * `generateEffectComment` は `PUBLISHER_ROLES` (school_admin / teacher) を要し school_id 必須のため、
+ * `generateEffectComment` は `PUBLISHER_ROLES` (school_admin のみ・teacher は finding⑧ で除外) を要し school_id 必須のため、
  * system_admin 専用化した本ページでは未捕捉の ForbiddenError になる + system_admin は school_id を
  * 持たず空集計で意味が無い。全校横断の効果可視化は `/admin/system/dashboard` で運営に提供する。
  *

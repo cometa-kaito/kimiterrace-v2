@@ -31,7 +31,7 @@ import { TEACHER_INPUT_STAFF_ROLES } from "./roles";
  * `private` にフォールバックし、教員はエディタで常に上書きできる (F04.4 明示選択)。抽出経路 (#289/#154) が
  * `suggestions` を渡すまで挙動は不変。
  *
- * 認可 (ルール2): `requireUser` + `TEACHER_INPUT_STAFF_ROLES` で teacher/school_admin に限定
+ * 認可 (ルール2): `requireUser` + `TEACHER_INPUT_STAFF_ROLES` で school_admin に限定（teacher は finding⑧ で除外）
  * (生徒/保護者/system_admin は /forbidden)。content 作成は createContent の RLS WITH CHECK で
  * 自校に強制。getTeacherInput / createContent / submitTeacherInput は同一 RLS tx で実行。
  */

@@ -1,6 +1,7 @@
 import type { TenantRole } from "@kimiterrace/db";
 import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
+import { EXTRACTION_AUTHOR_ROLES } from "../../lib/ai/extraction-roles";
 import { PUBLISHER_ROLES } from "../../lib/contents/publish-core";
 import { ADMIN_ROLES } from "../../lib/nav";
 import { SYSTEM_ADMIN_ROLES } from "../../lib/system-admin/roles";
@@ -48,6 +49,13 @@ const GATES: { name: string; gate: readonly TenantRole[]; allow: ReadonlySet<str
   {
     name: "TEACHER_INPUT_STAFF_ROLES",
     gate: TEACHER_INPUT_STAFF_ROLES,
+    allow: new Set(["school_admin"]),
+  },
+  // teacher-input の AI 抽出 gate（別系統だが同一境界）。teacher を含めると撤去の裏口になるため
+  // teacher→拒否 を網羅検証する（finding⑧・本 PR で teacher 除外）。
+  {
+    name: "EXTRACTION_AUTHOR_ROLES",
+    gate: EXTRACTION_AUTHOR_ROLES,
     allow: new Set(["school_admin"]),
   },
   {

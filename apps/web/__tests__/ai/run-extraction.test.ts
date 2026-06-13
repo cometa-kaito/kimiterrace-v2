@@ -43,9 +43,10 @@ vi.mock("@kimiterrace/db", () => ({
 import { getAuthorizedExtractionUser, runAndPersistExtraction } from "../../lib/ai/run-extraction";
 
 const SCHOOL_ID = "22222222-2222-2222-2222-222222222222";
-const TEACHER: AuthUser = {
+// 抽出作者 = school_admin（teacher は finding⑧ で EXTRACTION_AUTHOR_ROLES から除外）。
+const AUTHOR: AuthUser = {
   uid: "11111111-1111-1111-1111-111111111111",
-  role: "teacher",
+  role: "school_admin",
   schoolId: SCHOOL_ID,
 };
 
@@ -94,7 +95,7 @@ afterEach(() => {
 
 describe("runAndPersistExtraction", () => {
   it("成功抽出: セッションの school_id / 実行者で監査行を INSERT し結果を返す", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
     const structure = vi.fn(async () => structureResult());
 
     const result = await runAndPersistExtraction(baseParams(), { structure });
@@ -107,11 +108,11 @@ describe("runAndPersistExtraction", () => {
     expect(row.confidenceScore).toBe(0.9);
     expect(row.modelVersion).toBe("gemini-test");
     expect(row.rawInputHash).toBe("a".repeat(64));
-    expect(row.createdBy).toBe(TEACHER.uid); // 監査カラムに実行者本人（ルール1）
+    expect(row.createdBy).toBe(AUTHOR.uid); // 監査カラムに実行者本人（ルール1）
   });
 
   it("schoolId はセッション由来で強制: request に渡された値ではなく user.schoolId を使う", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
     let capturedSchoolId: string | undefined;
     const structure = vi.fn(async (req: { schoolId?: string }) => {
       capturedSchoolId = req.schoolId;
@@ -126,7 +127,7 @@ describe("runAndPersistExtraction", () => {
   });
 
   it("失敗抽出 (status=failed) も監査記録する（エラー経路の監査、ルール1）", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
     const structure = vi.fn(async () =>
       structureResult({ status: "failed", confidenceScore: 0, errorMessage: "Zod 検証に失敗" }),
     );
@@ -152,7 +153,7 @@ describe("runAndPersistExtraction", () => {
   });
 
   it("抽出作者でない role は ForbiddenError、LLM quota を消費しない（ゲートは LLM より前）", async () => {
-    mocks.getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    mocks.getCurrentUser.mockResolvedValue({ ...AUTHOR, role: "student" });
     const structure = vi.fn(async () => structureResult());
 
     await expect(runAndPersistExtraction(baseParams(), { structure })).rejects.toBeInstanceOf(
@@ -163,7 +164,7 @@ describe("runAndPersistExtraction", () => {
   });
 
   it("RateLimitExceededError は伝播し、ai_extractions に空行を残さない", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
     const structure = vi.fn(async () => {
       throw new RateLimitExceededError(SCHOOL_ID);
     });
@@ -175,7 +176,7 @@ describe("runAndPersistExtraction", () => {
   });
 
   it("PiiLeakError は伝播し、ai_extractions に空行を残さない（fail-closed）", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
     const structure = vi.fn(async () => {
       throw new PiiLeakError(2);
     });
@@ -191,17 +192,17 @@ describe("getAuthorizedExtractionUser (gate-first 認可ヘルパ)", () => {
   // transcript / 職員氏名 roster ロードの **前段**で role を弾く gate を、抽出経路の単一ソースとして突く。
   // loaders (defaultLoadTranscript / defaultLoadStaffPiiEntries) はこのヘルパを読取より前に await する
   // ため、ここで Forbidden/Unauthenticated を担保すれば「非作者は読取に到達しない」が機械的に保証される。
-  it("teacher / school_admin は認可ユーザを返す", async () => {
-    mocks.getCurrentUser.mockResolvedValue(TEACHER);
-    await expect(getAuthorizedExtractionUser()).resolves.toEqual(TEACHER);
+  it("school_admin は認可ユーザを返し、teacher は ForbiddenError（finding⑧ で除外）", async () => {
+    mocks.getCurrentUser.mockResolvedValue(AUTHOR);
+    await expect(getAuthorizedExtractionUser()).resolves.toEqual(AUTHOR);
 
-    const admin: AuthUser = { ...TEACHER, role: "school_admin" };
-    mocks.getCurrentUser.mockResolvedValue(admin);
-    await expect(getAuthorizedExtractionUser()).resolves.toEqual(admin);
+    // teacher は撤去（裏口を塞ぐ）= ForbiddenError。
+    mocks.getCurrentUser.mockResolvedValue({ ...AUTHOR, role: "teacher" });
+    await expect(getAuthorizedExtractionUser()).rejects.toBeInstanceOf(mocks.ForbiddenError);
   });
 
   it("抽出作者でない role (student) は ForbiddenError（transcript/職員roster 読取より前に弾く）", async () => {
-    mocks.getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    mocks.getCurrentUser.mockResolvedValue({ ...AUTHOR, role: "student" });
     await expect(getAuthorizedExtractionUser()).rejects.toBeInstanceOf(mocks.ForbiddenError);
   });
 
