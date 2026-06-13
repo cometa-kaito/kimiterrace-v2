@@ -14,10 +14,5 @@ import { HierarchyManager } from "./_components/HierarchyManager";
 export default async function SchoolAdminHubPage() {
   await requireRole(SCHOOL_HIERARCHY_ROLES);
   const hierarchy = await withSession((tx) => getSchoolHierarchy(tx));
-  return (
-    <div>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>学校管理</h1>
-      <HierarchyManager hierarchy={hierarchy} />
-    </div>
-  );
+  return <HierarchyManager hierarchy={hierarchy} />;
 }
