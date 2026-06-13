@@ -153,9 +153,10 @@ describe("createSystemStaffAction (#508 system_admin 全校横断発行)", () =>
       schoolId: SCHOOL_ID,
       createdBy: null,
     });
-    // 監査: actor NULL / school_id=対象校 / op=insert。
+    // 監査: actor 系 NULL だが actor_identity_uid に IdP uid / school_id=対象校 / op=insert (#858/#859 同型)。
     expect(auditValues).toMatchObject({
       actorUserId: null,
+      actorIdentityUid: systemAdmin.uid,
       schoolId: SCHOOL_ID,
       tableName: "users",
       operation: "insert",

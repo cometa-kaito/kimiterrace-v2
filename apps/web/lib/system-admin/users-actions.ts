@@ -105,8 +105,8 @@ const logger = createLogger("system-admin-users");
  * ## 監査 (ルール1 / NFR04)
  * `users` はテナントスコープなので `audit_log.school_id` は **対象の所属校** を記録する (audit_log_insert
  * policy は system_admin context で任意 school_id を許可)。actor は **system_admin は `users` 行でない**ため
- * `actor_user_id` / `created_by` / `updated_by` を NULL とする (advertisers と同じ cross-tenant actor 規律、
- * system_admin の同定はアプリ/IdP セッションログ側)。
+ * `actor_user_id` / `created_by` / `updated_by` を NULL とする (advertisers と同じ cross-tenant actor 規律)
+ * が、FK の無い `actor_identity_uid` に IdP uid を載せて「誰が」を audit_log 上で特定可能にする (#858/#859 同型)。
  */
 export async function setStaffActiveAction(raw: {
   userId?: unknown;
@@ -152,10 +152,11 @@ export async function setStaffActiveAction(raw: {
   // mirror tx 内の FOR UPDATE 再カウントでしか直列検出できない。再有効化はロックアウトを起こさないため対象外。
   const removesActiveAdmin = !nextActive && gate.role === "school_admin" && gate.wasActive;
 
-  // 3) DB mirror + 監査を同一 tx で。テナント監査なので school_id は対象校、actor は system_admin ゆえ NULL。
+  // 3) DB mirror + 監査を同一 tx で。テナント監査なので school_id は対象校、actor 系は system_admin ゆえ
+  //    NULL だが、本人は FK の無い actor_identity_uid に IdP uid を保持して「誰が」を立証可能にする。
   try {
     await withSession(
-      async (tx) => {
+      async (tx, user) => {
         // TOCTOU 根治 (#355 Low-2): 管理者を減らす無効化のみ、FOR UPDATE 再カウントで last-admin を
         // 直列検出する。最後の 1 人なら番兵を投げて tx をロールバックする (UPDATE / 監査に到達しない)。
         if (removesActiveAdmin && (await lockAndCountActiveSchoolAdmins(tx, gate.schoolId)) <= 1) {
@@ -173,6 +174,7 @@ export async function setStaffActiveAction(raw: {
         }
         await tx.insert(auditLog).values({
           actorUserId: null,
+          actorIdentityUid: user.uid,
           schoolId: gate.schoolId,
           tableName: "users",
           recordId: userId,
@@ -309,8 +311,9 @@ async function lockAndCountActiveSchoolAdmins(tx: TenantTx, schoolId: string): P
  *   ログインし個別アカウントを持たないため、このアクションでは発行しない (教員アカウント概念の撤去・2026-06-10)。
  * - **RLS**: system_admin context で INSERT (`system_admin_full_access` が任意校への users INSERT を許可)。
  *   IdP 作成前に **対象校の実在を検証** (system_admin は全校可視) して、存在しない学校への孤児発行を防ぐ。
- * - **監査**: system_admin は `users` 行でないため `actorUserId` / `createdBy` は NULL、`school_id` は
- *   発行先の対象校 (setStaffActiveAction と同じ system_admin 監査規律)。
+ * - **監査**: system_admin は `users` 行でないため `actorUserId` / `createdBy` は NULL とするが、FK の無い
+ *   `actor_identity_uid` に IdP uid を載せて発行者を特定可能にする。`school_id` は発行先の対象校
+ *   (setStaffActiveAction と同じ system_admin 監査規律、#858/#859 同型)。
  *
  * ## 共通規律 (createStaffAction と同じ)
  * - **uid 規約 (ADR-003)**: `randomUUID()` を createUser の localId・`users.id`・`identity_uid` に共用。
@@ -372,7 +375,7 @@ export async function createSystemStaffAction(raw: {
   // 2) DB mirror (users 行) + 監査を system_admin context で。失敗時は孤児 IdP user を補償削除。
   try {
     await withSession(
-      async (tx) => {
+      async (tx, user) => {
         await tx.insert(users).values({
           id: newUid,
           identityUid: newUid,
@@ -387,6 +390,7 @@ export async function createSystemStaffAction(raw: {
         });
         await tx.insert(auditLog).values({
           actorUserId: null,
+          actorIdentityUid: user.uid,
           schoolId,
           tableName: "users",
           recordId: newUid,

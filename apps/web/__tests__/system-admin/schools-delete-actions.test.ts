@@ -117,11 +117,13 @@ describe("deleteSchoolAction", () => {
     expect(res).toEqual({ ok: true, data: { id: SCHOOL_ID } });
   });
 
-  it("監査: operation=delete / actor 系 NULL / school_id=対象校 id / diff.before", async () => {
+  it("監査: operation=delete / actor 系 NULL だが actor_identity_uid に IdP uid / school_id=対象校 id / diff.before", async () => {
     await deleteSchoolAction({ id: SCHOOL_ID });
     const audit = captured.find((v) => v.tableName === "schools");
     expect(audit).toMatchObject({
+      // system_admin は actor 系を FK 制約で NULL、実行者は actor_identity_uid に保持 (#858/#859 同型)。
       actorUserId: null,
+      actorIdentityUid: SYS_UID,
       createdBy: null,
       updatedBy: null,
       schoolId: SCHOOL_ID,
