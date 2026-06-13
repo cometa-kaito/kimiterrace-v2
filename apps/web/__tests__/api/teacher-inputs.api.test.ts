@@ -21,8 +21,9 @@ const fakeUser = {
   schoolId: "22222222-2222-2222-2222-222222222222",
 };
 let authed = true;
-/** テストごとに上書き可能な現在ロール (beforeEach で "teacher" にリセット)。 */
-let currentRole = "teacher";
+/** テストごとに上書き可能な現在ロール (beforeEach で "school_admin" にリセット)。teacher は staff から除外
+ * されたため (finding⑧)、正常系の actor は school_admin。 */
+let currentRole = "school_admin";
 const withSession = vi.fn(
   async (
     fn: (tx: unknown, user: FakeUser) => Promise<unknown>,
@@ -84,7 +85,7 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 beforeEach(() => {
   vi.clearAllMocks();
   authed = true;
-  currentRole = "teacher";
+  currentRole = "school_admin";
 });
 
 describe("GET /api/teacher-inputs (FR-08 一覧)", () => {
@@ -318,18 +319,19 @@ describe("認可: 生徒/保護者 (非 staff ロール) は 403 でドメイン
 
 // ---- pure role モジュール (allowedRoles 定義の単体検証) ----------------------
 describe("teacher-input roles (pure)", () => {
-  it("teacher / school_admin は staff ロール", () => {
-    expect(isTeacherInputRole("teacher")).toBe(true);
+  it("school_admin のみ staff ロール（teacher は finding⑧ で除外）", () => {
     expect(isTeacherInputRole("school_admin")).toBe(true);
+    expect(isTeacherInputRole("teacher")).toBe(false);
   });
 
-  it("student / guardian / system_admin は不可", () => {
+  it("teacher / student / guardian / system_admin は不可", () => {
+    expect(isTeacherInputRole("teacher")).toBe(false);
     expect(isTeacherInputRole("student")).toBe(false);
     expect(isTeacherInputRole("guardian")).toBe(false);
     expect(isTeacherInputRole("system_admin")).toBe(false);
   });
 
-  it("許可集合は teacher と school_admin のみ", () => {
-    expect([...TEACHER_INPUT_STAFF_ROLES].sort()).toEqual(["school_admin", "teacher"]);
+  it("許可集合は school_admin のみ", () => {
+    expect([...TEACHER_INPUT_STAFF_ROLES]).toEqual(["school_admin"]);
   });
 });

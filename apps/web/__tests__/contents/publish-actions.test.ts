@@ -79,7 +79,8 @@ function makeFakeTx() {
   return { tx: tx as any, inserted };
 }
 
-const teacher = { uid: USER_ID, role: "teacher" as const, schoolId: SCHOOL_ID };
+// 公開系の正常系 actor = publisher（finding⑧ で teacher を PUBLISHER_ROLES から除外したため school_admin）。
+const teacher = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID };
 /** 自校に属する非 publisher (生徒)。公開系を叩くと拒否され、拒否が監査記録される。 */
 const student = { uid: USER_ID, role: "student" as const, schoolId: SCHOOL_ID };
 
@@ -237,8 +238,9 @@ describe("publishContentAction", () => {
 
   it("防御: publisher role だが schoolId 無し (異常) は forbidden 結果 (toActor null)", async () => {
     // requireUser は通すが normalizeClaims 不変条件外の異常ケース。authorizePublisher は role を
-    // 通すが toActor が null になり forbidden 結果を返す (redirect ではなく ActionResult)。
-    requireUserMock.mockResolvedValue({ uid: USER_ID, role: "teacher", schoolId: null });
+    // 通すが toActor が null になり forbidden 結果を返す (redirect ではなく ActionResult)。publisher role
+    // は school_admin（teacher は finding⑧ で除外）— role gate ではなく schoolId 欠落で弾く経路を検証。
+    requireUserMock.mockResolvedValue({ uid: USER_ID, role: "school_admin", schoolId: null });
     const res = await publishContentAction(CONTENT_ID);
     expect(res).toMatchObject({ ok: false, code: "forbidden" });
     expect(redirectMock).not.toHaveBeenCalled();

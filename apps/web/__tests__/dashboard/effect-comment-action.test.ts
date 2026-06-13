@@ -74,9 +74,10 @@ vi.mock("@kimiterrace/observability", () => ({
 import { generateEffectComment } from "../../lib/dashboard/effect-comment-action";
 
 const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
+// 効果コメントは PUBLISHER_ROLES gate。正常系 actor = school_admin（finding⑧ で teacher を除外）。
 const TEACHER: AuthUser = {
   uid: "11111111-1111-4111-8111-111111111111",
-  role: "teacher",
+  role: "school_admin",
   schoolId: SCHOOL_ID,
 };
 

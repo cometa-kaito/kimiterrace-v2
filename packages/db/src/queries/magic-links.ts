@@ -161,7 +161,8 @@ export async function getVisibleClassSchoolId(
 }
 
 /**
- * 教員がクラスに magic link を発行する。RLS context (自校) を張った tx 内で呼ぶ。
+ * 学校管理者 / 運営がクラスに magic link を発行する（teacher は発行者から除外・finding④）。RLS context
+ * （school_admin=自校 / system_admin=cross-tenant）を張った tx 内で呼ぶ。
  *
  * 二層の防御:
  * - `school_id` は tenant_isolation の WITH CHECK が `app.current_school_id` を強制し、他校
