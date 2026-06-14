@@ -35,6 +35,7 @@ import {
   deleteDepartmentAction,
   deleteGradeAction,
   duplicateClassesToNextYearAction,
+  reorderHierarchyAction,
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
@@ -353,5 +354,68 @@ describe("duplicateClassesToNextYearAction", () => {
     withSessionMock.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
     const res = await duplicateClassesToNextYearAction();
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+});
+
+describe("reorderHierarchyAction", () => {
+  it("不正な entity は invalid を返し、認可も DB も走らせない", async () => {
+    const res = await reorderHierarchyAction({ entity: "class", orderedIds: [DEPT_ID] });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("空 / 非UUID / 重複の orderedIds は DB に到達せず invalid", async () => {
+    expect(await reorderHierarchyAction({ entity: "department", orderedIds: [] })).toMatchObject({
+      ok: false,
+      error: { code: "invalid" },
+    });
+    expect(
+      await reorderHierarchyAction({ entity: "department", orderedIds: ["nope"] }),
+    ).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(
+      await reorderHierarchyAction({ entity: "department", orderedIds: [DEPT_ID, DEPT_ID] }),
+    ).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("自校で不可視な id が混ざると not_found（全体巻き戻し）", async () => {
+    selectQueue = [[]]; // 先頭 id の可視性チェックで 0 件 → HubNotFoundError。
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("正常系: 並びが変わった件数を返し、変更行のみ監査する", async () => {
+    // orderedIds=[DEPT_ID→0, OTHER_DEPT_ID→1]。現在 5 / 6 ゆえ 2 件変更。
+    selectQueue = [[{ displayOrder: 5 }], [{ displayOrder: 6 }]];
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 2 } });
+    expect(insertSpy).toHaveBeenCalledTimes(2); // 監査は変更行ごとに 1 行
+  });
+
+  it("既に正しい順の行は更新も監査もしない（無駄 write 抑制）", async () => {
+    // DEPT_ID は既に index 0、OTHER_DEPT_ID のみ index 1 へ変更。
+    selectQueue = [[{ displayOrder: 0 }], [{ displayOrder: 9 }]];
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 1 } });
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("学年も並べ替えできる（entity=grade）", async () => {
+    selectQueue = [[{ displayOrder: 3 }], [{ displayOrder: 4 }]];
+    const res = await reorderHierarchyAction({
+      entity: "grade",
+      orderedIds: [GRADE_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 2 } });
   });
 });

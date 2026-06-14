@@ -8,6 +8,7 @@ import {
   validateClassInput,
   validateDepartmentInput,
   validateGradeInput,
+  validateReorder,
 } from "../../lib/school-admin/hub-core";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
@@ -177,5 +178,28 @@ describe("classDupKey", () => {
   it("空白を含む name でも別ペアと衝突しない（gradeId は UUID で境界一意）", () => {
     expect(classDupKey(uuidA, "a b")).not.toBe(classDupKey(uuidB, "a b"));
     expect(classDupKey(uuidA, "a b")).not.toBe(classDupKey(uuidA, "a  b"));
+  });
+});
+
+describe("validateReorder", () => {
+  const u1 = "11111111-1111-1111-1111-111111111111";
+  const u2 = "22222222-2222-2222-2222-222222222222";
+
+  it("entity（department/grade）と UUID 配列を受理する", () => {
+    expect(validateReorder({ entity: "department", orderedIds: [u1, u2] })).toEqual({
+      ok: true,
+      value: { entity: "department", orderedIds: [u1, u2] },
+    });
+    expect(validateReorder({ entity: "grade", orderedIds: [u1] }).ok).toBe(true);
+  });
+
+  it("不正 entity / 空配列 / 非UUID / 重複 / 過大件数 を弾く", () => {
+    expect(validateReorder({ entity: "class", orderedIds: [u1] }).ok).toBe(false);
+    expect(validateReorder({ entity: "department", orderedIds: [] }).ok).toBe(false);
+    expect(validateReorder({ entity: "department", orderedIds: ["x"] }).ok).toBe(false);
+    expect(validateReorder({ entity: "department", orderedIds: [u1, u1] }).ok).toBe(false);
+    expect(validateReorder({ entity: "department", orderedIds: Array(1001).fill(u1) }).ok).toBe(
+      false,
+    );
   });
 });

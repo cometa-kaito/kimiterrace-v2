@@ -23,6 +23,7 @@ import {
   validateGradeInput,
   validateGradeUpdate,
   validateId,
+  validateReorder,
 } from "./hub-core";
 import {
   countClassesInGrade,
@@ -559,6 +560,76 @@ export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ 
     });
     return { id: v.value.id };
   }, "削除に失敗しました。");
+}
+
+/* ================================================================== *
+ *  表示順の一括並べ替え (#48-K3 UX hardening)
+ *
+ *  学科 / 学年の兄弟集合を新しい並び順 (orderedIds) で受け取り displayOrder=0..n-1 を **単一 RLS tx で
+ *  原子的に**反映する。従来はクライアントが兄弟ごとに updateXAction を N 回呼んでいた (N 往復・非原子・
+ *  revalidate も N 回)。これを 1 往復 / 1 tx に畳み、途中失敗時の半端な並びを防ぐ。各 id は自校で可視か
+ *  確認し (RLS は他校 UPDATE を 0 行化するが、明示確認で他校/不存在混入を not_found で全体巻き戻し)、
+ *  displayOrder が既に正しい行は更新・監査しない (無駄 write 抑制)。クラスは並べ替え列が無いため対象外。
+ * ================================================================== */
+
+/** 学科 / 学年の表示順を一括で並べ替える。orderedIds の順に displayOrder=0..n-1 を原子的に反映する。 */
+export async function reorderHierarchyAction(raw: {
+  entity?: unknown;
+  orderedIds?: unknown;
+}): Promise<ActionResult<{ count: number }>> {
+  const v = validateReorder(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  const actor = await authorize();
+  if ("ok" in actor) {
+    return actor;
+  }
+  const table = v.value.entity === "department" ? departments : grades;
+  const tableName = v.value.entity === "department" ? "departments" : "grades";
+  const entityLabel = v.value.entity === "department" ? "学科" : "学年";
+
+  return finish(async (tx) => {
+    let count = 0;
+    for (const [i, id] of v.value.orderedIds.entries()) {
+      // 自校で可視か + 現在の displayOrder を取得 (RLS で他校行は不可視 → not_found で全体巻き戻し)。
+      const [row] = await tx
+        .select({ displayOrder: table.displayOrder })
+        .from(table)
+        .where(eq(table.id, id))
+        .limit(1);
+      if (!row) {
+        throw new HubNotFoundError(`指定された${entityLabel}が見つかりません。`);
+      }
+      if (row.displayOrder === i) {
+        continue; // 既に正しい順 → 無駄な update/監査を避ける。
+      }
+      // update は drizzle のテーブル型のため具体テーブルで分岐する (select は union で可)。
+      if (v.value.entity === "department") {
+        await tx
+          .update(departments)
+          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
+          .where(eq(departments.id, id));
+      } else {
+        await tx
+          .update(grades)
+          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
+          .where(eq(grades.id, id));
+      }
+      await writeAudit(tx, actor, {
+        tableName,
+        recordId: id,
+        operation: "update",
+        diff: {
+          before: { displayOrder: row.displayOrder },
+          after: { displayOrder: i },
+          reason: "reorder",
+        },
+      });
+      count += 1;
+    }
+    return { count };
+  }, "並べ替えに失敗しました。");
 }
 
 /* ================================================================== *
