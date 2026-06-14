@@ -13,6 +13,7 @@ import {
   forbidden,
   invalid,
   notFound,
+  planNextYearDuplication,
   toHubActor,
   validateClassInput,
   validateClassUpdate,
@@ -22,7 +23,7 @@ import {
   validateGradeUpdate,
   validateId,
 } from "./hub-core";
-import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
+import { countClassesInGrade, countGradesInDepartment, getClassYearRows } from "./hub-queries";
 
 /**
  * 学校管理者ハブの Server Actions (#48-K / #48-K2、ADR-008 — 画面 mutation は Server Actions)。
@@ -552,4 +553,53 @@ export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ 
     });
     return { id: v.value.id };
   }, "削除に失敗しました。");
+}
+
+/* ================================================================== *
+ *  新年度へ複製 (#48-K3 PR3)
+ *
+ *  現在の最新年度のクラス群を翌年度の空クラスとして複製する (予定/公開内容は複製しない)。
+ *  対象算出は純関数 planNextYearDuplication (hub-core)。source は常に最新年度ゆえ実行のたびに 1 年進む
+ *  (冪等ではない・target は常に未存在年度)。各 insert を監査 (ルール1)・自校 RLS tx (ルール2)。
+ *  ⚠ classes に (school,year,grade,name) の unique 制約は無く、並行実行/別タブ再実行による重複生成を
+ *  DB では防げない。単一操作の二重押下は UI のボタン無効化で抑止し、対象年度は確認モーダルで明示する。
+ *  (恒久的な並行重複防止が要るなら部分 unique index の migration を別 PR で追加する。)
+ * ================================================================== */
+
+/** 現年度のクラスを翌年度へ複製する。複製できるクラスが無ければ not_found。 */
+export async function duplicateClassesToNextYearAction(): Promise<
+  ActionResult<{ created: number; targetYear: number }>
+> {
+  const actor = await authorize();
+  if ("ok" in actor) {
+    return actor;
+  }
+
+  return finish(async (tx) => {
+    const plan = planNextYearDuplication(await getClassYearRows(tx));
+    if (!plan) {
+      throw new HubNotFoundError("複製できるクラスがありません。");
+    }
+    for (const c of plan.toCreate) {
+      const [row] = await tx
+        .insert(classes)
+        .values({
+          schoolId: actor.schoolId,
+          gradeId: c.gradeId,
+          name: c.name,
+          academicYear: c.academicYear,
+          grade: c.grade,
+          createdBy: actor.userId,
+          updatedBy: actor.userId,
+        })
+        .returning({ id: classes.id });
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: row?.id as string,
+        operation: "insert",
+        diff: { after: c, reason: "duplicate-next-year" },
+      });
+    }
+    return { created: plan.toCreate.length, targetYear: plan.targetYear };
+  }, "新年度への複製に失敗しました。");
 }

@@ -19,9 +19,11 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 
 const countGradesInDepartmentMock = vi.fn();
 const countClassesInGradeMock = vi.fn();
+const getClassYearRowsMock = vi.fn();
 vi.mock("../../lib/school-admin/hub-queries", () => ({
   countGradesInDepartment: (...a: unknown[]) => countGradesInDepartmentMock(...a),
   countClassesInGrade: (...a: unknown[]) => countClassesInGradeMock(...a),
+  getClassYearRows: (...a: unknown[]) => getClassYearRowsMock(...a),
 }));
 
 import { requireRole } from "../../lib/auth/guard";
@@ -30,6 +32,7 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   deleteGradeAction,
+  duplicateClassesToNextYearAction,
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
@@ -54,6 +57,8 @@ const admin = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID
  * チェーンを満たすだけ。
  */
 let selectQueue: unknown[][];
+const insertSpy = vi.fn();
+const NEW_ID = "66666666-6666-4666-8666-666666666666";
 function fakeTx() {
   const makeSelectChain = (rows: unknown[]) => {
     const chain = {
@@ -67,12 +72,16 @@ function fakeTx() {
     set: () => writeChain,
     values: () => writeChain,
     where: () => Promise.resolve(undefined),
+    returning: () => Promise.resolve([{ id: NEW_ID }]),
   };
   return {
     select: () => makeSelectChain(selectQueue.shift() ?? []),
     update: () => writeChain,
     delete: () => writeChain,
-    insert: () => writeChain,
+    insert: (...a: unknown[]) => {
+      insertSpy(...a);
+      return writeChain;
+    },
   };
 }
 
@@ -267,5 +276,40 @@ describe("deleteClassAction", () => {
     const res = await deleteClassAction(CLASS_ID);
     expect(res).toEqual({ ok: true, data: { id: CLASS_ID } });
     expect(countClassesInGradeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("duplicateClassesToNextYearAction", () => {
+  it("schoolId 無し (テナント未選択) は forbidden、DB に到達しない", async () => {
+    requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "system_admin", schoolId: null });
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("複製できるクラスが無ければ not_found", async () => {
+    getClassYearRowsMock.mockResolvedValue([]);
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("最新年度のクラスを翌年度へ複製し、件数と対象年度を返す (gradeId=null は除外)", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+      { gradeId: null, name: "未割当", grade: 1, academicYear: 2026 },
+    ]);
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toEqual({ ok: true, data: { created: 2, targetYear: 2027 } });
+  });
+
+  it("複製クラスごとに classes と audit_log へ insert する (ルール1 監査)", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+    ]);
+    await duplicateClassesToNextYearAction();
+    // 2 クラス × (classes 行 + audit_log 行) = 4 回の insert。
+    expect(insertSpy).toHaveBeenCalledTimes(4);
   });
 });

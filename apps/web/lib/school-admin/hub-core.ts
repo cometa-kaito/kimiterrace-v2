@@ -252,3 +252,46 @@ export function validateId(raw: unknown): Validated<{ id: string }> {
   }
   return { ok: true, value: { id: raw } };
 }
+
+/* ------------------------------------------------------------------ *
+ *  新年度へ複製 (#48-K3 PR3)
+ *
+ *  departments / grades は年度非依存マスタで、年度を持つのは classes.academic_year のみ。
+ *  よって「新年度へ複製」= 現在の最新年度 (source) のクラス群を翌年度 (target=source+1) の空クラス
+ *  として複製する (予定/公開内容は複製しない)。学年未割当 (gradeId=null) のクラスは継承先が無く
+ *  掲示単位にならないため複製対象外。
+ *
+ *  注: source は常に最新年度なので、本操作は **実行のたびに 1 年進む**（target は常に未存在の年度）。
+ *  二重実行は UI 側のボタン無効化 (useTransition pending) で抑止し、対象年度は確認モーダルで明示する。
+ * ------------------------------------------------------------------ */
+
+export type ClassYearRow = {
+  gradeId: string | null;
+  name: string;
+  grade: number;
+  academicYear: number;
+};
+
+export type NextYearPlan = {
+  sourceYear: number;
+  targetYear: number;
+  toCreate: { gradeId: string; name: string; grade: number; academicYear: number }[];
+};
+
+/** 現クラス一覧から「翌年度へ複製すべきクラス」を算出する純関数。クラスが無ければ null。 */
+export function planNextYearDuplication(rows: ClassYearRow[]): NextYearPlan | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const sourceYear = Math.max(...rows.map((r) => r.academicYear));
+  const targetYear = sourceYear + 1;
+  const toCreate = rows
+    .filter((r) => r.academicYear === sourceYear && r.gradeId)
+    .map((r) => ({
+      gradeId: r.gradeId as string,
+      name: r.name,
+      grade: r.grade,
+      academicYear: targetYear,
+    }));
+  return { sourceYear, targetYear, toCreate };
+}

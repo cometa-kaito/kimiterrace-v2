@@ -1,5 +1,6 @@
 import { type TenantTx, classes, dailyData, departments, grades } from "@kimiterrace/db";
 import { asc, count, desc, eq, sql } from "drizzle-orm";
+import type { ClassYearRow } from "./hub-core";
 
 /**
  * 学校管理者ハブの読み取り (#48-K)。自校の学科・学年・クラス階層を取得する。
@@ -180,4 +181,16 @@ export function computeTodayActiveClasses(
     }
   }
   return out;
+}
+
+/** 自校の全クラスの年度・親学年・名前・学年数 (新年度複製 #48-K3 PR3 の元データ・RLS 自校限定)。 */
+export async function getClassYearRows(tx: TenantTx): Promise<ClassYearRow[]> {
+  return tx
+    .select({
+      gradeId: classes.gradeId,
+      name: classes.name,
+      grade: classes.grade,
+      academicYear: classes.academicYear,
+    })
+    .from(classes);
 }
