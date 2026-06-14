@@ -6,8 +6,8 @@ import type { ListParams } from "@/app/_components/datalist/list-params";
  * UIUX-03: 全校ダッシュボード (`/ops/dashboard`) の **日付範囲対応** 集計層。
  *
  * ## 置き場所 (並行レーン回避)
- * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`school-list.ts` /
- * `effect-comment-stats.ts` と同じ規律)。集計内容は packages/db `getEventStatsBySchool`
+ * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`school-list.ts`
+ * と同じ規律)。集計内容は packages/db `getEventStatsBySchool`
  * (queries/event-stats.ts) と同一だが、`sinceDays` (DB now() 基準の遡及日数固定) ではなく
  * **明示的な期間境界 (since / untilExclusive)** を受け取る。テーブルは barrel から import し、
  * 行型は schema 由来の `SchoolEventSummary` を再利用する (ルール3、手書き再定義しない)。

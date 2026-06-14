@@ -5,8 +5,8 @@ import { streamText } from "ai";
  * F06 (#42 / #373, ADR-005 Vertex AI / ADR-006 Vercel AI SDK): 生徒対話 Q&A の **SSE
  * ストリーミング** Vertex Gemini アダプタ。
  *
- * `vertex.ts` (`createVertexModelClient`、JSON 一括生成) / `effect-comment-model.ts` (自然文一括生成)
- * と同じ依存逆転を踏襲しつつ、**逐次ストリーミング** (`streamText`) を返す点が異なる。生徒チャットは
+ * `vertex.ts` (`createVertexModelClient`、JSON 一括生成) と同じ依存逆転を踏襲しつつ、**逐次
+ * ストリーミング** (`streamText`) を返す点が異なる。生徒チャットは
  * 体感速度のため token を逐次表示する (SSE) ので一括 `generateText` ではなくストリームを使う。
  *
  * - モデルは ADR-017 のバージョンピン (既定 `gemini-2.5-flash`、#289 ④ で旧 1.5 Pro retired により更新)。project / location

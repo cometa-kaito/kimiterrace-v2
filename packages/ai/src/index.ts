@@ -52,30 +52,8 @@ export {
 } from "./prompt/chat.js";
 export type { ChatContext, ChatPrompt, GroundingMode } from "./prompt/chat.js";
 
-// F08 (#44, ADR-005) AI 効果コメント生成プロンプト builder（決定論的・PII マスク前提、slice 1）
-export {
-  buildEffectCommentPrompt,
-  buildEffectCommentSystemPrompt,
-  buildStatsBlock,
-  formatDelta,
-} from "./prompt/effect-comment.js";
-export type {
-  EffectCommentPrompt,
-  EffectCommentStats,
-  EffectMetric,
-  EffectTopContent,
-} from "./prompt/effect-comment.js";
-
-// F08 (#44, ADR-005/006) 効果コメントのモデル呼び出し層（builder → 実 Gemini, slice 2: 非 JSON テキスト）
-export {
-  EmptyEffectCommentError,
-  createVertexEffectCommentClient,
-  generateEffectComment,
-} from "./model/effect-comment-model.js";
-export type {
-  EffectCommentModelConfig,
-  EffectCommentResult,
-} from "./model/effect-comment-model.js";
+// F08 効果コメント生成（prompt builder + モデル呼び出し層）は #902 で self-school
+// ダッシュボードが retire され orphan 化したため撤去（§43 retirement）。
 
 // モデル境界 + Vertex アダプタ（ADR-005/006）
 export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./model/client.js";

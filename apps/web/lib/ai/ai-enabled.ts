@@ -9,13 +9,13 @@
  * ## 入口（本 switch でゲートする Vertex 呼び出し境界）
  * - F03 教員入力 AI 抽出: `POST /api/teacher-inputs/:id/extract`（route POST 冒頭で 503）
  * - F06 生徒/教員 Q&A チャット: `respondWithChatStream`（生徒・教員 両 route の単一 choke point で 503）
- * - F08 効果コメント生成: `generateEffectComment`（Server Action 本体冒頭で disabled 結果）
+ *   ※ F08 効果コメント生成は #902（§43）で self-school ダッシュボード retire に伴い撤去（旧入口削除）。
  *   ※ F06 embedding バッチ（apps/jobs / cloud_run_job）は別デプロイ単位で現状 enabled=false。
  *     当該 Job を有効化する際に AI_ENABLED を併せて配線すること（本 PR の範囲外・follow-up）。
  *
  * ## なぜ route/action 境界で使うか（model getter には置かない）
- * model getter（`getEffectCommentModel` 等）は Server Action のデフォルト引数
- * （`deps = defaultDeps(getModel())`）で評価されるため、そこで throw すると try/catch の **外** で
+ * model getter（`getExtractionModel` 等）は Server Action のデフォルト引数
+ * （`deps = defaultDeps()`）で評価されるため、そこで throw すると try/catch の **外** で
  * 500 化し、既存テストも壊れる。よって gate は **ハンドラ本体の冒頭** で {@link isAiEnabled} を見て
  * graceful に 503 / disabled を返す（本モジュールの想定使用）。{@link assertAiEnabled} は graceful 写像が
  * できない深い経路向けの防御的プリミティブ（多層防御 API）。

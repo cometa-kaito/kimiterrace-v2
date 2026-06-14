@@ -34,7 +34,7 @@ import {
  * - エクスポートなし（SELECT は画面描画分のみ）。
  *
  * ## 置き場所 / テナント分離
- * `packages/db` 非接触（並行レーン回避、`effect-comment-stats.ts` 規律）。school_id / role の
+ * `packages/db` 非接触（並行レーン回避、`school-list.ts` 規律）。school_id / role の
  * WHERE は書かない — RLS（tenant_isolation + system_admin_full_access）が可視範囲を決める。
  * WHERE は検索条件のみ（school フィルタは「絞り込み」であってテナント境界ではない）。
  */

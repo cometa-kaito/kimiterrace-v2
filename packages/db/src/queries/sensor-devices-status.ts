@@ -183,7 +183,7 @@ export type AllSensorDeviceStatus = SensorDeviceStatus & {
  * 列挙する。**SELECT のみ**。system_admin のセンサー運用面 (`/ops/sensors`) が消費する。
  *
  * `listSensorDeviceStatuses` (自校版) を変えずに併設する sibling — 自校スコープの呼び出し側
- * (`/app/sensors`) は所属校名を必要としない (単一校なので自明) ため射影を増やさず据え置き、
+ * (`/ops/sensors`) は所属校名を必要としない (単一校なので自明) ため射影を増やさず据え置き、
  * 全校横断ビューだけが `INNER JOIN schools` で校名を足す (最小の追加変更、ルール6)。
  *
  * ## 認可 / テナント (CLAUDE.md ルール2、多層防御)

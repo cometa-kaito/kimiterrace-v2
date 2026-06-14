@@ -12,7 +12,7 @@ import {
  * UIUX-03 PR1: 学校一覧のページング/検索/ソート対応 SELECT 層。
  *
  * ## 置き場所 (並行レーン回避)
- * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`effect-comment-stats.ts` と同じ
+ * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`dashboard-stats.ts` と同じ
  * 規律)。テーブルは barrel から import し、型は schema 由来 (`SchoolSummary`、ルール3)。
  *
  * ## テナント分離 (ルール2)
