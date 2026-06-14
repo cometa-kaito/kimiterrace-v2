@@ -16,6 +16,7 @@ import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assi
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import { formatSignageItem } from "@/lib/signage/section-format";
+import { sttErrorHint } from "@/lib/teacher-input/stt-error-hint";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { tokens } from "@kimiterrace/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -203,6 +204,9 @@ export function EditorChat({
   const streaming = state.status === "streaming";
   const pii = state.error?.reason === "pii_warning" ? state.error : null;
   const otherError = state.error && state.error.reason !== "pii_warning" ? state.error : null;
+  // 音声入力の「実際の失敗」（権限拒否・マイク無し・非対応 等）だけを拾ってヒントを出す。
+  // 良性コード（no-speech / aborted）や未発生は null（誤警告回避）。出し分けは純関数に集約（テスト済）。
+  const micHint = sttErrorHint(stt.error);
   // pattern2 等で連絡/提出物が許可外のとき、来校者/呼び出しは手入力へ誘導する（ADR-034）。
   const restrictedToSchedules =
     state.allowedSections.length > 0 &&
@@ -324,6 +328,13 @@ export function EditorChat({
           {fileBusy ? "読込中…" : "送信"}
         </button>
       </div>
+
+      {/* 音声入力が実際に失敗したときだけ、マイク直下に短いヒントを出す（role=status で読み上げ）。 */}
+      {micHint ? (
+        <p role="status" style={micHintStyle}>
+          {micHint}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -525,6 +536,12 @@ const micActiveStyle: React.CSSProperties = {
   background: color.primary,
   color: "#fff",
   border: "none",
+};
+const micHintStyle: React.CSSProperties = {
+  margin: 0,
+  padding: "0 0.7rem 0.6rem",
+  fontSize: fontSize.sm,
+  color: color.dangerFg,
 };
 const inputStyle: React.CSSProperties = {
   flex: 1,
