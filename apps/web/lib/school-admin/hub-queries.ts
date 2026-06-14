@@ -108,6 +108,11 @@ export async function countClassesInGrade(tx: TenantTx, gradeId: string): Promis
  *  daily_data を scope 別に集め、純関数 computeTodayActiveClasses で各クラスへ継承伝搬する。
  *  日付境界は TZ 事故を避けるため SQL 側で `(now() AT TIME ZONE 'Asia/Tokyo')::date` と比較する。
  *  RLS により自校の daily_data のみが対象 (ルール2)。
+ *
+ *  ⚠ ここで見るのは **本日(JST)付けの行のみ**。サイネージ実表示 (getEffectiveDailyData) は
+ *  notices/assignments を多日 lookback (effective-daily-data.ts EFFECTIVE_LOOKBACK_DAYS) するため、
+ *  昨日以前に入れた複数日連絡や期限内の提出物が今日も画面に出ているクラスでも本指標は「本日 未入力」と
+ *  なり得る。つまりこれは **本日の新規入力有無** の指標であり、サイネージ実表示の網羅ではない。
  * ------------------------------------------------------------------ */
 
 /** 本日(JST)に中身のある daily_data の scope と対象 id。 */
