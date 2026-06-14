@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "98ea09a" # 2026-06-13 BUG-1: migration 0026(休止広告主の配信除外=SECURITY DEFINER関数+VIEW再作成) 適用のため bump（#846）
+  migrate_image_tag = "6439ca0" # 2026-06-14 migration 20260614024542(新年度へ複製の重複封鎖=classes 部分unique index ux_classes_school_year_grade_name) 適用のため bump（#878）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "78f3e2d" # 2026-06-14 deploy: 学校管理(/admin/school) 新年度へ複製（一括操作＝現年度クラスを翌年度へ）#871（PR1再設計#866→PR2状態表示#869→本PR3で完結・schema無変更=migrate不要・疎通200/no-cache確認済）
+  web_image_tag = "6439ca0" # 2026-06-14 deploy: main HEAD 反映（#862 signage pattern基盤 / #877 会話AI pattern準拠 / #878 新年度複製の重複封鎖 / #880-883 学校管理UI a11y・表示順D&D・冪等化 / #884 本日の掲示状態のサイネージ整合）。#878 の migrate 20260614024542 適用後にデプロイ・疎通200/no-cache確認済
 }
 
 module "network" {
