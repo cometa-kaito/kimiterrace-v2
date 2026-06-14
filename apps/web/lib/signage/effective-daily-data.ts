@@ -126,8 +126,11 @@ export function mergeDailySections(
   };
 }
 
-/** サイネージの遡及読み取り窓 (日数)。連絡(最大表示日数 14)・提出物(期限前後)の活性判定に十分な過去日数。 */
-const EFFECTIVE_LOOKBACK_DAYS = 31;
+/**
+ * サイネージの遡及読み取り窓 (日数)。連絡(最大表示日数 14)・提出物(期限前後)の活性判定に十分な過去日数。
+ * 学校管理ハブの「本日の掲示状態」(`hub-queries.ts`) も同じ窓でサイネージ実表示に整合させるため export する。
+ */
+export const EFFECTIVE_LOOKBACK_DAYS = 31;
 
 const MS_PER_DAY = 86_400_000;
 
