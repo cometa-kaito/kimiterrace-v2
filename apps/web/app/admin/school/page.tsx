@@ -1,7 +1,11 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SCHOOL_HIERARCHY_ROLES } from "@/lib/school-admin/hub-core";
-import { getSchoolHierarchy } from "@/lib/school-admin/hub-queries";
+import {
+  computeTodayActiveClasses,
+  getSchoolHierarchy,
+  getTodayDailyDataScopes,
+} from "@/lib/school-admin/hub-queries";
 import { HierarchyManager } from "./_components/HierarchyManager";
 
 /**
@@ -13,6 +17,10 @@ import { HierarchyManager } from "./_components/HierarchyManager";
  */
 export default async function SchoolAdminHubPage() {
   await requireRole(SCHOOL_HIERARCHY_ROLES);
-  const hierarchy = await withSession((tx) => getSchoolHierarchy(tx));
-  return <HierarchyManager hierarchy={hierarchy} />;
+  const { hierarchy, statusByClass } = await withSession(async (tx) => {
+    const hierarchy = await getSchoolHierarchy(tx);
+    const scopes = await getTodayDailyDataScopes(tx);
+    return { hierarchy, statusByClass: computeTodayActiveClasses(scopes, hierarchy.grades) };
+  });
+  return <HierarchyManager hierarchy={hierarchy} statusByClass={statusByClass} />;
 }

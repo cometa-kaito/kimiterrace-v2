@@ -1,5 +1,5 @@
-import { type TenantTx, classes, departments, grades } from "@kimiterrace/db";
-import { asc, count, desc, eq } from "drizzle-orm";
+import { type TenantTx, classes, dailyData, departments, grades } from "@kimiterrace/db";
+import { asc, count, desc, eq, sql } from "drizzle-orm";
 
 /**
  * 学校管理者ハブの読み取り (#48-K)。自校の学科・学年・クラス階層を取得する。
@@ -97,4 +97,87 @@ export async function countGradesInDepartment(tx: TenantTx, departmentId: string
 export async function countClassesInGrade(tx: TenantTx, gradeId: string): Promise<number> {
   const [row] = await tx.select({ n: count() }).from(classes).where(eq(classes.gradeId, gradeId));
   return row?.n ?? 0;
+}
+
+/* ------------------------------------------------------------------ *
+ *  本日(JST)の掲示状態 (#48-K3 PR2)
+ *
+ *  サイネージは getEffectiveDailyData が class > grade > department > school の順に daily_data を
+ *  継承マージして表示する (signage-display.ts)。学校管理ハブでは各クラスが「本日 掲示する中身を
+ *  持つか」を一覧で示したい。そこで本日(JST)付けで **予定/連絡/提出物のいずれかが 1 件以上ある**
+ *  daily_data を scope 別に集め、純関数 computeTodayActiveClasses で各クラスへ継承伝搬する。
+ *  日付境界は TZ 事故を避けるため SQL 側で `(now() AT TIME ZONE 'Asia/Tokyo')::date` と比較する。
+ *  RLS により自校の daily_data のみが対象 (ルール2)。
+ *
+ *  ⚠ ここで見るのは **本日(JST)付けの行のみ**。サイネージ実表示 (getEffectiveDailyData) は
+ *  notices/assignments を多日 lookback (effective-daily-data.ts EFFECTIVE_LOOKBACK_DAYS) するため、
+ *  昨日以前に入れた複数日連絡や期限内の提出物が今日も画面に出ているクラスでも本指標は「本日 未入力」と
+ *  なり得る。つまりこれは **本日の新規入力有無** の指標であり、サイネージ実表示の網羅ではない。
+ * ------------------------------------------------------------------ */
+
+/** 本日(JST)に中身のある daily_data の scope と対象 id。 */
+export type TodayDailyDataScopes = {
+  school: boolean;
+  departmentIds: string[];
+  gradeIds: string[];
+  classIds: string[];
+};
+
+export async function getTodayDailyDataScopes(tx: TenantTx): Promise<TodayDailyDataScopes> {
+  const rows = await tx
+    .select({
+      scope: dailyData.scope,
+      gradeId: dailyData.gradeId,
+      departmentId: dailyData.departmentId,
+      classId: dailyData.classId,
+    })
+    .from(dailyData)
+    .where(
+      sql`${dailyData.date} = (now() AT TIME ZONE 'Asia/Tokyo')::date AND (
+        jsonb_array_length(${dailyData.schedules}) > 0
+        OR jsonb_array_length(${dailyData.notices}) > 0
+        OR jsonb_array_length(${dailyData.assignments}) > 0
+      )`,
+    );
+  const out: TodayDailyDataScopes = {
+    school: false,
+    departmentIds: [],
+    gradeIds: [],
+    classIds: [],
+  };
+  for (const r of rows) {
+    if (r.scope === "school") {
+      out.school = true;
+    } else if (r.scope === "department" && r.departmentId) {
+      out.departmentIds.push(r.departmentId);
+    } else if (r.scope === "grade" && r.gradeId) {
+      out.gradeIds.push(r.gradeId);
+    } else if (r.scope === "class" && r.classId) {
+      out.classIds.push(r.classId);
+    }
+  }
+  return out;
+}
+
+/**
+ * scope 集合と学年ツリーから「本日 掲示中身あり」のクラス id 集合を作る純関数 (継承伝搬)。
+ * クラスが active = 自クラス scope / 親学年 scope / 親学科 scope / 学校 scope のいずれかに本日中身あり。
+ * UI へは Record<classId, boolean> で渡す (serializable・client へ素通し可)。
+ */
+export function computeTodayActiveClasses(
+  scopes: TodayDailyDataScopes,
+  grades: GradeView[],
+): Record<string, boolean> {
+  const deptSet = new Set(scopes.departmentIds);
+  const gradeSet = new Set(scopes.gradeIds);
+  const classSet = new Set(scopes.classIds);
+  const out: Record<string, boolean> = {};
+  for (const g of grades) {
+    const gradeActive =
+      scopes.school || gradeSet.has(g.id) || (g.departmentId ? deptSet.has(g.departmentId) : false);
+    for (const c of g.classes) {
+      out[c.id] = gradeActive || classSet.has(c.id);
+    }
+  }
+  return out;
 }

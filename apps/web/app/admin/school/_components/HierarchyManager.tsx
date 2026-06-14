@@ -13,6 +13,7 @@ import {
 } from "@/lib/school-admin/hub-actions";
 import type { ActionResult } from "@/lib/school-admin/hub-core";
 import type { SchoolHierarchy } from "@/lib/school-admin/hub-queries";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type ReactNode, useId, useState, useTransition } from "react";
 
@@ -50,7 +51,13 @@ function deriveGradeNumber(gradeName: string): number {
   return Number.isInteger(n) && n >= 1 && n <= 12 ? n : 1;
 }
 
-export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) {
+export function HierarchyManager({
+  hierarchy,
+  statusByClass = {},
+}: {
+  hierarchy: SchoolHierarchy;
+  statusByClass?: Record<string, boolean>;
+}) {
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -101,7 +108,13 @@ export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) 
         <>
           <div style={treeRootStyle}>
             {departments.map((d) => (
-              <DepartmentNode key={d.id} dept={d} grades={gradesOf(d.id)} report={report} />
+              <DepartmentNode
+                key={d.id}
+                dept={d}
+                grades={gradesOf(d.id)}
+                statusByClass={statusByClass}
+                report={report}
+              />
             ))}
           </div>
           {orphanGrades.length > 0 ? (
@@ -113,7 +126,7 @@ export function HierarchyManager({ hierarchy }: { hierarchy: SchoolHierarchy }) 
         <>
           <div style={treeRootStyle}>
             {grades.map((g) => (
-              <GradeNode key={g.id} grade={g} report={report} />
+              <GradeNode key={g.id} grade={g} statusByClass={statusByClass} report={report} />
             ))}
           </div>
           <AddGradeForm report={report} />
@@ -174,6 +187,37 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
         </>
       ) : null}
     </span>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ *  葉（クラス / 学年単位）の本日状態 + エディタ導線 (#48-K3 PR2)
+ * ------------------------------------------------------------------ */
+
+/** 本日(JST)の掲示状態。active=今日の予定/連絡/提出物あり → ティールの「公開中」、なければ「本日 未入力」。 */
+function StatusDot({ active }: { active: boolean }) {
+  if (active) {
+    return (
+      <span style={statusActiveStyle}>
+        <span style={dotFilledStyle} aria-hidden />
+        公開中
+      </span>
+    );
+  }
+  return (
+    <span style={statusEmptyStyle}>
+      <span style={dotRingStyle} aria-hidden />
+      本日 未入力
+    </span>
+  );
+}
+
+/** このクラスのエディタ（予定/連絡/提出物の入力）へ。 */
+function EditorLink({ classId }: { classId: string }) {
+  return (
+    <Link href={`/admin/editor/${classId}`} style={editorLinkStyle}>
+      エディタ
+    </Link>
   );
 }
 
@@ -332,10 +376,12 @@ function NodeHeader({
 function DepartmentNode({
   dept,
   grades,
+  statusByClass,
   report,
 }: {
   dept: Dept;
   grades: Grade[];
+  statusByClass: Record<string, boolean>;
   report: Reporter;
 }) {
   const [open, setOpen] = useState(true);
@@ -369,7 +415,7 @@ function DepartmentNode({
       {open ? (
         <div style={childListStyle}>
           {grades.map((g) => (
-            <GradeNode key={g.id} grade={g} report={report} />
+            <GradeNode key={g.id} grade={g} statusByClass={statusByClass} report={report} />
           ))}
           <AddGradeForm department={dept} report={report} />
         </div>
@@ -382,9 +428,18 @@ function DepartmentNode({
  *  学年ノード（配下: クラス、または学年単位）
  * ------------------------------------------------------------------ */
 
-function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
+function GradeNode({
+  grade,
+  statusByClass,
+  report,
+}: {
+  grade: Grade;
+  statusByClass: Record<string, boolean>;
+  report: Reporter;
+}) {
   const [pending, start] = useTransition();
   const modeLabel = grade.hasClasses ? "クラス単位" : "学年単位";
+  const unitClass = grade.classes[0];
 
   // モード切替: クラス単位 → 学年単位（裏方クラスを 1 つ用意 + hasClasses=false）/ 学年単位 → クラス単位。
   const toUnit = () =>
@@ -458,7 +513,15 @@ function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
       />
 
       {!grade.hasClasses ? (
-        <p style={unitNoteStyle}>クラス分けなし・学年そのものが掲示単位です（{grade.name}）。</p>
+        <div style={unitRowStyle}>
+          <p style={unitNoteStyle}>クラス分けなし・学年そのものが掲示単位です（{grade.name}）。</p>
+          {unitClass ? (
+            <span style={unitMetaStyle}>
+              <StatusDot active={statusByClass[unitClass.id] ?? false} />
+              <EditorLink classId={unitClass.id} />
+            </span>
+          ) : null}
+        </div>
       ) : grade.classes.length === 0 ? (
         <div style={childListStyle}>
           <div style={onboardCardStyle}>
@@ -474,7 +537,7 @@ function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
       ) : (
         <div style={childListStyle}>
           {grade.classes.map((c) => (
-            <ClassNode key={c.id} cls={c} report={report} />
+            <ClassNode key={c.id} cls={c} active={statusByClass[c.id] ?? false} report={report} />
           ))}
           <AddClassForm grade={grade} report={report} />
         </div>
@@ -487,7 +550,7 @@ function GradeNode({ grade, report }: { grade: Grade; report: Reporter }) {
  *  クラスノード（末端）
  * ------------------------------------------------------------------ */
 
-function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
+function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report: Reporter }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -541,7 +604,16 @@ function ClassNode({ cls, report }: { cls: Cls; report: Reporter }) {
       <div style={classRowStyle}>
         <span style={classBadgeStyle}>クラス</span>
         <span style={classNameStyle}>{cls.name}</span>
-        <span style={{ marginLeft: "auto" }}>
+        <StatusDot active={active} />
+        <span
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <EditorLink classId={cls.id} />
           <RowMenu
             label="クラスの操作"
             items={[
@@ -1017,6 +1089,54 @@ const unitNoteStyle: React.CSSProperties = {
   fontSize: "0.76rem",
   color: C.inkTertiary,
   margin: "0.4rem 0 0 0.9rem",
+};
+const unitRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "0.2rem 0.9rem",
+};
+const unitMetaStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.6rem",
+  marginLeft: "0.9rem",
+};
+const statusActiveStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  fontSize: "0.72rem",
+  color: C.teal,
+};
+const statusEmptyStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  fontSize: "0.72rem",
+  color: C.inkMuted,
+};
+const dotFilledStyle: React.CSSProperties = {
+  width: "7px",
+  height: "7px",
+  borderRadius: "999px",
+  background: C.teal,
+};
+const dotRingStyle: React.CSSProperties = {
+  width: "7px",
+  height: "7px",
+  borderRadius: "999px",
+  border: `1.5px solid ${C.inkTertiary}`,
+  boxSizing: "border-box",
+};
+const editorLinkStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: C.inkSecondary,
+  textDecoration: "none",
+  border: `1px solid ${C.border}`,
+  borderRadius: "6px",
+  padding: "0.2rem 0.6rem",
+  whiteSpace: "nowrap",
 };
 const onboardCardStyle: React.CSSProperties = {
   background: "#fff",
