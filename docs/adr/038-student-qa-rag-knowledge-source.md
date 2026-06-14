@@ -12,14 +12,14 @@
 
 また、知識源について 2 つの未確定があった:
 
-1. **誰が知識を投入するか**。当初の F06 は MVP 対象に教員を含み、`/admin/teacher-input` 由来のドラフトも掲示物の供給源になりうる設計だった。ユーザー決定により **掲示物 Q&A/teacher-input は教員から撤去**し、Q&A/RAG は **生徒・保護者向け**と再定義された。撤去後、知識を「誰が・どこに」投入するかを確定する必要がある。
+1. **誰が知識を投入するか**。当初の F06 は MVP 対象に教員を含み、`/app/teacher-input` 由来のドラフトも掲示物の供給源になりうる設計だった。ユーザー決定により **掲示物 Q&A/teacher-input は教員から撤去**し、Q&A/RAG は **生徒・保護者向け**と再定義された。撤去後、知識を「誰が・どこに」投入するかを確定する必要がある。
 2. **既存盤面コンテンツ（サイネージの表示ブロック）を RAG の知識源に再利用するか**。盤面は表示最適化された断片（時間割・天気・広告枠等）で、Q&A の意味検索に適した自然文の知識源とは性質が異なる。
 
 ## 候補（知識源）
 
 | 候補 | 概要 | 評価 |
 |---|---|---|
-| **A. school_admin 管理の published contents（採用）** | `/admin/contents` で school_admin が公開した `contents`／`content_versions`（active publish）を embedding 化する既存パイプラインをそのまま知識源にする | **既存資産を再利用**（embedding バッチ・RLS・PII マスク・公開状態ゲートが全て実装済）。教員撤去後も供給主体が school_admin で一貫。最小実装で grounded を達成 |
+| **A. school_admin 管理の published contents（採用）** | `/app/contents` で school_admin が公開した `contents`／`content_versions`（active publish）を embedding 化する既存パイプラインをそのまま知識源にする | **既存資産を再利用**（embedding バッチ・RLS・PII マスク・公開状態ゲートが全て実装済）。教員撤去後も供給主体が school_admin で一貫。最小実装で grounded を達成 |
 | B. 盤面コンテンツ（表示ブロック）の再利用 | サイネージ表示ブロックを embedding 化 | 表示断片は自然文でなく semantic search の品質が読めない。スキーマ/公開状態ゲートが contents と別系統で**新規配線が要る**（RLS・PII 境界の再設計）。安全側でない |
 | C. 教員 teacher-input ドラフトを供給源に残す | 撤去対象の教員導線を知識源に流用 | **ユーザー決定（教員撤去）に反する**。撤去レーンと矛盾し、運用主体が二重化する |
 
@@ -27,7 +27,7 @@
 
 ### D1. 知識源 = school_admin 管理の published contents（候補 A）
 
-生徒/保護者向け Q&A(RAG) の知識源は、**school_admin が `/admin/contents` で公開した `content_versions`（active publish = `unpublished_at IS NULL`）に固定**する。盤面コンテンツ再利用（B）・教員 teacher-input 残置（C）は**不採用**。
+生徒/保護者向け Q&A(RAG) の知識源は、**school_admin が `/app/contents` で公開した `content_versions`（active publish = `unpublished_at IS NULL`）に固定**する。盤面コンテンツ再利用（B）・教員 teacher-input 残置（C）は**不採用**。
 
 - **理由**: 既存の embedding パイプライン（`listPendingEmbeddingVersions` → `embedPendingContent` → `saveContentEmbedding`、RLS 密結合 SQL）・RAG 検索（`getRelevantPublishedContent`）・PII マスク・公開状態ゲートがすべて contents パイプライン前提で実装済み。最小変更で grounded を達成でき、教員撤去後も供給主体が **school_admin に一本化**される（運用が単純）。
 - **教員撤去との関係**: 教員からの掲示物 Q&A/teacher-input 撤去は**別レーン**（`refactor/remove-teacher-accounts-system` 系）で進む UI/権限変更であり、本 ADR の知識源確定とは独立。本 ADR は「撤去後の供給源は何か」を確定する（= published contents）。
@@ -63,6 +63,6 @@ embedding は**必ずマスキング後テキスト**で生成する（`embedPen
 
 ## 残存リスク / follow-up
 
-- ① **教員撤去レーンとの結線**: `/admin/teacher-input` の UI/権限撤去は別 PR。撤去完了までは teacher-input 由来の published contents も知識源に含まれうるが、いずれも school_admin の公開ゲートを通った公開掲示物であり PII 境界は同一（安全側）。
+- ① **教員撤去レーンとの結線**: `/app/teacher-input` の UI/権限撤去は別 PR。撤去完了までは teacher-input 由来の published contents も知識源に含まれうるが、いずれも school_admin の公開ゲートを通った公開掲示物であり PII 境界は同一（安全側）。
 - ② **publish 即時反映ではない**: 毎時バッチゆえ、公開直後〜最大 1 時間は当該掲示物が RAG に未反映（その間はフォールバックの `general_supplement`）。即時性が要件化したら publish 時トリガ（Pub/Sub 等）を別途検討。
 - ③ **F06 のチャット route/UI 本体は別 issue（#42）**: 本 ADR は RAG 知識源の供給（embedding 投入）を確定するもので、SSE チャット route・LLM 応答生成・UI の実装完了とは独立。
