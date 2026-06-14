@@ -95,23 +95,31 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     { label: "パスワード変更", href: "/app/account/password" },
     // 二要素認証 (MFA) は意図的に nav から外す (上記 NAV_BY_ROLE の注記参照。機能は残置)。
   ],
-  // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + コンテンツ公開。
+  // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + エディタ。
   //
   // **校務DX原則 (監視系は学校側に持たせない)**: ダッシュボード / 月次レポート / センサー管理は「自校の
   // 運営を見る」監視・閲覧系であり、先生・校長の校務を楽にする機能ではない。運営 (system_admin) 専用に
   // 集約し、学校側ロールの nav からは撤去する (UX 撤去 + 各ページ/API は requireRole(SYSTEM_ADMIN_ROLES)
   // で URL 直打ち・API 直叩きも 403)。全校横断版は system_admin の /ops/* に存続する。
+  //
+  // **ADR-040 で contents 系統が休眠 → 「音声/チャット入力」(/app/teacher-input)・「コンテンツ」
+  // (/app/contents)・「掲示物 Q&A」(/app/chat) を school_admin nav からも撤去 (2026-06-14)**。生徒/保護者
+  // Q&A の知識源は編集 (`daily_data` 連絡/提出物) の直接注入に再ソース化され (ADR-040、#903)、curated
+  // `contents` 系統 (音声/チャット入力 → teacher_inputs → contents、コンテンツ画面での公開) とその embedding
+  // RAG は休眠した (embedding Job は enabled=false・未apply、#904)。よってこの 3 導線は「書いても Q&A にも
+  // サイネージにも出ない」デッドエンド。掲示物 Q&A (/app/chat) も staff 向けで、M3 直接注入は生徒の classId
+  // 前提のため staff (クラス非バインド) では grounding できず general_supplement のみ＝低価値。
+  // teacher ブロック (下) と同じ規律で **nav 導線のみ撤去**し、route/ページ/認可 (requireRole の
+  // PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置** — URL 直打ちは引き続き到達可能。
+  //
+  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。死リンクと
+  // 誤認して再追加しないこと。再表示は contents 系統の再活性 (ADR-040 の覆し) とセットで判断する。
   school_admin: [
     { label: "学校管理", href: "/app/school" },
     // 教員アカウント概念の撤去（2026-06-10 ユーザー判断）に伴い「教職員」(/app/school/members) を撤去。
     // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。教員ロールの
     // 付与/無効化/設定リンク発行という school_admin の自校教職員管理面ごと廃止した（[[project_remove_individual_teacher_accounts]]）。
     { label: "エディタ", href: "/app/editor" },
-    { label: "音声/チャット入力", href: "/app/teacher-input" },
-    { label: "コンテンツ", href: "/app/contents" },
-    // F06 (#370): 教員も使える掲示物 Q&A チャット。/app/chat も /api/teacher/chat も
-    // requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止で publisher のみ。
-    { label: "掲示物 Q&A", href: "/app/chat" },
     // 自分のパスワード変更 (個人 email/password アカウント)。teacher は学校共通パスワード (ADR-032) で
     // 個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES = school_admin / system_admin と整合)。
     { label: "パスワード変更", href: "/app/account/password" },
@@ -128,10 +136,12 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   //
   // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。機能・ページ・
   // 認可 (requireRole の PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置**し、teacher は URL 直打ちで
-  // 引き続き到達できる。生徒向け Q&A ボットとコンテンツ系統も存続し、コンテンツ投入 (ボット知識) の導線は
-  // school_admin nav に残す (上の school_admin ブロック参照)。「コンテンツ投入を今後誰が担うか」は別途設計。
-  // ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で運営 (system_admin) 専用に
-  // 撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
+  // 引き続き到達できる。**ADR-040 (2026-06-14) で生徒/保護者 Q&A の知識源は編集 (`daily_data`) の直接注入に
+  // 再ソース化され、curated `contents` 経路とその embedding RAG は休眠した**。これに伴い「音声/チャット入力」
+  // (F02)・「コンテンツ」(F04)・「掲示物 Q&A」(F06) の 3 導線は **school_admin nav からも撤去** (上の
+  // school_admin ブロック参照)。旧「コンテンツ投入を school_admin に集約 (ADR-038)」は ADR-040 で決着済 →
+  // school_admin 集約は撤回。ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で
+  // 運営 (system_admin) 専用に撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
   teacher: [{ label: "エディタ", href: "/app/editor" }],
 };
 
