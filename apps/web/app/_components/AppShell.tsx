@@ -15,6 +15,11 @@ import { SignOutButton } from "./SignOutButton";
  */
 export function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
   const items = navItemsForRole(user.role);
+  // 教員はナビが「エディタ」1 項目のみ（[[remove-teacher-menu-sidebar]]、ユーザー指摘 2026-06-13）。
+  // 1 項目だけのためにサイドバー（メニュー）を出すのは冗長なので撤去し、メイン（エディタ）を全幅に
+  // する（校務DX原則: 先生を迷わせない・編集面を広く）。複数項目を持つ school_admin / system_admin は
+  // 従来どおりサイドバーを出す（項目数で判定＝ナビが増えれば自動で再表示され、配線漏れにならない）。
+  const showSidebar = items.length > 1;
 
   return (
     <div style={rootStyle}>
@@ -46,7 +51,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
         </div>
       </header>
       <div className="admin-body" style={bodyStyle}>
-        <Sidebar items={items} />
+        {showSidebar ? <Sidebar items={items} /> : null}
         <main className="admin-main" style={mainStyle}>
           {/* 配下の client コンポーネントが useToast() で成功/エラー通知を出せるようにする。
               ToastProvider は client だが server の children をそのまま透過する。 */}

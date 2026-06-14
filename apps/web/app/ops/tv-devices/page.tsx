@@ -15,7 +15,7 @@ import { type TvDeviceSummary, listTvDevices } from "@kimiterrace/db";
 import Link from "next/link";
 
 /**
- * F15 §4.1 / F16 §5 (ADR-022/ADR-023): TV デバイス一覧（`/app/tv-devices`）。**Server Component**。
+ * F15 §4.1 / F16 §5 (ADR-022/ADR-023): TV デバイス一覧（`/ops/tv-devices`）。**Server Component**。
  *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` で 401/403 を弾く。可視範囲は
  * `tv_devices` の RLS が DB レベルで決める（school_admin=自校 / system_admin=全校、ルール2）。
@@ -85,12 +85,12 @@ export default async function TvDevicesPage({
             稼働中 {counts.online} / 応答なし {counts.down} / 全 {devices.length} 台
           </span>
           {canOnboard && (
-            <Link href="/app/tv-devices/provision" style={onboardLinkStyle}>
+            <Link href="/ops/tv-devices/provision" style={onboardLinkStyle}>
               ＋ プロビジョン
             </Link>
           )}
           {canOnboard && (
-            <Link href="/app/tv-devices/new" style={onboardLinkStyle}>
+            <Link href="/ops/tv-devices/new" style={onboardLinkStyle}>
               ＋ 新規登録
             </Link>
           )}
@@ -107,7 +107,7 @@ export default async function TvDevicesPage({
           {STATUS_FILTERS.map((s) => {
             const isActive = s === selected;
             const label = s === "all" ? "すべて" : `${TV_STATUS_ICON[s]} ${TV_STATUS_LABEL[s]}`;
-            const href = s === "all" ? "/app/tv-devices" : `/app/tv-devices?status=${s}`;
+            const href = s === "all" ? "/ops/tv-devices" : `/ops/tv-devices?status=${s}`;
             return (
               <Link
                 key={s}
@@ -127,7 +127,7 @@ export default async function TvDevicesPage({
       ) : visibleRows.length === 0 ? (
         <p style={emptyStyle}>
           この稼働ステータスに該当する TV はありません。
-          <Link href="/app/tv-devices" style={{ marginLeft: "0.5rem", ...editLinkStyle }}>
+          <Link href="/ops/tv-devices" style={{ marginLeft: "0.5rem", ...editLinkStyle }}>
             すべて表示
           </Link>
         </p>
@@ -214,7 +214,7 @@ function DeviceRow({
       <td style={tdLeftStyle}>
         <span style={actionsCellStyle}>
           <Link
-            href={`/app/tv-devices/${device.id}/history`}
+            href={`/ops/tv-devices/${device.id}/history`}
             style={editLinkStyle}
             aria-label={`${device.label ?? "ラベル未設定の TV"} の稼働履歴を表示`}
           >
@@ -222,7 +222,7 @@ function DeviceRow({
           </Link>
           {canEditConfig && (
             <Link
-              href={`/app/tv-devices/${device.id}/edit`}
+              href={`/ops/tv-devices/${device.id}/edit`}
               style={editLinkStyle}
               aria-label={`${device.label ?? "ラベル未設定の TV"} の設定を編集`}
             >

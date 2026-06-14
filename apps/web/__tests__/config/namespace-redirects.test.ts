@@ -28,7 +28,7 @@ describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
   });
 
   it("残る学校系 /admin/* を /app/* へ catch-all で 308 集約する (PR-3)", () => {
-    // 素の /admin/:path* catch-all (index + account/signage-preview/dashboard/sensors/reports/tv-devices/
+    // 素の /admin/:path* catch-all (index + account/signage-preview/dashboard/sensors/reports/
     // editor/school/contents/chat/teacher-input を一括) が /app/:path* へ。:path* は 0 セグメントにも一致。
     const catchAll = NAMESPACE_REDIRECTS.find((r) => r.source === "/admin/:path*");
     expect(catchAll, "/admin catch-all 未配線").toBeDefined();
@@ -36,21 +36,35 @@ describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
     expect(catchAll?.permanent).toBe(true);
   });
 
+  it("§43: tv-devices は /ops へ。旧 /admin/tv-devices と一時的 /app/tv-devices の両方を /ops/tv-devices へ 308", () => {
+    const fromAdmin = NAMESPACE_REDIRECTS.find((r) => r.source === "/admin/tv-devices/:path*");
+    expect(fromAdmin, "/admin/tv-devices 未配線").toBeDefined();
+    expect(fromAdmin?.destination).toBe("/ops/tv-devices/:path*");
+    expect(fromAdmin?.permanent).toBe(true);
+    const fromApp = NAMESPACE_REDIRECTS.find((r) => r.source === "/app/tv-devices/:path*");
+    expect(fromApp, "/app/tv-devices 未配線").toBeDefined();
+    expect(fromApp?.destination).toBe("/ops/tv-devices/:path*");
+    expect(fromApp?.permanent).toBe(true);
+  });
+
   it("全エントリが permanent (308) で、source は旧 namespace・destination は新 namespace を指す", () => {
     expect(NAMESPACE_REDIRECTS.length).toBeGreaterThan(0);
     for (const r of NAMESPACE_REDIRECTS) {
       expect(r.permanent).toBe(true);
-      expect(r.source.startsWith("/admin")).toBe(true);
+      // source は旧 /admin/* か、§43 で再移設した一時的 /app/tv-devices。
+      expect(r.source.startsWith("/admin") || r.source.startsWith("/app")).toBe(true);
       expect(r.destination.startsWith("/ops") || r.destination.startsWith("/app")).toBe(true);
     }
   });
 
-  it("順序: /admin/system (→ /ops) は /admin catch-all (→ /app) より前にある (first-match-wins)", () => {
-    // 逆順だと /admin/system/schools が /admin/:path* に先に飲まれ /app/system/schools (存在しない) へ 308 → 404。
-    const sysIdx = NAMESPACE_REDIRECTS.findIndex((r) => r.source === "/admin/system/:path*");
+  it("順序: 具体 prefix (/admin/system・/admin/tv-devices → /ops) は /admin catch-all (→ /app) より前 (first-match-wins)", () => {
+    // 逆順だと /admin/system/schools や /admin/tv-devices が /admin/:path* に先に飲まれ /app/... (存在しない) へ 308 → 404。
     const catchAllIdx = NAMESPACE_REDIRECTS.findIndex((r) => r.source === "/admin/:path*");
-    expect(sysIdx).toBeGreaterThanOrEqual(0);
     expect(catchAllIdx).toBeGreaterThanOrEqual(0);
-    expect(sysIdx).toBeLessThan(catchAllIdx);
+    for (const specific of ["/admin/system/:path*", "/admin/tv-devices/:path*"]) {
+      const idx = NAMESPACE_REDIRECTS.findIndex((r) => r.source === specific);
+      expect(idx, `${specific} が未配線`).toBeGreaterThanOrEqual(0);
+      expect(idx, `${specific} は /admin catch-all より前であるべき`).toBeLessThan(catchAllIdx);
+    }
   });
 });

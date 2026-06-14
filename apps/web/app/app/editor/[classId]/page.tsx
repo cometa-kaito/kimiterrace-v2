@@ -1,36 +1,39 @@
+import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
-import { PUBLISHER_ROLES } from "@/lib/contents/publish-core";
 import { withSession } from "@/lib/db";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
-import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
-import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
 import { getCalloutsForClass, getVisitorsForClass } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { EditorAssistant } from "@/app/app/editor/_components/EditorAssistant";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
-import { RememberLastClass } from "./_components/RememberLastClass";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
-import { EditorBoard } from "./_components/EditorBoard";
+import { ClassEditorShell } from "./_components/ClassEditorShell";
 import { NoticeEditor } from "./_components/NoticeEditor";
+import { RememberLastClass } from "./_components/RememberLastClass";
 import { ScheduleEditor } from "./_components/ScheduleEditor";
 import { VisitorsEditor } from "./_components/VisitorsEditor";
 
 /**
- * クラス別エディタ — Schedule (#48-H) + Notice / Assignment (#48-I) セクション。
+ * クラス別エディタ — 会話型 AI への作り直し（finding 2b・学校体験リニューアル 2026-06-13）。
  *
- * `/admin` 配下 (#48-C layout で認証) + 本ページで `EDITOR_ROLES` (teacher / school_admin) に限定。
- * `?date=YYYY-MM-DD` で対象日を指定 (既定は JST 今日)。別テナントのクラスは RLS 不可視 → 404。
- * 3 セクションを 1 つの `withSession` 内でまとめて読み (RLS tx を共有)、各クライアント編集器に渡す。
+ * `/app` 配下 (#48-C layout で認証) + 本ページで `EDITOR_ROLES` (teacher / school_admin) に限定。
+ * `?date=YYYY-MM-DD` で対象日（既定は JST 今日）。別テナントのクラスは RLS 不可視 → 404。
  *
- * 段B (2026-06-07): 3 セクションを `EditorBoard`（サイネージ盤面風レイアウト）に並べる。PC は盤面風
- * グリッド、スマホは縦積みフォーム（CSS Module のメディアクエリ）。編集ロジックは各 Editor が担い、
- * 本ページは見出し + 対象解決 + データ取得に徹する。
+ * **タブ shell（{@link ClassEditorShell}）**: 「AIで作る（会話型 {@link EditorChat}）/ 盤面を編集 /
+ * プレビュー」。開いた瞬間は **AI タブが既定**（話して作るを主役に）。旧ポップオーバー Assistant と
+ * 表紙の 4 リンク（サイネージ確認 / 生徒リンク / 掲示物Q&A / 音声入力）は撤去（ユーザー判断 2026-06-13）:
+ * サイネージ確認は**プレビュータブ**へ、生徒リンク発行は**管理者面へ移管**、掲示物Q&A・音声入力は
+ * **会話型 AI に内包**。`広告管理` / `静粛時間` は school_admin の per-class 管理導線として「盤面を編集」
+ * タブに残す（teacher には出さない＝死リンク防止）。
+ *
+ * 反映の取りこぼし防止: 会話の下書きを**現在の盤面でシード**する（per-section save は置換のため、AI が
+ * 触れなかったセクションも全体像として保持してから反映する）。許可セクション（pattern 準拠）の解決と
+ * 盤面プレビュー内蔵は AI レーン meta + その他レーン pattern 単一ソースで段階的に効く。
  */
 const JST = "Asia/Tokyo";
 
@@ -43,17 +46,9 @@ export default async function ClassEditorPage({
 }) {
   const user = await requireRole(EDITOR_ROLES);
   const { classId } = await params;
-  // 広告管理 / 静粛時間は school_admin / system_admin 専任 (ads-core / quiet-hours-core)。teacher も
-  // このエディタを使うため、teacher には死リンク (403 になる遷移) を出さない (#48-J Low-1 出し分け)。
+  // 広告管理 / 静粛時間は school_admin / system_admin 専任。teacher には出さない（死リンク防止）。
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
-  // 生徒/サイネージ アクセスリンク発行は teacher / school_admin（= 本ページの EDITOR_ROLES と同集合）。
-  // 死リンク防止のため発行可ロールのみ導線を出す（magic-link ページは MAGIC_LINK_ISSUER_ROLES で 403 ガード）。
-  const canIssueMagicLink = isRoleAllowed(user.role, MAGIC_LINK_ISSUER_ROLES);
-  // 教員 nav は「エディタ」1 項目に集約済み（2026-06-11 ユーザー判断）。教員が必要とする AI 系
-  // （掲示物 Q&A / 音声・チャット入力と履歴）はクラスエディタ内から辿れるようにする（UIUX-02・隠さない）。
-  const canChat = isRoleAllowed(user.role, PUBLISHER_ROLES);
-  const canTeacherInput = isRoleAllowed(user.role, TEACHER_INPUT_STAFF_ROLES);
   const { date: dateParam } = await searchParams;
   const date =
     dateParam && isValidDate(dateParam)
@@ -67,10 +62,7 @@ export default async function ClassEditorPage({
     }
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
-    // パターン2「来校者一覧」: 当日のこのクラスの来校者（RLS 自校限定）。pattern1 校では表示に出ないが、
-    // エディタは共通（教員/事務が入力。場所/対象者と同じく入力は常時可能）。
     const visitors = await getVisitorsForClass(tx, classId, date);
-    // パターン2「生徒呼び出し」: 当日のこのクラスの呼び出し（RLS 自校限定・実名は ADR-034 境界下）。
     const callouts = await getCalloutsForClass(tx, classId, date);
     return { schedule, notices, assignments, visitors, callouts };
   });
@@ -82,105 +74,95 @@ export default async function ClassEditorPage({
 
   return (
     <>
-      <EditorBoard
-        header={
-          <>
-            <header style={{ marginBottom: "1rem" }}>
-              {/* ?stay=1: 単一クラス teacher の自動直行（エディタ着地）とのループを防ぎ、選択画面に留まれるようにする。 */}
-              <Link
-                href="/app/editor?stay=1"
-                style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
-              >
-                ← 編集対象の選択へ戻る
-              </Link>
-              <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
-                {schedule.className}
-              </h1>
-              {/*
-              編集中の内容が「生徒のサイネージに今どう出るか」をその場で確認する導線 (#48-E1 の
-              signage-preview への入口)。盤面を見ずに編集する死角を解消する。EDITOR_ROLES ⊂ ADMIN_ROLES
-              ゆえ teacher でも 403 にならない (preview は ADMIN_ROLES ガード)。別タブで開き、編集を続けながら
-              プレビューを再読込できるようにする。
-            */}
-              <p style={{ margin: "0 0 0.25rem" }}>
-                <Link
-                  href={`/app/signage-preview/${classId}?date=${date}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.35rem",
-                    fontSize: "0.9rem",
-                    fontWeight: 600,
-                    color: tokens.color.primaryHover,
-                  }}
-                >
-                  サイネージ表示を確認（別タブ） →
-                </Link>
-              </p>
-              {canManageAds || canManageQuietHours || canIssueMagicLink || canChat ? (
-                <p
-                  style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}
-                >
-                  {canIssueMagicLink ? (
-                    <Link href={`/app/editor/${classId}/magic-link`} style={{ fontSize: "0.9rem" }}>
-                      サイネージ・生徒リンク →
-                    </Link>
-                  ) : null}
-                  {canManageAds ? (
-                    <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-                      広告管理 →
-                    </Link>
-                  ) : null}
-                  {canManageQuietHours ? (
-                    <Link
-                      href={`/app/editor/${classId}/quiet-hours`}
-                      style={{ fontSize: "0.9rem" }}
-                    >
-                      静粛時間 →
-                    </Link>
-                  ) : null}
-                  {canChat ? (
-                    <Link href="/app/chat" style={{ fontSize: "0.9rem" }}>
-                      掲示物 Q&A →
-                    </Link>
-                  ) : null}
-                  {canTeacherInput ? (
-                    <Link href="/app/teacher-input" style={{ fontSize: "0.9rem" }}>
-                      音声/チャット入力・履歴 →
-                    </Link>
-                  ) : null}
-                </p>
-              ) : null}
-            </header>
-            {/* AI おまかせ入口はページを開いた瞬間に見せる（UIUX-02: FAB だけに隠さない）。 */}
-            <EditorAssistant
-              scope="class"
-              targetId={classId}
-              date={date}
-              existingNotices={notices.items}
-              existingSchedules={schedule.items}
-              existingAssignments={assignments.items}
-              hero
-            />
-          </>
-        }
-        schedule={
-          <ScheduleEditor
-            classId={schedule.classId}
-            date={schedule.date}
-            initialItems={schedule.items}
+      <header style={{ marginBottom: "1rem" }}>
+        {/* ?stay=1: 単一クラス teacher の自動直行（着地）とのループを防ぎ、選択画面に留まれるようにする。 */}
+        <Link
+          href="/app/editor?stay=1"
+          style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
+        >
+          ← 編集対象の選択へ戻る
+        </Link>
+        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0" }}>{schedule.className}</h1>
+      </header>
+
+      <ClassEditorShell
+        ai={
+          <EditorChat
+            scope="class"
+            targetId={classId}
+            date={date}
+            initialDraft={{
+              schedules: schedule.items,
+              notices: notices.items,
+              assignments: assignments.items,
+            }}
           />
         }
-        notices={<NoticeEditor classId={classId} date={date} initialItems={notices.items} />}
-        assignments={
-          <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
+        board={
+          <>
+            {canManageAds || canManageQuietHours ? (
+              <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 1rem" }}>
+                {canManageAds ? (
+                  <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                    広告管理 →
+                  </Link>
+                ) : null}
+                {canManageQuietHours ? (
+                  <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
+                    静粛時間 →
+                  </Link>
+                ) : null}
+              </p>
+            ) : null}
+            {/* 盤面を編集タブ: 1 カラム全幅でセクションを積む（finding: 旧 2 カラムで提出物が窮屈→横スクロール
+                を解消）。広告/天気の read-only プレビューは「プレビュー」タブに集約したのでここには出さない。 */}
+            <div style={{ display: "grid", gap: "1rem" }}>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>予定</h2>
+                <ScheduleEditor
+                  classId={schedule.classId}
+                  date={schedule.date}
+                  initialItems={schedule.items}
+                />
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>連絡</h2>
+                <NoticeEditor classId={classId} date={date} initialItems={notices.items} />
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>提出物</h2>
+                <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
+              </section>
+            </div>
+            <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+            <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+          </>
+        }
+        preview={
+          <p style={{ margin: 0 }}>
+            <Link
+              href={`/app/signage-preview/${classId}?date=${date}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "0.95rem", fontWeight: 600, color: tokens.color.primaryHover }}
+            >
+              サイネージ表示を確認（別タブ） →
+            </Link>
+          </p>
         }
       />
-      <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
-      <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
       <RememberLastClass classId={classId} />
     </>
   );
 }
+
+// 盤面を編集タブの 1 カラムセクションカード（全幅・横スクロール解消）。
+const boardCardStyle: React.CSSProperties = {
+  border: `1px solid ${tokens.color.border}`,
+  borderRadius: tokens.radius.lg,
+  padding: "1rem 1.25rem",
+};
+const boardCardTitleStyle: React.CSSProperties = {
+  fontSize: "1.05rem",
+  margin: "0 0 0.5rem",
+};

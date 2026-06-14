@@ -116,7 +116,7 @@ describe("navItemsForRole", () => {
       "/ops/advertisers",
       "/ops/dashboard",
       "/ops/sensors",
-      "/app/tv-devices",
+      "/ops/tv-devices",
       "/ops/reports",
       "/ops/feedback",
       "/ops/events",
@@ -147,13 +147,13 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/sensors");
   });
 
-  it("モニタ設定 (/app/tv-devices) は system_admin 専用 (F15 TV端末リモート管理、運営専用 nav・配線漏れ修正)", () => {
+  it("モニタ設定 (/ops/tv-devices) は system_admin 専用 (F15 TV端末リモート管理、運営専用 nav・配線漏れ修正)", () => {
     // F15 のページ群 (一覧/編集/履歴/新規登録) は実装済だが nav 配線が漏れていた (広告主 #46 と同型)。
     // 校務DX原則でセンサー管理と同じく運営 (system_admin) 専用に出す (school_admin/teacher の nav には出さない)。
     // 編集自体は TV_CONFIG_EDIT_ROLES(school_admin/system_admin) が URL 直打ちで可能だが、nav 導線は運営に集約。
-    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/app/tv-devices");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/tv-devices");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/tv-devices");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/tv-devices");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/tv-devices");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/tv-devices");
   });
 
   it("センサー管理（全校） (/ops/sensors) は system_admin 専用 (F13 全校横断、自校 /app/sensors とは別ルート)", () => {

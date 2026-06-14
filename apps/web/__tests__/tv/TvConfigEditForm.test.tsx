@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { TvConfigEditForm } from "@/app/app/tv-devices/[deviceId]/edit/_components/TvConfigEditForm";
+import { TvConfigEditForm } from "@/app/ops/tv-devices/[deviceId]/edit/_components/TvConfigEditForm";
 
 /**
  * TV 設定編集フォームの「配信される URL」プレビュー（端末別デザイン切替の可視フィードバック）。

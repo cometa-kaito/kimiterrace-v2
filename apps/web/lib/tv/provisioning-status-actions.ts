@@ -9,7 +9,7 @@ import { ONBOARDING_ROLES } from "./onboarding-core";
 /**
  * C方式 TV プロビジョニング: 管理 UI の**ライブ進捗ポーリング**用 Server Action。
  *
- * `/app/tv-devices/provision` でジョブ作成後、フォームが数秒間隔で本 Action を呼び status / current_step /
+ * `/ops/tv-devices/provision` でジョブ作成後、フォームが数秒間隔で本 Action を呼び status / current_step /
  * steps_json を再取得して表示する（一覧 page の status 再取得と同方式）。認可は system_admin 限定
  * （ONBOARDING_ROLES）、可視範囲は RLS 委譲。秘密は含まない（steps_json は秘密非格納で設計、ルール5）。
  */

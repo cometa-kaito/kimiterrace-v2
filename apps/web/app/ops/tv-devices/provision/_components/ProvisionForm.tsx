@@ -112,7 +112,7 @@ export function ProvisionForm({
         </dl>
         <ProvisionProgress jobId={created.jobId} />
         <div style={{ display: "flex", gap: "1rem", marginTop: "1rem", flexWrap: "wrap" }}>
-          <Link href="/app/tv-devices" style={linkBtnStyle}>
+          <Link href="/ops/tv-devices" style={linkBtnStyle}>
             一覧へ戻る
           </Link>
           <button type="button" onClick={() => setCreated(null)} style={linkBtnBtnStyle}>

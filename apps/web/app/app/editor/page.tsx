@@ -3,6 +3,8 @@ import { withSession } from "@/lib/db";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import { getSchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import type { GradeView } from "@/lib/school-admin/hub-queries";
+import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
+import { getSignageDesignPattern } from "@/lib/signage/signage-design";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { cookies } from "next/headers";
@@ -12,17 +14,15 @@ import { LAST_CLASS_COOKIE } from "./[classId]/_components/RememberLastClass";
 const { color, fontSize, radius } = tokens;
 
 /**
- * エディタ着地 (#48-H)。編集する **範囲** を **階層ツリー（学校全体 → 学科 → 学年 → クラス）** で選ぶ。
+ * エディタ着地 (#48-H)。編集する **クラス** または **共通範囲**（学校全体 / 学科 / 学年）を選ぶ。
  *
- * **分かりやすさ (ユーザー報告 2026-06-07「範囲選択 UI が分かりにくい」)**: 範囲の概念（広い範囲＝配下の全
- * クラスに共通表示 / クラス個別が優先）を冒頭で説明し、「共通（全体）」の編集ボタンを**青いピル**で、クラスは
- * **白いチップ**で視覚的に明確に区別する。これにより「クラスを編集」と「共通を編集」を取り違えにくくする。
+ * **見やすさ刷新 (UI レーン 2026-06-13、ユーザー指摘「見にくい」)**: クラス選択（最頻アクション）を
+ * **大きなタイルで主役**にし、頻用の「全クラス共通で出す」は**上部のクイック操作に常設**してクラスが
+ * 増えてもスクロールせず押せるようにする。学年共通は各学年見出しの右に置き、その場で押せる。重かった
+ * 概念説明ボックスは 1 行に圧縮する（白＝クラス / 共通＝青、という区別はレイアウトで表現）。
  *
- * **空状態はロール別 (校務DX原則)**: クラス 0 件のとき、school_admin には学校管理への導線を、teacher には
- * 「管理者が追加すると表示される」案内に留める（teacher は /app/school で 403 になるため死リンクを出さない）。
- *
- * **scope まとめ編集（段A-2）**: 「学校全体」「学科の共通」「学年の共通」で保存した内容は、より具体的なクラス
- * 個別入力が無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、
+ * **scope まとめ編集（段A-2）**: 「学校全体」「学科の共通」「学年の共通」で保存した内容は、より具体的な
+ * クラス個別入力が無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、
  * `effective-daily-data.ts`）。
  */
 export default async function EditorIndexPage({
@@ -31,7 +31,12 @@ export default async function EditorIndexPage({
   searchParams: Promise<{ stay?: string }>;
 }) {
   const user = await requireRole(EDITOR_ROLES);
-  const hierarchy = await withSession((tx) => getSchoolHierarchy(tx));
+  const { hierarchy, schoolPattern } = await withSession(async (tx) => {
+    const hierarchy = await getSchoolHierarchy(tx);
+    // クラスタイルの「何を編集する画面か」を示すパターンバッジ用（学校レベル既定）。
+    const schoolPattern = await getSignageDesignPattern(tx);
+    return { hierarchy, schoolPattern };
+  });
   const { departments, grades } = hierarchy;
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
@@ -53,43 +58,24 @@ export default async function EditorIndexPage({
   const lastClass = lastClassId ? (allClasses.find((c) => c.id === lastClassId) ?? null) : null;
 
   return (
-    <div style={{ maxWidth: "760px" }}>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.5rem" }}>エディタ — 編集する範囲を選ぶ</h1>
+    <div style={{ maxWidth: "780px" }}>
+      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>編集するクラスを選ぶ</h1>
+      <p style={{ margin: "0 0 1rem", color: color.muted, fontSize: fontSize.sm }}>
+        クラスを選ぶとそのクラスだけに表示。共通はすべてのクラスへ（クラス個別の入力が優先されます）。
+      </p>
 
-      {lastClass ? (
-        <p style={{ margin: "0 0 1rem" }}>
+      {/* クイック操作: 「前回のクラス」と「全クラス共通」は頻用なので常に上部（クラスが増えてもスクロール不要）。 */}
+      <div style={quickRowStyle}>
+        {lastClass ? (
           <Link href={`/app/editor/${lastClass.id}`} style={resumeBtnStyle}>
             <span aria-hidden="true">▶</span> 前回のクラスを再開 — {lastClass.gradeName}{" "}
             {lastClass.name}
           </Link>
-        </p>
-      ) : null}
-
-      {/* 範囲の概念を最初に説明（分かりにくさの主因＝何を選べばよいか不明）。 */}
-      <div style={explainStyle}>
-        <p style={{ margin: "0 0 0.4rem" }}>範囲を選んで、予定・連絡・提出物を編集します。</p>
-        <ul style={explainListStyle}>
-          <li>
-            <span style={classDot} /> <strong>クラス</strong>（白）を選ぶ … そのクラス
-            <strong>だけ</strong>に表示
-          </li>
-          <li>
-            <span style={scopeDot} /> <strong>共通</strong>（青：学校全体／学科／学年）を選ぶ …
-            配下の
-            <strong>全クラスに共通</strong>で表示
-          </li>
-        </ul>
-        <p style={{ margin: "0.4rem 0 0", color: color.muted, fontSize: fontSize.xs }}>
-          クラスに個別の入力があれば、共通より優先されます（優先順位: クラス ＞ 学年 ＞ 学科 ＞
-          学校全体）。
-        </p>
-      </div>
-
-      <p style={{ margin: "0 0 1rem" }}>
-        <Link href="/app/editor/scope/school" style={scopeBtnStyle}>
-          <span aria-hidden="true">▦</span> 学校全体の共通を編集
+        ) : null}
+        <Link href="/app/editor/scope/school" style={commonBtnStyle}>
+          <span aria-hidden="true">▦</span> 全クラス共通で出す
         </Link>
-      </p>
+      </div>
 
       {totalClasses === 0 ? (
         user.role === "school_admin" ? (
@@ -103,31 +89,29 @@ export default async function EditorIndexPage({
           </p>
         )
       ) : (
-        <div style={{ display: "grid", gap: "1rem" }}>
+        <div style={{ display: "grid", gap: "1.25rem" }}>
           {departments.length > 0 ? (
             <>
               {departments.map((d) => (
-                <section key={d.id} style={deptCardStyle}>
-                  <div style={headerRowStyle}>
+                <section key={d.id}>
+                  <div style={sectionHeadStyle}>
                     <h2 style={deptTitleStyle}>{d.name}</h2>
-                    <Link href={`/app/editor/scope/department/${d.id}`} style={scopeBtnSmallStyle}>
-                      <span aria-hidden="true">▦</span> この学科の共通を編集
+                    <Link href={`/app/editor/scope/department/${d.id}`} style={scopeChipStyle}>
+                      この学科の共通 →
                     </Link>
                   </div>
-                  <GradeGroups grades={gradesOf(d.id)} />
+                  <GradeGroups grades={gradesOf(d.id)} schoolPattern={schoolPattern} />
                 </section>
               ))}
               {orphanGrades.length > 0 ? (
-                <section style={deptCardStyle}>
+                <section>
                   <h2 style={deptTitleStyle}>学科未割当</h2>
-                  <GradeGroups grades={orphanGrades} />
+                  <GradeGroups grades={orphanGrades} schoolPattern={schoolPattern} />
                 </section>
               ) : null}
             </>
           ) : (
-            <section style={deptCardStyle}>
-              <GradeGroups grades={grades} />
-            </section>
+            <GradeGroups grades={grades} schoolPattern={schoolPattern} />
           )}
         </div>
       )}
@@ -135,38 +119,40 @@ export default async function EditorIndexPage({
   );
 }
 
-/** 学年ごとに見出し + 「学年の共通」ボタン + 配下クラスのチップを出す。 */
-function GradeGroups({ grades }: { grades: GradeView[] }) {
+/** 学年ごとに見出し + 「学年の共通」ボタン + 配下クラスの大きなタイル（パターンバッジ付き）を出す。 */
+function GradeGroups({
+  grades,
+  schoolPattern,
+}: {
+  grades: GradeView[];
+  schoolPattern: SignageDesignPattern;
+}) {
   if (grades.length === 0) {
     return <p style={mutedSmallStyle}>学年がありません。</p>;
   }
   return (
-    <div style={{ display: "grid", gap: "0.8rem" }}>
+    <div style={{ display: "grid", gap: "1rem" }}>
       {grades.map((g) => (
         <div key={g.id}>
-          <div style={headerRowStyle}>
+          <div style={sectionHeadStyle}>
             <h3 style={gradeTitleStyle}>{g.name}</h3>
-            <Link href={`/app/editor/scope/grade/${g.id}`} style={scopeBtnSmallStyle}>
-              <span aria-hidden="true">▦</span> この学年の共通を編集
+            <Link href={`/app/editor/scope/grade/${g.id}`} style={scopeChipStyle}>
+              この学年の共通 →
             </Link>
           </div>
           {g.classes.length === 0 ? (
             <p style={mutedSmallStyle}>クラスがありません（学校管理で追加）。</p>
           ) : (
-            <div
-              style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}
-            >
-              <span style={classGroupLabel}>クラス:</span>
-              <ul style={classListStyle}>
-                {g.classes.map((c) => (
-                  <li key={c.id}>
-                    <Link href={`/app/editor/${c.id}`} style={classLinkStyle}>
-                      {c.name}
-                      <span style={classMetaStyle}>{c.academicYear}年度</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+            <div style={classGridStyle}>
+              {g.classes.map((c) => (
+                <Link key={c.id} href={`/app/editor/${c.id}`} style={classTileStyle}>
+                  <span style={classTileNameStyle}>{c.name}</span>
+                  <span style={classTileMetaRowStyle}>
+                    <span style={classTileYearStyle}>{c.academicYear}年度</span>
+                    <PatternBadge pattern={schoolPattern} />
+                  </span>
+                </Link>
+              ))}
             </div>
           )}
         </div>
@@ -175,70 +161,45 @@ function GradeGroups({ grades }: { grades: GradeView[] }) {
   );
 }
 
-const explainStyle: React.CSSProperties = {
-  border: `1px solid ${color.infoBorder}`,
-  background: color.infoBg,
-  borderRadius: "10px",
-  padding: "0.75rem 1rem",
-  marginBottom: "1rem",
-  fontSize: "0.9rem",
-  color: color.ink,
-};
-const explainListStyle: React.CSSProperties = {
-  margin: 0,
-  paddingLeft: "1.1rem",
-  display: "grid",
-  gap: "0.2rem",
-};
-const classDot: React.CSSProperties = {
-  display: "inline-block",
-  width: "0.7rem",
-  height: "0.7rem",
-  borderRadius: "3px",
-  border: `1px solid ${color.border}`,
-  background: "#fff",
-  verticalAlign: "middle",
-};
-const scopeDot: React.CSSProperties = {
-  display: "inline-block",
-  width: "0.7rem",
-  height: "0.7rem",
-  borderRadius: "3px",
-  border: `1px solid ${color.infoBorder}`,
-  background: color.infoBg,
-  verticalAlign: "middle",
-};
-const mutedStyle: React.CSSProperties = { color: color.muted };
-const mutedSmallStyle: React.CSSProperties = {
-  color: color.muted,
-  fontSize: fontSize.sm,
-  margin: 0,
-};
-const deptCardStyle: React.CSSProperties = {
-  border: `1px solid ${color.border}`,
-  borderRadius: "10px",
-  padding: "1rem",
-};
-const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
-const gradeTitleStyle: React.CSSProperties = {
-  fontSize: fontSize.md,
-  color: color.neutralFg,
-  margin: 0,
-};
-const headerRowStyle: React.CSSProperties = {
+/**
+ * クラスが「何を編集する画面か（サイネージパターン）」を一目で示すバッジ。
+ *
+ * TODO(その他レーン / pattern 単一ソース): 現状は **学校レベル既定**（`getSignageDesignPattern`）を全クラス
+ * 共通で表示している。端末別 `?design` 上書きを含む **per-class 解決**は、pattern→ブロックの宣言的単一
+ * ソース（finding①）確定後にそこから取得して差し替える（バッジ位置・見た目は本実装を流用）。
+ */
+function PatternBadge({ pattern }: { pattern: SignageDesignPattern }) {
+  const isP2 = pattern === "pattern2";
+  return (
+    <span
+      style={{
+        fontSize: fontSize.xs,
+        padding: "0.05rem 0.45rem",
+        borderRadius: radius.sm,
+        background: isP2 ? color.warningBg : color.infoBg,
+        color: isP2 ? color.warningFg : color.infoFg,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {isP2 ? "パターン2" : "パターン1"}
+    </span>
+  );
+}
+
+const quickRowStyle: React.CSSProperties = {
   display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "0.75rem",
-  marginBottom: "0.5rem",
   flexWrap: "wrap",
+  gap: "0.75rem",
+  marginBottom: "1.5rem",
 };
-// 「前回のクラスを再開」: 最頻アクションなのでブランドのアクション色で最も目立たせる（タップ 48px）。
+// 「前回のクラス」: 最頻アクションなのでブランドのアクション色（オレンジ）で最も目立たせる（タップ 52px）。
 const resumeBtnStyle: React.CSSProperties = {
+  flex: "1 1 240px",
   display: "inline-flex",
   alignItems: "center",
+  justifyContent: "center",
   gap: "0.5rem",
-  minHeight: "48px",
+  minHeight: "52px",
   padding: "0.6rem 1.2rem",
   background: color.primary,
   color: "#fff",
@@ -247,48 +208,80 @@ const resumeBtnStyle: React.CSSProperties = {
   fontWeight: 700,
   textDecoration: "none",
 };
-// 「共通（全体）」編集ボタン: クラスの白チップと明確に区別する青いピル（文字はブランドブルー）。
-// タブレット/タッチ前提で最小 44px のタップ領域を確保する（UIUX-02）。
-const scopeBtnStyle: React.CSSProperties = {
+// 「全クラス共通で出す」: 頻用の副次アクション。ブランドブルーで前回クラス（オレンジ）と並べて常設。
+const commonBtnStyle: React.CSSProperties = {
+  flex: "1 1 240px",
   display: "inline-flex",
   alignItems: "center",
-  gap: "0.35rem",
-  minHeight: "44px",
-  padding: "0.45rem 0.9rem",
-  border: `1px solid ${color.infoBorder}`,
-  borderRadius: radius.pill,
+  justifyContent: "center",
+  gap: "0.5rem",
+  minHeight: "52px",
+  padding: "0.6rem 1.2rem",
+  background: color.blueStrong,
+  color: "#fff",
+  borderRadius: radius.md,
+  fontSize: "1rem",
+  fontWeight: 600,
+  textDecoration: "none",
+};
+const sectionHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "0.75rem",
+  marginBottom: "0.6rem",
+  flexWrap: "wrap",
+};
+const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
+const gradeTitleStyle: React.CSSProperties = {
+  fontSize: fontSize.md,
+  color: color.neutralFg,
+  margin: 0,
+  fontWeight: 600,
+};
+// 「この学年/学科の共通」: その場で押せる青チップ（タップ 36px）。クラスタイル（白）と色で区別。
+const scopeChipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "36px",
+  padding: "0.35rem 0.8rem",
+  borderRadius: radius.md,
   background: color.infoBg,
   color: color.blueStrong,
-  fontSize: "0.9rem",
+  fontSize: fontSize.sm,
   fontWeight: 600,
   textDecoration: "none",
   whiteSpace: "nowrap",
 };
-const scopeBtnSmallStyle: React.CSSProperties = {
-  ...scopeBtnStyle,
-  padding: "0.35rem 0.8rem",
-  fontSize: fontSize.sm,
+const classGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+  gap: "0.6rem",
 };
-const classGroupLabel: React.CSSProperties = { fontSize: fontSize.sm, color: color.muted };
-const classListStyle: React.CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
+// クラスタイル: 主役。白カードで大きくタップしやすく（最小 66px）、年度＋パターンを添える。
+const classTileStyle: React.CSSProperties = {
   display: "flex",
-  flexWrap: "wrap",
-  gap: "0.5rem",
-};
-const classLinkStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.5rem",
-  minHeight: "44px",
-  padding: "0.5rem 1rem",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: "0.4rem",
+  minHeight: "66px",
+  padding: "0.7rem 0.85rem",
   border: `1px solid ${color.border}`,
-  borderRadius: radius.sm,
+  borderRadius: radius.md,
+  background: "#fff",
   textDecoration: "none",
   color: color.ink,
-  background: "#fff",
-  fontSize: "1rem",
 };
-const classMetaStyle: React.CSSProperties = { color: color.muted, fontSize: fontSize.xs };
+const classTileNameStyle: React.CSSProperties = { fontSize: "1rem", fontWeight: 600 };
+const classTileMetaRowStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.4rem",
+};
+const classTileYearStyle: React.CSSProperties = { fontSize: fontSize.xs, color: color.muted };
+const mutedStyle: React.CSSProperties = { color: color.muted };
+const mutedSmallStyle: React.CSSProperties = {
+  color: color.muted,
+  fontSize: fontSize.sm,
+  margin: 0,
+};

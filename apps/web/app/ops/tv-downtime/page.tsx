@@ -33,7 +33,7 @@ const CAUSE_LABEL: Record<TvDowntimeCauseValue, string> = TV_DOWNTIME_CAUSE_LABE
  *
  * `tv_device_downtime` (F16 / ADR-023: 死活チェッカが populate する無応答インシデント記録) を、
  * 学校・デバイスつきで全校横断に一覧する。**デバイス単位の履歴表示とは別物**:
- * `/app/tv-devices/[deviceId]/history` (`listTvDeviceDowntime`) は school_admin も使う 1 台分の
+ * `/ops/tv-devices/[deviceId]/history` (`listTvDeviceDowntime`) は school_admin も使う 1 台分の
  * 稼働履歴 + 稼働サマリで、本ページは system_admin が「どの学校のどの TV が・いつ・どれだけ
  * 落ちていたか」を横串で運用調査する**全校横断ログ**。共通 DataList 基盤 (検索 / 列ソート /
  * 学校・復旧状態フィルタ / 発生日範囲 / ページング) を適用し、データ取得は `listTvDowntimeLogPage`
