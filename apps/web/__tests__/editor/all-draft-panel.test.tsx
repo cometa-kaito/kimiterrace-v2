@@ -45,7 +45,7 @@ vi.mock("@/lib/teacher-input/use-speech-to-text", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: h.refresh }) }));
 
-import { AllDraftPanel } from "../../app/admin/editor/_components/AllDraftPanel";
+import { AllDraftPanel } from "../../app/app/editor/_components/AllDraftPanel";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
 

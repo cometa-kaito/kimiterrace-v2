@@ -20,7 +20,7 @@ vi.mock("../../lib/system-admin/feedback-list", () => ({
 }));
 
 import { listFeedbackPage } from "../../lib/system-admin/feedback-list";
-import SystemFeedbackPage from "../../app/admin/system/feedback/page";
+import SystemFeedbackPage from "../../app/ops/feedback/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { SYSTEM_ADMIN_ROLES } from "../../lib/system-admin/roles";

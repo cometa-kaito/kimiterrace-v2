@@ -24,8 +24,8 @@ describe("PUBLISH_SCOPES", () => {
   });
 });
 
-describe("PUBLISHER_ROLES (#166: /admin/contents を publisher 専用にする認可集合)", () => {
-  // /admin/contents[/[id]] は `requireRole(PUBLISHER_ROLES)` で gate する。requireRole は
+describe("PUBLISHER_ROLES (#166: /app/contents を publisher 専用にする認可集合)", () => {
+  // /app/contents[/[id]] は `requireRole(PUBLISHER_ROLES)` で gate する。requireRole は
   // 内部で isRoleAllowed を使うため、ここでガード集合の振る舞いを直接固定する。
   it("school_admin / teacher のみ許可する", () => {
     expect(isRoleAllowed("school_admin", PUBLISHER_ROLES)).toBe(true);

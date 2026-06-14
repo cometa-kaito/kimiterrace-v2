@@ -20,6 +20,7 @@ import {
   getEffectiveDailyData,
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
+import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
 import { signageScheduleDates } from "./rotation";
 import {
@@ -155,6 +156,18 @@ export async function getSignageDisplayData(
       // トークンは有効だがクラスが (別テナント等で) 不可視 → null。呼び出し側が無効扱いにする。
       return null;
     }
+    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
+    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
+    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
+    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
+    // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
+    //
+    // **パターンを先に解決する**理由: 盤面に出すブロックは `PATTERN_BLOCKS`（単一ソース）が決めるので、
+    // パターン別ブロック（来校者/呼び出し/センサ/鉄道）の取得を `patternIncludesBlock` で出し分け、含まない
+    // パターン（例 pattern1）では引かない＝無駄クエリを省く（単一ソースがデータ取得まで駆動・finding①）。
+    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+      ? designParam
+      : await getSignageDesignPattern(tx);
     const ads = await getEffectiveAdsForClass(tx, cls.classId);
     // 予定グリッド (今後 3 平日)。`date` を起点に土日を飛ばした 3 平日ぶんの schedules を 1 クエリで取得
     // (v1 ScheduleGrid の nextThreeWeekdays 移植)。同一 tx 内なので追加コネクションは増やさない。
@@ -167,31 +180,31 @@ export async function getSignageDisplayData(
     // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
     // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
     const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
-    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
-    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
-    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
-    // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
-    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
-      ? designParam
-      : await getSignageDesignPattern(tx);
     // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
     // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
     const classContext = await getSignageClassContext(tx, cls.classId);
-    // パターン2「人感センサカウンタ」: このクラスの本日(JST=`date`)の presence 検知件数。同一 tx・RLS
-    // 自校限定（ルール2）。pattern2 でのみ使うが、payload は両パターン共通なので常に解決する。取得失敗は
-    // **fail-soft** で null に倒し、ウィジェットは「計測なし」表示にする（盤面の他要素は壊さない）。
-    const presenceCount = await getTodayPresenceCount(tx, cls.classId, date).catch(() => null);
-    // パターン2「来校者一覧」: このクラスの当日(JST=`date`)の来校者を時刻順で取得。同一 tx・RLS 自校限定
-    // （ルール2）。pattern2 でのみ使うが payload は両パターン共通なので常に解決。取得失敗は fail-soft で
-    // null に倒し、ウィジェットは「来校者はありません」表示にする（盤面の他要素は壊さない）。
-    const visitors = await getVisitorsForClass(tx, cls.classId, date).catch(() => null);
-    // パターン2「生徒呼び出し」: このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。同一 tx・RLS 自校限定
-    // （ルール2）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。取得失敗は fail-soft で null。
-    const callouts = await getCalloutsForClass(tx, cls.classId, date).catch(() => null);
-    // パターン2「鉄道」: 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は
-    // 閉域（名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。取得失敗は fail-soft で null。
-    const trainStatus = await getSignageRailwayStatus(tx).catch(() => null);
+    // 以下 4 つはパターン別ブロック（`PATTERN_BLOCKS` に含まれる時だけ取得）。含まないパターンでは取得せず
+    // `null`＝盤面でも出さない（単一ソースがデータ取得を駆動）。取得する場合の失敗は従来どおり fail-soft で
+    // null に倒し、ウィジェットは不在表示にする（盤面の他要素は壊さない）。同一 tx・RLS 自校限定（ルール2）。
+    //
+    // 「人感センサカウンタ」= このクラスの本日(JST=`date`)の presence 検知件数。
+    const presenceCount = patternIncludesBlock(designPattern, "presence")
+      ? await getTodayPresenceCount(tx, cls.classId, date).catch(() => null)
+      : null;
+    // 「来校者一覧」= このクラスの当日(JST=`date`)の来校者を時刻順で取得。
+    const visitors = patternIncludesBlock(designPattern, "visitor")
+      ? await getVisitorsForClass(tx, cls.classId, date).catch(() => null)
+      : null;
+    // 「生徒呼び出し」= このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。実名表示の境界は ADR-034
+    // （Vertex 非送信＝payload 直返しのみ）。
+    const callouts = patternIncludesBlock(designPattern, "callout")
+      ? await getCalloutsForClass(tx, cls.classId, date).catch(() => null)
+      : null;
+    // 「鉄道」= 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は閉域
+    // （名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。
+    const trainStatus = patternIncludesBlock(designPattern, "train")
+      ? await getSignageRailwayStatus(tx).catch(() => null)
+      : null;
     return {
       date,
       designPattern,

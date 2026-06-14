@@ -19,10 +19,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: 教職員一覧 (`/admin/system/users`) のページング/検索/ソート対応 SELECT 層。
+ * UIUX-03: 教職員一覧 (`/ops/users`) のページング/検索/ソート対応 SELECT 層。
  * `school-list.ts` と同構造 (共通 DataList 基盤の 2 例目)。
  *
  * ## 置き場所 (並行レーン回避)

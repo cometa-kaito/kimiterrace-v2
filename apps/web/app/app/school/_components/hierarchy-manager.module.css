@@ -1,0 +1,24 @@
+/*
+ * 行ホバー/フォーカスで操作（⋯ メニュー・エディタ導線）を出す「素の状態」。
+ * 平常時は畳んで視覚ノイズを抑え、行に hover した時／配下にキーボードフォーカスが入った時だけ出す。
+ *
+ * a11y: 畳むのは **hover を持つ精密ポインタ（マウス）環境に限定**する（@media hover/pointer）。
+ * タッチ端末やホバーを持たない環境では常時表示し、操作不能に陥らせない。キーボード利用者は
+ * :focus-within で確実に出る（hover 環境でも非 hover 環境でも DOM 上に常在＝フォーカス到達可能）。
+ */
+@media (hover: hover) and (pointer: fine) {
+  .row .actions {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .row:hover .actions,
+  .row:focus-within .actions {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row .actions {
+    transition: none;
+  }
+}

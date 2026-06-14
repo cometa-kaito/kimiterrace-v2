@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MagicLinkManager } from "../../app/admin/editor/[classId]/magic-link/_components/MagicLinkManager";
+import { MagicLinkManager } from "../../app/app/editor/[classId]/magic-link/_components/MagicLinkManager";
 
 /**
  * F05 (#41): MagicLinkManager のテスト。fetch / clipboard を mock。

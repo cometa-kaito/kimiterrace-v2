@@ -57,7 +57,7 @@ export function middleware(request: NextRequest): NextResponse {
  * - /signage/*: F12/#48-E 公開サイネージ表示 (`/signage/{classToken}` + `/signage/{classToken}/data`)。
  *   端末は `__session` を持たない匿名公開経路。可否は classToken 解決 (resolve_magic_link) が
  *   判定し、失効/期限切れは無効画面 / 410 に倒す (app/(signage)/...)。除外しないと端末が /login に
- *   弾かれ実機破綻する。`/admin/signage-preview` は `admin` 始まりなので本除外の影響外 (保護のまま)。
+ *   弾かれ実機破綻する。`/app/signage-preview` は `signage/`(末尾スラッシュ)除外に一致しないため本除外の影響外 (保護のまま)。
  * - /ad-media/*: #46/ADR-037 広告メディアの公開・同一オリジン配信 (`/ad-media/{key}`)。サイネージ端末は
  *   `__session` を持たない匿名公開経路で、広告は公開掲示物 (PII 無し)。除外しないと端末が /login に弾かれ
  *   広告画像が出ない (現状 .png/.jpg は末尾拡張子除外で偶然通るが、video=.mp4 や拡張子規約変更で破綻するため

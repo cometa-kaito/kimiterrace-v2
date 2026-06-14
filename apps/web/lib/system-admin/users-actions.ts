@@ -86,7 +86,7 @@ const logger = createLogger("system-admin-users");
 
 /**
  * F11 (#47 / #324, ADR-026): system_admin が **全校横断**で教職員のアカウントを無効化 / 再有効化する
- * Server Action。`/admin/system/users` (#343) の各行から呼ぶ。
+ * Server Action。`/ops/users` (#343) の各行から呼ぶ。
  *
  * #336 の自校版 (`setMemberActiveAction`、school_admin → 自校 teacher) に対する **system_admin 版**で、
  * 任意校の school_admin / teacher を対象にできる。エンフォースは #336 と同じ IdP seam
@@ -215,7 +215,7 @@ export async function setStaffActiveAction(raw: {
     throw e;
   }
 
-  revalidatePath("/admin/system/users");
+  revalidatePath("/ops/users");
   return { ok: true, data: { id: userId, isActive: nextActive } };
 }
 
@@ -408,6 +408,6 @@ export async function createSystemStaffAction(raw: {
     throw error;
   }
 
-  revalidatePath("/admin/system/users");
+  revalidatePath("/ops/users");
   return { ok: true, data: { id: newUid, setupLink } };
 }

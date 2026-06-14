@@ -50,14 +50,14 @@ afterEach(() => {
 
 describe("enforceMfaGate (既定 OFF = 挙動不変)", () => {
   it("env 未設定: IdP を叩かず redirect もしない (回帰なし)", async () => {
-    await enforceMfaGate(teacher, "/admin/dashboard");
+    await enforceMfaGate(teacher, "/app/dashboard");
     expect(factorCountMock).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it("MFA_ENFORCEMENT=off: 同様に IdP も redirect もしない", async () => {
     process.env.MFA_ENFORCEMENT = "off";
-    await enforceMfaGate(teacher, "/admin/dashboard");
+    await enforceMfaGate(teacher, "/app/dashboard");
     expect(factorCountMock).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
   });
@@ -70,33 +70,33 @@ describe("enforceMfaGate (ON 時)", () => {
 
   it("未登録 (0 件) の teacher は enrollment へ redirect (throw)", async () => {
     factorCountMock.mockResolvedValue(0);
-    await expect(enforceMfaGate(teacher, "/admin/dashboard")).rejects.toThrow(
-      "NEXT_REDIRECT:/admin/account/mfa",
+    await expect(enforceMfaGate(teacher, "/app/dashboard")).rejects.toThrow(
+      "NEXT_REDIRECT:/app/account/mfa",
     );
-    expect(redirectMock).toHaveBeenCalledWith("/admin/account/mfa");
+    expect(redirectMock).toHaveBeenCalledWith("/app/account/mfa");
   });
 
   it("登録済み (1 件) は redirect しない (通す)", async () => {
     factorCountMock.mockResolvedValue(1);
-    await enforceMfaGate(teacher, "/admin/dashboard");
+    await enforceMfaGate(teacher, "/app/dashboard");
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it("ループ防止: 既に enrollment ページ配下なら IdP も叩かず redirect しない", async () => {
-    await enforceMfaGate(teacher, "/admin/account/mfa");
+    await enforceMfaGate(teacher, "/app/account/mfa");
     expect(factorCountMock).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it("fail-safe: IdP 読取が失敗したら redirect せず通す (可用性優先、最終防衛線は IdP challenge)", async () => {
     factorCountMock.mockRejectedValue(new Error("idp down"));
-    await enforceMfaGate(teacher, "/admin/dashboard");
+    await enforceMfaGate(teacher, "/app/dashboard");
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it("currentPath undefined でも未登録なら redirect する (ヘッダ取得失敗時も強制は効く)", async () => {
     factorCountMock.mockResolvedValue(0);
     await expect(enforceMfaGate(teacher, undefined)).rejects.toThrow("NEXT_REDIRECT");
-    expect(redirectMock).toHaveBeenCalledWith("/admin/account/mfa");
+    expect(redirectMock).toHaveBeenCalledWith("/app/account/mfa");
   });
 });

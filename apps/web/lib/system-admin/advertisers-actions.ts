@@ -100,8 +100,8 @@ export async function updateAdvertiserAction(
       await writeAdvertiserUpdateAudit(tx, user, advertiserId, before, v.value);
       return { id: advertiserId };
     });
-    revalidatePath("/admin/system/advertisers");
-    revalidatePath(`/admin/system/advertisers/${advertiserId}/edit`);
+    revalidatePath("/ops/advertisers");
+    revalidatePath(`/ops/advertisers/${advertiserId}/edit`);
     return { ok: true, data };
   } catch (error) {
     if (error instanceof AdvertiserNotFoundError) {
@@ -185,7 +185,7 @@ export async function setAdvertiserActiveAction(raw: {
       await writeAdvertiserActiveAudit(tx, user, id, isActive, status);
       return { id, isActive };
     });
-    revalidatePath("/admin/system/advertisers");
+    revalidatePath("/ops/advertisers");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof AdvertiserNotFoundError) {

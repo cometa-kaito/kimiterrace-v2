@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdMediaUpload } from "../../app/admin/editor/[classId]/ads/_components/AdMediaUpload";
+import { AdMediaUpload } from "../../app/app/editor/[classId]/ads/_components/AdMediaUpload";
 
 /**
  * #46 / ADR-037: AdMediaUpload — ファイル選択 → multipart POST /api/ads/media → 成功時 onUploaded で

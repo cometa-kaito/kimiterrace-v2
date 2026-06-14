@@ -19,7 +19,7 @@ import { TEACHER_INPUT_STAFF_ROLES } from "./roles";
  * **下書き content を作成**し、編集→公開の既存フローへ橋渡しする Server Action (ADR-008)。
  *
  * F01 受け入れ「抽出結果を編集してから公開」/ F02 受け入れ「抽出結果は F01 と同じ編集 UI に流れる」を
- * 満たす。作成後は呼出側 (CreateDraftButton) が `/admin/contents/{contentId}` へ遷移し、既存エディタで
+ * 満たす。作成後は呼出側 (CreateDraftButton) が `/app/contents/{contentId}` へ遷移し、既存エディタで
  * 編集 → `publishContentAction` で公開する。
  *
  * 設計: 本スライスは transcript を draft の本文に materialize する (Vertex 構造化抽出は #289 PII ゲート
@@ -82,7 +82,7 @@ export async function createDraftFromInputAction(
   if (outcome.kind === "no_transcript") {
     return { ok: false, code: "no_transcript", message: "本文が空のため下書きを作成できません。" };
   }
-  revalidatePath("/admin/contents");
-  revalidatePath("/admin/teacher-input/history");
+  revalidatePath("/app/contents");
+  revalidatePath("/app/teacher-input/history");
   return { ok: true, contentId: outcome.contentId };
 }

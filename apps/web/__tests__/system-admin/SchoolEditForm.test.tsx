@@ -15,7 +15,7 @@ vi.mock("@/lib/system-admin/schools-actions", () => ({
   clearSchoolTeacherPasswordAction: vi.fn(),
 }));
 
-import { SchoolEditForm } from "../../app/admin/system/schools/[id]/edit/_components/SchoolEditForm";
+import { SchoolEditForm } from "../../app/ops/schools/[id]/edit/_components/SchoolEditForm";
 import { updateSchoolAction } from "../../lib/system-admin/schools-actions";
 
 const updateMock = vi.mocked(updateSchoolAction);

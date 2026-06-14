@@ -8,7 +8,7 @@ vi.mock("@/lib/contents/publish-actions", () => ({
   unpublishContentAction: vi.fn(),
 }));
 
-import { PublishControls } from "../../app/admin/contents/_components/PublishControls";
+import { PublishControls } from "../../app/app/contents/_components/PublishControls";
 import { publishContentAction, unpublishContentAction } from "../../lib/contents/publish-actions";
 
 const publishMock = vi.mocked(publishContentAction);

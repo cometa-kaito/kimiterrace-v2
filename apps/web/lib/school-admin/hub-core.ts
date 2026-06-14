@@ -252,3 +252,126 @@ export function validateId(raw: unknown): Validated<{ id: string }> {
   }
   return { ok: true, value: { id: raw } };
 }
+
+/* ------------------------------------------------------------------ *
+ *  表示順の一括並べ替え (#48-K3 UX hardening)
+ *
+ *  学科 / 学年の兄弟集合を新しい並び順（orderedIds）で受け取り、displayOrder=0..n-1 を
+ *  **単一 tx で原子的に**反映する Server Action の入力検証。クラスは並べ替え列が無いため対象外。
+ * ------------------------------------------------------------------ */
+
+export type ReorderEntity = "department" | "grade";
+export type ReorderInput = { entity: ReorderEntity; orderedIds: string[] };
+
+/** 一括並べ替え入力: entity（学科/学年）+ 重複なし UUID 配列（1..1000 件）。 */
+export function validateReorder(raw: {
+  entity?: unknown;
+  orderedIds?: unknown;
+}): Validated<ReorderInput> {
+  if (raw.entity !== "department" && raw.entity !== "grade") {
+    return { ok: false, message: "並べ替え対象の種別が不正です。" };
+  }
+  if (!Array.isArray(raw.orderedIds) || raw.orderedIds.length === 0) {
+    return { ok: false, message: "並べ替え対象がありません。" };
+  }
+  if (raw.orderedIds.length > 1000) {
+    return { ok: false, message: "一度に並べ替えられる件数を超えています。" };
+  }
+  const seen = new Set<string>();
+  const orderedIds: string[] = [];
+  for (const id of raw.orderedIds) {
+    if (!isUuid(id)) {
+      return { ok: false, message: "並べ替え対象の指定が不正です。" };
+    }
+    if (seen.has(id)) {
+      return { ok: false, message: "並べ替え対象に重複があります。" };
+    }
+    seen.add(id);
+    orderedIds.push(id);
+  }
+  return { ok: true, value: { entity: raw.entity, orderedIds } };
+}
+
+/* ------------------------------------------------------------------ *
+ *  新年度へ複製 (#48-K3 PR3)
+ *
+ *  departments / grades は年度非依存マスタで、年度を持つのは classes.academic_year のみ。
+ *  よって「新年度へ複製」= 現在の最新年度 (source) のクラス群を翌年度 (target=source+1) の空クラス
+ *  として複製する (予定/公開内容は複製しない)。学年未割当 (gradeId=null) のクラスは継承先が無く
+ *  掲示単位にならないため複製対象外。
+ *
+ *  注: source は常に最新年度なので、本操作は **実行のたびに 1 年進む**（target は常に未存在の年度）。
+ *  単一操作の二重押下は UI のボタン無効化 (useTransition pending) で抑止し、対象年度は確認モーダルで明示する。
+ *
+ *  並行/再実行による翌年度クラスの重複生成は二段で防ぐ:
+ *    1. DB: 部分 unique index ux_classes_school_year_grade_name（恒久ガード・直列化の砦）。
+ *    2. app: planNextYearDuplication に「既に target 年度にあるクラス」(existingTargetKeys) を渡し除外
+ *       （並行コミットを RLS tx 内で観測できた場合に 23505 を避け graceful skip する防御。観測できない
+ *        phantom race は 1 の index が 23505 → conflict に倒す）。
+ * ------------------------------------------------------------------ */
+
+export type ClassYearRow = {
+  gradeId: string | null;
+  name: string;
+  grade: number;
+  academicYear: number;
+};
+
+export type NextYearPlan = {
+  sourceYear: number;
+  targetYear: number;
+  toCreate: { gradeId: string; name: string; grade: number; academicYear: number }[];
+};
+
+/**
+ * (gradeId, name) を複製の同一性キーにする。gradeId は常に UUID（空白を含まない固定書式）なので、
+ * 空白区切りでも先頭の UUID 部分が境界として一意に決まり、name に空白があっても別ペアと衝突しない。
+ */
+export function classDupKey(gradeId: string, name: string): string {
+  return `${gradeId} ${name}`;
+}
+
+/**
+ * rows（自校の全クラス）から複製の source(最新年度)/target(=source+1) を決める。rows が空なら null。
+ * source は常に最新年度ゆえ target は常に未存在年度（本操作は実行のたびに 1 年進む・冪等ではない）。
+ * action 側が target 年度の既存クラス取得 (getTargetYearClassKeys) のために先に target を知るのに使う。
+ */
+export function nextDuplicationYears(
+  rows: ClassYearRow[],
+): { sourceYear: number; targetYear: number } | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const sourceYear = Math.max(...rows.map((r) => r.academicYear));
+  return { sourceYear, targetYear: sourceYear + 1 };
+}
+
+/**
+ * 現クラス一覧から「翌年度へ複製すべきクラス」を算出する純関数。クラスが無ければ null。
+ *
+ * @param rows 自校の全クラス（全年度）。source=最新年度 / target=source+1 を決める。
+ * @param existingTargetKeys 既に target 年度に存在するクラスの classDupKey 集合。冪等化のため除外する
+ *   （並行コミットを RLS tx 内で観測できた場合に重複 insert を避け graceful skip するための防御。観測
+ *    できない phantom race の恒久ガードは DB の部分 unique index ux_classes_school_year_grade_name）。
+ *   未指定は空集合（除外なし＝従来挙動）。
+ */
+export function planNextYearDuplication(
+  rows: ClassYearRow[],
+  existingTargetKeys: ReadonlySet<string> = new Set(),
+): NextYearPlan | null {
+  const years = nextDuplicationYears(rows);
+  if (!years) {
+    return null;
+  }
+  const { sourceYear, targetYear } = years;
+  const toCreate = rows
+    .filter((r) => r.academicYear === sourceYear && r.gradeId)
+    .filter((r) => !existingTargetKeys.has(classDupKey(r.gradeId as string, r.name)))
+    .map((r) => ({
+      gradeId: r.gradeId as string,
+      name: r.name,
+      grade: r.grade,
+      academicYear: targetYear,
+    }));
+  return { sourceYear, targetYear, toCreate };
+}

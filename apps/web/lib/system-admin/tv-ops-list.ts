@@ -28,10 +28,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: TV 運用ログビューア 2 本 (`/admin/system/tv-commands` / `/admin/system/tv-downtime`) の
+ * UIUX-03: TV 運用ログビューア 2 本 (`/ops/tv-commands` / `/ops/tv-downtime`) の
  * ページング/検索/ソート対応 SELECT 層。`audit-log-list.ts` / `event-log.ts` と同構造 (共通 DataList 基盤)。
  *
  * ## 置き場所 (並行レーン回避)
@@ -41,7 +41,7 @@ import {
  * ## 既存クエリ (packages/db) との関係 — 重複実装ではない
  * `packages/db/src/queries/tv-device-commands.ts` (`listRecentTvCommands`) /
  * `tv-downtime.ts` (`listTvDeviceDowntime`) は **デバイス 1 台**の履歴を引く射影で、
- * `/admin/tv-devices/[deviceId]` 配下のデバイス単位ビューが使う。本層は **全校横断**の運用ログ一覧
+ * `/app/tv-devices/[deviceId]` 配下のデバイス単位ビューが使う。本層は **全校横断**の運用ログ一覧
  * (学校・デバイス・発行者を JOIN 解決 + 検索/フィルタ/ソート/ページング) で要件が異なるため、
  * `apps/web/lib` 側に別途持つ (デバイス単位の取得セマンティクスは packages/db に単一ソースのまま)。
  *
@@ -83,7 +83,7 @@ export function parseSchoolFilter(value: string | undefined): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// コマンドキュー履歴 (/admin/system/tv-commands)
+// コマンドキュー履歴 (/ops/tv-commands)
 // ---------------------------------------------------------------------------
 
 /** `tv_command_status` enum の値域 (pending/delivered/failed/expired)。schema の pgEnum が単一ソース (ルール3)。 */
@@ -239,7 +239,7 @@ export async function listTvCommandLogPage(
 }
 
 // ---------------------------------------------------------------------------
-// ダウンタイム履歴 (/admin/system/tv-downtime)
+// ダウンタイム履歴 (/ops/tv-downtime)
 // ---------------------------------------------------------------------------
 
 /** `tv_downtime_cause` enum の値域 (unknown/reboot/network)。schema の pgEnum が単一ソース (ルール3)。 */
