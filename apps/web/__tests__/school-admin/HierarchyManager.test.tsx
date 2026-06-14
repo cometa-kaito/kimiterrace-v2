@@ -19,6 +19,7 @@ vi.mock("@/lib/school-admin/hub-actions", () => ({
   createClassAction: vi.fn(),
   updateClassAction: vi.fn(),
   deleteClassAction: vi.fn(),
+  duplicateClassesToNextYearAction: vi.fn(),
 }));
 
 import { HierarchyManager } from "../../app/admin/school/_components/HierarchyManager";
@@ -27,6 +28,7 @@ import {
   createGradeAction,
   deleteClassAction,
   deleteDepartmentAction,
+  duplicateClassesToNextYearAction,
   updateGradeAction,
 } from "../../lib/school-admin/hub-actions";
 
@@ -36,6 +38,7 @@ const createClassMock = vi.mocked(createClassAction);
 const updateGradeMock = vi.mocked(updateGradeAction);
 const deleteDeptMock = vi.mocked(deleteDepartmentAction);
 const deleteClassMock = vi.mocked(deleteClassAction);
+const dupMock = vi.mocked(duplicateClassesToNextYearAction);
 
 const HIERARCHY = {
   departments: [
@@ -61,6 +64,7 @@ beforeEach(() => {
   updateGradeMock.mockResolvedValue(ok);
   deleteDeptMock.mockResolvedValue(ok);
   deleteClassMock.mockResolvedValue(ok);
+  dupMock.mockResolvedValue({ ok: true, data: { created: 1, targetYear: 2027 } });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -207,5 +211,14 @@ describe("HierarchyManager（⋯メニュー / 一括操作 / 学年単位 配�
       "href",
       "/admin/editor/c1",
     );
+  });
+
+  it("一括操作→新年度へ複製→複製する で duplicateClassesToNextYearAction を呼ぶ", async () => {
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    fireEvent.click(screen.getByRole("button", { name: /一括操作/ }));
+    fireEvent.click(screen.getByRole("button", { name: "新年度へ複製" }));
+    // HIERARCHY のクラスは 2026 年度 → 翌年度 2027 の確認ボタン。
+    fireEvent.click(screen.getByRole("button", { name: "2027年度に複製する" }));
+    await waitFor(() => expect(dupMock).toHaveBeenCalled());
   });
 });

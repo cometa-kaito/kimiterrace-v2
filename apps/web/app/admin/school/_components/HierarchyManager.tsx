@@ -7,6 +7,7 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   deleteGradeAction,
+  duplicateClassesToNextYearAction,
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
@@ -64,24 +65,26 @@ export function HierarchyManager({
   const { departments, grades } = hierarchy;
   const hasDepartments = departments.length > 0;
 
-  const report: Reporter = (res, okMsg) => {
-    if (res.ok) {
-      setMsg({ ok: true, text: okMsg });
+  const notify = (ok: boolean, text: string) => {
+    setMsg({ ok, text });
+    if (ok) {
       router.refresh();
-    } else {
-      setMsg({ ok: false, text: res.error.message });
     }
   };
+  const report: Reporter = (res, okMsg) =>
+    res.ok ? notify(true, okMsg) : notify(false, res.error.message);
 
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
   const isEmpty = !hasDepartments && grades.length === 0;
+  const allYears = grades.flatMap((g) => g.classes.map((c) => c.academicYear));
+  const currentYear = allYears.length > 0 ? Math.max(...allYears) : null;
 
   return (
     <div style={pageStyle}>
       <div style={headerRowStyle}>
         <h1 style={h1Style}>学校管理</h1>
-        {hasDepartments ? (
+        {!isEmpty ? (
           <button type="button" style={toolbarBtnStyle} onClick={() => setBulkOpen((v) => !v)}>
             一括操作 <span aria-hidden>{bulkOpen ? "▴" : "▾"}</span>
           </button>
@@ -98,8 +101,11 @@ export function HierarchyManager({
         してもかまいません。
       </p>
 
-      {hasDepartments && bulkOpen ? (
-        <BulkAddYears departments={departments} report={report} />
+      {bulkOpen ? (
+        <div style={bulkPanelStyle}>
+          {hasDepartments ? <BulkAddYears departments={departments} report={report} /> : null}
+          <NextYearCopy currentYear={currentYear} notify={notify} />
+        </div>
       ) : null}
 
       {isEmpty ? (
@@ -999,6 +1005,67 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
   );
 }
 
+/** 新年度へ複製（現年度のクラスを翌年度の空クラスへ・冪等）。クラスが無い校では出さない。 */
+function NextYearCopy({
+  currentYear,
+  notify,
+}: {
+  currentYear: number | null;
+  notify: (ok: boolean, text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  if (currentYear === null) {
+    return null;
+  }
+  const targetYear = currentYear + 1;
+  return (
+    <>
+      <button type="button" style={secondaryBtnStyle} onClick={() => setOpen(true)}>
+        新年度へ複製
+      </button>
+      {open ? (
+        <div style={modalOverlayStyle} role="dialog" aria-modal="true" aria-label="新年度へ複製">
+          <div style={modalCardStyle}>
+            <p style={modalTitleStyle}>新年度へ複製</p>
+            <p style={modalBodyStyle}>
+              {currentYear}年度 の構成を {targetYear}年度
+              に複製します。各クラスを新年度の空クラスとして作成します（予定・公開内容は複製されません。既に{" "}
+              {targetYear}年度 に同名クラスがあればスキップします）。
+            </p>
+            <div style={modalActionsStyle}>
+              <button type="button" style={ghostBtnStyle} onClick={() => setOpen(false)}>
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                style={primaryBtnStyle}
+                onClick={() =>
+                  start(async () => {
+                    const res = await duplicateClassesToNextYearAction();
+                    if (res.ok) {
+                      notify(
+                        true,
+                        `${res.data.created}件のクラスを${res.data.targetYear}年度に複製しました。`,
+                      );
+                      setOpen(false);
+                    } else {
+                      notify(false, res.error.message);
+                    }
+                  })
+                }
+              >
+                {pending ? "複製中…" : `${targetYear}年度に複製する`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  *  styles — 3 色（ウォームグレー基調 + ブランドのオレンジ + 削除の赤）
  * ------------------------------------------------------------------ */
@@ -1340,4 +1407,39 @@ const srOnlyStyle: React.CSSProperties = {
   clip: "rect(0 0 0 0)",
   whiteSpace: "nowrap",
   border: 0,
+};
+const bulkPanelStyle: React.CSSProperties = { display: "grid", gap: "0.6rem" };
+const modalOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(28,25,23,0.45)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "1rem",
+  zIndex: 50,
+};
+const modalCardStyle: React.CSSProperties = {
+  width: "420px",
+  maxWidth: "100%",
+  background: "#fff",
+  borderRadius: "12px",
+  padding: "1.1rem 1.25rem",
+};
+const modalTitleStyle: React.CSSProperties = {
+  fontSize: "1rem",
+  fontWeight: 500,
+  color: C.inkPrimary,
+  margin: "0 0 0.6rem",
+};
+const modalBodyStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: C.inkSecondary,
+  lineHeight: 1.7,
+  margin: "0 0 1rem",
+};
+const modalActionsStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "0.5rem",
 };

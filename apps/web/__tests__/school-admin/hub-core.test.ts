@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AuthUser } from "../../lib/auth/session";
 import {
+  planNextYearDuplication,
   toHubActor,
   validateClassInput,
   validateDepartmentInput,
@@ -80,5 +81,36 @@ describe("validateClassInput", () => {
   });
   it("非整数の年度は拒否", () => {
     expect(validateClassInput({ ...ok, academicYear: 2026.5 }).ok).toBe(false);
+  });
+});
+
+describe("planNextYearDuplication（新年度へ複製の対象算出）", () => {
+  it("クラスが無ければ null", () => {
+    expect(planNextYearDuplication([])).toBeNull();
+  });
+
+  it("最新年度のクラスを翌年度へ複製（gradeId=null は除外・旧年度は対象外）", () => {
+    const plan = planNextYearDuplication([
+      { gradeId: "g1", name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: "g1", name: "2組", grade: 1, academicYear: 2026 },
+      { gradeId: null, name: "未割当", grade: 1, academicYear: 2026 },
+      { gradeId: "g0", name: "旧", grade: 1, academicYear: 2025 },
+    ]);
+    expect(plan?.sourceYear).toBe(2026);
+    expect(plan?.targetYear).toBe(2027);
+    expect(plan?.toCreate).toEqual([
+      { gradeId: "g1", name: "1組", grade: 1, academicYear: 2027 },
+      { gradeId: "g1", name: "2組", grade: 1, academicYear: 2027 },
+    ]);
+  });
+
+  it("source は常に最新年度（複数年度が混在しても最大年度を採る）", () => {
+    const plan = planNextYearDuplication([
+      { gradeId: "g1", name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: "g1", name: "A組", grade: 1, academicYear: 2027 },
+    ]);
+    expect(plan?.sourceYear).toBe(2027);
+    expect(plan?.targetYear).toBe(2028);
+    expect(plan?.toCreate).toEqual([{ gradeId: "g1", name: "A組", grade: 1, academicYear: 2028 }]);
   });
 });

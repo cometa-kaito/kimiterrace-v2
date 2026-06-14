@@ -13,6 +13,7 @@ import {
   forbidden,
   invalid,
   notFound,
+  planNextYearDuplication,
   toHubActor,
   validateClassInput,
   validateClassUpdate,
@@ -22,7 +23,7 @@ import {
   validateGradeUpdate,
   validateId,
 } from "./hub-core";
-import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
+import { countClassesInGrade, countGradesInDepartment, getClassYearRows } from "./hub-queries";
 
 /**
  * 学校管理者ハブの Server Actions (#48-K / #48-K2、ADR-008 — 画面 mutation は Server Actions)。
@@ -552,4 +553,50 @@ export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ 
     });
     return { id: v.value.id };
   }, "削除に失敗しました。");
+}
+
+/* ================================================================== *
+ *  新年度へ複製 (#48-K3 PR3)
+ *
+ *  現在の最新年度のクラス群を翌年度の空クラスとして複製する (予定/公開内容は複製しない)。
+ *  対象算出は純関数 planNextYearDuplication (hub-core)。冪等: target 年度に同一 (gradeId,name) が
+ *  既にあればスキップ。各 insert を監査 (ルール1)・自校 RLS tx (ルール2)。
+ * ================================================================== */
+
+/** 現年度のクラスを翌年度へ複製する。複製できるクラスが無ければ not_found。 */
+export async function duplicateClassesToNextYearAction(): Promise<
+  ActionResult<{ created: number; targetYear: number }>
+> {
+  const actor = await authorize();
+  if ("ok" in actor) {
+    return actor;
+  }
+
+  return finish(async (tx) => {
+    const plan = planNextYearDuplication(await getClassYearRows(tx));
+    if (!plan) {
+      throw new HubNotFoundError("複製できるクラスがありません。");
+    }
+    for (const c of plan.toCreate) {
+      const [row] = await tx
+        .insert(classes)
+        .values({
+          schoolId: actor.schoolId,
+          gradeId: c.gradeId,
+          name: c.name,
+          academicYear: c.academicYear,
+          grade: c.grade,
+          createdBy: actor.userId,
+          updatedBy: actor.userId,
+        })
+        .returning({ id: classes.id });
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: row?.id as string,
+        operation: "insert",
+        diff: { after: c, reason: "duplicate-next-year" },
+      });
+    }
+    return { created: plan.toCreate.length, targetYear: plan.targetYear };
+  }, "新年度への複製に失敗しました。");
 }
