@@ -45,7 +45,9 @@ export function ClassEditorShell({
               key={t.key}
               type="button"
               role="tab"
+              id={`editor-tab-${t.key}`}
               aria-selected={active}
+              aria-controls={`editor-panel-${t.key}`}
               style={active ? activeTabStyle : tabStyle}
               onClick={() => setTab(t.key)}
             >
@@ -54,9 +56,30 @@ export function ClassEditorShell({
           );
         })}
       </div>
-      <div style={tab === "ai" ? undefined : hiddenStyle}>{ai}</div>
-      <div style={tab === "board" ? undefined : hiddenStyle}>{board}</div>
-      <div style={tab === "preview" ? undefined : hiddenStyle}>{preview}</div>
+      <div
+        role="tabpanel"
+        id="editor-panel-ai"
+        aria-labelledby="editor-tab-ai"
+        style={tab === "ai" ? undefined : hiddenStyle}
+      >
+        {ai}
+      </div>
+      <div
+        role="tabpanel"
+        id="editor-panel-board"
+        aria-labelledby="editor-tab-board"
+        style={tab === "board" ? undefined : hiddenStyle}
+      >
+        {board}
+      </div>
+      <div
+        role="tabpanel"
+        id="editor-panel-preview"
+        aria-labelledby="editor-tab-preview"
+        style={tab === "preview" ? undefined : hiddenStyle}
+      >
+        {preview}
+      </div>
     </div>
   );
 }
