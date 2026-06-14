@@ -90,14 +90,14 @@ const PAGE_CASES: readonly PageCase[] = [
     label: "/ops/schools (system_admin only)",
     path: "/ops/schools",
     allow: ["system_admin"],
-    allowUrl: /\/admin\/system\/schools$/,
+    allowUrl: /\/ops\/schools$/,
   },
   // /ops/users = SYSTEM_ADMIN_ROLES (system_admin のみ)。横断ユーザー管理。
   {
     label: "/ops/users (system_admin only)",
     path: "/ops/users",
     allow: ["system_admin"],
-    allowUrl: /\/admin\/system\/users$/,
+    allowUrl: /\/ops\/users$/,
   },
   // /admin/school/members（school_admin の自校教職員管理）は教員アカウント概念の撤去（2026-06-10）で
   // ページごと廃止したため、認可マトリクスからも除外（教員は学校共通パスワード=系統A のみでログイン）。
