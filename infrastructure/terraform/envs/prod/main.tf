@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "6439ca0" # 2026-06-14 deploy: main HEAD 反映（#862 signage pattern基盤 / #877 会話AI pattern準拠 / #878 新年度複製の重複封鎖 / #880-883 学校管理UI a11y・表示順D&D・冪等化 / #884 本日の掲示状態のサイネージ整合）。#878 の migrate 20260614024542 適用後にデプロイ・疎通200/no-cache確認済
+  web_image_tag = "f042fe8" # 2026-06-14 deploy: main HEAD 反映（#893 K3配信受け口の scope拡張=学科/学年/クラス + scopeRef名前解決 / #891・#894・#895 namespace改称 /admin→/ops・/app（308温存）/ #888 表示順1tx化 / #890 ADR-039）。schema無変更=migrate不要・secret無変更。疎通: /api/health 200・/login no-cache(s-maxage無)・/api/partner/delivery 無認証401・/ops 307・/app 307・/admin 308。revision kimiterrace-web-00032-djf 切替確認
 }
 
 module "network" {
