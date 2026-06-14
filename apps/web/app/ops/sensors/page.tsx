@@ -9,6 +9,7 @@ import { DataListControls } from "../../_components/datalist/DataListControls";
 import { DataTable } from "../../_components/datalist/DataTable";
 import { PaginationNav } from "../../_components/datalist/PaginationNav";
 import { type RawSearchParams, parseListParams } from "../../_components/datalist/list-params";
+import { SensorDecommissionButton } from "./_components/SensorDecommissionButton";
 
 const { color, fontSize, radius, space } = tokens;
 
@@ -169,6 +170,12 @@ export default async function SystemSensorsPage({
                 >
                   編集
                 </Link>
+                {/* 撤去 / 再稼働 (運営整理 §4 item5)。system_admin が任意校のセンサーを論理撤去できる。 */}
+                <SensorDecommissionButton
+                  sensorId={s.id}
+                  decommissioned={decommissioned}
+                  label={s.locationLabel ?? s.schoolName}
+                />
               </span>,
             ],
           };
