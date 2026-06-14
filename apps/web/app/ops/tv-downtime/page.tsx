@@ -4,9 +4,15 @@ import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import {
   TV_DOWNTIME_SORT_KEYS,
   type TvDowntimeCauseValue,
+  type TvDowntimeLogEntry,
   listTvDowntimeLogPage,
 } from "@/lib/system-admin/tv-ops-list";
-import { TV_DOWNTIME_CAUSE_LABEL, formatDowntimeDuration } from "@/lib/tv/downtime-format";
+import { estimateDowntimeCause } from "@/lib/tv/downtime-cause";
+import {
+  TV_DOWNTIME_CAUSE_LABEL,
+  describeDowntimeCause,
+  formatDowntimeDuration,
+} from "@/lib/tv/downtime-format";
 import { shortDeviceId } from "@/lib/tv/status";
 import { listSchools } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
@@ -72,6 +78,8 @@ export default async function SystemTvDowntimePage({
     return { page, schoolOptions };
   });
   const { rows, total } = page;
+  // 継続中行の文脈評価（要対応/様子見）はリクエストで 1 回だけ now を固定し全行で共有する。
+  const now = new Date();
 
   const hasCondition =
     params.q !== "" ||
@@ -163,17 +171,10 @@ export default async function SystemTvDowntimePage({
                 {shortDeviceId(r.deviceId)}
               </code>
             ),
-            // NULL = 未判定 (チェッカが原因を確定できていない)。enum 値はラベル + 生値を併記。
-            r.causeHint == null ? (
-              <span key="cause" style={mutedStyle}>
-                未判定
-              </span>
-            ) : (
-              <span key="cause" style={nowrapStyle}>
-                {CAUSE_LABEL[r.causeHint]}
-                <span style={rawValueStyle}> ({r.causeHint})</span>
-              </span>
-            ),
+            // 推定原因: per-row 確定事実 (causeHint) + デバイスの現在 schedule から estimateDowntimeCause で
+            // 導く (ADR-023: 電源OFF/ネット断/アプリ停止は心拍だけでは区別不能 → 未確定時は候補 3 つを併記し
+            // 断定しない)。永続化された記録値 (causeHint) も「記録」として小さく併記し運用者の突合を助ける。
+            <CauseCell key="cause" entry={r} now={now} />,
           ],
         }))}
       />
@@ -186,6 +187,37 @@ export default async function SystemTvDowntimePage({
         機械推定です（確定できない場合は原因不明 / 未判定）。
       </p>
     </section>
+  );
+}
+
+/**
+ * 推定原因セル。estimateDowntimeCause で per-row 確定事実 + 現在 schedule からカテゴリを導き、ラベルを主表示。
+ * 未確定 (indeterminate) は候補 3 つを muted 併記し断定しない (ADR-023)。永続化された記録値 (causeHint) は
+ * 「記録」として小さく併記し運用者の突合を助ける (NULL = 未判定)。色のみに依存しないテキスト (NFR05)。
+ */
+function CauseCell({ entry, now }: { entry: TvDowntimeLogEntry; now: Date }) {
+  const category = estimateDowntimeCause(
+    {
+      wentDownAt: entry.wentDownAt,
+      recoveredAt: entry.recoveredAt,
+      causeHint: entry.causeHint,
+      schedule: entry.scheduleJson ?? null,
+    },
+    now,
+  );
+  const cause = describeDowntimeCause(category);
+  return (
+    <span style={causeCellStyle}>
+      <span style={nowrapStyle}>{cause.label}</span>
+      {cause.candidates.length > 0 ? (
+        <span style={rawValueStyle}>候補: {cause.candidates.join(" / ")}</span>
+      ) : null}
+      <span style={rawValueStyle}>
+        {entry.causeHint == null
+          ? "記録: 未判定"
+          : `記録: ${CAUSE_LABEL[entry.causeHint]} (${entry.causeHint})`}
+      </span>
+    </span>
   );
 }
 
@@ -225,7 +257,11 @@ const monoStyle: React.CSSProperties = {
 };
 const nowrapStyle: React.CSSProperties = { whiteSpace: "nowrap" };
 const rawValueStyle: React.CSSProperties = { fontSize: fontSize.xs, color: color.muted };
-const mutedStyle: React.CSSProperties = { color: color.muted };
+const causeCellStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.1rem",
+};
 const ongoingStyle: React.CSSProperties = { color: color.ink, whiteSpace: "nowrap" };
 const footnoteStyle: React.CSSProperties = {
   color: color.muted,
