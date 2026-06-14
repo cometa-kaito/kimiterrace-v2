@@ -192,6 +192,30 @@ body {
   color: #fff;
   font-weight: 600;
 }
+/* グループ折りたたみ見出し（配信運用 / ログ・監査・運営整理 Phase7 §7）。 */
+.admin-nav-group + .admin-nav-group {
+  margin-top: 0.4rem;
+}
+.admin-nav-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.35rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--brand-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.admin-nav-group-toggle:hover {
+  color: var(--brand-ink);
+}
+.admin-nav-group-caret {
+  font-size: 0.7rem;
+}
 .admin-hamburger {
   display: none;
   margin: 0.6rem 0.75rem;

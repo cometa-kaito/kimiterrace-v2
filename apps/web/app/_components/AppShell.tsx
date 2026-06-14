@@ -1,5 +1,5 @@
 import type { AuthUser } from "@/lib/auth/session";
-import { navItemsForRole } from "@/lib/nav";
+import { navGroupsForRole } from "@/lib/nav";
 import { ToastProvider } from "@kimiterrace/ui";
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
@@ -7,37 +7,43 @@ import { SignOutButton } from "./SignOutButton";
 
 /**
  * 管理エリア共通シェル (#48-C)。ブランドヘッダ + role 別サイドナビ + メイン領域。
- * **Server Component** — 認証済み `user` を受け取り、nav を `navItemsForRole` で解決する
- * (role 判定はサーバー、クライアントには確定済みの nav 項目だけ渡す)。
+ * **Server Component** — 認証済み `user` を受け取り、nav を `navGroupsForRole` で解決する
+ * (role 判定はサーバー、クライアントには確定済みの nav グループだけ渡す)。
  *
  * レスポンシブ: 幅の出し分け・モバイルのサイドバー折りたたみはメディアクエリが要るため
  * `globals.css` の `.admin-*` クラスで制御する（インライン style では書けない）。
  */
 export function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
-  const items = navItemsForRole(user.role);
+  const navGroups = navGroupsForRole(user.role);
+  // コンソール表示名（運営整理 Phase7・命名統一 / 2026-06-14 ユーザー確定・役割別）。
+  // 運営(system_admin)は商流(portal)/配信(v2)を横断した単一アイデンティティ「キミテラス運営」を
+  // 出す（surface は配色で出し分ける＝UIUX-00「今どっちにいるか」は維持）。学校/教員は配信プロダクト
+  // 面なので「配信管理」のまま（学校・教員に「運営」と見せない）。
+  const consoleLabel = user.role === "system_admin" ? "キミテラス運営" : "配信管理";
   // 教員はナビが「エディタ」1 項目のみ（[[remove-teacher-menu-sidebar]]、ユーザー指摘 2026-06-13）。
   // 1 項目だけのためにサイドバー（メニュー）を出すのは冗長なので撤去し、メイン（エディタ）を全幅に
   // する（校務DX原則: 先生を迷わせない・編集面を広く）。複数項目を持つ school_admin / system_admin は
   // 従来どおりサイドバーを出す（項目数で判定＝ナビが増えれば自動で再表示され、配線漏れにならない）。
-  const showSidebar = items.length > 1;
+  const navItemCount = navGroups.reduce((n, g) => n + g.items.length, 0);
+  const showSidebar = navItemCount > 1;
 
   return (
     <div style={rootStyle}>
       <header style={headerStyle}>
         {/* ブランドのワードマーク（キミテラス）。 */}
         <img src="/brand/logo-wordmark.png" alt="キミテラス" style={brandLogoStyle} />
-        {/* UIUX-03 (統一入口): ここが「キミテラス配信管理」(プロダクト側コンソール) であることを
-            明示する。社内 ops (商流) は portal `/admin` (Rebounder・緑) が担い、配色は跨いで分ける
-            (「今どっちにいるか」を最優先・UIUX-00)。 */}
-        <span style={consoleLabelStyle}>配信管理</span>
+        {/* コンソール表示名（Phase7 命名統一）。運営は「キミテラス運営」、学校/教員は「配信管理」。
+            商流(portal)/配信(v2)の surface 差は配色で出し分ける（UIUX-00「今どっちにいるか」）。 */}
+        <span style={consoleLabelStyle}>{consoleLabel}</span>
         <span style={roleBadgeStyle}>{ROLE_LABEL[user.role]}</span>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          {/* 統一入口の戻り導線 (UIUX-03 A)。Rebounder 社内ポータルは運営専用のため
-              system_admin にのみ表示する (学校ロールに社内ツールの存在を見せない)。
-              URL は env で上書き可 (既定=本番 portal)。リンク遷移のみで fetch はしない。 */}
+          {/* 統一入口の戻り導線 (UIUX-03 A)。商流ポータル（portal /admin）は運営専用のため
+              system_admin にのみ表示する (学校ロールに社内ツールの存在を見せない)。Phase7 命名統一で
+              「Rebounder 社内ポータル」→「商流ポータル」（運営面から "Rebounder" を撤去・配信(v2)と
+              商流(portal)を機能で区別）。URL は env で上書き可 (既定=本番 portal)。遷移のみで fetch しない。 */}
           {user.role === "system_admin" && (
             <a href={portalAdminUrl()} style={portalLinkStyle}>
-              Rebounder 社内ポータル ↗
+              商流ポータル ↗
             </a>
           )}
           {/* 教員は学校共通アカウント（ADR-032）でログインし個別 ID を持たない。合成メール
@@ -51,7 +57,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
         </div>
       </header>
       <div className="admin-body" style={bodyStyle}>
-        {showSidebar ? <Sidebar items={items} /> : null}
+        {showSidebar ? <Sidebar groups={navGroups} /> : null}
         <main className="admin-main" style={mainStyle}>
           {/* 配下の client コンポーネントが useToast() で成功/エラー通知を出せるようにする。
               ToastProvider は client だが server の children をそのまま透過する。 */}

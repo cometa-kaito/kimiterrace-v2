@@ -70,7 +70,7 @@ export default async function SystemAdvertisersPage({
       <p style={retirementNoteStyle}>
         商流（広告主マスタ・契約・コミュニケーション）の正本は{" "}
         <a href={portalAdminUrl()} style={retirementLinkStyle}>
-          Rebounder 社内ポータル ↗
+          商流ポータル ↗
         </a>{" "}
         に移行しました。この画面は<strong>広告配信割当</strong>
         （各広告主の「広告」から配信先を設定）の管理用です。

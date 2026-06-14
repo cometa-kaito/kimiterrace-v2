@@ -5,6 +5,7 @@ import {
   activeNavHref,
   homePathForRole,
   isAdminRole,
+  navGroupsForRole,
   navItemsForRole,
 } from "../lib/nav";
 
@@ -210,6 +211,62 @@ describe("navItemsForRole", () => {
         expect(item.href.startsWith("/")).toBe(true);
       }
     }
+  });
+});
+
+describe("navGroupsForRole (Phase7 §7 ナビ最終形・2グループ折りたたみ)", () => {
+  it("system_admin は「配信運用」「ログ・監査」の2見出し＋末尾フラット（パスワード変更）", () => {
+    const groups = navGroupsForRole("system_admin");
+    expect(groups.map((g) => g.label)).toEqual(["配信運用", "ログ・監査", undefined]);
+    // ログ・監査（閲覧系ビューア）は参照頻度が低く既定で折りたたむ。
+    const logs = groups.find((g) => g.label === "ログ・監査");
+    expect(logs?.defaultCollapsed).toBe(true);
+  });
+
+  it("配信運用＝運用8項目 / ログ・監査＝ビューア7項目（memberships は撤去のまま）", () => {
+    const groups = navGroupsForRole("system_admin");
+    const ops = groups.find((g) => g.label === "配信運用");
+    const logs = groups.find((g) => g.label === "ログ・監査");
+    expect(ops?.items.map((i) => i.href)).toEqual([
+      "/ops/schools",
+      "/ops/users",
+      "/ops/advertisers",
+      "/ops/dashboard",
+      "/ops/sensors",
+      "/ops/tv-devices",
+      "/ops/reports",
+      "/ops/feedback",
+    ]);
+    expect(logs?.items.map((i) => i.href)).toEqual([
+      "/ops/events",
+      "/ops/audit",
+      "/ops/ai-chat",
+      "/ops/publishes",
+      "/ops/school-configs",
+      "/ops/tv-commands",
+      "/ops/tv-downtime",
+    ]);
+    expect(logs?.items.map((i) => i.href)).not.toContain("/ops/memberships");
+  });
+
+  it("school_admin / teacher はグループ化しない（見出しなしの単一グループ）", () => {
+    for (const role of ["school_admin", "teacher"] as const) {
+      const groups = navGroupsForRole(role);
+      expect(groups).toHaveLength(1);
+      expect(groups[0]?.label).toBeUndefined();
+    }
+  });
+
+  it("グループを平坦化すると navItemsForRole と一致する（順序・項目とも不変）", () => {
+    for (const role of TENANT_ROLES) {
+      const flat = navGroupsForRole(role).flatMap((g) => g.items);
+      expect(flat).toEqual([...navItemsForRole(role)]);
+    }
+  });
+
+  it("管理エリア対象外ロール (student/guardian) は空配列", () => {
+    expect(navGroupsForRole("student")).toEqual([]);
+    expect(navGroupsForRole("guardian")).toEqual([]);
   });
 });
 
