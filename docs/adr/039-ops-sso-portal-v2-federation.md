@@ -1,6 +1,6 @@
 # ADR-039: 運営アカウントの portal↔v2 単一ログイン（SSO）— 共通 IdP への federation
 
-- 状態: **Proposed**（ドラフト。認証スタックに踏み込むためユーザー判断・ADR レビューを経て Accepted に昇格。CLAUDE.md「ADR を覆す/スタック反転は要ユーザー確認」に従う）
+- 状態: **Accepted**（2026-06-14 ユーザー判断「②で確定」。認証スタック判断としてユーザー承認済 = CLAUDE.md「ADR を覆す/スタック反転は要ユーザー確認」を充足。実装は §42.5 Phase 7・前フェーズ完了後）
 - 日付: 2026-06-14
 - 関連: [ADR-003 (Identity Platform)](003-identity-platform.md)、[ADR-026 (無効化/revoke エンフォース)](026-account-deactivation-role-change-enforcement.md)、[ADR-031 (MFA 段階強制)](031-mfa-phased-enforcement.md)、[ADR-032 (教員共通PW)](032-teacher-shared-password-login.md)、[ADR-018 (CRM 独自設計)](018-custom-crm-design.md)、設計起点 = `経路設計-実装設計書-2026-06-10.md` §42.4 / §42.5（Phase 7「SSO（最後）」）、[CLAUDE.md セキュリティ最優先](../../CLAUDE.md)
 
@@ -142,4 +142,6 @@ GCP 内に OIDC OP を立て、両アプリを federate。
 - ADR-003 の provisioning 規約（localId = `users.id`）は **password ユーザー**に対する規約。**federated ユーザーには適用しない**（localId は IdP が決定）。この差分を本 ADR が補足する（上記「悪い影響」参照）。
 - portal 側は ADR の管轄外（v2 リポジトリの ADR は v2 を律する）が、本 ADR は portal にも対称の Google provider 追加を**前提として要求**する。portal 側の意思決定記録は portal リポジトリの ADR で別途残すこと（設計 §44.3 の portal `.claude`/ADR 整備と整合）。
 
-> **未確定（ユーザー判断・ADR レビュー事項）**: (a) 採用案②でよいか（認証スタックに関わるため）、(b) 暫定 S0 を入れるか/Phase 7 まで現行ディープリンクのままにするか、(c) ブレークグラス経路の具体（IdP 直 email/password を何アカウント残すか）、(d) portal 側 ADR の起票主体。これらを詰めて Proposed → Accepted へ。
+> **確定（2026-06-14・ユーザー判断）**: 採用案 = **②**（運営アカウントは Google Workspace を共通上流 IdP とする hub-and-spoke federation）。暫定は **③-a**（ディープリンク + 短命ハンドオフトークン）。
+>
+> **実装フェーズで詰める事項（本決定の前提を覆さない実装パラメータ）**: (a) 暫定 S0 を挟むか / Phase 7 まで現行ディープリンクのままにするか、(b) ブレークグラス経路の具体（IdP 直 email/password を何アカウント残すか）、(c) portal 側 ADR の起票主体。これらは §42.5 Phase 7 着手時（前フェーズ完了後）に確定する。

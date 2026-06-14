@@ -64,7 +64,7 @@
 | 031 | [MFA の段階的エンフォース戦略](031-mfa-phased-enforcement.md)（capability＝IdP mfa_config + enrollment フローを MVP で実装、PoC は任意、本番導入ゲートで teacher 以上に強制化して NFR03 充足。即全面強制＝PoC 導入摩擦/全面延期＝NFR03 未達 を不採用。#47） | Accepted |
 | 032 | [教員ログインは学校共通パスワード方式](032-teacher-shared-password-login.md)（教員は per-school 共通 IdP アカウント + サーバ代理 signInWithPassword、個人帰属喪失は受容。個別アカウント運用負荷を不採用） | Accepted |
 | 033 | [エディタ AI 連絡ドラフトは構造化リストのストリーミング + 項目ごと採否 UX](033-streaming-structured-ai-draft-ux.md)（`streamObject` array `elementStream`、可逆プレビュー・refine-in-place・PII/要確認をカード可視化・楽観+Undo。全件一括 apply / prose トークン流し / 自動挿入 を不採用。#243 ②） | Accepted |
-| 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Proposed |
+| 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Accepted |
 
 ## ルール
 
