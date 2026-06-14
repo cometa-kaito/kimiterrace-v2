@@ -20,7 +20,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 /**
- * F16 §5 (ADR-023): TV デバイスの **ダウンタイム履歴 / 稼働サマリ**（`/app/tv-devices/[deviceId]/history`）。
+ * F16 §5 (ADR-023): TV デバイスの **ダウンタイム履歴 / 稼働サマリ**（`/ops/tv-devices/[deviceId]/history`）。
  * **Server Component**。
  *
  * ルートパラメータ `deviceId` は **`tv_devices.id`（行 PK の UUID）**（編集ページと同じ参照軸）。一覧 /
@@ -69,7 +69,7 @@ export default async function TvDeviceHistoryPage({
   return (
     <section>
       <p style={{ margin: "0 0 0.5rem" }}>
-        <Link href="/app/tv-devices" style={backLinkStyle}>
+        <Link href="/ops/tv-devices" style={backLinkStyle}>
           ← TV デバイス一覧へ戻る
         </Link>
       </p>

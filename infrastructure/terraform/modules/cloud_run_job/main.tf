@@ -12,8 +12,9 @@
 #   として Workload Identity で実行する。DATABASE_URL は value_source.secret_key_ref で注入。
 # - ルール8: すべて Terraform 管理。コンソール直接変更は緊急時のみ。
 #
-# 雛形段階は `enabled = false`（count = 0）で実体を生成しない（既存 cloud_run モジュールと同規律）。
-# image / vpc_connector / database_url_secret_id 等は Phase 開発で値を詰めて enabled = true に切替。
+# `enabled = false`（count = 0）の間は実体を生成しない（既存 cloud_run モジュールと同規律）。
+# image / vpc_connector / database_url_secret_id 等を env 側で詰めて enabled = true に切替える
+# （staging/prod は ADR-038 で 2026-06-13 有効化。生徒/保護者 Q&A の知識源を供給）。
 
 locals {
   # 1 校スコープで走る軽量バッチ。Phase 開発で実測に合わせて調整する。

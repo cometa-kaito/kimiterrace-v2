@@ -7,9 +7,9 @@ import { TvCommandControl } from "./_components/TvCommandControl";
 import { TvConfigEditForm } from "./_components/TvConfigEditForm";
 
 /**
- * F15 §4.2 (ADR-022): TV デバイス設定編集（`/app/tv-devices/[deviceId]/edit`）。**Server Component**。
+ * F15 §4.2 (ADR-022): TV デバイス設定編集（`/ops/tv-devices/[deviceId]/edit`）。**Server Component**。
  *
- * ルートパラメータ `deviceId` は **`tv_devices.id`（行 PK の UUID）**。一覧 (`/app/tv-devices`) の編集
+ * ルートパラメータ `deviceId` は **`tv_devices.id`（行 PK の UUID）**。一覧 (`/ops/tv-devices`) の編集
  * リンクが `device.id` を渡す（TV 生成の `device_id` テキストではなく、安定した行 PK で参照する）。
  *
  * **認可**: 一覧は閲覧専用で ADMIN_ROLES（teacher 含む）だが、**編集は書き込み**のため
