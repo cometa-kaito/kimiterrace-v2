@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isAiEnabled } from "@/lib/ai/ai-enabled";
 import { getDb } from "@/lib/db";
 import { type ChatIdentity, executeChat } from "@/lib/student-qa/chat-service";
-import { createRagContentProvider } from "@/lib/student-qa/context-provider";
+import { createDailyDataFirstProvider } from "@/lib/student-qa/daily-data-provider";
 import {
   createVertexChatStreamClient,
   createVertexEmbeddingClient,
@@ -159,7 +159,9 @@ export async function respondWithChatStream(
   const locale = normalizeLocale(request.headers.get("accept-language")?.split(",")[0]);
 
   // 3) SSE ストリーム。RLS tx は start() 内で開き、チャンク送出 + done(assistant 永続化) まで保持する。
-  const contextProvider = createRagContentProvider({ embeddingClient: getEmbeddingClient() });
+  //    知識源は編集(daily_data)を優先注入し（ADR-040 直接注入）、該当が無ければ curated contents の
+  //    RAG → general_supplement にフォールバックする（embedding Job は未 apply のため当面は前者が主経路）。
+  const contextProvider = createDailyDataFirstProvider({ embeddingClient: getEmbeddingClient() });
   const modelClient = getChatStreamClient();
   const encoder = new TextEncoder();
 
