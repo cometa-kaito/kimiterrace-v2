@@ -12,8 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- モック: @kimiterrace/db（applyPartnerDelivery + withTenantContext を素通し） ----
 const applyPartnerDelivery = vi.fn();
+// route が `err instanceof ScopeResolutionError` で 409 判定するため、実クラス相当を mock からも出す。
+class ScopeResolutionError extends Error {}
 vi.mock("@kimiterrace/db", () => ({
   applyPartnerDelivery: (...args: unknown[]) => applyPartnerDelivery(...args),
+  ScopeResolutionError,
   // withTenantContext はコールバックを {} tx で素通し実行（RLS は packages/db テストで担保）。
   withTenantContext: (_db: unknown, _ctx: unknown, fn: (tx: unknown) => Promise<unknown>) => fn({}),
 }));
@@ -169,9 +172,34 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("scope が school 以外 → 400（K3 は現状 school のみ受ける・恒久ロス防止）", async () => {
+  it("非 school スコープで scopeRef 欠如 → 400（恒久・空配信防止）", async () => {
     const base = validBody();
     const ad = { ...(base.ads as Record<string, unknown>[])[0], scope: "grade" };
+    const res = await POST(makeReq(validBody({ ads: [ad] }), { key: SECRET }));
+    expect(res.status).toBe(400);
+    expect(applyPartnerDelivery).not.toHaveBeenCalled();
+  });
+
+  it("非 school スコープ + scopeRef → 200（受理。解決は applyPartnerDelivery が担当）", async () => {
+    const base = validBody();
+    const ad = {
+      ...(base.ads as Record<string, unknown>[])[0],
+      scope: "department",
+      scopeRef: "電子工学科",
+    };
+    const res = await POST(makeReq(validBody({ ads: [ad] }), { key: SECRET }));
+    expect(res.status).toBe(200);
+    expect(applyPartnerDelivery).toHaveBeenCalledTimes(1);
+    // route が scope/scopeRef を applyPartnerDelivery へ渡している。
+    const passed = applyPartnerDelivery.mock.calls[0]?.[1] as {
+      ads: { scope: string; scopeRef: string | null }[];
+    };
+    expect(passed.ads[0]).toMatchObject({ scope: "department", scopeRef: "電子工学科" });
+  });
+
+  it("scope が enum 外 → 400", async () => {
+    const base = validBody();
+    const ad = { ...(base.ads as Record<string, unknown>[])[0], scope: "bogus" };
     const res = await POST(makeReq(validBody({ ads: [ad] }), { key: SECRET }));
     expect(res.status).toBe(400);
     expect(applyPartnerDelivery).not.toHaveBeenCalled();
@@ -309,6 +337,12 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     applyPartnerDelivery.mockRejectedValue(
       Object.assign(new Error("check violation"), { code: "23514" }),
     );
+    const res = await POST(makeReq(validBody(), { key: SECRET }));
+    expect(res.status).toBe(409);
+  });
+
+  it("scopeRef 名前解決失敗（ScopeResolutionError）→ 409（恒久）", async () => {
+    applyPartnerDelivery.mockRejectedValue(new ScopeResolutionError("department not found"));
     const res = await POST(makeReq(validBody(), { key: SECRET }));
     expect(res.status).toBe(409);
   });

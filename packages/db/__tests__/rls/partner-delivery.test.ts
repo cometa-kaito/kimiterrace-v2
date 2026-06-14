@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { withTenantContext } from "../../src/client.js";
 import {
   type DeliveryInput,
+  ScopeResolutionError,
   applyPartnerDelivery,
   findAdvertiserByPortalCompanyId,
 } from "../../src/queries/partner-delivery.js";
@@ -75,6 +76,7 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
           portalPlacementId: PORTAL_PLACEMENT,
           v2SchoolId: fx.schoolA,
           scope: "school",
+          scopeRef: null,
           mediaType: "image",
           durationSec: 7,
           displayOrder: 1,
@@ -201,6 +203,7 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
       portalPlacementId: "cccccccc-cccc-4ccc-8ccc-cccccccccc02",
       v2SchoolId: fx.schoolB,
       scope: "school",
+      scopeRef: null,
       mediaType: "video",
       durationSec: 15,
       displayOrder: 2,
@@ -215,5 +218,75 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
 
     const [c] = await sql<{ target_schools: string[] }[]>`SELECT target_schools FROM contracts`;
     expect(c.target_schools).toEqual([fx.schoolA, fx.schoolB]);
+  });
+
+  // ── Phase4 §0b: 非 school スコープの名前解決（学校内で department/grade/class 名 → id） ──
+  describe("scope 名前解決（Phase4 §0b）", () => {
+    let deptId: string;
+    let classId: string;
+
+    beforeEach(async () => {
+      // schoolA に学科「電子工学科」とクラス「1-A」を seed（BYPASSRLS の raw 接続）。
+      await sql`DELETE FROM classes WHERE school_id = ${fx.schoolA}`;
+      await sql`DELETE FROM departments WHERE school_id = ${fx.schoolA}`;
+      const [d] = await sql<{ id: string }[]>`
+        INSERT INTO departments (school_id, name) VALUES (${fx.schoolA}, '電子工学科') RETURNING id`;
+      deptId = d.id;
+      const [c] = await sql<{ id: string }[]>`
+        INSERT INTO classes (school_id, academic_year, name, grade)
+        VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id`;
+      classId = c.id;
+    });
+
+    function adWith(scope: string, scopeRef: string | null) {
+      const input = baseInput();
+      input.ads[0].scope = scope as DeliveryInput["ads"][number]["scope"];
+      input.ads[0].scopeRef = scopeRef;
+      return input;
+    }
+
+    it("department スコープ → 学科名から department_id を解決して埋める", async () => {
+      await deliver(adWith("department", "電子工学科"));
+      const [ad] = await sql<
+        {
+          scope: string;
+          department_id: string | null;
+          grade_id: string | null;
+          class_id: string | null;
+        }[]
+      >`SELECT scope, department_id, grade_id, class_id FROM ads`;
+      expect(ad.scope).toBe("department");
+      expect(ad.department_id).toBe(deptId);
+      expect(ad.grade_id).toBeNull();
+      expect(ad.class_id).toBeNull();
+    });
+
+    it("class スコープ → クラス名から class_id を解決して埋める", async () => {
+      await deliver(adWith("class", "1-A"));
+      const [ad] = await sql<
+        { scope: string; class_id: string | null }[]
+      >`SELECT scope, class_id FROM ads`;
+      expect(ad.scope).toBe("class");
+      expect(ad.class_id).toBe(classId);
+    });
+
+    it("対象が学校内に無い → ScopeResolutionError（→409 相当）・部分反映しない", async () => {
+      await expect(deliver(adWith("department", "存在しない学科"))).rejects.toBeInstanceOf(
+        ScopeResolutionError,
+      );
+      // tx 全体が巻き戻り、advertiser/ads とも作られない（部分反映なし）。
+      expect(await counts()).toEqual({ advertisers: 0, contracts: 0, ads: 0 });
+    });
+
+    it("scope 切替（class→school）で未使用 id が null に戻る（ck_ads_scope 充足）", async () => {
+      await deliver(adWith("class", "1-A"));
+      await deliver(baseInput()); // 同 portal_placement_id を school で再送
+      const [ad] = await sql<
+        { scope: string; class_id: string | null; department_id: string | null }[]
+      >`SELECT scope, class_id, department_id FROM ads`;
+      expect(ad.scope).toBe("school");
+      expect(ad.class_id).toBeNull();
+      expect(ad.department_id).toBeNull();
+    });
   });
 });
