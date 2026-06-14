@@ -405,6 +405,37 @@ export async function updateSensorDevice(
   return row ? { updated: true, id: row.id } : { updated: false };
 }
 
+/**
+ * センサー 1 件の **撤去 / 再稼働** を切り替える (運営整理 §4: 全校版に撤去を実装)。`decommissionedAt` を
+ * `Date` (撤去) / `null` (再稼働) に設定する。物理 DELETE せず撤去日時で論理状態を持つ (過去検知履歴・監査を保全)。
+ *
+ * 対象は RLS で可視な行のみ更新可: school_admin context では `tenant_isolation` が自校行に絞り、
+ * system_admin context では `system_admin_full_access` が全校行を許す (ADR-019)。他校 / 不可視 / 不存在の id は
+ * **0 行 UPDATE** → `{ updated: false }` (呼出側で not_found 写像)。WHERE は id のみ — school 境界は RLS が強制
+ * (手書き WHERE school_id を書かない、ルール2)。
+ *
+ * `updated_by` は呼出側 actor (system_admin は users 行が無いため `null`)。`updated_at` は明示設定する
+ * (auditColumns は INSERT default のみ、[[updatedat-explicit-on-update]])。
+ */
+export async function setSensorDecommissioned(
+  tx: TenantTx,
+  id: string,
+  decommissionedAt: Date | null,
+  actorUserId: string | null,
+): Promise<UpdateSensorDeviceResult> {
+  const updated = await tx
+    .update(sensorDevices)
+    .set({
+      decommissionedAt,
+      updatedBy: actorUserId,
+      updatedAt: new Date(),
+    })
+    .where(eq(sensorDevices.id, id))
+    .returning({ id: sensorDevices.id });
+  const row = updated[0];
+  return row ? { updated: true, id: row.id } : { updated: false };
+}
+
 /** register/edit フォームのクラス選択肢 1 件 (自校クラスのみ、RLS 委譲)。 */
 export type SensorFormClassOption = { id: string; name: string };
 
