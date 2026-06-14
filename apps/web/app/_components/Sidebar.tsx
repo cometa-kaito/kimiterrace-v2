@@ -16,7 +16,7 @@ import { useState } from "react";
 export function Sidebar({ items }: { items: readonly NavItem[] }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  // 最長一致のみを active にする（親 /admin/school が子 /admin/school/members で誤点灯するのを防ぐ）。
+  // 最長一致のみを active にする（親 /app/school が子 /app/school/members で誤点灯するのを防ぐ）。
   const activeHref = activeNavHref(items, pathname);
   // 項目が 1 つ以下（teacher = エディタのみ）はハンバーガー不要。nav を常時表示するため
   // data-open を強制 "true" にして、モバイルでも畳まず見える状態にする。
@@ -43,7 +43,7 @@ export function Sidebar({ items }: { items: readonly NavItem[] }) {
       >
         <ul>
           {items.map((item) => {
-            // 完全一致 or 配下 (例: /admin/editor/123) のうち最長一致のみ active（activeNavHref）。
+            // 完全一致 or 配下 (例: /app/editor/123) のうち最長一致のみ active（activeNavHref）。
             const isActive = item.href === activeHref;
             return (
               <li key={item.href}>

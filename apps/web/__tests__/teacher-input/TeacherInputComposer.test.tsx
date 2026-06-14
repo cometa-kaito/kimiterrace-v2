@@ -24,7 +24,7 @@ vi.mock("@/lib/teacher-input/use-speech-to-text", () => ({
   useSpeechToText: () => hookState,
 }));
 
-import { TeacherInputComposer } from "../../app/admin/teacher-input/_components/TeacherInputComposer";
+import { TeacherInputComposer } from "../../app/app/teacher-input/_components/TeacherInputComposer";
 
 function mockFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   const fn = vi.fn(impl);

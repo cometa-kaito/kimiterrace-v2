@@ -6,7 +6,7 @@ import { TEACHER_STORAGE_STATE, isSignageDbAvailable } from "./global-setup";
  *
  * `auth.setup.ts` が Auth emulator + 実 `/api/auth/session` 経由で作った教員の `__session` を
  * storageState で再利用し、保護エリア `/admin` に到達する。teacher は `homePathForRole` で
- * `/admin/editor` にリダイレクトされ、**認証済みでないと描画されない要素** (ヘッダの role バッジ
+ * `/app/editor` にリダイレクトされ、**認証済みでないと描画されない要素** (ヘッダの role バッジ
  * 「教員」、エディタ着地の見出し、教員用サイドナビ) が見えることを検証する。
  *
  * これは middleware (cookie 存在) → requireRole (claims 検証 / 401・403) →
@@ -26,9 +26,9 @@ test.describe("認証済み教員の管理エリア到達 /admin", () => {
     test.use({ storageState: TEACHER_STORAGE_STATE });
 
     test("教員は /admin からエディタに到達し認証済み要素が見える", async ({ page }) => {
-      // /admin は teacher を homePathForRole で /admin/editor へリダイレクトする。
+      // /admin は teacher を homePathForRole で /app/editor へリダイレクトする。
       await page.goto("/admin");
-      await expect(page).toHaveURL(/\/admin\/editor$/);
+      await expect(page).toHaveURL(/\/app\/editor$/);
 
       // 認証済みでないと出ない要素:
       // 1. AppShell ヘッダの role バッジ「教員」(claims.role=teacher が解決できた証)。

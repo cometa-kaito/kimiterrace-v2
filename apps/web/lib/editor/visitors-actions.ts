@@ -58,7 +58,7 @@ export async function setVisitorsAction(
     return invalid("編集対象のクラスが見つかりません。");
   }
 
-  revalidatePath(`/admin/editor/${classId}`);
+  revalidatePath(`/app/editor/${classId}`);
   // サイネージ (#48-E1) も即時反映。
   revalidatePath("/admin/signage-preview/[classId]", "page");
   return { ok: true, data: { count } };

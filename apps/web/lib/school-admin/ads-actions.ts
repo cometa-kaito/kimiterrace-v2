@@ -83,17 +83,17 @@ async function authorize(): Promise<AdsActor | ActionResult<never>> {
   return actor;
 }
 
-/** target に対応する広告管理ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/ads。 */
+/** target に対応する広告管理ページのパス (revalidate 用)。class は従来の /app/editor/{id}/ads。 */
 function adsPath(target: EditorTarget): string {
   switch (target.scope) {
     case "school":
-      return "/admin/editor/scope/school/ads";
+      return "/app/editor/scope/school/ads";
     case "department":
-      return `/admin/editor/scope/department/${target.departmentId}/ads`;
+      return `/app/editor/scope/department/${target.departmentId}/ads`;
     case "grade":
-      return `/admin/editor/scope/grade/${target.gradeId}/ads`;
+      return `/app/editor/scope/grade/${target.gradeId}/ads`;
     case "class":
-      return `/admin/editor/${target.classId}/ads`;
+      return `/app/editor/${target.classId}/ads`;
   }
 }
 

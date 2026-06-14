@@ -83,13 +83,13 @@ async function upsertSectionAction<T>(
 /** 保存後にエディタ画面とサイネージプレビューを再検証する。scope 別にエディタ path を分岐。 */
 function revalidatePathsForTarget(target: EditorTarget): void {
   if (target.scope === "class") {
-    revalidatePath(`/admin/editor/${target.classId}`);
+    revalidatePath(`/app/editor/${target.classId}`);
   } else if (target.scope === "department") {
-    revalidatePath(`/admin/editor/scope/department/${target.departmentId}`);
+    revalidatePath(`/app/editor/scope/department/${target.departmentId}`);
   } else if (target.scope === "grade") {
-    revalidatePath(`/admin/editor/scope/grade/${target.gradeId}`);
+    revalidatePath(`/app/editor/scope/grade/${target.gradeId}`);
   } else {
-    revalidatePath("/admin/editor/scope/school");
+    revalidatePath("/app/editor/scope/school");
   }
   // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
   revalidatePath("/admin/signage-preview/[classId]", "page");

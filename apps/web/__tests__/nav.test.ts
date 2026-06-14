@@ -40,58 +40,56 @@ describe("isAdminRole / ADMIN_ROLES", () => {
 describe("navItemsForRole", () => {
   it("teacher はエディタのみ (2026-06-11 ユーザー判断: 教員 UX をエディタ 1 枚に集約。音声/チャット入力・コンテンツ・掲示物 Q&A はサイネージに出ない生徒 Q&A ボットの裏方ゆえ nav から撤去・機能/認可は残置で URL 直打ち可。監視系は校務DX原則で運営専用に撤去、MFA は意図的に nav から撤去)", () => {
     const items = navItemsForRole("teacher");
-    expect(items.map((i) => i.href)).toEqual(["/admin/editor"]);
+    expect(items.map((i) => i.href)).toEqual(["/app/editor"]);
   });
 
   it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。教職員管理は教員アカウント概念の撤去で廃止、監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
-    expect(hrefs).toContain("/admin/school");
-    expect(hrefs).toContain("/admin/editor");
-    expect(hrefs).toContain("/admin/teacher-input");
-    expect(hrefs).toContain("/admin/contents");
-    expect(hrefs).toContain("/admin/chat");
+    expect(hrefs).toContain("/app/school");
+    expect(hrefs).toContain("/app/editor");
+    expect(hrefs).toContain("/app/teacher-input");
+    expect(hrefs).toContain("/app/contents");
+    expect(hrefs).toContain("/app/chat");
     // 監視系は学校側から撤去 (運営 = system_admin 専用)。
     expect(hrefs).not.toContain("/admin/dashboard");
     expect(hrefs).not.toContain("/admin/reports");
     expect(hrefs).not.toContain("/admin/sensors");
   });
 
-  it("掲示物 Q&A (/admin/chat) は school_admin のみ nav に出す。system_admin は nav 非表示 (F06 #370、死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
-    // /admin/chat も /api/teacher/chat も requireRole(PUBLISHER_ROLES) で system_admin を 403 にする
+  it("掲示物 Q&A (/app/chat) は school_admin のみ nav に出す。system_admin は nav 非表示 (F06 #370、死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+    // /app/chat も /api/teacher/chat も requireRole(PUBLISHER_ROLES) で system_admin を 403 にする
     // ため、nav からも system_admin には出さない。生徒は /student の StudentChat (別経路) を使う。
     // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/chat");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/chat");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/chat");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/chat");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/chat");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/chat");
   });
 
-  it("教職員管理 (/admin/school/members) はどの role の nav にも出さない (教員アカウント概念の撤去・2026-06-10)", () => {
+  it("教職員管理 (/app/school/members) はどの role の nav にも出さない (教員アカウント概念の撤去・2026-06-10)", () => {
     // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。school_admin の
     // 自校教職員管理面（個別教員の発行/無効化/設定リンク再発行）はページごと撤去したため、nav にも出さない
     // （再追加防止の回帰、[[project_remove_individual_teacher_accounts]]）。
     for (const role of ["school_admin", "teacher", "system_admin"] as const) {
-      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/admin/school/members");
+      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/app/school/members");
     }
   });
 
-  it("音声/チャット入力 (/admin/teacher-input) は school_admin のみ nav に出す。system_admin は nav 非表示 (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
-    // /admin/teacher-input は requireRole(TEACHER_INPUT_STAFF_ROLES=teacher/school_admin) で
+  it("音声/チャット入力 (/app/teacher-input) は school_admin のみ nav に出す。system_admin は nav 非表示 (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+    // /app/teacher-input は requireRole(TEACHER_INPUT_STAFF_ROLES=teacher/school_admin) で
     // system_admin を 403 にするため、nav からも system_admin には出さない。
     // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain(
-      "/admin/teacher-input",
-    );
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/teacher-input");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/teacher-input");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/teacher-input");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/teacher-input");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/teacher-input");
   });
 
-  it("コンテンツ (/admin/contents) は school_admin のみ nav に出す。system_admin は nav 非表示 (#166 と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
-    // /admin/contents は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため、
+  it("コンテンツ (/app/contents) は school_admin のみ nav に出す。system_admin は nav 非表示 (#166 と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+    // /app/contents は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため、
     // nav からも system_admin には出さない (死リンク防止)。
     // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/contents");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/contents");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/contents");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/contents");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/contents");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/contents");
   });
 
   it("ダッシュボード (/admin/dashboard) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/dashboard を使う)", () => {
@@ -130,7 +128,7 @@ describe("navItemsForRole", () => {
       "/ops/tv-downtime",
       "/admin/account/password",
     ]);
-    expect(hrefs).not.toContain("/admin/editor");
+    expect(hrefs).not.toContain("/app/editor");
     // 商流SoR一元化 Phase1 (2026-06-13): メンバーシップ・ビューアは nav から撤去 (テーブル/RLS は温存)。
     expect(hrefs).not.toContain("/ops/memberships");
   });
@@ -168,7 +166,7 @@ describe("navItemsForRole", () => {
 
   it("教職員管理 (/ops/users) は system_admin 専用 (F11 全校横断・school_admin 管理用)", () => {
     // /ops/users は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校の個別教員管理面 (/admin/school/members) は
+    // nav からも publisher には出さない (死リンク防止)。自校の個別教員管理面 (/app/school/members) は
     // 教員アカウント概念の撤去で廃止済（[[project_remove_individual_teacher_accounts]]）。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/users");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/users");
@@ -217,8 +215,8 @@ describe("navItemsForRole", () => {
 describe("homePathForRole", () => {
   it("各管理ロールはそれぞれのホームへ", () => {
     expect(homePathForRole("system_admin")).toBe("/ops/schools");
-    expect(homePathForRole("school_admin")).toBe("/admin/school");
-    expect(homePathForRole("teacher")).toBe("/admin/editor");
+    expect(homePathForRole("school_admin")).toBe("/app/school");
+    expect(homePathForRole("teacher")).toBe("/app/editor");
   });
 
   it("管理エリア対象外ロールはサイネージ (/) に倒す", () => {
@@ -230,17 +228,17 @@ describe("homePathForRole", () => {
 describe("activeNavHref (最長一致)", () => {
   const schoolAdmin = navItemsForRole("school_admin");
 
-  it("親ページ /admin/school では学校管理が active", () => {
-    expect(activeNavHref(schoolAdmin, "/admin/school")).toBe("/admin/school");
+  it("親ページ /app/school では学校管理が active", () => {
+    expect(activeNavHref(schoolAdmin, "/app/school")).toBe("/app/school");
   });
 
-  it("配下ページ /admin/editor/123 はエディタ (親 href) を active にする", () => {
-    expect(activeNavHref(schoolAdmin, "/admin/editor/123")).toBe("/admin/editor");
+  it("配下ページ /app/editor/123 はエディタ (親 href) を active にする", () => {
+    expect(activeNavHref(schoolAdmin, "/app/editor/123")).toBe("/app/editor");
   });
 
   it("どの項目にも一致しないパスは空文字（どれも active にしない）", () => {
     expect(activeNavHref(schoolAdmin, "/admin/unknown")).toBe("");
-    expect(activeNavHref([], "/admin/school")).toBe("");
+    expect(activeNavHref([], "/app/school")).toBe("");
   });
 
   it("system_admin: /ops/schools/new は学校一覧を active（最長一致で 1 つだけ）", () => {

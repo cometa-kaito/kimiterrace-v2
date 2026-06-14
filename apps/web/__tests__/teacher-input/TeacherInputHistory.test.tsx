@@ -9,7 +9,7 @@ vi.mock("@/lib/teacher-input/draft-actions", () => ({ createDraftFromInputAction
 import {
   TeacherInputHistory,
   type TeacherInputHistoryRow,
-} from "../../app/admin/teacher-input/history/_components/TeacherInputHistory";
+} from "../../app/app/teacher-input/history/_components/TeacherInputHistory";
 
 /**
  * F02 (#38, FR-08): TeacherInputHistory (presentational) のテスト。

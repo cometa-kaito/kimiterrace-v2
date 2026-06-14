@@ -98,17 +98,17 @@ function auditView(value: QuietHoursValue): Record<string, unknown> {
   return { count: value.ranges.length, ranges: value.ranges };
 }
 
-/** target に対応する静粛時間ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/quiet-hours。 */
+/** target に対応する静粛時間ページのパス (revalidate 用)。class は従来の /app/editor/{id}/quiet-hours。 */
 function quietHoursPath(target: EditorTarget): string {
   switch (target.scope) {
     case "school":
-      return "/admin/editor/scope/school/quiet-hours";
+      return "/app/editor/scope/school/quiet-hours";
     case "department":
-      return `/admin/editor/scope/department/${target.departmentId}/quiet-hours`;
+      return `/app/editor/scope/department/${target.departmentId}/quiet-hours`;
     case "grade":
-      return `/admin/editor/scope/grade/${target.gradeId}/quiet-hours`;
+      return `/app/editor/scope/grade/${target.gradeId}/quiet-hours`;
     case "class":
-      return `/admin/editor/${target.classId}/quiet-hours`;
+      return `/app/editor/${target.classId}/quiet-hours`;
   }
 }
 

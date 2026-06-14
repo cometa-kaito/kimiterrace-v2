@@ -19,7 +19,7 @@ const BASE_PATH = "/ops/users";
  * F11 (#47 / #324) / UIUX-03: システム管理者の **全校横断 教職員一覧** (`/ops/users`)。
  * **Server Component**。
  *
- * `/admin/school/members` (#318) が school_admin の **自校**ビューなのに対し、本ページは system_admin の
+ * `/app/school/members` (#318) が school_admin の **自校**ビューなのに対し、本ページは system_admin の
  * **全校横断**ビュー。ADR-026 のロール変更 / アカウント無効化 操作系 (D2 / 全校無効化 + last-admin ガード)
  * の操作 UI (各行の無効化 / 再有効化トグル) を持つ。
  *

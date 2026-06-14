@@ -47,7 +47,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // システム管理者: 全校横断の運用 (RLS bypass ではなく system_admin policy 経由、ADR-019)。
   system_admin: [
     { label: "学校一覧", href: "/ops/schools" },
-    // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用)。自校ビュー /admin/school/members
+    // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用)。自校ビュー /app/school/members
     // (school_admin 専用) とは別ルート。ロール変更/無効化の操作系の土台 (ADR-026)。
     { label: "教職員管理", href: "/ops/users" },
     // F10 (#46) → UIUX-03 PR8 (商流 UI 退役・段階1): 商流 (広告主マスタ/契約/コミュニケーション) の
@@ -102,16 +102,16 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // 集約し、学校側ロールの nav からは撤去する (UX 撤去 + 各ページ/API は requireRole(SYSTEM_ADMIN_ROLES)
   // で URL 直打ち・API 直叩きも 403)。全校横断版は system_admin の /ops/* に存続する。
   school_admin: [
-    { label: "学校管理", href: "/admin/school" },
-    // 教員アカウント概念の撤去（2026-06-10 ユーザー判断）に伴い「教職員」(/admin/school/members) を撤去。
+    { label: "学校管理", href: "/app/school" },
+    // 教員アカウント概念の撤去（2026-06-10 ユーザー判断）に伴い「教職員」(/app/school/members) を撤去。
     // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。教員ロールの
     // 付与/無効化/設定リンク発行という school_admin の自校教職員管理面ごと廃止した（[[project_remove_individual_teacher_accounts]]）。
-    { label: "エディタ", href: "/admin/editor" },
-    { label: "音声/チャット入力", href: "/admin/teacher-input" },
-    { label: "コンテンツ", href: "/admin/contents" },
-    // F06 (#370): 教員も使える掲示物 Q&A チャット。/admin/chat も /api/teacher/chat も
+    { label: "エディタ", href: "/app/editor" },
+    { label: "音声/チャット入力", href: "/app/teacher-input" },
+    { label: "コンテンツ", href: "/app/contents" },
+    // F06 (#370): 教員も使える掲示物 Q&A チャット。/app/chat も /api/teacher/chat も
     // requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため死リンク防止で publisher のみ。
-    { label: "掲示物 Q&A", href: "/admin/chat" },
+    { label: "掲示物 Q&A", href: "/app/chat" },
     // 自分のパスワード変更 (個人 email/password アカウント)。teacher は学校共通パスワード (ADR-032) で
     // 個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES = school_admin / system_admin と整合)。
     { label: "パスワード変更", href: "/admin/account/password" },
@@ -132,7 +132,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
   // school_admin nav に残す (上の school_admin ブロック参照)。「コンテンツ投入を今後誰が担うか」は別途設計。
   // ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で運営 (system_admin) 専用に
   // 撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
-  teacher: [{ label: "エディタ", href: "/admin/editor" }],
+  teacher: [{ label: "エディタ", href: "/app/editor" }],
 };
 
 /** 管理エリアに入れるロールか (純粋判定、guard から利用)。 */
@@ -162,9 +162,9 @@ export function homePathForRole(role: TenantRole): string {
     case "system_admin":
       return "/ops/schools";
     case "school_admin":
-      return "/admin/school";
+      return "/app/school";
     case "teacher":
-      return "/admin/editor";
+      return "/app/editor";
     default:
       return "/";
   }
@@ -173,9 +173,9 @@ export function homePathForRole(role: TenantRole): string {
 /**
  * 現在パス `pathname` に対して active 表示すべき nav 項目の href を返す（**最長一致**）。
  *
- * 候補は「完全一致」または「配下（`href + "/"` 始まり、例: /admin/editor/123）」。その中で最も具体的
- * （= href が最長）な 1 つだけを active とする。これにより、親 `/admin/school`（学校管理）が子ページ
- * `/admin/school/members`（教職員）で**同時に点灯する**バグを防ぐ（前方一致だけだと親も一致するため）。
+ * 候補は「完全一致」または「配下（`href + "/"` 始まり、例: /app/editor/123）」。その中で最も具体的
+ * （= href が最長）な 1 つだけを active とする。これにより、親 `/app/school`（学校管理）が子ページ
+ * `/app/school/members`（教職員）で**同時に点灯する**バグを防ぐ（前方一致だけだと親も一致するため）。
  * 一致なしは `""`（どの項目も active にしない）。
  */
 export function activeNavHref(items: readonly NavItem[], pathname: string): string {
