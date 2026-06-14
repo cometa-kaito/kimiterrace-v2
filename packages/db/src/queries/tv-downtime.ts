@@ -41,10 +41,12 @@ type Selectable = Pick<PostgresJsDatabase, "select">;
  * 履歴ページのヘッダ表示 + ダウンタイム解決に要る TV 識別の最小射影。履歴ページは URL の行 PK
  * （`tv_devices.id`、編集ページと同じ参照軸）を受け取るが、`tv_device_downtime` は `device_id`（text）で
  * FK 参照するため、行 PK → device_id を RLS スコープ下で解決する。設定の生値（webhook_url 等）は含めない。
+ * `scheduleJson` は推定原因の表示（消灯時間帯かの判定、`apps/web` の estimateDowntimeCause）に使う
+ * 非 PII・非 secret の表示設定（schedule の ON/OFF 窓のみ。ルール4 に抵触しない）。
  */
 export type TvDeviceIdentity = Pick<
   TvDeviceRow,
-  "id" | "deviceId" | "label" | "lastBootAt" | "monitoringEnabled" | "alertState"
+  "id" | "deviceId" | "label" | "lastBootAt" | "monitoringEnabled" | "alertState" | "scheduleJson"
 >;
 
 /**
@@ -70,6 +72,7 @@ export async function getTvDeviceIdentity(
       lastBootAt: tvDevices.lastBootAt,
       monitoringEnabled: tvDevices.monitoringEnabled,
       alertState: tvDevices.alertState,
+      scheduleJson: tvDevices.scheduleJson,
     })
     .from(tvDevices)
     .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
