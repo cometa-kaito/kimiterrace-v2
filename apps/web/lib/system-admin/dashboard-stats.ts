@@ -1,9 +1,9 @@
 import { type SchoolEventSummary, type TenantTx, events, schools } from "@kimiterrace/db";
 import { type SQL, and, eq, gte, lt, sql } from "drizzle-orm";
-import type { ListParams } from "@/app/admin/_components/datalist/list-params";
+import type { ListParams } from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: 全校ダッシュボード (`/admin/system/dashboard`) の **日付範囲対応** 集計層。
+ * UIUX-03: 全校ダッシュボード (`/ops/dashboard`) の **日付範囲対応** 集計層。
  *
  * ## 置き場所 (並行レーン回避)
  * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`school-list.ts` /

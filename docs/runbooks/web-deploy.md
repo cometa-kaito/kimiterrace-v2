@@ -76,7 +76,17 @@ gcloud builds submit . \
 
 ### ② tag bump
 
-`infrastructure/terraform/envs/<env>/main.tf` の `local.web_image_tag` を `<sha>` に書き換える（コメント行は触らない）。
+`infrastructure/terraform/envs/<env>/main.tf` の `local.web_image_tag` を `<sha>` に書き換える。
+
+- **代入行の行末コメントは毎回その回のデプロイ内容に書き換える**（前回の説明を残さない）。`deploy-web.sh` は bump 時に
+  行末コメントを `# <env> deploy <sha>（内容は PR/commit に記述）` という stub に刷新するので、⑤ で commit する前に
+  この回の内容（`#NNN` / schema・secret 変更有無 / 疎通結果）へ正書きする。日付は自動では入れない（誤りの温床）。
+  - 旧コメントをそのまま残すと実態と矛盾する。例: 2026-06-14 prod #878（migration 込み）を bump した際、コメントは前回
+    #871 の「schema 無変更=migrate 不要…」のまま残り矛盾した（手で直した）。stub 刷新はこれを防ぐための既定。
+- **手書きで bump する `local.migrate_image_tag` も同じ**。こちらは `deploy-web.sh` の対象外（schema を変えた時だけ手動 bump、
+  下記「schema を変えた時」）なので stub 刷新は効かない。**sha を変えるたびに行末コメントもその migration の内容へ自分で書き換える**。
+- これらは **代入行の行末コメント**の話。`web_image_tag` 直前にある **履歴ブロックの独立コメント行（行頭が `#`）は触らない**
+  （`deploy-web.sh` の sed も行頭 `web_image_tag` 代入行だけを対象にし、`#` 始まりの言及行は無傷に保つ）。
 
 ### ③ apply（Cloud Run module だけ）
 

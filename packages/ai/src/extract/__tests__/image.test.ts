@@ -10,15 +10,19 @@ import {
 
 const IMG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]); // 適当な画像バイト列（PNG マジック）
 
-/** スクリプト化したフェイク OCR。受け取った bytes を記録し、用意した結果を返す。 */
+/** スクリプト化したフェイク OCR。受け取った bytes / mediaType を記録し、用意した結果を返す。 */
 function fakeOcr(result: { text: string; confidence?: number }): OcrClient & {
   calls: Uint8Array[];
+  mediaTypes: (string | undefined)[];
 } {
   const calls: Uint8Array[] = [];
+  const mediaTypes: (string | undefined)[] = [];
   return {
     calls,
-    async recognize(bytes: Uint8Array) {
+    mediaTypes,
+    async recognize(bytes: Uint8Array, mediaType?: string) {
       calls.push(bytes);
+      mediaTypes.push(mediaType);
       return result;
     },
   };
@@ -45,6 +49,12 @@ describe("ImageExtractor", () => {
     // 元の画像バイト列をそのまま OCR に渡している。
     expect(ocr.calls).toHaveLength(1);
     expect(ocr.calls[0]).toBe(IMG);
+  });
+
+  it("source.mimeType を OCR の mediaType ヒントへ渡す（Gemini 画像パート用・ADR-038）", async () => {
+    const ocr = fakeOcr({ text: "x" });
+    await new ImageExtractor(ocr).extract({ bytes: IMG, mimeType: "image/jpeg" });
+    expect(ocr.mediaTypes).toEqual(["image/jpeg"]);
   });
 
   it("confidence を出さない OcrClient でも ocrUsed は true", async () => {

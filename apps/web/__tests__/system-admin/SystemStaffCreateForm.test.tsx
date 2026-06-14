@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/system-admin/users-actions", () => ({ createSystemStaffAction: vi.fn() }));
 
-import { SystemStaffCreateForm } from "../../app/admin/system/users/new/_components/SystemStaffCreateForm";
+import { SystemStaffCreateForm } from "../../app/ops/users/new/_components/SystemStaffCreateForm";
 import { createSystemStaffAction } from "../../lib/system-admin/users-actions";
 
 const createMock = vi.mocked(createSystemStaffAction);

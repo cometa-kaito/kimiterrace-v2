@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isRoleAllowed } from "../../lib/auth/guard";
 import { SYSTEM_ADMIN_ROLES } from "../../lib/system-admin/roles";
 
-// #48-L: /admin/system/* は requireRole(SYSTEM_ADMIN_ROLES) で gate する。requireRole は
+// #48-L: /ops/* は requireRole(SYSTEM_ADMIN_ROLES) で gate する。requireRole は
 // 内部で isRoleAllowed を使うため、ガード集合の振る舞いをここで直接固定する (誤って広げた場合に検出)。
-describe("SYSTEM_ADMIN_ROLES (#48-L: /admin/system/* を system_admin 専用にする認可集合)", () => {
+describe("SYSTEM_ADMIN_ROLES (#48-L: /ops/* を system_admin 専用にする認可集合)", () => {
   it("system_admin のみ許可する", () => {
     expect(isRoleAllowed("system_admin", SYSTEM_ADMIN_ROLES)).toBe(true);
   });

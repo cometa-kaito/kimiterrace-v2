@@ -1,0 +1,27 @@
+-- 「新年度へ複製」(duplicateClassesToNextYearAction) の並行実行 / 別タブ再実行による翌年度クラスの
+-- 重複生成を **DB レベルで封じる**部分 UNIQUE index（classes に school×年度×学年×クラス名の一意制約）。
+-- 同一校・同一年度・同一学年(grade_id)・同名クラスは 1 行のみに直列化する。
+--
+-- なぜ部分 index（WHERE grade_id IS NOT NULL）か:
+--   - 複製対象は grade_id を持つクラスのみ（planNextYearDuplication が gradeId=null を除外）で、
+--     学年未割当クラスは掲示階層に乗らない。そこに一意制約を課す意味が無い。
+--   - そもそも Postgres は NULL を distinct 扱いするため、grade_id を鍵に含めても NULL 行同士は
+--     衝突しない。部分 index で NULL 行を index 対象外にして意図を明示する。
+--
+-- なぜ school_id を鍵に含めるか:
+--   classes はマルチテナント（全校の行を 1 テーブルに保持）。テナント整合のため一意性は校内に閉じる。
+--   RLS は SELECT/書込みを自校に限定するが、index は物理的に全テナント横断なので school_id が必須。
+--
+-- app 層との関係:
+--   duplicateClassesToNextYearAction は planNextYearDuplication + 既存 target 除外で graceful skip を
+--   狙うが、READ COMMITTED の phantom race（並行 tx が双方 SELECT で 0 行→双方 INSERT）は app 層では
+--   塞げない。本 index を直列化の真の砦にし、競合 INSERT は 23505 → finish の conflict 写像で graceful に返す。
+--
+-- 前提（本番適用前チェック / Rule 8 のゲート経由）:
+--   既存 classes に同一 (school_id, academic_year, grade_id, name) の重複行が無いこと。重複があると
+--   CREATE 自体が失敗する。岐南は各学年 1 クラスのため通常 OK。万一重複していたら最小 id を残して
+--   dedup してから再 apply する。確認クエリ:
+--     SELECT school_id, academic_year, grade_id, name, count(*)
+--     FROM classes WHERE grade_id IS NOT NULL
+--     GROUP BY 1,2,3,4 HAVING count(*) > 1;
+CREATE UNIQUE INDEX "ux_classes_school_year_grade_name" ON "classes" USING btree ("school_id","academic_year","grade_id","name") WHERE "classes"."grade_id" IS NOT NULL;

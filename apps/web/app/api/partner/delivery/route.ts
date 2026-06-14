@@ -2,6 +2,7 @@ import {
   type DeliveryAdInput,
   type DeliveryInput,
   type DeliveryResult,
+  ScopeResolutionError,
   type TenantTx,
   applyPartnerDelivery,
   withTenantContext,
@@ -105,6 +106,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         portalPlacementId: a.portalPlacementId,
         v2SchoolId: a.v2SchoolId,
         scope: a.scope,
+        scopeRef: a.scopeRef,
         mediaType: a.mediaType,
         durationSec: a.durationSec,
         displayOrder: a.displayOrder,
@@ -148,6 +150,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
+    // scopeRef の名前解決失敗（対象が学校内に無い/曖昧）= 恒久。再送で直らないため 409。
+    if (err instanceof ScopeResolutionError) {
+      return NextResponse.json({ error: "conflict" }, { status: 409 });
+    }
     const code = pgErrorCode(err);
     if (code && PERMANENT_PG_CODES.has(code)) {
       // 恒久的な整合不能（未知 v2School 等）。再送で直らないため 409（portal は再送しない）。

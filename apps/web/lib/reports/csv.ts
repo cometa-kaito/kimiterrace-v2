@@ -4,7 +4,7 @@ import { formatYearMonth } from "./month";
 /**
  * F09 (#45) 第2スライス: 月次 **学校別サマリーの CSV シリアライズ**。純粋関数のみ (DB / I/O 非依存)。
  *
- * 第1スライス (`/admin/reports`) が画面に出している `MonthlySchoolSummary` を、教員が表計算ソフトへ
+ * 第1スライス (`/app/reports`) が画面に出している `MonthlySchoolSummary` を、教員が表計算ソフトへ
  * 取り込める CSV テキストへ落とす。PDF 生成・`monthly_reports` 履歴・Cloud Storage 保存は後続スライス
  * とし、本スライスは「サーバ側集計をそのまま 1 ファイルで持ち帰れる」最小の配布手段を用意する。
  *
@@ -50,7 +50,7 @@ const BOM = "﻿";
 /** RFC 4180 のレコード区切り。 */
 const CRLF = "\r\n";
 
-/** caption 未設定 / 削除済 広告の表示名 (画面の `/admin/reports` と揃える)。 */
+/** caption 未設定 / 削除済 広告の表示名 (画面の `/app/reports` と揃える)。 */
 const UNTITLED_AD_LABEL = "（無題の広告）";
 
 /**

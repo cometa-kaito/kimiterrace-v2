@@ -1,13 +1,16 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import {
   AiDisabledError,
   ExtractFailedError,
   ExtractorNotConfiguredError,
   type ModelClient,
+  type OcrClient,
   type RateLimiter,
   UnsupportedFormatError,
   assertAiEnabled,
+  createGeminiOcrClient,
   createPerSchoolRateLimiter,
   createVertexModelClient,
   extractText,
@@ -75,11 +78,27 @@ function getModel(): ModelClient {
   return memoModel;
 }
 
+let memoOcr: OcrClient | null = null;
 /**
- * エディタのファイル入力で受理する拡張子（テキスト抽出が即動作するもの）。
- * 画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) ゆえ本MVPでは非対応 → `unsupported_format`。
+ * 画像 OCR クライアント（Gemini マルチモーダル直送・ADR-038）を遅延生成。Vertex と同一 project/location
+ * （asia-northeast1）に閉じる（NFR07 データ越境ゼロ）。construct は lazy（認証/通信なし、recognize 時のみ ADC）。
  */
-const EDITOR_FILE_EXTS = new Set(["pdf", "docx", "xlsx"]);
+function getOcrClient(): OcrClient {
+  if (memoOcr) return memoOcr;
+  const project = process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
+  const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
+  memoOcr = createGeminiOcrClient({ project, location });
+  return memoOcr;
+}
+
+/**
+ * エディタのファイル入力で受理する拡張子。文書/表（pdf/docx/xlsx/csv）は egress なしのローカル抽出、
+ * 画像（png/jpg）は Gemini マルチモーダル OCR（ADR-038・旧 ADR-024 決定2 Vision を supersede）で配線。
+ */
+const EDITOR_FILE_EXTS = new Set(["pdf", "docx", "xlsx", "csv", "png", "jpg"]);
+
+/** 画像（OCR 外部委託が発生する）拡張子。rate 前置 + OCR egress 監査の判定に使う。 */
+const IMAGE_FILE_EXTS = new Set(["png", "jpg"]);
 
 /**
  * エディタファイル入力のサイズ上限 (10MB)。Server Action 経路ゆえ next.config の
@@ -102,10 +121,39 @@ function auditRecordId(target: EditorTarget, actor: EditorActor): string {
   }
 }
 
-/** テスト差し替え用の依存（既定は実 model + プロセス内 rate limiter）。 */
+/**
+ * OCR 外部委託（画像 → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。画像が Vertex に送られた事実を
+ * who / school / 対象 / 画像 SHA-256 / 抽出文字数で記録する（**画像本体・抽出本文は残さない** = ルール4）。
+ * egress は extract 時点で発生済ゆえ、no_text / 後続 draft 生成の成否に関わらず本監査を残す（fail-safe）。
+ */
+async function writeOcrEgressAudit(
+  actor: EditorActor,
+  target: EditorTarget,
+  imageBytes: Uint8Array,
+  charCount: number,
+): Promise<void> {
+  const imageSha256 = createHash("sha256").update(imageBytes).digest("hex");
+  await withSession(async (tx) => {
+    await tx.insert(auditLog).values({
+      actorUserId: actor.userId,
+      schoolId: actor.schoolId,
+      tableName: "daily_data",
+      recordId: auditRecordId(target, actor),
+      operation: "update",
+      diff: { ocrEgress: true, backend: "gemini", imageSha256, charCount, scope: target.scope },
+      rowHash: "",
+      createdBy: actor.userId,
+      updatedBy: actor.userId,
+    });
+  });
+}
+
+/** テスト差し替え用の依存（既定は実 model + プロセス内 rate limiter + 実 OCR）。 */
 export interface AssistDeps {
   model: ModelClient;
   rateLimiter: RateLimiter;
+  /** 画像 OCR クライアント（ADR-038）。未指定時のみ実 Gemini OCR を遅延生成（テストはフェイク注入）。 */
+  ocr?: OcrClient;
   nowMs?: number;
 }
 
@@ -238,6 +286,7 @@ async function runSectionDraft<T>(
   opts: { acknowledgePii?: boolean },
   deps: AssistDeps,
   source: "text" | "file",
+  flags: { skipRateLimit?: boolean } = {},
 ): Promise<{ ok: true; items: T[] } | AssistDraftError> {
   // ADR-030 PII soft-gate: 敬称連接の氏名らしきパターン検出 → 未 override は送信せず警告。
   const suspects = findSuspectedPersonalNames(text);
@@ -249,9 +298,10 @@ async function runSectionDraft<T>(
     };
   }
 
-  // per-school レート制限（プロセス内）。マスク/モデル呼び出しより前に弾く。
+  // per-school レート制限（プロセス内）。マスク/モデル呼び出しより前に弾く。画像経路は OCR egress を
+  // rate で前置済 (draftSectionFromFile) のため二重取得しない（`skipRateLimit`、NFR06）。
   const now = deps.nowMs ?? Date.now();
-  if (!(await deps.rateLimiter.tryAcquire(actor.schoolId, now))) {
+  if (!flags.skipRateLimit && !(await deps.rateLimiter.tryAcquire(actor.schoolId, now))) {
     return { ok: false, reason: "rate_limited" };
   }
 
@@ -335,8 +385,11 @@ async function draftSectionFromText<T>(
 }
 
 /**
- * ファイル入力 (PDF/Word/Excel) → ドラフト候補（共通: 形式/サイズ検証 → 認証 → テキスト抽出 →
- * {@link runSectionDraft}）。画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) のため非対応。
+ * ファイル入力 → ドラフト候補（共通: 形式/サイズ検証 → 認証 → テキスト抽出 → {@link runSectionDraft}）。
+ * 文書/表 (PDF/Word/Excel/CSV) は egress なしのローカル抽出、画像 (PNG/JPEG) は Gemini マルチモーダル
+ * OCR (ADR-038)。画像は外部委託が発生するため (a) OCR の前に per-school rate を取り (NFR06)、
+ * (b) egress を `audit_log` に記録し (ADR-024 決定2.2)、(c) 抽出テキストは runSectionDraft の PII マスク/
+ * soft-gate を通す (ADR-024 決定2.3 / ルール4) — 三段ガード。
  */
 async function draftSectionFromFile<T>(
   spec: DraftSpec<T>,
@@ -353,7 +406,7 @@ async function draftSectionFromFile<T>(
   if (file.size > ASSIST_FILE_MAX_BYTES) {
     return { ok: false, reason: "too_large" };
   }
-  // MIME allowlist（ファイル名でなく MIME を一次ソース）。画像/レガシー Office 等は弾く。
+  // MIME allowlist（ファイル名でなく MIME を一次ソース）。レガシー Office 等は弾く。
   const uploadType = resolveUploadType(file.type);
   if (!uploadType || !EDITOR_FILE_EXTS.has(uploadType.ext)) {
     return { ok: false, reason: "unsupported_format" };
@@ -364,14 +417,29 @@ async function draftSectionFromFile<T>(
     return auth.result;
   }
 
+  const isImage = IMAGE_FILE_EXTS.has(uploadType.ext);
+  // 画像 OCR は Vertex への egress。コスト/越境最小化のため OCR より前に per-school rate を取る
+  // (NFR06)。取得済ゆえ runSectionDraft 側は再取得しない (skipRateLimit)。
+  const now = deps.nowMs ?? Date.now();
+  if (isImage && !(await deps.rateLimiter.tryAcquire(auth.actor.schoolId, now))) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
   let text: string;
+  let bytes: Uint8Array;
+  let ocrUsed = false;
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    // OCR は渡さない（画像は上で弾き済み・PDF/DOCX/XLSX のみ到達）。抽出テキストは未マスク（ルール4）。
-    const extracted = await extractText({ bytes, mimeType: file.type, filename: file.name });
+    bytes = new Uint8Array(await file.arrayBuffer());
+    // 画像のみ OCR クライアントを注入 (ADR-038 Gemini 直送)。文書/表は egress なしのローカル抽出。
+    // 抽出テキストは未マスク（ルール4・マスクは runSectionDraft）。
+    const extracted = await extractText(
+      { bytes, mimeType: file.type, filename: file.name },
+      isImage ? { ocr: deps.ocr ?? getOcrClient() } : {},
+    );
     text = extracted.text.trim().slice(0, ASSIST_INPUT_MAX);
+    ocrUsed = extracted.meta?.ocrUsed === true;
   } catch (e) {
-    // 形式未対応/未配線（画像 OCR 等）は unsupported、パース失敗（破損/暗号化）は extract_failed。
+    // 形式未対応/未配線は unsupported、パース失敗（破損/暗号化）は extract_failed。
     if (e instanceof UnsupportedFormatError || e instanceof ExtractorNotConfiguredError) {
       return { ok: false, reason: "unsupported_format" };
     }
@@ -381,11 +449,19 @@ async function draftSectionFromFile<T>(
     return { ok: false, reason: "extract_failed" };
   }
 
+  // OCR egress 監査 (ADR-024 決定2.2 / ADR-038)。egress は上の extract で発生済ゆえ、no_text や後続
+  // draft の成否に関わらず残す (fail-safe・本文は残さず画像ハッシュ+文字数のみ)。
+  if (ocrUsed) {
+    await writeOcrEgressAudit(auth.actor, auth.target, bytes, text.length);
+  }
+
   if (text.length === 0) {
     return { ok: false, reason: "no_text" };
   }
 
-  return runSectionDraft(spec, auth.target, auth.actor, text, opts, deps, "file");
+  return runSectionDraft(spec, auth.target, auth.actor, text, opts, deps, "file", {
+    skipRateLimit: isImage,
+  });
 }
 
 /**
@@ -428,9 +504,9 @@ export async function assistDraftAssignmentAction(
 }
 
 /**
- * アップロードファイル (PDF / Word / Excel) からテキストを抽出し、AI で「連絡」候補に整形して返す
- * （保存しない）。画像 (png/jpg) は OCR 未配線 (ADR-024 決定3) のため本MVP非対応。
- * 抽出後は {@link runSectionDraft} を通すので PII マスク/soft-gate/監査は text 経路と同一（ルール4）。
+ * アップロードファイル (PDF / Word / Excel / CSV / 画像) からテキストを抽出し、AI で「連絡」候補に整形して
+ * 返す（保存しない）。画像 (PNG/JPEG) は Gemini マルチモーダル OCR (ADR-038)。抽出後は {@link runSectionDraft}
+ * を通すので PII マスク/soft-gate/監査は text 経路と同一（ルール4）。画像は OCR egress を別途監査する。
  */
 export async function assistDraftNoticesFromFileAction(
   scope: unknown,
@@ -443,7 +519,7 @@ export async function assistDraftNoticesFromFileAction(
   return r.ok ? { ok: true, notices: r.items } : r;
 }
 
-/** ファイル (PDF/Word/Excel) から AI で「予定(時間割)」候補に整形して返す（保存しない）。 */
+/** ファイル (PDF/Word/Excel/CSV/画像) から AI で「予定(時間割)」候補に整形して返す（保存しない・画像は OCR/ADR-038）。 */
 export async function assistDraftScheduleFromFileAction(
   scope: unknown,
   targetId: unknown,
@@ -455,7 +531,7 @@ export async function assistDraftScheduleFromFileAction(
   return r.ok ? { ok: true, schedules: r.items } : r;
 }
 
-/** ファイル (PDF/Word/Excel) から AI で「提出物(課題)」候補に整形して返す（保存しない）。 */
+/** ファイル (PDF/Word/Excel/CSV/画像) から AI で「提出物(課題)」候補に整形して返す（保存しない・画像は OCR/ADR-038）。 */
 export async function assistDraftAssignmentFromFileAction(
   scope: unknown,
   targetId: unknown,
@@ -487,7 +563,7 @@ export async function assistDraftAllAction(
   return { ok: true, ...bundle };
 }
 
-/** 「おまかせ」: ファイル (PDF/Word/Excel) を AI が予定/連絡/提出物に分類して返す（保存しない、ADR-036）。 */
+/** 「おまかせ」: ファイル (PDF/Word/Excel/CSV/画像) を AI が予定/連絡/提出物に分類して返す（保存しない・画像 OCR=ADR-038, ADR-036）。 */
 export async function assistDraftAllFromFileAction(
   scope: unknown,
   targetId: unknown,

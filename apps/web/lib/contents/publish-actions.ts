@@ -172,8 +172,8 @@ export async function publishContentAction(
     );
     // 公開成功時のみ再検証 (warn / not_found では掲示状態は不変)。
     if (outcome.ok) {
-      revalidatePath("/admin/editor");
-      revalidatePath("/admin/contents");
+      revalidatePath("/app/editor");
+      revalidatePath("/app/contents");
       revalidatePath("/");
     }
     return outcome;
@@ -186,7 +186,7 @@ export async function publishContentAction(
  * F01/F02 (#509 S3a): content を draft で新規作成する。publisher (school_admin / teacher) のみ。
  *
  * 教員入力 (ファイル / 音声・チャット) の抽出結果を「編集してから公開」する下書きの受け皿。
- * 作成後に呼出側が `/admin/contents/{contentId}` へ誘導し、既存エディタで編集 → `publishContentAction` で公開する。
+ * 作成後に呼出側が `/app/contents/{contentId}` へ誘導し、既存エディタで編集 → `publishContentAction` で公開する。
  * 未認証は /login、publisher 以外は /forbidden (`requireUser` + role gate)。新規作成のため contentId が
  * まだ無く拒否監査 (recordPublishDenial) は対象外。
  */
@@ -215,7 +215,7 @@ export async function createContentAction(
         targets: input.targets,
       }),
     );
-    revalidatePath("/admin/contents");
+    revalidatePath("/app/contents");
     return { ok: true, data: { contentId: result.id, version: result.version } };
   } catch (error) {
     return mapDomainError(error);
@@ -248,7 +248,7 @@ export async function updateContentAction(
         targets: input.targets,
       }),
     );
-    revalidatePath("/admin/editor");
+    revalidatePath("/app/editor");
     return { ok: true, data: { version: result.version } };
   } catch (error) {
     return mapDomainError(error);
@@ -269,7 +269,7 @@ export async function unpublishContentAction(
   }
   try {
     const result = await withSession((tx) => unpublishContent(tx, actor, contentId));
-    revalidatePath("/admin/editor");
+    revalidatePath("/app/editor");
     revalidatePath("/");
     return { ok: true, data: { publishId: result.publishId } };
   } catch (error) {
@@ -295,7 +295,7 @@ export async function rollbackContentAction(
   }
   try {
     const result = await withSession((tx) => rollbackContent(tx, actor, contentId, targetVersion));
-    revalidatePath("/admin/editor");
+    revalidatePath("/app/editor");
     revalidatePath("/");
     return { ok: true, data: { version: result.version, restoredFrom: result.restoredFrom } };
   } catch (error) {

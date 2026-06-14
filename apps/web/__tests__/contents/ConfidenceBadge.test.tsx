@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ConfidenceBadge } from "../../app/admin/contents/_components/ConfidenceBadge";
+import { ConfidenceBadge } from "../../app/app/contents/_components/ConfidenceBadge";
 
 describe("ConfidenceBadge (F04.3 確信度フラグ)", () => {
   it("score < 0.7 で「⚠️ 要確認」バッジを表示", () => {

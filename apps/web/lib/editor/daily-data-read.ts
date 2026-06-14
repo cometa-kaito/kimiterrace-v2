@@ -12,7 +12,7 @@ import { type EditorTarget, type ScheduleItem, validateScheduleItems } from "./s
 /**
  * エディタ daily_data 読み取りの **scope 汎用コア** (段A-2)。指定対象 (学校全体 / 学科全体 /
  * 学年全体 / クラス)・日付の現在 3 セクションを 1 行から取得し、表示用ラベルとともに返す。
- * scope ページ (`/admin/editor/scope/...`) が `withSession` の自校 RLS tx 内で呼ぶ。
+ * scope ページ (`/app/editor/scope/...`) が `withSession` の自校 RLS tx 内で呼ぶ。
  *
  * **RLS (ルール2)**: `app.current_school_id` で自校に限定される。対象 id が別テナント / 不在なら
  * `label` 解決が null → 呼び出し側が 404。手書き `WHERE school_id` は書かない。

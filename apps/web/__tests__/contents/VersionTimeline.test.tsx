@@ -6,7 +6,7 @@ const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/lib/contents/publish-actions", () => ({ rollbackContentAction: vi.fn() }));
 
-import { VersionTimeline } from "../../app/admin/contents/_components/VersionTimeline";
+import { VersionTimeline } from "../../app/app/contents/_components/VersionTimeline";
 import { rollbackContentAction } from "../../lib/contents/publish-actions";
 
 const rollbackMock = vi.mocked(rollbackContentAction);

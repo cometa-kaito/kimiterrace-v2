@@ -37,8 +37,8 @@ export interface ExtractMeta {
   /** Excel のシート名一覧。 */
   sheetNames?: string[];
   /**
-   * 外部 OCR（ADR-024 決定2: Cloud Vision）を経由したか。
-   * true の場合、画像そのものが外部委託に送られた（ルール4）。監査側が記録する。
+   * 外部 OCR（既定バックエンド = Vertex Gemini マルチモーダル, ADR-038・旧 ADR-024 決定2 Cloud Vision を supersede）を
+   * 経由したか。true の場合、画像そのものが外部委託に送られた（ルール4）。監査側が記録する。
    */
   ocrUsed?: boolean;
   /** 抽出器が信頼度を出せる場合（0..1）。OCR の確信度など。 */
@@ -68,12 +68,17 @@ export interface OcrResult {
  * `ModelClient`（ADR-006）と同じ思想で、実 Cloud Vision アダプタを差し替え可能にし、
  * credential を要する実呼び出しを単体テスト/CI に持ち込まない。
  *
- * ⚠ ADR-024 決定2: OCR は **画像そのものを外部委託に送る**。実装側は呼び出しを `audit_log` に
- * 記録し（who/school_id/画像ハッシュ/結果文字数）、結果テキストは下流で必ず PII マスキングを通すこと。
+ * ⚠ OCR は **画像そのものを外部委託に送る**（既定バックエンド = Vertex Gemini マルチモーダル, ADR-038）。
+ * 実装側は呼び出しを `audit_log` に記録し（who/school_id/画像ハッシュ/結果文字数）、結果テキストは下流で
+ * 必ず PII マスキングを通すこと（ルール4）。
  */
 export interface OcrClient {
-  /** バイト列（画像）を OCR してテキストを返す。 */
-  recognize(bytes: Uint8Array): Promise<OcrResult>;
+  /**
+   * バイト列（画像）を OCR してテキストを返す。`mediaType`（IANA メディアタイプ・例 "image/png"）は
+   * マルチモーダル LLM バックエンド（Gemini 直送 / ADR-038）が画像パートに付与するための任意ヒント。
+   * Cloud Vision アダプタ（ADR-024）は内容から判定するため無視してよい（後方互換）。
+   */
+  recognize(bytes: Uint8Array, mediaType?: string): Promise<OcrResult>;
 }
 
 /**

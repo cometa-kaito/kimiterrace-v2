@@ -19,9 +19,13 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 
 const countGradesInDepartmentMock = vi.fn();
 const countClassesInGradeMock = vi.fn();
+const getClassYearRowsMock = vi.fn();
+const getTargetYearClassKeysMock = vi.fn();
 vi.mock("../../lib/school-admin/hub-queries", () => ({
   countGradesInDepartment: (...a: unknown[]) => countGradesInDepartmentMock(...a),
   countClassesInGrade: (...a: unknown[]) => countClassesInGradeMock(...a),
+  getClassYearRows: (...a: unknown[]) => getClassYearRowsMock(...a),
+  getTargetYearClassKeys: (...a: unknown[]) => getTargetYearClassKeysMock(...a),
 }));
 
 import { requireRole } from "../../lib/auth/guard";
@@ -30,10 +34,13 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   deleteGradeAction,
+  duplicateClassesToNextYearAction,
+  reorderHierarchyAction,
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
 } from "../../lib/school-admin/hub-actions";
+import { classDupKey } from "../../lib/school-admin/hub-core";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
@@ -54,6 +61,8 @@ const admin = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID
  * チェーンを満たすだけ。
  */
 let selectQueue: unknown[][];
+const insertSpy = vi.fn();
+const NEW_ID = "66666666-6666-4666-8666-666666666666";
 function fakeTx() {
   const makeSelectChain = (rows: unknown[]) => {
     const chain = {
@@ -67,12 +76,16 @@ function fakeTx() {
     set: () => writeChain,
     values: () => writeChain,
     where: () => Promise.resolve(undefined),
+    returning: () => Promise.resolve([{ id: NEW_ID }]),
   };
   return {
     select: () => makeSelectChain(selectQueue.shift() ?? []),
     update: () => writeChain,
     delete: () => writeChain,
-    insert: () => writeChain,
+    insert: (...a: unknown[]) => {
+      insertSpy(...a);
+      return writeChain;
+    },
   };
 }
 
@@ -81,6 +94,7 @@ beforeEach(() => {
   requireRoleMock.mockResolvedValue(admin);
   countGradesInDepartmentMock.mockResolvedValue(0);
   countClassesInGradeMock.mockResolvedValue(0);
+  getTargetYearClassKeysMock.mockResolvedValue(new Set<string>());
   selectQueue = [];
   // callback を fake tx で実行 (実シグネチャは (fn, user) だが tx のみ使う)。
   withSessionMock.mockImplementation(((fn: (tx: unknown) => unknown) =>
@@ -267,5 +281,141 @@ describe("deleteClassAction", () => {
     const res = await deleteClassAction(CLASS_ID);
     expect(res).toEqual({ ok: true, data: { id: CLASS_ID } });
     expect(countClassesInGradeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("duplicateClassesToNextYearAction", () => {
+  it("schoolId 無し (テナント未選択) は forbidden、DB に到達しない", async () => {
+    requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "system_admin", schoolId: null });
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("複製できるクラスが無ければ not_found", async () => {
+    getClassYearRowsMock.mockResolvedValue([]);
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("最新年度のクラスを翌年度へ複製し、件数と対象年度を返す (gradeId=null は除外)", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+      { gradeId: null, name: "未割当", grade: 1, academicYear: 2026 },
+    ]);
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toEqual({ ok: true, data: { created: 2, targetYear: 2027 } });
+  });
+
+  it("複製クラスごとに classes と audit_log へ insert する (ルール1 監査)", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+    ]);
+    await duplicateClassesToNextYearAction();
+    // 2 クラス × (classes 行 + audit_log 行) = 4 回の insert。
+    expect(insertSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it("target 年度に既存のクラスは除外して複製する（冪等化）", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+    ]);
+    // 1組 は既に翌年度(target)に存在 → 除外。2組 のみ複製される。
+    getTargetYearClassKeysMock.mockResolvedValue(new Set([classDupKey(GRADE_ID, "1組")]));
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toEqual({ ok: true, data: { created: 1, targetYear: 2027 } });
+    // 1 クラス × (classes 行 + audit_log 行) = 2 回の insert。
+    expect(insertSpy).toHaveBeenCalledTimes(2);
+    // 既存クラスの取得は target 年度 (2027) で呼ばれる。
+    expect(getTargetYearClassKeysMock).toHaveBeenCalledWith(expect.anything(), 2027);
+  });
+
+  it("target に全クラスが既存なら created:0（重複生成せず graceful）", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+      { gradeId: GRADE_ID, name: "2組", grade: 1, academicYear: 2026 },
+    ]);
+    getTargetYearClassKeysMock.mockResolvedValue(
+      new Set([classDupKey(GRADE_ID, "1組"), classDupKey(GRADE_ID, "2組")]),
+    );
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toEqual({ ok: true, data: { created: 0, targetYear: 2027 } });
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("並行/重複時の unique 違反 (23505) は conflict に写像（DB index が砦）", async () => {
+    getClassYearRowsMock.mockResolvedValue([
+      { gradeId: GRADE_ID, name: "1組", grade: 1, academicYear: 2026 },
+    ]);
+    // 並行 tx が観測されず insert が ux_classes_school_year_grade_name に衝突したケース。
+    withSessionMock.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+    const res = await duplicateClassesToNextYearAction();
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+});
+
+describe("reorderHierarchyAction", () => {
+  it("不正な entity は invalid を返し、認可も DB も走らせない", async () => {
+    const res = await reorderHierarchyAction({ entity: "class", orderedIds: [DEPT_ID] });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("空 / 非UUID / 重複の orderedIds は DB に到達せず invalid", async () => {
+    expect(await reorderHierarchyAction({ entity: "department", orderedIds: [] })).toMatchObject({
+      ok: false,
+      error: { code: "invalid" },
+    });
+    expect(
+      await reorderHierarchyAction({ entity: "department", orderedIds: ["nope"] }),
+    ).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(
+      await reorderHierarchyAction({ entity: "department", orderedIds: [DEPT_ID, DEPT_ID] }),
+    ).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("自校で不可視な id が混ざると not_found（全体巻き戻し）", async () => {
+    selectQueue = [[]]; // 先頭 id の可視性チェックで 0 件 → HubNotFoundError。
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("正常系: 並びが変わった件数を返し、変更行のみ監査する", async () => {
+    // orderedIds=[DEPT_ID→0, OTHER_DEPT_ID→1]。現在 5 / 6 ゆえ 2 件変更。
+    selectQueue = [[{ displayOrder: 5 }], [{ displayOrder: 6 }]];
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 2 } });
+    expect(insertSpy).toHaveBeenCalledTimes(2); // 監査は変更行ごとに 1 行
+  });
+
+  it("既に正しい順の行は更新も監査もしない（無駄 write 抑制）", async () => {
+    // DEPT_ID は既に index 0、OTHER_DEPT_ID のみ index 1 へ変更。
+    selectQueue = [[{ displayOrder: 0 }], [{ displayOrder: 9 }]];
+    const res = await reorderHierarchyAction({
+      entity: "department",
+      orderedIds: [DEPT_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 1 } });
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("学年も並べ替えできる（entity=grade）", async () => {
+    selectQueue = [[{ displayOrder: 3 }], [{ displayOrder: 4 }]];
+    const res = await reorderHierarchyAction({
+      entity: "grade",
+      orderedIds: [GRADE_ID, OTHER_DEPT_ID],
+    });
+    expect(res).toEqual({ ok: true, data: { count: 2 } });
   });
 });

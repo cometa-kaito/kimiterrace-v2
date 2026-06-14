@@ -12,7 +12,7 @@ const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/lib/system-admin/users-actions", () => ({ setStaffActiveAction: vi.fn() }));
 
-import { StaffActiveToggle } from "../../app/admin/system/users/_components/StaffActiveToggle";
+import { StaffActiveToggle } from "../../app/ops/users/_components/StaffActiveToggle";
 import { setStaffActiveAction } from "../../lib/system-admin/users-actions";
 
 const toggleMock = vi.mocked(setStaffActiveAction);

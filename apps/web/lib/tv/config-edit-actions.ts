@@ -157,8 +157,8 @@ export async function updateTvDeviceConfigAction(
       return notFound("対象の TV デバイスが見つかりません。");
     }
 
-    revalidatePath("/admin/tv-devices");
-    revalidatePath(`/admin/tv-devices/${id}/edit`);
+    revalidatePath("/app/tv-devices");
+    revalidatePath(`/app/tv-devices/${id}/edit`);
     return { ok: true, data: { id: updated.id, version: updated.version } };
   } catch (error) {
     if (isConstraintViolation(error)) {

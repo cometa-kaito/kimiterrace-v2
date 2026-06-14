@@ -40,6 +40,7 @@ vi.mock("@kimiterrace/ai", () => ({
   unmaskPII: h.unmaskPII,
   createPerSchoolRateLimiter: () => ({ tryAcquire: () => true }),
   createVertexModelClient: () => ({ generate: vi.fn() }),
+  createGeminiOcrClient: () => ({ recognize: vi.fn() }),
 }));
 vi.mock("@/lib/auth/guard", () => ({ requireRole: h.requireRole }));
 vi.mock("@/lib/db", () => ({
@@ -164,6 +165,12 @@ describe("assistDraftNoticesAction", () => {
 function pdfFile(name = "notice.pdf", type = "application/pdf"): File {
   return new File(["dummy-content"], name, { type });
 }
+function imageFile(name = "board.png", type = "image/png"): File {
+  return new File(["dummy-image-bytes"], name, { type });
+}
+function csvFile(name = "table.csv", type = "text/csv"): File {
+  return new File(["科目,内容\n数学,ワーク"], name, { type });
+}
 function fileForm(file: File): FormData {
   const fd = new FormData();
   fd.append("file", file);
@@ -176,17 +183,47 @@ describe("assistDraftNoticesFromFileAction", () => {
     expect(r).toEqual({ ok: false, reason: "empty" });
   });
 
-  it("非対応 MIME（画像）は unsupported_format（抽出前に弾く）", async () => {
+  it("画像(PNG) は OCR で抽出 → notices を返し、OCR egress 監査 + draft 監査の 2 行を書く（ADR-038）", async () => {
+    h.extractText.mockResolvedValue({ text: "1限 数学", format: "image", meta: { ocrUsed: true } });
     const d = deps();
     const r = await assistDraftNoticesFromFileAction(
       "class",
       CLASS_ID,
-      fileForm(pdfFile("p.png", "image/png")),
+      fileForm(imageFile()),
       {},
       d,
     );
-    expect(r).toEqual({ ok: false, reason: "unsupported_format" });
+    expect(r).toEqual({ ok: true, notices: [{ text: "連絡A", isHighlight: true }] });
+    // 画像のみ OCR クライアントを注入して extractText を呼ぶ。
+    expect(h.extractText).toHaveBeenCalledOnce();
+    expect(h.extractText.mock.calls[0]?.[1]).toMatchObject({ ocr: expect.anything() });
+    // OCR egress 監査 + draft 監査 = 2 行。
+    expect(h.insertValues).toHaveBeenCalledTimes(2);
+  });
+
+  it("画像は OCR egress の前に rate を取り、超過時は OCR を呼ばない（NFR06）", async () => {
+    const d = deps({ acquire: false });
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(imageFile()),
+      {},
+      d,
+    );
+    expect(r).toEqual({ ok: false, reason: "rate_limited" });
     expect(h.extractText).not.toHaveBeenCalled();
+  });
+
+  it("CSV は表として受理し、egress なしのローカル抽出（OCR 注入なし）で notices を返す", async () => {
+    h.extractText.mockResolvedValue({ text: "科目 数学 ワーク", format: "text" });
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(csvFile()), {}, d);
+    expect(r).toEqual({ ok: true, notices: [{ text: "連絡A", isHighlight: true }] });
+    expect(h.extractText).toHaveBeenCalledOnce();
+    // 文書/表は OCR を注入しない（2 引数目は ocr 無し）。
+    expect(h.extractText.mock.calls[0]?.[1] ?? {}).not.toHaveProperty("ocr");
+    // OCR egress なし → draft 監査の 1 行のみ。
+    expect(h.insertValues).toHaveBeenCalledOnce();
   });
 
   it("PDF 正常 → notices を返し audit_log に書き込む", async () => {
@@ -390,12 +427,27 @@ describe("assistDraftScheduleFromFileAction", () => {
     expect(h.insertValues).toHaveBeenCalledOnce();
   });
 
-  it("非対応 MIME（画像）は unsupported_format（抽出前に弾く）", async () => {
+  it("画像(PNG) は OCR で schedules を抽出し、OCR egress 監査 + draft 監査を書く（ADR-038）", async () => {
+    h.extractText.mockResolvedValue({ text: "1限 数学", format: "image", meta: { ocrUsed: true } });
+    const d = depsReturning('{"schedules":[{"period":1,"subject":"数学"}]}');
+    const r = await assistDraftScheduleFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(imageFile()),
+      {},
+      d,
+    );
+    expect(r).toEqual({ ok: true, schedules: [{ period: 1, subject: "数学" }] });
+    expect(h.extractText.mock.calls[0]?.[1]).toMatchObject({ ocr: expect.anything() });
+    expect(h.insertValues).toHaveBeenCalledTimes(2);
+  });
+
+  it("真に非対応な MIME（application/zip）は unsupported_format（抽出前に弾く）", async () => {
     const d = depsReturning('{"schedules":[]}');
     const r = await assistDraftScheduleFromFileAction(
       "class",
       CLASS_ID,
-      fileForm(pdfFile("p.png", "image/png")),
+      fileForm(pdfFile("x.zip", "application/zip")),
       {},
       d,
     );

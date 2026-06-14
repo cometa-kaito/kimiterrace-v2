@@ -4,7 +4,7 @@ import type {
   DeliveryContractInput,
   DeliveryInput,
 } from "@kimiterrace/db";
-import { adMediaType, advertiserStatus } from "@kimiterrace/db/schema";
+import { adMediaType, advertiserStatus, hierarchyScope } from "@kimiterrace/db/schema";
 import { z } from "zod";
 
 /**
@@ -25,6 +25,9 @@ import { z } from "zod";
 // enum 許容値は DB enum を単一ソースに（ルール3）。
 const STATUS_VALUES = advertiserStatus.enumValues as [string, ...string[]];
 const MEDIA_TYPE_VALUES = adMediaType.enumValues as [string, ...string[]];
+// 配信スコープ（Phase4 §0b）。enum 値は DB の hierarchy_scope を単一ソースに（ルール3）。
+const SCOPE_VALUES = hierarchyScope.enumValues as [string, ...string[]];
+const SCOPE_REF_MAX = 64; // departments/grades/classes.name varchar(64)
 
 const CAPTION_MAX = 60; // ads.caption varchar(60)
 const URL_MAX = 2048; // text だが暴走入力防止の実務上限
@@ -86,23 +89,35 @@ const contractSchema = z
   .nullable()
   .optional();
 
-const adSchema = z.object({
-  portalPlacementId: z.string().uuid(),
-  v2SchoolId: z.string().uuid(),
-  // K3 は現状 **school スコープのみ**受ける。grade/department/class は payload が階層 id（gradeId 等）を運び
-  // applyPartnerDelivery がそれを埋めるまで未対応。受けてしまうと ads の ck_ads_scope check 違反（23514）で
-  // 恒久 409＝配信ロスになるため、payload 段階で 400 に倒す。portal の Flow B も現状 school のみ送る。
-  scope: z.literal("school"),
-  mediaType: z.enum(MEDIA_TYPE_VALUES),
-  durationSec: z.number().int().min(DURATION_MIN).max(DURATION_MAX),
-  displayOrder: z.number().int().min(ORDER_MIN).max(ORDER_MAX),
-  assetFetchUrl: httpsUrl,
-  caption: nullableTrimmed(CAPTION_MAX),
-  linkUrl: z
-    .union([httpsUrl, z.null()])
-    .optional()
-    .transform((v) => v ?? null),
-});
+const adSchema = z
+  .object({
+    portalPlacementId: z.string().uuid(),
+    v2SchoolId: z.string().uuid(),
+    // K3 は school/department/grade/class を受ける（Phase4 §0b）。非 school は scopeRef（学科名/学年名/
+    // クラス名）を伴い、applyPartnerDelivery が**学校内で名前解決**して grade_id/class_id/department_id を
+    // 埋める（ck_ads_scope 充足）。解決不能は 409（保留）。enum は DB hierarchy_scope を単一ソースに（ルール3）。
+    scope: z.enum(SCOPE_VALUES),
+    scopeRef: nullableTrimmed(SCOPE_REF_MAX),
+    mediaType: z.enum(MEDIA_TYPE_VALUES),
+    durationSec: z.number().int().min(DURATION_MIN).max(DURATION_MAX),
+    displayOrder: z.number().int().min(ORDER_MIN).max(ORDER_MAX),
+    assetFetchUrl: httpsUrl,
+    caption: nullableTrimmed(CAPTION_MAX),
+    linkUrl: z
+      .union([httpsUrl, z.null()])
+      .optional()
+      .transform((v) => v ?? null),
+  })
+  .superRefine((a, ctx) => {
+    // 非 school は scopeRef 必須（payload 段階で恒久 400 に倒す。空配信を防ぐ）。
+    if (a.scope !== "school" && (a.scopeRef == null || a.scopeRef.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `scope '${a.scope}' requires scopeRef`,
+        path: ["scopeRef"],
+      });
+    }
+  });
 
 const payloadSchema = z.object({
   advertiser: advertiserSchema,
@@ -170,7 +185,10 @@ export function parseDeliveryPayload(raw: unknown): ParseResult {
   const ads: ValidatedAd[] = p.ads.map((a) => ({
     portalPlacementId: a.portalPlacementId,
     v2SchoolId: a.v2SchoolId,
-    scope: a.scope,
+    // z.enum で許容値を絞り込み済み。DB enum と同一値域のため安全に narrow（as any 不使用）。
+    scope: a.scope as ValidatedAd["scope"],
+    // school は scopeRef を持たない（学校全体）。非 school は superRefine で非空を強制済み。
+    scopeRef: a.scope === "school" ? null : a.scopeRef,
     mediaType: a.mediaType as ValidatedAd["mediaType"],
     durationSec: a.durationSec,
     displayOrder: a.displayOrder,

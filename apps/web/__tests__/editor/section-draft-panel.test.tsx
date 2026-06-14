@@ -40,7 +40,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: h.refresh }) })
 import {
   SCHEDULE_DRAFT_CONFIG,
   SectionDraftPanel,
-} from "../../app/admin/editor/_components/SectionDraftPanel";
+} from "../../app/app/editor/_components/SectionDraftPanel";
 import type { ScheduleItem } from "../../lib/editor/schedule-core";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";

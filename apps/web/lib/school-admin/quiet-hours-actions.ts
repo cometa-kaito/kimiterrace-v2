@@ -98,17 +98,17 @@ function auditView(value: QuietHoursValue): Record<string, unknown> {
   return { count: value.ranges.length, ranges: value.ranges };
 }
 
-/** target に対応する静粛時間ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/quiet-hours。 */
+/** target に対応する静粛時間ページのパス (revalidate 用)。class は従来の /app/editor/{id}/quiet-hours。 */
 function quietHoursPath(target: EditorTarget): string {
   switch (target.scope) {
     case "school":
-      return "/admin/editor/scope/school/quiet-hours";
+      return "/app/editor/scope/school/quiet-hours";
     case "department":
-      return `/admin/editor/scope/department/${target.departmentId}/quiet-hours`;
+      return `/app/editor/scope/department/${target.departmentId}/quiet-hours`;
     case "grade":
-      return `/admin/editor/scope/grade/${target.gradeId}/quiet-hours`;
+      return `/app/editor/scope/grade/${target.gradeId}/quiet-hours`;
     case "class":
-      return `/admin/editor/${target.classId}/quiet-hours`;
+      return `/app/editor/${target.classId}/quiet-hours`;
   }
 }
 
@@ -181,7 +181,7 @@ export async function saveQuietHoursAction(
 
     revalidatePath(quietHoursPath(target));
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data: { id } };
   } catch (error) {
     if (error instanceof CrossTenantError) {

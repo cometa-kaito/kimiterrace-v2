@@ -279,7 +279,7 @@ describe("setStaffActiveAction (#324 system_admin 全校無効化)", () => {
     expect(deactivateMock).toHaveBeenCalledWith(ADMIN_ID);
     expect(updateValues).toMatchObject({ isActive: false, updatedBy: null });
     expect(updateValues?.updatedAt).toBeInstanceOf(Date);
-    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/users");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/ops/users");
     // #395 L1: 正常系では race ログを出さない (race パス専用)。
     expect(warnMock).not.toHaveBeenCalled();
   });

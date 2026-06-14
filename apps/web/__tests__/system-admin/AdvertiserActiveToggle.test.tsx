@@ -12,7 +12,7 @@ const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/lib/system-admin/advertisers-actions", () => ({ setAdvertiserActiveAction: vi.fn() }));
 
-import { AdvertiserActiveToggle } from "../../app/admin/system/advertisers/_components/AdvertiserActiveToggle";
+import { AdvertiserActiveToggle } from "../../app/ops/advertisers/_components/AdvertiserActiveToggle";
 import { setAdvertiserActiveAction } from "../../lib/system-admin/advertisers-actions";
 
 const toggleMock = vi.mocked(setAdvertiserActiveAction);
