@@ -9,7 +9,7 @@ import { SignageBoard } from "./_components/SignageBoard";
 
 /**
  * サイネージ表示プレビュー (#48-E1)。教員・管理者が「生徒のサイネージに今どう出るか」を確認する
- * 認証付きプレビュー。`/admin` 配下なので #48-C の layout (requireRole + シェル) が掛かる。
+ * 認証付きプレビュー。`/app` 配下なので #48-C の layout (requireRole + シェル) が掛かる。
  *
  * 公開・匿名アクセス (magic link によるクラストークン → 端末表示) と広告ローテーション等の
  * 再生制御 (Client Island) は **#48-E2** で追加する。本ページは確定状態の静的描画 + 階層マージ
