@@ -44,6 +44,7 @@ const ARGS = {
   tenantContext: { userId: "u1", schoolId: "s1", role: "teacher" },
   allowedSections: ["schedules", "notices", "assignments"],
   pattern: "pattern1",
+  manualSectionLabels: [],
 } as const;
 
 function req(body: unknown, rawBody?: string): Request {
@@ -126,7 +127,11 @@ describe("respondWithAssistantChat", () => {
     const fr = await frames(res);
     expect(fr[0]).toEqual({
       event: "meta",
-      data: { pattern: "pattern1", allowedSections: ["schedules", "notices", "assignments"] },
+      data: {
+        pattern: "pattern1",
+        allowedSections: ["schedules", "notices", "assignments"],
+        manualSections: [],
+      },
     });
     const deltas = fr
       .filter((f) => f.event === "message")
@@ -250,5 +255,29 @@ describe("respondWithAssistantChat", () => {
     };
     expect(lastDraft.schedules).toHaveLength(1);
     expect(lastDraft.notices).toEqual([]);
+  });
+
+  it("手入力セクションは meta に載せ、system プロンプトに手入力誘導を入れる（pattern2・ADR-034）", async () => {
+    const d = deps([{ reply: "ok", schedules: [{ period: 1, subject: "数学" }] }]);
+    const res = await respondWithAssistantChat(
+      {
+        ...ARGS,
+        allowedSections: ["schedules"],
+        pattern: "pattern2",
+        manualSectionLabels: ["生徒呼び出し", "来校者一覧"],
+      },
+      req({ messages: USER_TURN }),
+      d,
+    );
+    const fr = await frames(res);
+    // meta に手入力セクションが載る（UI が導線を出せる）。
+    expect((fr[0]?.data as { manualSections: string[] }).manualSections).toEqual([
+      "生徒呼び出し",
+      "来校者一覧",
+    ]);
+    // Vertex に送る system プロンプトに「AIで作らず手入力フォームへ」の誘導が入る。
+    const sentSystem = (d.streamClient.stream.mock.calls[0]?.[0] as { system: string }).system;
+    expect(sentSystem).toContain("生徒呼び出し・来校者一覧");
+    expect(sentSystem).toContain("手入力フォームから追加してください");
   });
 });
