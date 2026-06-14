@@ -18,6 +18,7 @@
 - `backup-restore.md` — バックアップと復元
 - `oncall.md` — オンコール手順
 - `orchestrator-pipeline-pattern.md` — Desktop Claude を idle にしない並列 spawn パターン
+- `teacher-idp-disable.md` — 個別教員 IdP（系統B）の棚卸し・無効化（教員アカウント一本化の最終段・#887）【DRAFT】
 
 ## 書き方
 
