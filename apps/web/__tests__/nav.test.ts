@@ -43,25 +43,26 @@ describe("navItemsForRole", () => {
     expect(items.map((i) => i.href)).toEqual(["/app/editor"]);
   });
 
-  it("school_admin は学校管理 + エディタ + 音声/チャット入力 + コンテンツ + 掲示物 Q&A。教職員管理は教員アカウント概念の撤去で廃止、監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
+  it("school_admin は学校管理 + エディタ + パスワード変更 の 3 つ (ADR-040 で contents 系統が休眠ゆえ 音声/チャット入力・コンテンツ・掲示物 Q&A を nav から撤去。機能/認可は残置で URL 直打ち可)。教職員管理は教員アカウント概念の撤去で廃止、監視系 (ダッシュボード/月次レポート/センサー管理) は校務DX原則で運営専用に撤去", () => {
     const hrefs = navItemsForRole("school_admin").map((i) => i.href);
-    expect(hrefs).toContain("/app/school");
-    expect(hrefs).toContain("/app/editor");
-    expect(hrefs).toContain("/app/teacher-input");
-    expect(hrefs).toContain("/app/contents");
-    expect(hrefs).toContain("/app/chat");
+    expect(hrefs).toEqual(["/app/school", "/app/editor", "/app/account/password"]);
+    // ADR-040 (#903/#904) で curated contents 系統が休眠 → 3 導線を school_admin nav から撤去。
+    // 再追加防止の回帰 (死リンク誤認で戻さない)。route/認可は残置で URL 直打ち可。
+    expect(hrefs).not.toContain("/app/teacher-input");
+    expect(hrefs).not.toContain("/app/contents");
+    expect(hrefs).not.toContain("/app/chat");
     // 監視系は学校側から撤去 (運営 = system_admin 専用)。
     expect(hrefs).not.toContain("/app/dashboard");
     expect(hrefs).not.toContain("/app/reports");
     expect(hrefs).not.toContain("/app/sensors");
   });
 
-  it("掲示物 Q&A (/app/chat) は school_admin のみ nav に出す。system_admin は nav 非表示 (F06 #370、死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+  it("掲示物 Q&A (/app/chat) はどの role の nav にも出さない (ADR-040 で contents 系統休眠 + staff は classId 非バインドで grounding 不可ゆえ school_admin からも撤去・2026-06-14。機能・認可 PUBLISHER_ROLES は残置・URL 直打ち可)", () => {
     // /app/chat も /api/teacher/chat も requireRole(PUBLISHER_ROLES) で system_admin を 403 にする
     // ため、nav からも system_admin には出さない。生徒は /student の StudentChat (別経路) を使う。
-    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
+    // school_admin/teacher は機能として使えるが nav 導線は撤去 (school_admin=ADR-040、teacher=2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/chat");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/chat");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/chat");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/chat");
   });
 
@@ -74,21 +75,21 @@ describe("navItemsForRole", () => {
     }
   });
 
-  it("音声/チャット入力 (/app/teacher-input) は school_admin のみ nav に出す。system_admin は nav 非表示 (TEACHER_INPUT_STAFF_ROLES と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+  it("音声/チャット入力 (/app/teacher-input) はどの role の nav にも出さない (ADR-040 で contents 系統休眠ゆえ school_admin からも撤去・2026-06-14。機能・認可 TEACHER_INPUT_STAFF_ROLES は残置・URL 直打ち可)", () => {
     // /app/teacher-input は requireRole(TEACHER_INPUT_STAFF_ROLES=teacher/school_admin) で
     // system_admin を 403 にするため、nav からも system_admin には出さない。
-    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
+    // school_admin/teacher は機能として使えるが nav 導線は撤去 (school_admin=ADR-040、teacher=2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/teacher-input");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/teacher-input");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/teacher-input");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/teacher-input");
   });
 
-  it("コンテンツ (/app/contents) は school_admin のみ nav に出す。system_admin は nav 非表示 (#166 と整合・死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
+  it("コンテンツ (/app/contents) はどの role の nav にも出さない (ADR-040 で contents 系統休眠ゆえ school_admin からも撤去・2026-06-14。機能・認可 PUBLISHER_ROLES は残置・URL 直打ち可)", () => {
     // /app/contents は requireRole(PUBLISHER_ROLES) で system_admin を 403 にするため、
     // nav からも system_admin には出さない (死リンク防止)。
-    // teacher は機能として使えるが nav 導線は「エディタのみ」方針で撤去 (2026-06-11)。
+    // school_admin/teacher は機能として使えるが nav 導線は撤去 (school_admin=ADR-040、teacher=2026-06-11)。
     expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/contents");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/contents");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/contents");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/contents");
   });
 
