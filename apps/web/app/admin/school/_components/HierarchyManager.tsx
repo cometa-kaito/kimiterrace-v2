@@ -420,7 +420,11 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
  *  葉（クラス / 学年単位）の本日状態 + エディタ導線 (#48-K3 PR2)
  * ------------------------------------------------------------------ */
 
-/** 本日(JST)の掲示状態。active=今日の予定/連絡/提出物あり → ティールの「公開中」、なければ「本日 未入力」。 */
+/**
+ * 本日(JST)サイネージに掲示中かの状態。active=今日サイネージに出る予定/連絡/提出物あり (昨日以前に入れた
+ * 複数日連絡・期限内の提出物も含む、hub-queries の遡及窓判定に整合) → ティールの「公開中」。なければ
+ * 「本日 掲示なし」(入力が無い、または表示期間が過ぎて今日は何も出ていない)。
+ */
 function StatusDot({ active }: { active: boolean }) {
   if (active) {
     return (
@@ -433,7 +437,7 @@ function StatusDot({ active }: { active: boolean }) {
   return (
     <span style={statusEmptyStyle}>
       <span style={dotRingStyle} aria-hidden />
-      本日 未入力
+      本日 掲示なし
     </span>
   );
 }

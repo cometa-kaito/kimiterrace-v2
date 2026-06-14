@@ -1,5 +1,17 @@
-import { type TenantTx, classes, dailyData, departments, grades } from "@kimiterrace/db";
-import { asc, count, desc, eq, sql } from "drizzle-orm";
+import {
+  type DailyWindowRow,
+  type TenantTx,
+  classes,
+  departments,
+  getDailyWindowRows,
+  grades,
+} from "@kimiterrace/db";
+import { asc, count, desc, eq } from "drizzle-orm";
+import {
+  EFFECTIVE_LOOKBACK_DAYS,
+  isAssignmentActive,
+  isNoticeActive,
+} from "@/lib/signage/effective-daily-data";
 import { type ClassYearRow, classDupKey } from "./hub-core";
 
 /**
@@ -101,22 +113,26 @@ export async function countClassesInGrade(tx: TenantTx, gradeId: string): Promis
 }
 
 /* ------------------------------------------------------------------ *
- *  本日(JST)の掲示状態 (#48-K3 PR2)
+ *  本日(JST)の掲示状態 (#48-K3 PR2、サイネージ実表示に整合)
  *
  *  サイネージは getEffectiveDailyData が class > grade > department > school の順に daily_data を
- *  継承マージして表示する (signage-display.ts)。学校管理ハブでは各クラスが「本日 掲示する中身を
- *  持つか」を一覧で示したい。そこで本日(JST)付けで **予定/連絡/提出物のいずれかが 1 件以上ある**
- *  daily_data を scope 別に集め、純関数 computeTodayActiveClasses で各クラスへ継承伝搬する。
- *  日付境界は TZ 事故を避けるため SQL 側で `(now() AT TIME ZONE 'Asia/Tokyo')::date` と比較する。
- *  RLS により自校の daily_data のみが対象 (ルール2)。
+ *  継承マージして表示する (signage-display.ts)。学校管理ハブでは各クラスが「本日サイネージに掲示する
+ *  中身を持つか」を一覧で示したい。
  *
- *  ⚠ ここで見るのは **本日(JST)付けの行のみ**。サイネージ実表示 (getEffectiveDailyData) は
- *  notices/assignments を多日 lookback (effective-daily-data.ts EFFECTIVE_LOOKBACK_DAYS) するため、
- *  昨日以前に入れた複数日連絡や期限内の提出物が今日も画面に出ているクラスでも本指標は「本日 未入力」と
- *  なり得る。つまりこれは **本日の新規入力有無** の指標であり、サイネージ実表示の網羅ではない。
+ *  判定は **サイネージ実表示と同じ遡及窓** で行う: getDailyWindowRows が今日を含む過去
+ *  EFFECTIVE_LOOKBACK_DAYS 日ぶんの自校 daily_data を全 scope まとめて取得し (N クラスを 1 クエリ)、
+ *  reduceTodayActiveScopes が `isNoticeActive` / `isAssignmentActive` (サイネージと同 helper = 活性
+ *  ロジックの単一ソース) で「今日も掲示中の中身を持つ scope」を集める。schedules は当日行のみ、
+ *  notices/assignments は表示日数・期限+猶予で多日判定する (effective-daily-data の
+ *  mergeEffectiveWithWindow と同規約)。集めた scope は純関数 computeTodayActiveClasses で各クラスへ
+ *  継承伝搬する (per-field 最具体勝ちは「何か出るか」の真偽では scope 横断 OR と等価)。
+ *
+ *  これにより「昨日入れた複数日連絡」「期限内の提出物 (今日の行なし)」のクラスも、サイネージに出ている
+ *  限り「公開中」と表示される (旧実装の "本日付けの行のみ" による過小表示を解消)。日付境界は TZ 事故を
+ *  避けるため getDailyWindowRows が SQL 側 JST で決める。RLS により自校の daily_data のみが対象 (ルール2)。
  * ------------------------------------------------------------------ */
 
-/** 本日(JST)に中身のある daily_data の scope と対象 id。 */
+/** 本日サイネージに掲示中の中身を持つ daily_data の scope と対象 id。 */
 export type TodayDailyDataScopes = {
   school: boolean;
   departmentIds: string[];
@@ -125,21 +141,42 @@ export type TodayDailyDataScopes = {
 };
 
 export async function getTodayDailyDataScopes(tx: TenantTx): Promise<TodayDailyDataScopes> {
-  const rows = await tx
-    .select({
-      scope: dailyData.scope,
-      gradeId: dailyData.gradeId,
-      departmentId: dailyData.departmentId,
-      classId: dailyData.classId,
-    })
-    .from(dailyData)
-    .where(
-      sql`${dailyData.date} = (now() AT TIME ZONE 'Asia/Tokyo')::date AND (
-        jsonb_array_length(${dailyData.schedules}) > 0
-        OR jsonb_array_length(${dailyData.notices}) > 0
-        OR jsonb_array_length(${dailyData.assignments}) > 0
-      )`,
-    );
+  const rows = await getDailyWindowRows(tx, EFFECTIVE_LOOKBACK_DAYS);
+  return reduceTodayActiveScopes(rows);
+}
+
+/** 配列なら中身を返す (jsonb は通常配列だが防御的に)。それ以外は空配列。 */
+function toArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/**
+ * 遡及窓の 1 行が「今日サイネージに掲示される中身」を持つか (純関数)。schedules は当日行のみ、
+ * notices/assignments は窓内で表示日数・期限+猶予が今日も活きているかで判定する ─ サイネージ実表示
+ * (effective-daily-data の mergeEffectiveWithWindow) と同規約・同 helper を流用し単一ソースを保つ。
+ */
+export function isWindowRowActiveToday(r: DailyWindowRow): boolean {
+  // schedules: 当日行のみ (過去日の予定は今日のサイネージには出ない)。
+  if (r.date === r.today && toArray(r.schedules).length > 0) {
+    return true;
+  }
+  // notices: 入力日から表示日数ぶん。窓内に今日も活性な連絡が 1 件でもあれば。
+  if (toArray(r.notices).some((n) => isNoticeActive(n, r.date, r.today))) {
+    return true;
+  }
+  // assignments: 期限 + 猶予日まで自動表示。窓内に今日も活性な提出物が 1 件でもあれば。
+  if (toArray(r.assignments).some((a) => isAssignmentActive(a, r.today))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 遡及窓の行集合から「今日サイネージに掲示中の中身を持つ」scope 集合を作る純関数。
+ * 各行を isWindowRowActiveToday で判定し、活性な行の scope を集める。
+ * (TodayDailyDataScopes → 各クラスへの継承伝搬は computeTodayActiveClasses が担う。)
+ */
+export function reduceTodayActiveScopes(rows: DailyWindowRow[]): TodayDailyDataScopes {
   const out: TodayDailyDataScopes = {
     school: false,
     departmentIds: [],
@@ -147,6 +184,9 @@ export async function getTodayDailyDataScopes(tx: TenantTx): Promise<TodayDailyD
     classIds: [],
   };
   for (const r of rows) {
+    if (!isWindowRowActiveToday(r)) {
+      continue;
+    }
     if (r.scope === "school") {
       out.school = true;
     } else if (r.scope === "department" && r.departmentId) {
