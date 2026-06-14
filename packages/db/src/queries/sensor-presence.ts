@@ -181,7 +181,7 @@ export type SensorDeviceListItem = {
 
 /**
  * 自校の登録センサー（`sensor_devices`）を最終検知時刻つきで一覧する（RLS で school スコープ）。F13
- * `/app/sensors` 管理画面の読み取り slice。撤去済みも含めて返し、稼働中（decommissioned_at IS NULL）→
+ * `/ops/sensors` 管理画面の読み取り slice。撤去済みも含めて返し、稼働中（decommissioned_at IS NULL）→
  * 撤去済の順、同区分内は device_mac 昇順で決定的に並べる。
  *
  * - **テナント分離（ルール2）**: `school_id` を書かず `sensor_devices` の RLS（`tenant_isolation`）に委譲。
