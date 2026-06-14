@@ -18,6 +18,8 @@ export * from "./queries/ads.js";
 export * from "./queries/school-configs.js";
 // #48-L (#123): システム管理者向け 学校 (テナント) マスタ一覧
 export * from "./queries/schools.js";
+// 運営整理 Phase6 / Partner K4: portal 学校台帳向け「学校→設置場所→モニタ」階層 pull
+export * from "./queries/school-hierarchy.js";
 // F12 (#48-M): フィードバック (匿名投稿 submit_feedback / system_admin 一覧)
 export * from "./queries/feedback.js";
 // F03 (#154): AI 構造化抽出結果の ai_extractions 永続化層 (RLS context 内 INSERT)
