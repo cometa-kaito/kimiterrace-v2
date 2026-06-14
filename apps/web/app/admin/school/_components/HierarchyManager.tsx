@@ -1005,7 +1005,7 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
   );
 }
 
-/** 新年度へ複製（現年度のクラスを翌年度の空クラスへ・冪等）。クラスが無い校では出さない。 */
+/** 新年度へ複製（現年度のクラスを翌年度の空クラスへ。実行ごとに翌年度へ1年進む）。クラスが無い校では出さない。 */
 function NextYearCopy({
   currentYear,
   notify,
@@ -1030,8 +1030,9 @@ function NextYearCopy({
             <p style={modalTitleStyle}>新年度へ複製</p>
             <p style={modalBodyStyle}>
               {currentYear}年度 の構成を {targetYear}年度
-              に複製します。各クラスを新年度の空クラスとして作成します（予定・公開内容は複製されません。既に{" "}
-              {targetYear}年度 に同名クラスがあればスキップします）。
+              に複製します。各クラスを新年度の空クラスとして作成します（予定・公開内容は複製されません）。
+              実行のたびに翌年度へ1年進みます。{targetYear}年度
+              のクラスが既にある場合は実行しないでください。
             </p>
             <div style={modalActionsStyle}>
               <button type="button" style={ghostBtnStyle} onClick={() => setOpen(false)}>
