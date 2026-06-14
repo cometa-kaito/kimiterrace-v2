@@ -12,7 +12,7 @@ import { tvDevices } from "./tv-devices.js";
  *
  * ## 役割（ハイブリッド: クラウド UI × ローカルエージェント）
  * adb は「TV と同じ校内 LAN 上の機械」でしか実行できず、v2 は Cloud Run（クラウド）。よって本表を
- * 介して非同期に橋渡しする。`/app/tv-devices/provision` の Server Action が tv_devices 行を事前作成 +
+ * 介して非同期に橋渡しする。`/ops/tv-devices/provision` の Server Action が tv_devices 行を事前作成 +
  * signage_url を発行した上で pending ジョブを 1 件 INSERT する。設置作業中だけ起動する現地ノート PC の
  * `node provision-agent.js` が `POST /api/tv/provisioning/claim` で 1 件 claim → 手元で adb を実行 →
  * `POST /api/tv/provisioning/:id/status` で各ステップを報告する。

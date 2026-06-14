@@ -90,6 +90,6 @@ export async function enqueueTvCommandAction(
     return notFound("対象の TV デバイスが見つかりません。");
   }
 
-  revalidatePath(`/app/tv-devices/${id}/edit`);
+  revalidatePath(`/ops/tv-devices/${id}/edit`);
   return { ok: true, data: { id: result.id } };
 }

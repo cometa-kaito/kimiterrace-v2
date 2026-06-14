@@ -86,16 +86,26 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  * `:path*` は 0 セグメントにも一致するので素の `/admin` index も `/app` (= app/app/page.tsx の role 別 home へ
  * redirect する着地ページ) に転送される。
  *
- * **順序が重要**: redirects は配列順に評価され **first-match-wins**。`/admin/system/:path*` (→ /ops) を catch-all
- * `/admin/:path*` (→ /app) より **前** に置く。さもないと `/admin/system/schools` が catch-all に飲まれて
- * `/app/system/schools` (存在しない) へ 308 し 404 になる。テスト容易性のため named export し `__tests__` で順序を pin。
+ * **順序が重要**: redirects は配列順に評価され **first-match-wins**。`/admin/system/:path*` (→ /ops) と
+ * `/admin/tv-devices/:path*` (→ /ops/tv-devices) を catch-all `/admin/:path*` (→ /app) より **前** に置く。
+ * さもないと `/admin/system/schools` や `/admin/tv-devices` が catch-all に飲まれて `/app/...`(存在しない) へ
+ * 308 し 404 になる。テスト容易性のため named export し `__tests__` で順序を pin。
+ *
+ * **§43 reconciliation (tv-devices を /ops へ)**: 運営4ビューのうち tv-devices だけ /app 配下に残っていたため
+ * §4.1 最終形に合わせ `/ops/tv-devices` へ移設した。旧 `/admin/tv-devices`(改称前) と `/app/tv-devices`(PR-3 の
+ * 一時的着地) の両方を `/ops/tv-devices` へ 308 する。dashboard/sensors/reports は all-school 版が既に /ops に
+ * あり self-school 版との統合は §43 feature-merge の別トラック (未着手)。
  */
 export const NAMESPACE_REDIRECTS = [
   // PR-1: 運営・配信コンソール。/admin/system 配下を /ops へ。**catch-all より前** (より具体的・first-match-wins)。
   { source: "/admin/system/:path*", destination: "/ops/:path*", permanent: true },
+  // §43: tv-devices を /ops へ。旧 /admin/tv-devices も /ops/tv-devices へ。**catch-all より前**。
+  { source: "/admin/tv-devices/:path*", destination: "/ops/tv-devices/:path*", permanent: true },
   // PR-2/PR-3: 残る学校系 /admin/* (editor/school/contents/chat/teacher-input/account/signage-preview/
-  // dashboard/sensors/reports/tv-devices) と素の /admin index を /app へ catch-all で集約 (全て app/app/* に移設済)。
+  // dashboard/sensors/reports) と素の /admin index を /app へ catch-all で集約 (全て app/app/* に移設済)。
   { source: "/admin/:path*", destination: "/app/:path*", permanent: true },
+  // §43: PR-3 で一時的に /app/tv-devices に着地していた分も /ops/tv-devices へ温存 (catch-all の後で可・/app は別前段)。
+  { source: "/app/tv-devices/:path*", destination: "/ops/tv-devices/:path*", permanent: true },
 ] as const;
 
 const nextConfig: NextConfig = {

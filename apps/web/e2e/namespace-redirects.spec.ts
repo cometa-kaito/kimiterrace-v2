@@ -25,19 +25,23 @@ test.describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
     // 運営 → /ops。catch-all (/admin/:path*→/app) より前に評価されることの証明も兼ねる。
     ["/admin/system/schools", "/ops/schools"],
     ["/admin/system", "/ops"],
+    // §43: tv-devices は /ops へ。旧 /admin/tv-devices も catch-all より前で /ops/tv-devices へ。
+    ["/admin/tv-devices", "/ops/tv-devices"],
+    ["/admin/tv-devices/abc123/edit", "/ops/tv-devices/abc123/edit"],
+    // PR-3 で一時的に /app/tv-devices に着地していた分も /ops/tv-devices へ。
+    ["/app/tv-devices", "/ops/tv-devices"],
     // 学校系中核 → /app。
     ["/admin/editor/abc123", "/app/editor/abc123"],
     ["/admin/school", "/app/school"],
     ["/admin/contents", "/app/contents"],
     ["/admin/chat", "/app/chat"],
     ["/admin/teacher-input", "/app/teacher-input"],
-    // PR-3 で /app へ集約した残り (account/signage-preview/運営4ビュー) も catch-all で転送される。
+    // /app へ集約した残り (account/signage-preview/dashboard/sensors/reports) も catch-all で転送される。
     ["/admin/account/password", "/app/account/password"],
     ["/admin/signage-preview/abc123", "/app/signage-preview/abc123"],
     ["/admin/dashboard", "/app/dashboard"],
     ["/admin/sensors", "/app/sensors"],
     ["/admin/reports", "/app/reports"],
-    ["/admin/tv-devices", "/app/tv-devices"],
     // 素の /admin index も catch-all で /app (= role 別 home へ redirect する着地ページ) へ。
     ["/admin", "/app"],
   ];

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { TvDeviceCreateForm } from "./_components/TvDeviceCreateForm";
 
 /**
- * F15 §4.3 (ADR-022): TV デバイス新規登録（`/app/tv-devices/new`）。**Server Component**。
+ * F15 §4.3 (ADR-022): TV デバイス新規登録（`/ops/tv-devices/new`）。**Server Component**。
  *
  * **認可**: 新規登録は cross-tenant（任意校に設置）でテナント外操作のため **system_admin 限定**
  * （`ONBOARDING_ROLES`、編集の TV_CONFIG_EDIT_ROLES より狭い）。`requireRole` で teacher / school_admin を
@@ -29,7 +29,7 @@ export default async function NewTvDevicePage() {
   return (
     <section style={{ maxWidth: "640px" }}>
       <p style={{ margin: "0 0 0.75rem" }}>
-        <Link href="/app/tv-devices" style={{ color: "#1d4ed8", fontSize: "0.85rem" }}>
+        <Link href="/ops/tv-devices" style={{ color: "#1d4ed8", fontSize: "0.85rem" }}>
           ← TV デバイス一覧へ戻る
         </Link>
       </p>

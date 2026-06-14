@@ -135,8 +135,8 @@ export async function createProvisioningJobAction(
       { allowedRoles: ONBOARDING_ROLES },
     );
 
-    revalidatePath("/app/tv-devices/provision");
-    revalidatePath("/app/tv-devices");
+    revalidatePath("/ops/tv-devices/provision");
+    revalidatePath("/ops/tv-devices");
     return { ok: true, data: result };
   } catch (error) {
     const code = pgCode(error);
