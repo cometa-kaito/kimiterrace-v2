@@ -1,17 +1,20 @@
 import {
   MagicLinkClassNotFoundError,
-  type TenantRole,
   createClassMagicLink,
+  getVisibleClassSchoolId,
   listClassMagicLinks,
   withTenantContext,
 } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "../../../lib/auth/session";
 import { getDb } from "../../../lib/db";
+import {
+  requireIssuer,
+  tenantContextForIssuer,
+  toMagicLinkActor,
+} from "../../../lib/magic-link/issuer";
 import {
   EXPIRES_DEFAULT_DAYS,
   computeExpiresAt,
-  isIssuerRole,
   isUuid,
   parseIssueBody,
 } from "../../../lib/magic-link/request";
@@ -20,31 +23,13 @@ import { generateToken, hashToken } from "../../../lib/magic-link/token";
 /**
  * F05: クラス magic link の発行 / 一覧 API (ADR-008 Route Handlers / ADR-019 RLS)。
  *
- * - `POST /api/magic-links` — 教員/学校管理者がクラスにリンクを発行。**平文トークンはこの
+ * - `POST /api/magic-links` — 学校管理者 / 運営がクラスにリンクを発行。**平文トークンはこの
  *   レスポンスで 1 度だけ返す** (QR/URL 用)。以降は DB に hash しか無く再取得不可 (ルール5)。
  * - `GET /api/magic-links?classId=` — クラスの有効なリンク一覧 (メタのみ、token は返さない)。
  *
- * 認可は二層: ここで role を弾く (UX/早期 deny) + DB の tenant_isolation が school 越境を
- * DB レベルで止める (ルール2 多層防御)。RLS context は `withTenantContext` で一元配線 (ADR-008)。
+ * 認可（発行者ロール・RLS context・監査 actor）の解決は `lib/magic-link/issuer.ts` に集約し 3 ルートで共有
+ * する（発行者 = school_admin / system_admin のみ・teacher 除外・finding④。system_admin は cross-tenant 発行）。
  */
-
-/** 認証 + 発行者ロールを確認し、未認証/権限不足なら NextResponse、OK なら user を返す。 */
-async function requireIssuer(): Promise<
-  | { ok: true; uid: string; schoolId: string; role: TenantRole }
-  | { ok: false; response: NextResponse }
-> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "unauthenticated" }, { status: 401 }),
-    };
-  }
-  if (!isIssuerRole(user.role) || !user.schoolId) {
-    return { ok: false, response: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
-  }
-  return { ok: true, uid: user.uid, schoolId: user.schoolId, role: user.role };
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = await requireIssuer();
@@ -75,19 +60,23 @@ export async function POST(request: Request): Promise<NextResponse> {
     new Date(),
   );
 
+  const { issuer } = auth;
   try {
-    const issued = await withTenantContext(
-      getDb(),
-      { userId: auth.uid, schoolId: auth.schoolId, role: auth.role },
-      (tx) =>
-        createClassMagicLink(tx, {
-          schoolId: auth.schoolId,
-          classId: parsed.value.classId,
-          tokenHash,
-          expiresAt,
-          actorUserId: auth.uid,
-        }),
-    );
+    const issued = await withTenantContext(getDb(), tenantContextForIssuer(issuer), async (tx) => {
+      // 発行先クラスの学校。school_admin は自校 id。**system_admin は対象クラスから cross-tenant 解決**
+      // （system_admin_full_access 下で可視）。解決できなければ（別テナント不可視・不存在）class_not_found。
+      const schoolId = issuer.schoolId ?? (await getVisibleClassSchoolId(tx, parsed.value.classId));
+      if (!schoolId) {
+        throw new MagicLinkClassNotFoundError(parsed.value.classId);
+      }
+      return createClassMagicLink(tx, {
+        schoolId,
+        classId: parsed.value.classId,
+        tokenHash,
+        expiresAt,
+        actor: toMagicLinkActor(issuer),
+      });
+    });
 
     return NextResponse.json(
       {
@@ -125,10 +114,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   // 失効済も含めるか (F05 失効履歴の監査表示)。既定は有効リンクのみ。
   const includeRevoked = params.get("includeRevoked") === "true";
 
-  const links = await withTenantContext(
-    getDb(),
-    { userId: auth.uid, schoolId: auth.schoolId, role: auth.role },
-    (tx) => listClassMagicLinks(tx, classId, { includeRevoked }),
+  const links = await withTenantContext(getDb(), tenantContextForIssuer(auth.issuer), (tx) =>
+    listClassMagicLinks(tx, classId, { includeRevoked }),
   );
 
   // token は一切返さない (発行時のみ)。メタ情報のみ。revokedAt で失効済を判別できる。

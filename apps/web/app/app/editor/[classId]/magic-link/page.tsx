@@ -9,10 +9,11 @@ import { MagicLinkManager } from "./_components/MagicLinkManager";
 /**
  * F05 (#41): クラス magic link 発行 / 管理ページ `/app/editor/{classId}/magic-link`。
  *
- * `/admin` 配下 (#48-C layout で認証) + 本ページで `MAGIC_LINK_ISSUER_ROLES` (teacher / school_admin)
- * に限定 (生徒 / 保護者 / system_admin は 403 → /forbidden)。magic_links の RLS は school 境界のみで
- * role 境界を守らないため、role 拒否は API handler と本ページの二層で行う
- * ([[rls-tenant-not-role-boundary]] / request.ts と同一集合)。別テナントのクラスは RLS 不可視 → 404。
+ * `/admin` 配下 (#48-C layout で認証) + 本ページで `MAGIC_LINK_ISSUER_ROLES` (**school_admin / system_admin**)
+ * に限定 (teacher / 生徒 / 保護者は 403 → /forbidden。教員除外は finding④)。magic_links の RLS は school 境界
+ * のみで role 境界を守らないため、role 拒否は API handler と本ページの二層で行う ([[rls-tenant-not-role-boundary]]
+ * / request.ts と同一集合)。system_admin は `system_admin_full_access` で他校クラスも可視（cross-tenant 運用）。
+ * school_admin にとって別テナントのクラスは RLS 不可視 → 404。
  *
  * 既存リンク一覧は本ページ (server) が自校 RLS tx で読み、発行 / 失効は client が既存 API
  * (`POST /api/magic-links` / `POST /api/magic-links/{id}/revoke`) を叩く (ADR-008)。

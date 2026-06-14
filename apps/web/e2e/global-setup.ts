@@ -136,6 +136,7 @@ export const TEACHER_STORAGE_STATE = "e2e/.auth/teacher.json";
 export const SCHOOL_ADMIN_STORAGE_STATE = "e2e/.auth/school-admin.json";
 export const SYSTEM_ADMIN_STORAGE_STATE = "e2e/.auth/system-admin.json";
 export const SCHOOL2_TEACHER_STORAGE_STATE = "e2e/.auth/school2-teacher.json";
+export const SCHOOL2_SCHOOL_ADMIN_STORAGE_STATE = "e2e/.auth/school2-school-admin.json";
 
 /**
  * 2 校目の seed (#213: RLS テナント分離を e2e で実証する negative 用)。別 school / class / token。
@@ -155,6 +156,16 @@ export const SEED2 = {
   TEACHER_UID: "00000000-0000-4000-8000-000000000024",
   TEACHER_EMAIL: "teacher2.e2e@example.com",
   TEACHER_PASSWORD: "e2e-teacher2-password",
+  /**
+   * SCHOOL2 の学校管理者 (#865 finding④)。生徒リンクの発行/失効/延長は finding④ で **school_admin /
+   * system_admin のみ**に再編され teacher は `isIssuerRole` から除外された。クロステナント分離 e2e の
+   * 「発行系 API は app gate を**通過**しても RLS が他校行を 404 にする」証明には *isIssuerRole を満たす*
+   * actor が要るため、SCHOOL2 の school_admin を追加する。system_admin は `system_admin_full_access` で
+   * 越境可なので RLS 証明には使えない (= school_admin が唯一の適格 actor)。`users` 行を SCHOOL2 配下に seed。
+   */
+  SCHOOL_ADMIN_UID: "00000000-0000-4000-8000-000000000025",
+  SCHOOL_ADMIN_EMAIL: "schooladmin2.e2e@example.com",
+  SCHOOL_ADMIN_PASSWORD: "e2e-school-admin2-password",
 } as const;
 
 /**
@@ -217,6 +228,16 @@ export const AUTH_PRINCIPALS: readonly AuthPrincipal[] = [
     role: "teacher",
     schoolId: SEED2.SCHOOL_ID,
     storageState: SCHOOL2_TEACHER_STORAGE_STATE,
+  },
+  {
+    // SCHOOL2 学校管理者 (#865 finding④)。発行系 API のクロステナント RLS 証明に使う適格 issuer。
+    name: "school2_admin",
+    uid: SEED2.SCHOOL_ADMIN_UID,
+    email: SEED2.SCHOOL_ADMIN_EMAIL,
+    password: SEED2.SCHOOL_ADMIN_PASSWORD,
+    role: "school_admin",
+    schoolId: SEED2.SCHOOL_ID,
+    storageState: SCHOOL2_SCHOOL_ADMIN_STORAGE_STATE,
   },
 ] as const;
 
@@ -350,6 +371,15 @@ async function seedSchool2(sql: RawSql): Promise<void> {
     `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
      VALUES ('${SEED2.TEACHER_UID}', '${schoolId}', '${SEED2.TEACHER_UID}',
              'teacher', 'E2E 教員(2校目)', '${SEED2.TEACHER_EMAIL}', true)
+     ON CONFLICT (id) DO NOTHING;`,
+  );
+  // クロステナント分離 e2e (#243/#865 finding④) の SCHOOL2 学校管理者。発行系 API は finding④ で
+  // school_admin/system_admin のみ許可 (teacher 除外) になったため、「app gate 通過 + RLS で他校 404」を
+  // 証明する適格 issuer として SCHOOL2 配下に置く。id = identity_uid = Auth localId = UID (本番同型)。
+  await sql.unsafe(
+    `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
+     VALUES ('${SEED2.SCHOOL_ADMIN_UID}', '${schoolId}', '${SEED2.SCHOOL_ADMIN_UID}',
+             'school_admin', 'E2E 学校管理者(2校目)', '${SEED2.SCHOOL_ADMIN_EMAIL}', true)
      ON CONFLICT (id) DO NOTHING;`,
   );
 }

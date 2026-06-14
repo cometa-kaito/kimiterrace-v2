@@ -11,12 +11,12 @@ import {
 const CLASS_ID = "33333333-3333-4333-8333-333333333333";
 
 describe("magic-link request validation", () => {
-  it("isIssuerRole: teacher/school_admin のみ true", () => {
-    expect(isIssuerRole("teacher")).toBe(true);
+  it("isIssuerRole: school_admin/system_admin のみ true（teacher は除外・finding④）", () => {
     expect(isIssuerRole("school_admin")).toBe(true);
+    expect(isIssuerRole("system_admin")).toBe(true);
+    expect(isIssuerRole("teacher")).toBe(false);
     expect(isIssuerRole("student")).toBe(false);
     expect(isIssuerRole("guardian")).toBe(false);
-    expect(isIssuerRole("system_admin")).toBe(false);
   });
 
   it("isUuid: 形式判定", () => {

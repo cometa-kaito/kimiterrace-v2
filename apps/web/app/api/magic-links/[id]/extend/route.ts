@@ -1,35 +1,30 @@
 import { extendMagicLink, withTenantContext } from "@kimiterrace/db";
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "../../../../../lib/auth/session";
 import { getDb } from "../../../../../lib/db";
 import {
-  computeExpiresAt,
-  isIssuerRole,
-  isUuid,
-  parseExtendBody,
-} from "../../../../../lib/magic-link/request";
+  requireIssuer,
+  tenantContextForIssuer,
+  toMagicLinkActor,
+} from "../../../../../lib/magic-link/issuer";
+import { computeExpiresAt, isUuid, parseExtendBody } from "../../../../../lib/magic-link/request";
 
 /**
  * F05: クラス magic link の有効期限更新 API (ADR-008 / ADR-019)。
  *
- * `POST /api/magic-links/{id}/extend` body `{expiresInDays}` — 教員/学校管理者がリンクの
- * 有効期限を「**今 (サーバ時刻) から N 日後**」に張り直す (短縮・延長・期限切れの再有効化)。
- * client 時刻は信用せず、発行 API と同じく `computeExpiresAt(days, new Date())` で起点を
- * サーバ側に固定する。
+ * `POST /api/magic-links/{id}/extend` body `{expiresInDays}` — 学校管理者 / 運営がリンクの有効期限を
+ * 「**今 (サーバ時刻) から N 日後**」に張り直す (短縮・延長・期限切れの再有効化)。client 時刻は信用せず、
+ * 発行 API と同じく `computeExpiresAt(days, new Date())` で起点をサーバ側に固定する。
  *
- * - 失効済リンクは更新不可 / 他校・不存在は RLS で不可視 → いずれも 404 (extendMagicLink が undefined)。
- * - 認可: `isIssuerRole` (teacher / school_admin) かつ schoolId 必須 (system_admin は不可)。
+ * - 失効済リンクは更新不可 / 不可視・不存在は RLS で 404 (extendMagicLink が undefined)。
+ * - 認可: `requireIssuer`（school_admin / system_admin。system_admin は cross-tenant で他校リンクも更新可）。
  */
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-  }
-  if (!isIssuerRole(user.role) || !user.schoolId) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const auth = await requireIssuer();
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { id } = await context.params;
@@ -49,10 +44,8 @@ export async function POST(
   }
 
   const newExpiresAt = computeExpiresAt(parsed.value.expiresInDays, new Date());
-  const updated = await withTenantContext(
-    getDb(),
-    { userId: user.uid, schoolId: user.schoolId, role: user.role },
-    (tx) => extendMagicLink(tx, id, newExpiresAt, user.uid),
+  const updated = await withTenantContext(getDb(), tenantContextForIssuer(auth.issuer), (tx) =>
+    extendMagicLink(tx, id, newExpiresAt, toMagicLinkActor(auth.issuer)),
   );
 
   if (!updated) {

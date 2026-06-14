@@ -8,11 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * RLS の実挙動は packages/db の RLS テスト (実 PG16) が担保する。
  */
 
-const TEACHER = {
+const SCHOOL_ADMIN = {
   uid: "11111111-1111-4111-8111-111111111111",
-  role: "teacher" as const,
+  role: "school_admin" as const,
   schoolId: "22222222-2222-4222-8222-222222222222",
 };
+// system_admin は school に属さない (schoolId=null)。発行は対象クラスから学校を cross-tenant 解決する。
+const SYSTEM_ADMIN = { uid: "99999999-9999-4999-8999-999999999999", role: "system_admin" as const };
 const CLASS_ID = "33333333-3333-4333-8333-333333333333";
 const LINK_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -24,6 +26,7 @@ const {
   hashToken,
   MagicLinkClassNotFoundError,
   createClassMagicLink,
+  getVisibleClassSchoolId,
   listClassMagicLinks,
   revokeMagicLink,
   extendMagicLink,
@@ -35,6 +38,7 @@ const {
     hashToken: vi.fn(() => "HASHED"),
     MagicLinkClassNotFoundError,
     createClassMagicLink: vi.fn(),
+    getVisibleClassSchoolId: vi.fn(),
     listClassMagicLinks: vi.fn(),
     revokeMagicLink: vi.fn(),
     extendMagicLink: vi.fn(),
@@ -47,6 +51,7 @@ vi.mock("../../lib/magic-link/token", () => ({ generateToken, hashToken }));
 vi.mock("@kimiterrace/db", () => ({
   MagicLinkClassNotFoundError,
   createClassMagicLink,
+  getVisibleClassSchoolId,
   listClassMagicLinks,
   revokeMagicLink,
   extendMagicLink,
@@ -76,6 +81,7 @@ function jsonRequest(body: unknown): Request {
 beforeEach(() => {
   getCurrentUser.mockReset();
   createClassMagicLink.mockReset();
+  getVisibleClassSchoolId.mockReset();
   listClassMagicLinks.mockReset();
   revokeMagicLink.mockReset();
   extendMagicLink.mockReset();
@@ -96,20 +102,82 @@ describe("POST /api/magic-links (発行)", () => {
   });
 
   it("発行不可ロール (student) は 403", async () => {
-    getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    getCurrentUser.mockResolvedValue({ ...SCHOOL_ADMIN, role: "student" });
     const res = await POST(jsonRequest({ classId: CLASS_ID }));
     expect(res.status).toBe(403);
     expect(createClassMagicLink).not.toHaveBeenCalled();
   });
 
+  it("teacher は発行不可 (403) — 生徒リンク発行は管理者へ移管 (finding④)", async () => {
+    getCurrentUser.mockResolvedValue({ ...SCHOOL_ADMIN, role: "teacher" });
+    const res = await POST(jsonRequest({ classId: CLASS_ID }));
+    expect(res.status).toBe(403);
+    expect(createClassMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("system_admin は cross-tenant で発行できる: クラスから学校を解決し actor=null+identityUid で発行", async () => {
+    getCurrentUser.mockResolvedValue(SYSTEM_ADMIN);
+    // system_admin は schoolId=null。対象クラスから学校を cross-tenant 解決する。
+    getVisibleClassSchoolId.mockResolvedValue("55555555-5555-4555-8555-555555555555");
+    createClassMagicLink.mockResolvedValue({
+      id: LINK_ID,
+      classId: CLASS_ID,
+      expiresAt: new Date("2027-04-01T00:00:00.000Z"),
+      revokedAt: null,
+      createdAt: new Date("2026-06-13T00:00:00.000Z"),
+    });
+    const res = await POST(jsonRequest({ classId: CLASS_ID }));
+    expect(res.status).toBe(201);
+    expect(getVisibleClassSchoolId).toHaveBeenCalledWith({}, CLASS_ID);
+    // 解決した学校 id で発行し、actor は system_admin（userId=null + IdP uid を identityUid）。
+    expect(createClassMagicLink).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        schoolId: "55555555-5555-4555-8555-555555555555",
+        classId: CLASS_ID,
+        tokenHash: "HASHED",
+        actor: { userId: null, identityUid: SYSTEM_ADMIN.uid },
+      }),
+    );
+  });
+
+  it("system_admin で対象クラスが不可視 (学校解決 null) は class_not_found (404)", async () => {
+    getCurrentUser.mockResolvedValue(SYSTEM_ADMIN);
+    getVisibleClassSchoolId.mockResolvedValue(null);
+    const res = await POST(jsonRequest({ classId: CLASS_ID }));
+    expect(res.status).toBe(404);
+    expect(createClassMagicLink).not.toHaveBeenCalled();
+  });
+
+  it("school_admin 発行は自校 id を使い学校解決を呼ばない (actor=自分)", async () => {
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
+    createClassMagicLink.mockResolvedValue({
+      id: LINK_ID,
+      classId: CLASS_ID,
+      expiresAt: new Date("2027-04-01T00:00:00.000Z"),
+      revokedAt: null,
+      createdAt: new Date("2026-06-13T00:00:00.000Z"),
+    });
+    await POST(jsonRequest({ classId: CLASS_ID }));
+    // 自校 id があるので cross-tenant 解決は呼ばない（短絡）。
+    expect(getVisibleClassSchoolId).not.toHaveBeenCalled();
+    expect(createClassMagicLink).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        schoolId: SCHOOL_ADMIN.schoolId,
+        actor: { userId: SCHOOL_ADMIN.uid, identityUid: SCHOOL_ADMIN.uid },
+      }),
+    );
+  });
+
   it("不正な classId は 400", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const res = await POST(jsonRequest({ classId: "nope" }));
     expect(res.status).toBe(400);
   });
 
   it("成功は 201 + 平文トークンを 1 度だけ返し、DB には hash を渡す", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     createClassMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
@@ -135,7 +203,7 @@ describe("POST /api/magic-links (発行)", () => {
       expect.objectContaining({
         tokenHash: "HASHED",
         classId: CLASS_ID,
-        schoolId: TEACHER.schoolId,
+        schoolId: SCHOOL_ADMIN.schoolId,
       }),
     );
   });
@@ -144,7 +212,7 @@ describe("POST /api/magic-links (発行)", () => {
     vi.useFakeTimers();
     const now = new Date("2026-06-13T00:00:00.000Z");
     vi.setSystemTime(now);
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     createClassMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
@@ -165,7 +233,7 @@ describe("POST /api/magic-links (発行)", () => {
     vi.useFakeTimers();
     const now = new Date("2026-06-13T00:00:00.000Z");
     vi.setSystemTime(now);
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     createClassMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
@@ -180,7 +248,7 @@ describe("POST /api/magic-links (発行)", () => {
   });
 
   it("他校 classId (MagicLinkClassNotFoundError) は 404", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     createClassMagicLink.mockRejectedValue(new MagicLinkClassNotFoundError("x"));
     const res = await POST(jsonRequest({ classId: CLASS_ID }));
     expect(res.status).toBe(404);
@@ -189,7 +257,7 @@ describe("POST /api/magic-links (発行)", () => {
 
 describe("GET /api/magic-links (一覧)", () => {
   it("成功時 token を含まないメタのみ返す", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     listClassMagicLinks.mockResolvedValue([
       {
         id: LINK_ID,
@@ -210,20 +278,20 @@ describe("GET /api/magic-links (一覧)", () => {
   });
 
   it("classId クエリ欠落は 400", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const res = await GET(new Request("http://test/api/magic-links"));
     expect(res.status).toBe(400);
   });
 
   it("既定では listClassMagicLinks に includeRevoked=false を渡す", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     listClassMagicLinks.mockResolvedValue([]);
     await GET(new Request(`http://test/api/magic-links?classId=${CLASS_ID}`));
     expect(listClassMagicLinks).toHaveBeenCalledWith({}, CLASS_ID, { includeRevoked: false });
   });
 
   it("includeRevoked=true で失効済も要求し、revokedAt を返す (失効履歴)", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     listClassMagicLinks.mockResolvedValue([
       {
         id: LINK_ID,
@@ -254,20 +322,20 @@ describe("POST /api/magic-links/{id}/revoke (失効)", () => {
   });
 
   it("不正な id は 400", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const res = await REVOKE(new Request("http://test"), ctx("bad"));
     expect(res.status).toBe(400);
   });
 
   it("存在しない/失効済 (undefined) は 404", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     revokeMagicLink.mockResolvedValue(undefined);
     const res = await REVOKE(new Request("http://test"), ctx(LINK_ID));
     expect(res.status).toBe(404);
   });
 
   it("成功は 200 + revokedAt", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     revokeMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
@@ -298,28 +366,28 @@ describe("POST /api/magic-links/{id}/extend (期限更新)", () => {
   });
 
   it("発行不可ロール (student) は 403", async () => {
-    getCurrentUser.mockResolvedValue({ ...TEACHER, role: "student" });
+    getCurrentUser.mockResolvedValue({ ...SCHOOL_ADMIN, role: "student" });
     const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
     expect(res.status).toBe(403);
     expect(extendMagicLink).not.toHaveBeenCalled();
   });
 
   it("不正な id は 400 (body 読取前にゲート)", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx("bad"));
     expect(res.status).toBe(400);
     expect(extendMagicLink).not.toHaveBeenCalled();
   });
 
   it("expiresInDays 欠落は 400 で DB に到達しない", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const res = await EXTEND(extendReq({}), ctx(LINK_ID));
     expect(res.status).toBe(400);
     expect(extendMagicLink).not.toHaveBeenCalled();
   });
 
   it("壊れた JSON body は 400 invalid_body", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     const req = new Request("http://test/api/magic-links/x/extend", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -331,14 +399,14 @@ describe("POST /api/magic-links/{id}/extend (期限更新)", () => {
   });
 
   it("存在しない/失効済 (undefined) は 404", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     extendMagicLink.mockResolvedValue(undefined);
     const res = await EXTEND(extendReq({ expiresInDays: 30 }), ctx(LINK_ID));
     expect(res.status).toBe(404);
   });
 
   it("成功は 200 + 新しい expiresAt、DB にはサーバ時刻起点の Date を渡す", async () => {
-    getCurrentUser.mockResolvedValue(TEACHER);
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     extendMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
@@ -350,6 +418,9 @@ describe("POST /api/magic-links/{id}/extend (期限更新)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: LINK_ID, expiresAt: "2026-09-01T00:00:00.000Z" });
     // DB には id・サーバ時刻から算出した Date・actor uid が渡る (computeExpiresAt の結果)。
-    expect(extendMagicLink).toHaveBeenCalledWith({}, LINK_ID, expect.any(Date), TEACHER.uid);
+    expect(extendMagicLink).toHaveBeenCalledWith({}, LINK_ID, expect.any(Date), {
+      userId: SCHOOL_ADMIN.uid,
+      identityUid: SCHOOL_ADMIN.uid,
+    });
   });
 });
