@@ -8,6 +8,7 @@ import {
   deleteDepartmentAction,
   deleteGradeAction,
   duplicateClassesToNextYearAction,
+  reorderHierarchyAction,
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
@@ -85,23 +86,16 @@ export function HierarchyManager({
   const report: Reporter = (res, okMsg) =>
     res.ok ? notify(true, okMsg) : notify(false, res.error.message);
 
-  // 表示順の並べ替え。学科（トップレベル）と、学科なし校のトップレベル学年。
+  // 表示順の並べ替え。学科（トップレベル）と、学科なし校のトップレベル学年。永続化は単一の原子的アクション。
   const deptRowProps = useSiblingReorder(
     departments,
-    (d, displayOrder) => updateDepartmentAction({ id: d.id, name: d.name, displayOrder }),
+    (orderedIds) => reorderHierarchyAction({ entity: "department", orderedIds }),
     "学科",
     report,
   );
   const topGradeRowProps = useSiblingReorder(
     grades,
-    (g, displayOrder) =>
-      updateGradeAction({
-        id: g.id,
-        name: g.name,
-        displayOrder,
-        hasClasses: g.hasClasses,
-        departmentId: g.departmentId ?? undefined,
-      }),
+    (orderedIds) => reorderHierarchyAction({ entity: "grade", orderedIds }),
     "学年",
     report,
   );
@@ -217,13 +211,14 @@ type RowReorder = {
 };
 
 /**
- * 兄弟ノードの表示順並べ替えを司るフック。`rowProps(index)` を各行へ渡す。`move` は配列を組み替えて
- * 0..n-1 に正規化し、displayOrder が変わったノードだけ `persist` で永続化（最後に 1 回だけ report→refresh）。
- * 並べ替え中（pending）は二重操作を防ぐためドラッグ/移動を無効化する。
+ * 兄弟ノードの表示順並べ替えを司るフック。`rowProps(index)` を各行へ渡す。`move` は配列を組み替え、
+ * 並び替え後の **id 列を 1 アクション (`reorder`) に渡して単一 tx で原子的に**反映する（途中失敗で
+ * 半端な並びにならない・往復/refresh は 1 回）。並べ替え中（pending）は二重操作を防ぐためドラッグ/移動を
+ * 無効化する。`reorder` の戻りは ActionResult<{count}> で、UI 表示には ok/エラーのみ使う。
  */
 function useSiblingReorder<T extends { id: string; displayOrder: number }>(
   siblings: T[],
-  persist: (item: T, displayOrder: number) => Promise<Result>,
+  reorder: (orderedIds: string[]) => Promise<ActionResult<{ count: number }>>,
   noun: string,
   report: Reporter,
 ): (index: number) => RowReorder {
@@ -242,17 +237,9 @@ function useSiblingReorder<T extends { id: string; displayOrder: number }>(
     }
     next.splice(to, 0, moved);
     start(async () => {
-      let firstFail: Result | null = null;
-      for (let i = 0; i < next.length; i++) {
-        const item = next[i];
-        if (item && item.displayOrder !== i) {
-          const res = await persist(item, i);
-          if (!res.ok && firstFail === null) {
-            firstFail = res;
-          }
-        }
-      }
-      report(firstFail ?? { ok: true, data: { id: "" } }, `${noun}の表示順を更新しました。`);
+      const res = await reorder(next.map((s) => s.id));
+      // report は Result（{id}）形を取るため、成功時はダミー id に畳んで写像する（data は UI 未使用）。
+      report(res.ok ? { ok: true, data: { id: "" } } : res, `${noun}の表示順を更新しました。`);
     });
   };
 
@@ -633,17 +620,10 @@ function DepartmentNode({
   report: Reporter;
 }) {
   const [open, setOpen] = useState(true);
-  // 配下の学年（この学科の兄弟集合）の並べ替え。
+  // 配下の学年（この学科の兄弟集合）の並べ替え。永続化は単一の原子的アクション。
   const gradeRowProps = useSiblingReorder(
     grades,
-    (g, displayOrder) =>
-      updateGradeAction({
-        id: g.id,
-        name: g.name,
-        displayOrder,
-        hasClasses: g.hasClasses,
-        departmentId: g.departmentId ?? undefined,
-      }),
+    (orderedIds) => reorderHierarchyAction({ entity: "grade", orderedIds }),
     "学年",
     report,
   );

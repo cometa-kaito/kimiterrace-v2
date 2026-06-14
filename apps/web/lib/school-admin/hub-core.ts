@@ -254,6 +254,45 @@ export function validateId(raw: unknown): Validated<{ id: string }> {
 }
 
 /* ------------------------------------------------------------------ *
+ *  表示順の一括並べ替え (#48-K3 UX hardening)
+ *
+ *  学科 / 学年の兄弟集合を新しい並び順（orderedIds）で受け取り、displayOrder=0..n-1 を
+ *  **単一 tx で原子的に**反映する Server Action の入力検証。クラスは並べ替え列が無いため対象外。
+ * ------------------------------------------------------------------ */
+
+export type ReorderEntity = "department" | "grade";
+export type ReorderInput = { entity: ReorderEntity; orderedIds: string[] };
+
+/** 一括並べ替え入力: entity（学科/学年）+ 重複なし UUID 配列（1..1000 件）。 */
+export function validateReorder(raw: {
+  entity?: unknown;
+  orderedIds?: unknown;
+}): Validated<ReorderInput> {
+  if (raw.entity !== "department" && raw.entity !== "grade") {
+    return { ok: false, message: "並べ替え対象の種別が不正です。" };
+  }
+  if (!Array.isArray(raw.orderedIds) || raw.orderedIds.length === 0) {
+    return { ok: false, message: "並べ替え対象がありません。" };
+  }
+  if (raw.orderedIds.length > 1000) {
+    return { ok: false, message: "一度に並べ替えられる件数を超えています。" };
+  }
+  const seen = new Set<string>();
+  const orderedIds: string[] = [];
+  for (const id of raw.orderedIds) {
+    if (!isUuid(id)) {
+      return { ok: false, message: "並べ替え対象の指定が不正です。" };
+    }
+    if (seen.has(id)) {
+      return { ok: false, message: "並べ替え対象に重複があります。" };
+    }
+    seen.add(id);
+    orderedIds.push(id);
+  }
+  return { ok: true, value: { entity: raw.entity, orderedIds } };
+}
+
+/* ------------------------------------------------------------------ *
  *  新年度へ複製 (#48-K3 PR3)
  *
  *  departments / grades は年度非依存マスタで、年度を持つのは classes.academic_year のみ。
