@@ -47,7 +47,7 @@ vi.mock("@/lib/teacher-input/use-speech-to-text", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: h.refresh }) }));
 
-import { EditorAssistant } from "../../app/admin/editor/_components/EditorAssistant";
+import { EditorAssistant } from "../../app/app/editor/_components/EditorAssistant";
 
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
 

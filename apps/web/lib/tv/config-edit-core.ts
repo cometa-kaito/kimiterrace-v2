@@ -54,7 +54,7 @@ export function notFound(message: string): ActionError {
  * TV 設定を編集できるロール。自校の school_admin と学校横断の system_admin。
  * teacher は不可 — 設定変更（サイネージ URL / センサー MAC / スケジュール）は運用権限を要するため、
  * クラス静粛時間編集 (QUIET_HOURS_ROLES) と同一境界に揃える（F15 §4.2 は school_admin によるスケジュール
- * 編集を想定、teacher は閲覧のみ）。閲覧専用の一覧 (`/admin/tv-devices`) は ADMIN_ROLES（teacher 含む）の
+ * 編集を想定、teacher は閲覧のみ）。閲覧専用の一覧 (`/app/tv-devices`) は ADMIN_ROLES（teacher 含む）の
  * ままで、書き込みだけをこの集合に絞る（多層防御の role 境界、ルール2）。
  */
 export const TV_CONFIG_EDIT_ROLES = ["school_admin", "system_admin"] as const;

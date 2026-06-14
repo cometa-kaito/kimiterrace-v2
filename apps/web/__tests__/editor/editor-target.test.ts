@@ -76,14 +76,14 @@ describe("targetId", () => {
 });
 
 describe("editorBasePath", () => {
-  it("class は既存 /admin/editor/[classId]、scope は /admin/editor/scope/...", () => {
-    expect(editorBasePath({ scope: "class", classId: CLASS_ID })).toBe(`/admin/editor/${CLASS_ID}`);
-    expect(editorBasePath({ scope: "school" })).toBe("/admin/editor/scope/school");
+  it("class は既存 /app/editor/[classId]、scope は /app/editor/scope/...", () => {
+    expect(editorBasePath({ scope: "class", classId: CLASS_ID })).toBe(`/app/editor/${CLASS_ID}`);
+    expect(editorBasePath({ scope: "school" })).toBe("/app/editor/scope/school");
     expect(editorBasePath({ scope: "department", departmentId: DEPT_ID })).toBe(
-      `/admin/editor/scope/department/${DEPT_ID}`,
+      `/app/editor/scope/department/${DEPT_ID}`,
     );
     expect(editorBasePath({ scope: "grade", gradeId: GRADE_ID })).toBe(
-      `/admin/editor/scope/grade/${GRADE_ID}`,
+      `/app/editor/scope/grade/${GRADE_ID}`,
     );
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PublishScopeSelect } from "../../app/admin/contents/_components/PublishScopeSelect";
+import { PublishScopeSelect } from "../../app/app/contents/_components/PublishScopeSelect";
 
 describe("PublishScopeSelect (F04.4 公開先明示セレクタ)", () => {
   it("全スコープがラジオで描画される (全校も対等に存在)", () => {

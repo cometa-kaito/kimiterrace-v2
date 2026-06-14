@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ContentStatusBadge } from "../../app/admin/contents/_components/ContentStatusBadge";
+import { ContentStatusBadge } from "../../app/app/contents/_components/ContentStatusBadge";
 
 describe("ContentStatusBadge", () => {
   it("draft → 下書き", () => {

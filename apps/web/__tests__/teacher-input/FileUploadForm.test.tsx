@@ -11,7 +11,7 @@ vi.mock("@/lib/teacher-input/draft-actions", () => ({
   createDraftFromInputAction: vi.fn(),
 }));
 
-import { FileUploadForm } from "../../app/admin/teacher-input/_components/FileUploadForm";
+import { FileUploadForm } from "../../app/app/teacher-input/_components/FileUploadForm";
 
 function mockFetch(impl: () => Promise<Response>) {
   const fn = vi.fn(impl);

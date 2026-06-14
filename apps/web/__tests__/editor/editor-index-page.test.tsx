@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * エディタ index ツリー (段A-2) に scope 編集対象が出ることを pin する。
  *
  * 先頭に「学校全体」、各学科見出しに「学科全体」、各学年見出しに「学年全体」の編集リンクが
- * 正しい `/admin/editor/scope/...` href で出ること、既存クラスリンクが維持されることを検証する。
+ * 正しい `/app/editor/scope/...` href で出ること、既存クラスリンクが維持されることを検証する。
  * guard / db / hub-queries を mock し、`getSchoolHierarchy` の戻りを固定して描画だけ確認する
  * (認可と RLS は requireRole + 各ページ + DB が担保、ここは UX 層)。
  */
@@ -30,7 +30,7 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-import EditorIndexPage from "../../app/admin/editor/page";
+import EditorIndexPage from "../../app/app/editor/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { getSchoolHierarchy } from "../../lib/school-admin/hub-queries";
@@ -74,17 +74,17 @@ describe("EditorIndexPage scope 対象リンク", () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
 
     const school = screen.getByRole("link", { name: "学校全体の共通を編集" });
-    expect(school).toHaveAttribute("href", "/admin/editor/scope/school");
+    expect(school).toHaveAttribute("href", "/app/editor/scope/school");
 
     const dept = screen.getByRole("link", { name: "この学科の共通を編集" });
-    expect(dept).toHaveAttribute("href", `/admin/editor/scope/department/${DEPT_ID}`);
+    expect(dept).toHaveAttribute("href", `/app/editor/scope/department/${DEPT_ID}`);
 
     const grade = screen.getByRole("link", { name: "この学年の共通を編集" });
-    expect(grade).toHaveAttribute("href", `/admin/editor/scope/grade/${GRADE_ID}`);
+    expect(grade).toHaveAttribute("href", `/app/editor/scope/grade/${GRADE_ID}`);
 
     // 既存クラスリンクは維持される。
     const cls = screen.getByRole("link", { name: /1年A組/ });
-    expect(cls).toHaveAttribute("href", `/admin/editor/${CLASS_ID}`);
+    expect(cls).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
 
     // 分かりやすさ改善: 範囲の概念（共通は配下の全クラスに表示・クラス個別が優先）を説明する。
     expect(screen.getByText(/範囲を選んで/)).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe("EditorIndexPage scope 対象リンク", () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByRole("link", { name: "学校全体の共通を編集" })).toHaveAttribute(
       "href",
-      "/admin/editor/scope/school",
+      "/app/editor/scope/school",
     );
   });
 });
@@ -114,7 +114,7 @@ describe("EditorIndexPage 前回クラス再開（cookie 突合 / IDOR）", () =
     cookieState.lastClass = CLASS_ID;
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
     const resume = screen.getByRole("link", { name: /前回のクラスを再開/ });
-    expect(resume).toHaveAttribute("href", `/admin/editor/${CLASS_ID}`);
+    expect(resume).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
   });
 
   it("拒否: cookie が他校/スコープ外のクラス ID でも突合で弾かれ再開リンクを出さない", async () => {
@@ -124,7 +124,7 @@ describe("EditorIndexPage 前回クラス再開（cookie 突合 / IDOR）", () =
     // 自校のクラスリンクだけは従来どおり出る（再開導線だけが抑止される）。
     expect(screen.getByRole("link", { name: /1年A組/ })).toHaveAttribute(
       "href",
-      `/admin/editor/${CLASS_ID}`,
+      `/app/editor/${CLASS_ID}`,
     );
   });
 
@@ -143,11 +143,11 @@ describe("EditorIndexPage 単一クラス teacher の自動直行（?stay ルー
     requireRoleMock.mockResolvedValue({ uid: "t1", role: "teacher", schoolId: "s1" } as never);
   });
 
-  it("teacher・単一クラス・stay 無しは /admin/editor/<id> へ自動 redirect する", async () => {
+  it("teacher・単一クラス・stay 無しは /app/editor/<id> へ自動 redirect する", async () => {
     await expect(EditorIndexPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
-      `NEXT_REDIRECT:/admin/editor/${CLASS_ID}`,
+      `NEXT_REDIRECT:/app/editor/${CLASS_ID}`,
     );
-    expect(redirectMock).toHaveBeenCalledWith(`/admin/editor/${CLASS_ID}`);
+    expect(redirectMock).toHaveBeenCalledWith(`/app/editor/${CLASS_ID}`);
   });
 
   it("?stay=1 なら自動 redirect せず選択画面に留まる（無限ループ防止）", async () => {

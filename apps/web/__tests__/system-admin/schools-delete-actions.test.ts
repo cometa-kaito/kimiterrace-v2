@@ -147,8 +147,8 @@ describe("deleteSchoolAction", () => {
 
   it("削除後に一覧・詳細・編集ページを revalidate する (stale ページ防止) (#246 Low-3)", async () => {
     await deleteSchoolAction({ id: SCHOOL_ID });
-    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/schools");
-    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/schools/${SCHOOL_ID}`);
-    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/schools/${SCHOOL_ID}/edit`);
+    expect(revalidatePathMock).toHaveBeenCalledWith("/ops/schools");
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/ops/schools/${SCHOOL_ID}`);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/ops/schools/${SCHOOL_ID}/edit`);
   });
 });

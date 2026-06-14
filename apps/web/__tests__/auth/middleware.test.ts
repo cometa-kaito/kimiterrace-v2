@@ -36,10 +36,10 @@ describe("middleware", () => {
 
   it("session cookie 有り → 現在パスを x-kt-pathname リクエストヘッダに注入する (F11 MFA ゲートのループ防止用)", () => {
     // 純加算的: cookie 検証・redirect 判定は変えず、下流 layout が pathname を読めるヘッダだけ足す。
-    const res = middleware(makeRequest("/admin/account/mfa", { withCookie: true }));
+    const res = middleware(makeRequest("/app/account/mfa", { withCookie: true }));
     expect(res.headers.get("location")).toBeNull(); // redirect しないことは不変
     // NextResponse.next({request:{headers}}) は注入ヘッダを x-middleware-request-* に反映する。
-    expect(res.headers.get("x-middleware-request-x-kt-pathname")).toBe("/admin/account/mfa");
+    expect(res.headers.get("x-middleware-request-x-kt-pathname")).toBe("/app/account/mfa");
   });
 
   it("クエリ付き path も next= に保持される", () => {
@@ -165,8 +165,8 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/settings")).toBe(true);
   });
 
-  it("signage/ 除外が認証必須の /admin/signage-preview を巻き込まない (過剰除外しない)", () => {
+  it("signage/ 除外が認証必須の /app/signage-preview を巻き込まない (過剰除外しない)", () => {
     // `/admin/...` 始まりは signage/ 除外の影響外 → 引き続きゲート対象 (保護される)。
-    expect(gated.test("/admin/signage-preview/some-class-id")).toBe(true);
+    expect(gated.test("/app/signage-preview/some-class-id")).toBe(true);
   });
 });

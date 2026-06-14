@@ -30,10 +30,10 @@ V1（旧 Firebase 版キミテラス、`../キミテラス/management/`）の既
 |---|---|---|---|---|---|
 | `/` | サイネージ表示（公開） | `src/components/signage/SignagePage.tsx` ほか | 1,462 行 | `/signage/[classToken]` | Server Component + Client island で再生制御、Server Actions で次データ取得 |
 | `/manage` | 認証後リダイレクト | （routing only） | — | `/admin`（共通レイアウト） | Next.js App Router の layout で role 分岐 |
-| `/manage/editor` | スケジュール/連絡/宿題エディタ（PC） | `src/components/editor/EditorTargetMenu` 他 | 1,994 行 | `/admin/editor` | Server Action 主体、楽観 UI は localState、確定時に POST |
-| `/manage/editor-mobile` | エディタ（モバイル簡易版） | （editor 流用） | — | `/admin/editor`（同一ルート + viewport 分岐） | Tailwind / CSS で responsive、コードを一本化（V1 の二重実装を解消） |
-| `/manage/admin` | システム管理者ダッシュボード | `src/components/admin/SchoolListView` ほか（うち `SchoolDetailView` 単独 2,282 行が圧倒、移植時は再分割必須） | 4,463 行 | `/admin/system/*` | RLS bypass は不可、middleware で system_admin チェック ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md)) |
-| `/manage/school-admin` | 学校管理者ハブ | `src/components/school-admin/SchoolAdminHub` | — | `/admin/school` | school_id スコープ |
+| `/manage/editor` | スケジュール/連絡/宿題エディタ（PC） | `src/components/editor/EditorTargetMenu` 他 | 1,994 行 | `/app/editor`（旧 `/admin/editor` を §4.1 改称・308 温存） | Server Action 主体、楽観 UI は localState、確定時に POST |
+| `/manage/editor-mobile` | エディタ（モバイル簡易版） | （editor 流用） | — | `/app/editor`（同一ルート + viewport 分岐） | Tailwind / CSS で responsive、コードを一本化（V1 の二重実装を解消） |
+| `/manage/admin` | システム管理者ダッシュボード | `src/components/admin/SchoolListView` ほか（うち `SchoolDetailView` 単独 2,282 行が圧倒、移植時は再分割必須） | 4,463 行 | `/ops/*`（旧 `/admin/system/*` を §4.1 改称・308 温存） | RLS bypass は不可、middleware で system_admin チェック ([ADR-019](../adr/019-rls-two-layer-tenant-isolation.md)) |
+| `/manage/school-admin` | 学校管理者ハブ | `src/components/school-admin/SchoolAdminHub` | — | `/app/school`（旧 `/admin/school` を §4.1 改称・308 温存） | school_id スコープ |
 | `/manage/class-settings` | クラス設定（広告・静粛時間） | `src/components/class-settings/*` | 938 行 | `/admin/classes/[classId]` | Server Action、画像 upload は signed URL 経由 GCS 直接 PUT |
 | `/manage/guide` | ガイド + フィードバック（非認証） | （guide page） | — | `/guide` | Route Handler `POST /api/feedback` で受信、school 一覧は public read API |
 | `/manage/login` | ログイン | `src/components/auth/LoginPage` | 294 行 | `/login` | Identity Platform redirect (ADR-003 未作成、[#94](https://github.com/cometa-kaito/kimiterrace-v2/issues/94)) + magic link ([ADR-016](../adr/016-class-magic-link-anonymous-access.md)) |

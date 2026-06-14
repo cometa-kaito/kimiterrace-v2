@@ -1,8 +1,11 @@
-import { type InferSelectModel, eq } from "drizzle-orm";
+import { type InferSelectModel, and, eq } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { ads } from "../schema/ads.js";
 import { advertisers } from "../schema/advertisers.js";
+import { classes } from "../schema/classes.js";
 import { contracts } from "../schema/contracts.js";
+import { departments } from "../schema/departments.js";
+import { grades } from "../schema/grades.js";
 
 /**
  * Partner API K3（`docs/api/partner-api-contract.md` §3）: **配信 push の受け口**（Flow B の v2 側）の
@@ -73,6 +76,12 @@ export type DeliveryAdInput = {
   portalPlacementId: NonNullable<AdRow["portalPlacementId"]>;
   v2SchoolId: AdRow["schoolId"];
   scope: AdRow["scope"];
+  /**
+   * 非 school スコープの対象（portal が送る学科名/学年名/クラス名）。school は null。
+   * v2 が **学校内で名前一致解決**して grade_id/class_id/department_id を確定する（Phase4 §0b）。
+   * 学校ブリッジ(v2_school_id)と違い、学校特定後の sub-scope 名前解決は低リスク（運営整理 §0b 判断）。
+   */
+  scopeRef: string | null;
   mediaType: AdRow["mediaType"];
   durationSec: number;
   displayOrder: number;
@@ -81,6 +90,87 @@ export type DeliveryAdInput = {
   caption: AdRow["caption"];
   linkUrl: AdRow["linkUrl"];
 };
+
+/**
+ * scopeRef の名前解決が失敗（対象が学校内に無い / 曖昧）したことを表す**恒久エラー**。
+ * route はこれを **409**（再送で直らない・portal 側の参照を直す必要）に写す。
+ * pg の check/FK 違反(23514/23503)と同じ「恒久的整合不能」カテゴリ。
+ */
+export class ScopeResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScopeResolutionError";
+  }
+}
+
+/** scope 解決の結果（ads の check 制約 ck_ads_scope を満たす id セット）。 */
+type ResolvedScopeIds = {
+  gradeId: string | null;
+  classId: string | null;
+  departmentId: string | null;
+};
+
+/**
+ * scope + scopeRef を v2 の階層 id へ**学校内で名前一致解決**する（Phase4 §0b・名前ベース解決）。
+ * - school: 全 id null（学校全体）。
+ * - department/grade: `ux_(departments|grades)_school_name` で学校内 name 一意 → 厳密一致。
+ * - class: classes は name 単独で一意でない（学年/年度違い）ため、学校内 name 一致が **ちょうど1件**の
+ *   ときのみ採用。0件/複数件は `ScopeResolutionError`（→409）で**保留**（誤対象配信を防ぐ）。
+ * 見つからなければ `ScopeResolutionError`（恒久）。fail-closed（過剰/誤配信より保留）。
+ */
+async function resolveScopeIds(
+  tx: TenantTx,
+  schoolId: string,
+  scope: AdRow["scope"],
+  scopeRef: string | null,
+): Promise<ResolvedScopeIds> {
+  if (scope === "school") {
+    return { gradeId: null, classId: null, departmentId: null };
+  }
+  const ref = (scopeRef ?? "").trim();
+  if (ref.length === 0) {
+    throw new ScopeResolutionError(`scope '${scope}' requires scopeRef`);
+  }
+
+  if (scope === "department") {
+    const rows = await tx
+      .select({ id: departments.id })
+      .from(departments)
+      .where(and(eq(departments.schoolId, schoolId), eq(departments.name, ref)));
+    const row = rows[0];
+    if (rows.length !== 1 || !row) {
+      throw new ScopeResolutionError(`department '${ref}' not found in school`);
+    }
+    return { gradeId: null, classId: null, departmentId: row.id };
+  }
+
+  if (scope === "grade") {
+    const rows = await tx
+      .select({ id: grades.id })
+      .from(grades)
+      .where(and(eq(grades.schoolId, schoolId), eq(grades.name, ref)));
+    const row = rows[0];
+    if (rows.length !== 1 || !row) {
+      throw new ScopeResolutionError(`grade '${ref}' not found in school`);
+    }
+    return { gradeId: row.id, classId: null, departmentId: null };
+  }
+
+  // scope === "class": name は学校内で一意でないため、ちょうど1件のときのみ採用。
+  const rows = await tx
+    .select({ id: classes.id })
+    .from(classes)
+    .where(and(eq(classes.schoolId, schoolId), eq(classes.name, ref)));
+  const row = rows[0];
+  if (rows.length !== 1 || !row) {
+    throw new ScopeResolutionError(
+      rows.length === 0
+        ? `class '${ref}' not found in school`
+        : `class '${ref}' is ambiguous in school (${rows.length} matches)`,
+    );
+  }
+  return { gradeId: null, classId: row.id, departmentId: null };
+}
 
 export type DeliveryInput = {
   advertiser: DeliveryAdvertiserInput;
@@ -182,14 +272,26 @@ export async function applyPartnerDelivery(
   }
 
   // 3. ads を upsert（冪等キー = portal_placement_id）。1 件ずつ（件数は最低 1・通常少数）。
+  //    scope が非 school なら scopeRef を学校内で名前解決し、grade_id/class_id/department_id を確定する
+  //    （ck_ads_scope を満たす）。解決失敗は ScopeResolutionError（→409・保留）で tx ごと中断＝部分反映しない。
+  //    scope を切替えた更新でも未使用 id を毎回 null で上書きするため check 違反は起きない。
   let adsApplied = 0;
   for (const a of input.ads) {
+    const { gradeId, classId, departmentId } = await resolveScopeIds(
+      tx,
+      a.v2SchoolId,
+      a.scope,
+      a.scopeRef,
+    );
     await tx
       .insert(ads)
       .values({
         portalPlacementId: a.portalPlacementId,
         schoolId: a.v2SchoolId,
         scope: a.scope,
+        gradeId,
+        classId,
+        departmentId,
         advertiserId,
         mediaUrl: a.mediaUrl,
         mediaType: a.mediaType,
@@ -205,6 +307,9 @@ export async function applyPartnerDelivery(
         set: {
           schoolId: a.v2SchoolId,
           scope: a.scope,
+          gradeId,
+          classId,
+          departmentId,
           advertiserId,
           mediaUrl: a.mediaUrl,
           mediaType: a.mediaType,

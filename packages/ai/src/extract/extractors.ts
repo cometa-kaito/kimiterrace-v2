@@ -316,7 +316,8 @@ export class ImageExtractor extends BaseExtractor {
     }
     let result: Awaited<ReturnType<OcrClient["recognize"]>>;
     try {
-      result = await this.ocr.recognize(source.bytes);
+      // mediaType を渡す（Gemini 直送 / ADR-038 が画像パートに付与する。Vision は内容判定ゆえ無視）。
+      result = await this.ocr.recognize(source.bytes, source.mimeType);
     } catch (cause) {
       throw new ExtractFailedError("image", "@google-cloud/vision", cause);
     }

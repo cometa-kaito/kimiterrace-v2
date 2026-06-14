@@ -11,18 +11,18 @@ vi.mock("@/lib/teacher-input/draft-actions", () => ({
   createDraftFromInputAction: (id: string) => actionMock(id),
 }));
 
-import { CreateDraftButton } from "../../app/admin/teacher-input/_components/CreateDraftButton";
+import { CreateDraftButton } from "../../app/app/teacher-input/_components/CreateDraftButton";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("CreateDraftButton", () => {
-  it("成功すると /admin/contents/{contentId} へ push する", async () => {
+  it("成功すると /app/contents/{contentId} へ push する", async () => {
     actionMock.mockResolvedValue({ ok: true, contentId: "content-9" });
     render(<CreateDraftButton inputId="ti-1" />);
     fireEvent.click(screen.getByRole("button", { name: "編集して公開" }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/contents/content-9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/contents/content-9"));
     expect(actionMock).toHaveBeenCalledWith("ti-1");
   });
 

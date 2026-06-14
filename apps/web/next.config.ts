@@ -70,6 +70,34 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  *   空になるため、フォント実体を trace に明示追加する (Issue #311)。万一同梱漏れしても
  *   `instrumentation.ts` の起動時 assert が loud failure として検知する。
  */
+/**
+ * namespace 改称の旧 URL 温存リダイレクト (経路設計実装設計書 §4.1/§42.5)。
+ *
+ * `/admin/system/*` を運営・配信コンソール `/ops/*` へ物理改称したのに伴い、旧 URL のブックマーク /
+ * 外部リンクを **308 (permanent・method 保持)** で新パスへ恒久リダイレクトする。301 ではなく 308 を使うのは、
+ * 万一旧パス宛の POST (Server Action 等) が残っていてもメソッドを GET に落とさず安全に転送するため。
+ *
+ * **適用層の選択**: middleware ではなく `next.config` の `redirects()` に置く。redirects は Next の評価順で
+ * middleware より前段に走り、**auth ゲート (middleware) のコードに一切手を入れない** ため回帰面が小さい。
+ * middleware の matcher は負の先読みで `/ops` を自動的に保護対象に含むため、保護目的の matcher 変更は不要。
+ *
+ * **catch-all への集約 (PR-3 完了形)**: `/admin` 配下は全て移設済 (system→/ops、それ以外→/app) になったため、
+ * 学校系は素の `/admin/:path*` → `/app/:path*` catch-all 1 本に集約する (PR-1/PR-2 の per-prefix 列挙を置換)。
+ * `:path*` は 0 セグメントにも一致するので素の `/admin` index も `/app` (= app/app/page.tsx の role 別 home へ
+ * redirect する着地ページ) に転送される。
+ *
+ * **順序が重要**: redirects は配列順に評価され **first-match-wins**。`/admin/system/:path*` (→ /ops) を catch-all
+ * `/admin/:path*` (→ /app) より **前** に置く。さもないと `/admin/system/schools` が catch-all に飲まれて
+ * `/app/system/schools` (存在しない) へ 308 し 404 になる。テスト容易性のため named export し `__tests__` で順序を pin。
+ */
+export const NAMESPACE_REDIRECTS = [
+  // PR-1: 運営・配信コンソール。/admin/system 配下を /ops へ。**catch-all より前** (より具体的・first-match-wins)。
+  { source: "/admin/system/:path*", destination: "/ops/:path*", permanent: true },
+  // PR-2/PR-3: 残る学校系 /admin/* (editor/school/contents/chat/teacher-input/account/signage-preview/
+  // dashboard/sensors/reports/tv-devices) と素の /admin index を /app へ catch-all で集約 (全て app/app/* に移設済)。
+  { source: "/admin/:path*", destination: "/app/:path*", permanent: true },
+] as const;
+
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
@@ -136,6 +164,12 @@ const nextConfig: NextConfig = {
         ],
       },
     ];
+  },
+
+  // namespace 改称の旧 URL を新 namespace へ 308 で恒久リダイレクトする (NAMESPACE_REDIRECTS の JSDoc 参照)。
+  // mapping 本体は named export して `__tests__/config/namespace-redirects.test.ts` で pin する。
+  async redirects() {
+    return [...NAMESPACE_REDIRECTS];
   },
 };
 
