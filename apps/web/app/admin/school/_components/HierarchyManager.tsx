@@ -17,6 +17,7 @@ import type { SchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -84,6 +85,27 @@ export function HierarchyManager({
   const report: Reporter = (res, okMsg) =>
     res.ok ? notify(true, okMsg) : notify(false, res.error.message);
 
+  // 表示順の並べ替え。学科（トップレベル）と、学科なし校のトップレベル学年。
+  const deptRowProps = useSiblingReorder(
+    departments,
+    (d, displayOrder) => updateDepartmentAction({ id: d.id, name: d.name, displayOrder }),
+    "学科",
+    report,
+  );
+  const topGradeRowProps = useSiblingReorder(
+    grades,
+    (g, displayOrder) =>
+      updateGradeAction({
+        id: g.id,
+        name: g.name,
+        displayOrder,
+        hasClasses: g.hasClasses,
+        departmentId: g.departmentId ?? undefined,
+      }),
+    "学年",
+    report,
+  );
+
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
   const isEmpty = !hasDepartments && grades.length === 0;
@@ -123,12 +145,13 @@ export function HierarchyManager({
       ) : hasDepartments ? (
         <>
           <div style={treeRootStyle}>
-            {departments.map((d) => (
+            {departments.map((d, i) => (
               <DepartmentNode
                 key={d.id}
                 dept={d}
                 grades={gradesOf(d.id)}
                 statusByClass={statusByClass}
+                reorder={deptRowProps(i)}
                 report={report}
               />
             ))}
@@ -141,8 +164,14 @@ export function HierarchyManager({
       ) : (
         <>
           <div style={treeRootStyle}>
-            {grades.map((g) => (
-              <GradeNode key={g.id} grade={g} statusByClass={statusByClass} report={report} />
+            {grades.map((g, i) => (
+              <GradeNode
+                key={g.id}
+                grade={g}
+                statusByClass={statusByClass}
+                reorder={topGradeRowProps(i)}
+                report={report}
+              />
             ))}
           </div>
           <AddGradeForm report={report} />
@@ -158,6 +187,122 @@ export function HierarchyManager({
  * ------------------------------------------------------------------ */
 
 type MenuItem = { label: string; danger?: boolean; onSelect: () => void };
+
+/* ------------------------------------------------------------------ *
+ *  表示順の並べ替え（学科 / 学年）— ドラッグ&ドロップ + ⋯メニューの「上へ/下へ移動」
+ *
+ *  クラスは並べ替え列（displayOrder）を持たないため対象外（schema 凍結）。並べ替えは兄弟集合
+ *  （同一学科配下の学年 / 学科 / 学科なし校の学年）を 0..n-1 に**正規化**して該当ノードだけ
+ *  updateDepartmentAction / updateGradeAction で永続化する（既存の displayOrder の重複/抜けも自己修復）。
+ *  キーボード経路は ⋯メニューの「上へ/下へ移動」（D&D は HTML5 dragging、タッチ/キーボードはメニュー）。
+ * ------------------------------------------------------------------ */
+
+/** 1 行ぶんの並べ替えハンドル（グリップの drag props・ドロップ先 props・上下移動・現在のドラッグ状態）。 */
+type RowReorder = {
+  canUp: boolean;
+  canDown: boolean;
+  isDragging: boolean;
+  isOver: boolean;
+  onMove: (dir: -1 | 1) => void;
+  handleProps: {
+    draggable: boolean;
+    onDragStart: () => void;
+    onDragEnd: () => void;
+  };
+  dropProps: {
+    onDragOver: (e: DragEvent<HTMLElement>) => void;
+    onDragLeave: () => void;
+    onDrop: (e: DragEvent<HTMLElement>) => void;
+  };
+};
+
+/**
+ * 兄弟ノードの表示順並べ替えを司るフック。`rowProps(index)` を各行へ渡す。`move` は配列を組み替えて
+ * 0..n-1 に正規化し、displayOrder が変わったノードだけ `persist` で永続化（最後に 1 回だけ report→refresh）。
+ * 並べ替え中（pending）は二重操作を防ぐためドラッグ/移動を無効化する。
+ */
+function useSiblingReorder<T extends { id: string; displayOrder: number }>(
+  siblings: T[],
+  persist: (item: T, displayOrder: number) => Promise<Result>,
+  noun: string,
+  report: Reporter,
+): (index: number) => RowReorder {
+  const [pending, start] = useTransition();
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const move = (from: number, to: number) => {
+    if (pending || from === to || to < 0 || to >= siblings.length) {
+      return;
+    }
+    const next = siblings.slice();
+    const [moved] = next.splice(from, 1);
+    if (!moved) {
+      return;
+    }
+    next.splice(to, 0, moved);
+    start(async () => {
+      let firstFail: Result | null = null;
+      for (let i = 0; i < next.length; i++) {
+        const item = next[i];
+        if (item && item.displayOrder !== i) {
+          const res = await persist(item, i);
+          if (!res.ok && firstFail === null) {
+            firstFail = res;
+          }
+        }
+      }
+      report(firstFail ?? { ok: true, data: { id: "" } }, `${noun}の表示順を更新しました。`);
+    });
+  };
+
+  return (index: number): RowReorder => ({
+    canUp: index > 0,
+    canDown: index < siblings.length - 1,
+    isDragging: dragIndex === index,
+    isOver: overIndex === index && dragIndex !== null && dragIndex !== index,
+    onMove: (dir) => move(index, index + dir),
+    handleProps: {
+      draggable: !pending,
+      onDragStart: () => setDragIndex(index),
+      onDragEnd: () => {
+        setDragIndex(null);
+        setOverIndex(null);
+      },
+    },
+    dropProps: {
+      onDragOver: (e) => {
+        if (dragIndex !== null) {
+          e.preventDefault();
+          setOverIndex(index);
+        }
+      },
+      onDragLeave: () => setOverIndex((cur) => (cur === index ? null : cur)),
+      onDrop: (e) => {
+        e.preventDefault();
+        if (dragIndex !== null) {
+          move(dragIndex, index);
+        }
+        setDragIndex(null);
+        setOverIndex(null);
+      },
+    },
+  });
+}
+
+/** ドラッグ中ノードは半透明・ドロップ先候補は上辺にオレンジの差し込み線でヒントする。 */
+function nodeDragStyle(r?: RowReorder): React.CSSProperties {
+  if (!r) {
+    return {};
+  }
+  if (r.isDragging) {
+    return draggingNodeStyle;
+  }
+  if (r.isOver) {
+    return dropOverStyle;
+  }
+  return {};
+}
 
 /**
  * 行末の操作メニュー（WAI-ARIA menu button パターン）。Tab だけでなく**矢印キーで項目移動**できる:
@@ -315,6 +460,7 @@ function NodeHeader({
   childLabel,
   deleteGuardMessage,
   extraItems,
+  reorder,
   leading,
   trailing,
   onSave,
@@ -329,6 +475,7 @@ function NodeHeader({
   childLabel: string;
   deleteGuardMessage?: string;
   extraItems?: MenuItem[];
+  reorder?: RowReorder;
   leading?: ReactNode;
   trailing?: ReactNode;
   onSave: (v: {
@@ -382,6 +529,8 @@ function NodeHeader({
 
   const items: MenuItem[] = [
     { label: "名称・表示順を編集", onSelect: () => setEditing(true) },
+    ...(reorder?.canUp ? [{ label: "上へ移動", onSelect: () => reorder.onMove(-1) }] : []),
+    ...(reorder?.canDown ? [{ label: "下へ移動", onSelect: () => reorder.onMove(1) }] : []),
     ...(extraItems ?? []),
     {
       label: "削除",
@@ -393,6 +542,17 @@ function NodeHeader({
   return (
     <div>
       <div style={nodeHeaderRowStyle} className={styles.row}>
+        {reorder && (reorder.canUp || reorder.canDown) ? (
+          <span
+            className={styles.actions}
+            {...reorder.handleProps}
+            aria-hidden
+            title="ドラッグして並べ替え（または ⋯ から上へ/下へ移動）"
+            style={gripStyle}
+          >
+            ⠿
+          </span>
+        ) : null}
         {leading}
         <span style={badgeStyle}>{badge}</span>
         <span style={nodeNameStyle}>{name}</span>
@@ -459,16 +619,35 @@ function DepartmentNode({
   dept,
   grades,
   statusByClass,
+  reorder,
   report,
 }: {
   dept: Dept;
   grades: Grade[];
   statusByClass: Record<string, boolean>;
+  reorder?: RowReorder;
   report: Reporter;
 }) {
   const [open, setOpen] = useState(true);
+  // 配下の学年（この学科の兄弟集合）の並べ替え。
+  const gradeRowProps = useSiblingReorder(
+    grades,
+    (g, displayOrder) =>
+      updateGradeAction({
+        id: g.id,
+        name: g.name,
+        displayOrder,
+        hasClasses: g.hasClasses,
+        departmentId: g.departmentId ?? undefined,
+      }),
+    "学年",
+    report,
+  );
   return (
-    <section style={deptNodeStyle}>
+    <section
+      style={{ ...deptNodeStyle, ...nodeDragStyle(reorder) }}
+      {...(reorder?.dropProps ?? {})}
+    >
       <NodeHeader
         name={dept.name}
         defaultOrder={dept.displayOrder}
@@ -476,6 +655,7 @@ function DepartmentNode({
         badge="学科"
         childCount={grades.length}
         childLabel="学年"
+        reorder={reorder}
         leading={
           <button
             type="button"
@@ -496,8 +676,14 @@ function DepartmentNode({
       />
       {open ? (
         <div style={childListStyle}>
-          {grades.map((g) => (
-            <GradeNode key={g.id} grade={g} statusByClass={statusByClass} report={report} />
+          {grades.map((g, i) => (
+            <GradeNode
+              key={g.id}
+              grade={g}
+              statusByClass={statusByClass}
+              reorder={gradeRowProps(i)}
+              report={report}
+            />
           ))}
           <AddGradeForm department={dept} report={report} />
         </div>
@@ -513,10 +699,12 @@ function DepartmentNode({
 function GradeNode({
   grade,
   statusByClass,
+  reorder,
   report,
 }: {
   grade: Grade;
   statusByClass: Record<string, boolean>;
+  reorder?: RowReorder;
   report: Reporter;
 }) {
   const [pending, start] = useTransition();
@@ -565,7 +753,7 @@ function GradeNode({
     : [{ label: "クラスに分ける", onSelect: toClasses }];
 
   return (
-    <div style={gradeNodeStyle}>
+    <div style={{ ...gradeNodeStyle, ...nodeDragStyle(reorder) }} {...(reorder?.dropProps ?? {})}>
       <NodeHeader
         name={grade.name}
         defaultOrder={grade.displayOrder}
@@ -573,6 +761,7 @@ function GradeNode({
         badge="学年"
         childCount={grade.classes.length}
         childLabel="クラス"
+        reorder={reorder}
         deleteGuardMessage={
           grade.hasClasses
             ? undefined
@@ -1444,6 +1633,17 @@ const chevronBtnStyle: React.CSSProperties = {
   border: "none",
   cursor: "pointer",
 };
+const gripStyle: React.CSSProperties = {
+  cursor: "grab",
+  color: C.inkTertiary,
+  fontSize: "1rem",
+  lineHeight: 1,
+  userSelect: "none",
+  padding: "0 0.1rem",
+};
+const draggingNodeStyle: React.CSSProperties = { opacity: 0.5 };
+// ドロップ先候補は上辺にオレンジ（ブランド色）の差し込み線。3 色の範囲内。
+const dropOverStyle: React.CSSProperties = { boxShadow: `inset 0 2px 0 0 ${C.orange}` };
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,

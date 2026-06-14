@@ -29,6 +29,7 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   duplicateClassesToNextYearAction,
+  updateDepartmentAction,
   updateGradeAction,
 } from "../../lib/school-admin/hub-actions";
 
@@ -36,6 +37,7 @@ const ok = { ok: true as const, data: { id: "x" } };
 const createGradeMock = vi.mocked(createGradeAction);
 const createClassMock = vi.mocked(createClassAction);
 const updateGradeMock = vi.mocked(updateGradeAction);
+const updateDeptMock = vi.mocked(updateDepartmentAction);
 const deleteDeptMock = vi.mocked(deleteDepartmentAction);
 const deleteClassMock = vi.mocked(deleteClassAction);
 const dupMock = vi.mocked(duplicateClassesToNextYearAction);
@@ -62,6 +64,7 @@ beforeEach(() => {
   createGradeMock.mockResolvedValue(ok);
   createClassMock.mockResolvedValue(ok);
   updateGradeMock.mockResolvedValue(ok);
+  updateDeptMock.mockResolvedValue(ok);
   deleteDeptMock.mockResolvedValue(ok);
   deleteClassMock.mockResolvedValue(ok);
   dupMock.mockResolvedValue({ ok: true, data: { created: 1, targetYear: 2027 } });
@@ -263,5 +266,107 @@ describe("RowMenu キーボード a11y（矢印 / Home/End / Esc / トリガ）"
     render(<HierarchyManager hierarchy={HIERARCHY} />);
     fireEvent.keyDown(screen.getByRole("button", { name: "クラスの操作" }), { key: "ArrowDown" });
     expect(firstItem()).toHaveFocus();
+  });
+});
+
+describe("表示順の並べ替え（⋯メニュー 上へ/下へ移動 + ドラッグ&ドロップ）", () => {
+  // 学科 2 件（配下なし＝各 section にグリップ 1 つ）。並べ替えは 0..n-1 へ正規化して永続化する。
+  const TWO_DEPTS = {
+    departments: [
+      { id: "d-a", name: "A科", displayOrder: 0 },
+      { id: "d-b", name: "B科", displayOrder: 1 },
+    ],
+    grades: [],
+  };
+  // 学科 1 + 学年 2（配下クラスなし）。
+  const TWO_GRADES = {
+    departments: [{ id: "d1", name: "電子工学科", displayOrder: 0 }],
+    grades: [
+      {
+        id: "g-a",
+        name: "電子工学科1年",
+        displayOrder: 0,
+        hasClasses: true,
+        departmentId: "d1",
+        classes: [],
+      },
+      {
+        id: "g-b",
+        name: "電子工学科2年",
+        displayOrder: 1,
+        hasClasses: true,
+        departmentId: "d1",
+        classes: [],
+      },
+    ],
+  };
+  const sectionOf = (label: string) => {
+    const el = screen.getByText(label).closest("section");
+    if (!el) throw new Error(`${label} の section が見つかりません`);
+    return el;
+  };
+
+  it("先頭の学科は ⋯ に「下へ移動」のみ出し、選ぶと displayOrder を 0..n-1 に正規化して入替える", async () => {
+    render(<HierarchyManager hierarchy={TWO_DEPTS} />);
+    const aMenu = sectionOf("A科");
+    fireEvent.click(within(aMenu).getByRole("button", { name: "学科の操作" }));
+    // 先頭なので「上へ移動」は出ない。
+    expect(within(aMenu).queryByRole("menuitem", { name: "上へ移動" })).toBeNull();
+    fireEvent.click(within(aMenu).getByRole("menuitem", { name: "下へ移動" }));
+    await waitFor(() =>
+      expect(updateDeptMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "d-b", displayOrder: 0 }),
+      ),
+    );
+    expect(updateDeptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "d-a", displayOrder: 1 }),
+    );
+  });
+
+  it("末尾の学科は ⋯ に「下へ移動」を出さない（端の保護）", () => {
+    render(<HierarchyManager hierarchy={TWO_DEPTS} />);
+    const bMenu = sectionOf("B科");
+    fireEvent.click(within(bMenu).getByRole("button", { name: "学科の操作" }));
+    expect(within(bMenu).queryByRole("menuitem", { name: "下へ移動" })).toBeNull();
+    expect(within(bMenu).getByRole("menuitem", { name: "上へ移動" })).toBeInTheDocument();
+  });
+
+  it("学科をドラッグ&ドロップで並べ替えると updateDepartmentAction で displayOrder を入替える", async () => {
+    render(<HierarchyManager hierarchy={TWO_DEPTS} />);
+    const aGrip = within(sectionOf("A科")).getByTitle(/ドラッグして並べ替え/);
+    const bSection = sectionOf("B科");
+    fireEvent.dragStart(aGrip);
+    fireEvent.dragOver(bSection);
+    fireEvent.drop(bSection);
+    await waitFor(() =>
+      expect(updateDeptMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "d-b", displayOrder: 0 }),
+      ),
+    );
+    expect(updateDeptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "d-a", displayOrder: 1 }),
+    );
+  });
+
+  it("学年も ⋯ の「下へ移動」で displayOrder を入替える（hasClasses/departmentId は保持）", async () => {
+    render(<HierarchyManager hierarchy={TWO_GRADES} />);
+    const menus = screen.getAllByRole("button", { name: "学年の操作" });
+    const firstGradeMenu = menus[0];
+    if (!firstGradeMenu) throw new Error("学年メニューが見つかりません");
+    fireEvent.click(firstGradeMenu);
+    fireEvent.click(screen.getByRole("menuitem", { name: "下へ移動" }));
+    await waitFor(() =>
+      expect(updateGradeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "g-b",
+          displayOrder: 0,
+          hasClasses: true,
+          departmentId: "d1",
+        }),
+      ),
+    );
+    expect(updateGradeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "g-a", displayOrder: 1, hasClasses: true, departmentId: "d1" }),
+    );
   });
 });
