@@ -524,9 +524,10 @@ resource "google_storage_bucket_iam_member" "web_ad_media_writer" {
   member = "serviceAccount:${module.cloud_run.runtime_service_account_email}"
 }
 
-# F06 embedding バッチの Cloud Run Job + Scheduler（#416, ADR-038）。生徒/保護者向け Q&A(RAG) の知識源を
-# 供給する。本番有効化（2026-06-13）: school_admin が `/admin/contents` で公開した content_versions を毎時
-# 走査し、PII マスク後テキストから embedding を生成して pgvector に投入する（生徒 Q&A が grounded 動作する）。
+# F06 embedding バッチの Cloud Run Job + Scheduler（#416, ADR-038）。curated contents を embedding 化して
+# 供給する候補経路。**ADR-040（2026-06-14）で生徒/保護者 Q&A の知識源は編集(daily_data)の直接注入へ
+# 再ソース化されたため、本 Job は当面不要＝enabled=false で休眠**（ADR-038 D1/D2 は ADR-040 で supersede）。
+# 配線（image/args/secret/vpc）は将来 curated contents を運用する場合の再有効化に備えて温存する（ADR-040 D3）。
 #
 # 二重 kill-switch（多層防御、#593 / ルール4 / ADR-030、web cloud_run と同方針）:
 #   ① enabled  : Job 実体（Cloud Run Job + Scheduler + 専用 SA）の生成スイッチ。
@@ -546,8 +547,8 @@ module "cloud_run_job" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = true # 2026-06-13 有効化: 生徒/保護者 Q&A の知識源供給（ADR-038）。jobs image 98ea09a 同梱・network(VPC)/secret 準備完了
-  ai_enabled             = true # 2026-06-12 prod web と同じく AI go-live 済（マスキング強化+aiplatform API 有効を確認）。停止は false に戻して apply で即 OFF
+  enabled                = false # 2026-06-14 ADR-040: 知識源を daily_data 直接注入へ再ソース化したため休眠（curated contents 運用時に true へ戻して apply）。配線は温存
+  ai_enabled             = true  # 2026-06-12 prod web と同じく AI go-live 済（マスキング強化+aiplatform API 有効を確認）。停止は false に戻して apply で即 OFF
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/embedding/embed-job.js"] # ビルド済み embed-job（WORKDIR=/app/apps/jobs）。module 既定 src/... を上書き
   database_url_secret_id = local.db_url_app_secret_id
