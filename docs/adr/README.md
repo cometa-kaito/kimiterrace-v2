@@ -64,6 +64,11 @@
 | 031 | [MFA の段階的エンフォース戦略](031-mfa-phased-enforcement.md)（capability＝IdP mfa_config + enrollment フローを MVP で実装、PoC は任意、本番導入ゲートで teacher 以上に強制化して NFR03 充足。即全面強制＝PoC 導入摩擦/全面延期＝NFR03 未達 を不採用。#47） | Accepted |
 | 032 | [教員ログインは学校共通パスワード方式](032-teacher-shared-password-login.md)（教員は per-school 共通 IdP アカウント + サーバ代理 signInWithPassword、個人帰属喪失は受容。個別アカウント運用負荷を不採用） | Accepted |
 | 033 | [エディタ AI 連絡ドラフトは構造化リストのストリーミング + 項目ごと採否 UX](033-streaming-structured-ai-draft-ux.md)（`streamObject` array `elementStream`、可逆プレビュー・refine-in-place・PII/要確認をカード可視化・楽観+Undo。全件一括 apply / prose トークン流し / 自動挿入 を不採用。#243 ②） | Accepted |
+| 034 | [公開サイネージ（教室端末）への個人名表示（来校者一覧・生徒呼び出し）の許容と境界](034-personal-names-on-classroom-signage.md)（教室端末という限定文脈で実名表示を許容、ADR-030 の roster 無し PII ゲートとは別境界として class スコープで管理。#804/#805） | Accepted |
+| 035 | [鉄道運行情報（笠松駅・名鉄）の外部取得 — 公式ページのスクレイピングと端末閉域の維持](035-railway-operation-status-scraping.md)（取得 Job が公式運行情報ページをスクレイプ→バックエンドキャッシュ、端末は外部直叩きしない閉域維持。ADR-021 天気の先例踏襲） | Accepted |
+| 036 | [エディタ AI「おまかせ」は 1 入力を予定/連絡/提出物へ分類し per-section 保存・採用前編集で担保](036-assistant-multi-section-classification.md)（1 入力を per-section 分類し採用前編集で精度担保。F02 教員入力、ADR-033 構造化ドラフト UX 上に構築） | Accepted |
+| 037 | [サイネージ広告メディアの同一オリジン配信（`/ad-media/<key>` proxy）](037-ad-media-same-origin-serving.md)（公開バケットを `/ad-media/<key>` proxy で同一オリジン配信し県教委 Wi-Fi FQDN 許可リストと整合、端末の外部直接取得を不採用。#46/#48-F） | Accepted |
+| 038 | [画像 OCR を Vertex Gemini マルチモーダル直送に切替（データレジデンシー優先）](038-image-ocr-gemini-multimodal-residency.md)（画像 OCR を Cloud Vision から Vertex Gemini マルチモーダル直送へ、NFR07 データ越境ゼロ優先。ADR-024 決定2 を supersede） | Accepted |
 | 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Accepted |
 
 ## ルール
