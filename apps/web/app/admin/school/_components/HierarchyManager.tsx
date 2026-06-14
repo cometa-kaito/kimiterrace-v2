@@ -755,8 +755,7 @@ function GradeNode({
   // 学年単位化は「組が無い（=空）」か「残るクラスが裏方クラス 1 つだけ」のとき提示する。後者を許すことで、
   // クラス単位に戻した後に裏方クラスだけが残った学年を、新規作成せず（裏方を再利用して）学年単位へ戻せる。
   const canBecomeUnit =
-    grade.classes.length === 0 ||
-    (grade.classes.length === 1 && grade.classes[0]?.name === grade.name);
+    grade.classes.length === 0 || (grade.classes.length === 1 && backstageClass !== undefined);
   const extraItems: MenuItem[] = grade.hasClasses
     ? canBecomeUnit
       ? [{ label: "学年単位にする（組に分けない）", onSelect: toUnit }]
