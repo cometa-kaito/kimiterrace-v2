@@ -22,10 +22,10 @@ export function isRoleAllowed(role: TenantRole, allowed: readonly TenantRole[]):
 
 /**
  * 認証必須。未認証なら `/login` に redirect (戻り先を next= に載せる)。
- * @param nextPath ログイン後に戻すパス (保護ページが自分のパスを渡す)。省略時は `/admin`。
+ * @param nextPath ログイン後に戻すパス (保護ページが自分のパスを渡す)。省略時は `/app` (旧 `/admin`、§4.1 改称)。
  * @returns 認証済み AuthUser (redirect した場合は戻らない)
  */
-export async function requireUser(nextPath = "/admin"): Promise<AuthUser> {
+export async function requireUser(nextPath = "/app"): Promise<AuthUser> {
   const user = await getCurrentUser();
   if (!user) {
     redirect(`/login?next=${encodeURIComponent(nextPath)}`);
@@ -41,7 +41,7 @@ export async function requireUser(nextPath = "/admin"): Promise<AuthUser> {
  */
 export async function requireRole(
   allowed: readonly TenantRole[],
-  nextPath = "/admin",
+  nextPath = "/app",
 ): Promise<AuthUser> {
   const user = await requireUser(nextPath);
   if (!isRoleAllowed(user.role, allowed)) {

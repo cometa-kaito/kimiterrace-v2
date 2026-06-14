@@ -12,6 +12,7 @@ import {
   conflict,
   forbidden,
   invalid,
+  nextDuplicationYears,
   notFound,
   planNextYearDuplication,
   toHubActor,
@@ -22,8 +23,14 @@ import {
   validateGradeInput,
   validateGradeUpdate,
   validateId,
+  validateReorder,
 } from "./hub-core";
-import { countClassesInGrade, countGradesInDepartment, getClassYearRows } from "./hub-queries";
+import {
+  countClassesInGrade,
+  countGradesInDepartment,
+  getClassYearRows,
+  getTargetYearClassKeys,
+} from "./hub-queries";
 
 /**
  * 学校管理者ハブの Server Actions (#48-K / #48-K2、ADR-008 — 画面 mutation は Server Actions)。
@@ -68,7 +75,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * mutation の共通後処理: 自校 tx で `build` を実行 → `/admin/school` を revalidate →
+ * mutation の共通後処理: 自校 tx で `build` を実行 → `/app/school` を revalidate →
  * 統一エラー写像。CrossTenantError → invalid、HubNotFoundError → not_found、
  * ChildExistsError → conflict、unique 違反 → conflict (同名 500 化を防ぐ)、
  * それ以外は再 throw (想定外は握り潰さない)。
@@ -81,7 +88,7 @@ async function finish<T>(
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
     // (ADR-019 §#95 / Issue #197)。ハブは常に特定 school を対象にするテナントスコープ操作。
     const data = await withSession(build, { tenantScoped: true });
-    revalidatePath("/admin/school");
+    revalidatePath("/app/school");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantError) {
@@ -556,14 +563,89 @@ export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ 
 }
 
 /* ================================================================== *
+ *  表示順の一括並べ替え (#48-K3 UX hardening)
+ *
+ *  学科 / 学年の兄弟集合を新しい並び順 (orderedIds) で受け取り displayOrder=0..n-1 を **単一 RLS tx で
+ *  原子的に**反映する。従来はクライアントが兄弟ごとに updateXAction を N 回呼んでいた (N 往復・非原子・
+ *  revalidate も N 回)。これを 1 往復 / 1 tx に畳み、途中失敗時の半端な並びを防ぐ。各 id は自校で可視か
+ *  確認し (RLS は他校 UPDATE を 0 行化するが、明示確認で他校/不存在混入を not_found で全体巻き戻し)、
+ *  displayOrder が既に正しい行は更新・監査しない (無駄 write 抑制)。クラスは並べ替え列が無いため対象外。
+ * ================================================================== */
+
+/** 学科 / 学年の表示順を一括で並べ替える。orderedIds の順に displayOrder=0..n-1 を原子的に反映する。 */
+export async function reorderHierarchyAction(raw: {
+  entity?: unknown;
+  orderedIds?: unknown;
+}): Promise<ActionResult<{ count: number }>> {
+  const v = validateReorder(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  const actor = await authorize();
+  if ("ok" in actor) {
+    return actor;
+  }
+  const table = v.value.entity === "department" ? departments : grades;
+  const tableName = v.value.entity === "department" ? "departments" : "grades";
+  const entityLabel = v.value.entity === "department" ? "学科" : "学年";
+
+  return finish(async (tx) => {
+    let count = 0;
+    for (const [i, id] of v.value.orderedIds.entries()) {
+      // 自校で可視か + 現在の displayOrder を取得 (RLS で他校行は不可視 → not_found で全体巻き戻し)。
+      const [row] = await tx
+        .select({ displayOrder: table.displayOrder })
+        .from(table)
+        .where(eq(table.id, id))
+        .limit(1);
+      if (!row) {
+        throw new HubNotFoundError(`指定された${entityLabel}が見つかりません。`);
+      }
+      if (row.displayOrder === i) {
+        continue; // 既に正しい順 → 無駄な update/監査を避ける。
+      }
+      // update は drizzle のテーブル型のため具体テーブルで分岐する (select は union で可)。
+      if (v.value.entity === "department") {
+        await tx
+          .update(departments)
+          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
+          .where(eq(departments.id, id));
+      } else {
+        await tx
+          .update(grades)
+          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
+          .where(eq(grades.id, id));
+      }
+      await writeAudit(tx, actor, {
+        tableName,
+        recordId: id,
+        operation: "update",
+        diff: {
+          before: { displayOrder: row.displayOrder },
+          after: { displayOrder: i },
+          reason: "reorder",
+        },
+      });
+      count += 1;
+    }
+    return { count };
+  }, "並べ替えに失敗しました。");
+}
+
+/* ================================================================== *
  *  新年度へ複製 (#48-K3 PR3)
  *
  *  現在の最新年度のクラス群を翌年度の空クラスとして複製する (予定/公開内容は複製しない)。
  *  対象算出は純関数 planNextYearDuplication (hub-core)。source は常に最新年度ゆえ実行のたびに 1 年進む
  *  (冪等ではない・target は常に未存在年度)。各 insert を監査 (ルール1)・自校 RLS tx (ルール2)。
- *  ⚠ classes に (school,year,grade,name) の unique 制約は無く、並行実行/別タブ再実行による重複生成を
- *  DB では防げない。単一操作の二重押下は UI のボタン無効化で抑止し、対象年度は確認モーダルで明示する。
- *  (恒久的な並行重複防止が要るなら部分 unique index の migration を別 PR で追加する。)
+ *
+ *  並行実行/別タブ再実行による翌年度クラスの重複生成は二段で防ぐ:
+ *    1. DB: 部分 unique index ux_classes_school_year_grade_name が (school,year,grade,name) を直列化する
+ *       (恒久ガード)。競合 insert は 23505 → finish の conflict 写像で graceful に返る。
+ *    2. app: insert 直前に target 年度の既存クラス (getTargetYearClassKeys) を自校 RLS tx 内で取得し、
+ *       planNextYearDuplication で除外する。先行 tx のコミットを観測できた場合に 23505 を避け graceful に
+ *       skip する防御 (観測できない phantom race は 1 の index が倒す)。
+ *  単一操作の二重押下は UI のボタン無効化でも抑止し、対象年度は確認モーダルで明示する。
  * ================================================================== */
 
 /** 現年度のクラスを翌年度へ複製する。複製できるクラスが無ければ not_found。 */
@@ -576,7 +658,14 @@ export async function duplicateClassesToNextYearAction(): Promise<
   }
 
   return finish(async (tx) => {
-    const plan = planNextYearDuplication(await getClassYearRows(tx));
+    const rows = await getClassYearRows(tx);
+    const years = nextDuplicationYears(rows);
+    if (!years) {
+      throw new HubNotFoundError("複製できるクラスがありません。");
+    }
+    // target 年度の既存クラスを insert 直前に取得し除外する (並行コミットを観測できた場合の graceful skip)。
+    const existingTarget = await getTargetYearClassKeys(tx, years.targetYear);
+    const plan = planNextYearDuplication(rows, existingTarget);
     if (!plan) {
       throw new HubNotFoundError("複製できるクラスがありません。");
     }

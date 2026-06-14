@@ -14,7 +14,7 @@ describe("not-found.tsx (404 面)", () => {
     render(<NotFound />);
     expect(screen.getByText("404")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ページが見つかりません" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "ホームに戻る" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "ホームに戻る" })).toHaveAttribute("href", "/app");
   });
 });
 
@@ -29,7 +29,7 @@ describe("error.tsx (エラーバウンダリ)", () => {
     );
     expect(screen.getByRole("heading", { name: "問題が発生しました" })).toBeInTheDocument();
     expect(screen.getByText("エラー ID: abc123")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "ホームに戻る" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "ホームに戻る" })).toHaveAttribute("href", "/app");
 
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     expect(reset).toHaveBeenCalledTimes(1);

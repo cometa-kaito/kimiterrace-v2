@@ -103,6 +103,11 @@ export type AssistantChatMetaFrame = {
   pattern: string;
   /** このクラスで会話型 AI が下書きできるセクション（パターン準拠）。 */
   allowedSections: DraftSectionKind[];
+  /**
+   * 同パターンで盤面に出るが **AI が作らない**（＝教員手入力の）セクションのラベル（例 "来校者一覧"・
+   * "生徒呼び出し"・ADR-034）。UI はこれらに手入力フォームへの導線を出す。pattern1 では空。
+   */
+  manualSections?: string[];
 };
 
 /** `message` フレーム: AI 会話応答（prose）の差分（逐次）。 */

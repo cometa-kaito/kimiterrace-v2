@@ -83,17 +83,17 @@ async function authorize(): Promise<AdsActor | ActionResult<never>> {
   return actor;
 }
 
-/** target に対応する広告管理ページのパス (revalidate 用)。class は従来の /admin/editor/{id}/ads。 */
+/** target に対応する広告管理ページのパス (revalidate 用)。class は従来の /app/editor/{id}/ads。 */
 function adsPath(target: EditorTarget): string {
   switch (target.scope) {
     case "school":
-      return "/admin/editor/scope/school/ads";
+      return "/app/editor/scope/school/ads";
     case "department":
-      return `/admin/editor/scope/department/${target.departmentId}/ads`;
+      return `/app/editor/scope/department/${target.departmentId}/ads`;
     case "grade":
-      return `/admin/editor/scope/grade/${target.gradeId}/ads`;
+      return `/app/editor/scope/grade/${target.gradeId}/ads`;
     case "class":
-      return `/admin/editor/${target.classId}/ads`;
+      return `/app/editor/${target.classId}/ads`;
   }
 }
 
@@ -111,7 +111,7 @@ async function finish<T>(
     revalidatePath(adsPath(target));
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。親階層 (学校/学科/学年) 広告は配下全クラスに
     // 継承表示されるため、動的 signage-preview ページ全体を revalidate する。
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantError) {

@@ -17,7 +17,7 @@ export default function ForbiddenPage() {
       <p style={textStyle}>
         このページを表示する権限がありません。権限が必要な場合は学校管理者にお問い合わせください。
       </p>
-      <Link href="/admin" style={linkStyle}>
+      <Link href="/app" style={linkStyle}>
         ホームに戻る
       </Link>
     </main>

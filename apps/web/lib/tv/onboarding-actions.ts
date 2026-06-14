@@ -128,7 +128,7 @@ export async function createTvDeviceAction(
       { allowedRoles: ONBOARDING_ROLES },
     );
 
-    revalidatePath("/admin/tv-devices");
+    revalidatePath("/app/tv-devices");
     return { ok: true, data: created };
   } catch (error) {
     const code = pgCode(error);

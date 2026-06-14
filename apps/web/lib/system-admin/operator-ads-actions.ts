@@ -154,8 +154,8 @@ export async function createOperatorAdAction(raw: {
       });
       return { id: newId };
     });
-    revalidatePath(`/admin/system/advertisers/${advertiserId}/ads`);
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath(`/ops/advertisers/${advertiserId}/ads`);
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof NotFoundError) {
@@ -199,8 +199,8 @@ export async function deleteOperatorAdAction(
       });
       return { id: adId, advertiserId: target.advertiserId };
     });
-    revalidatePath(`/admin/system/advertisers/${result.advertiserId}/ads`);
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath(`/ops/advertisers/${result.advertiserId}/ads`);
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data: { id: result.id } };
   } catch (error) {
     if (error instanceof NotFoundError) {

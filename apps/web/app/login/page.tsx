@@ -38,7 +38,7 @@ export default async function LoginPage(): Promise<React.ReactElement> {
 
   return (
     <Suspense fallback={null}>
-      <LoginForm next="/admin" teacherSchools={teacherSchools} />
+      <LoginForm next="/app" teacherSchools={teacherSchools} />
     </Suspense>
   );
 }

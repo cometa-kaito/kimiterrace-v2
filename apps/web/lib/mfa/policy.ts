@@ -85,7 +85,7 @@ export function shouldRedirectToMfaEnrollment(
 }
 
 /** MFA enrollment ページのパス (誘導先 / nav リンクの単一ソース)。 */
-export const MFA_ENROLLMENT_PATH = "/admin/account/mfa";
+export const MFA_ENROLLMENT_PATH = "/app/account/mfa";
 
 /**
  * 現在パスを middleware → 下流 Server Component (layout) に渡すためのリクエストヘッダ名。

@@ -6,7 +6,7 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
  * UIUX-03 PR1: 学校一覧のページング/検索/ソート対応 SELECT 層。

@@ -159,10 +159,13 @@ if [ "$CUR" = "$SHA" ]; then
 else
   TMP="$(mktemp)"
   # 行頭（空白のみ可）の web_image_tag 代入だけを置換。コメント中の言及(# ...)は行頭が # なので無傷。
-  sed -E "s|^([[:space:]]*web_image_tag[[:space:]]*=[[:space:]]*\")[^\"]*\"|\1${SHA}\"|" "${MAINTF}" > "${TMP}" && mv "${TMP}" "${MAINTF}"
+  # sha だけでなく **行末コメントも毎回 stub に刷新**する（旧コメントは前回デプロイの説明＝そのまま残すと
+  # 実態と矛盾する papercut の温床。2026-06-14 prod #878 で実害）。日付は自動採取せず（誤りの温床）、
+  # 正確なデプロイ内容は ⑤ の PR/commit で書く運用。stub は env+sha の最小限に留める。
+  sed -E "s|^([[:space:]]*web_image_tag[[:space:]]*=[[:space:]]*\")[^\"]*(\").*|\1${SHA}\2 # ${ENV} deploy ${SHA}（内容は PR/commit に記述）|" "${MAINTF}" > "${TMP}" && mv "${TMP}" "${MAINTF}"
   NEW="$(grep -E '^[[:space:]]*web_image_tag[[:space:]]*=' "${MAINTF}" | head -1 | sed -E 's/.*"([^"]*)".*/\1/')"
   [ "$NEW" = "$SHA" ] || err "tag bump 失敗（${MAINTF} の web_image_tag が ${SHA} になっていない）"
-  note "  ${CUR} -> ${NEW}"
+  note "  ${CUR} -> ${NEW}（行末コメントは stub に刷新。⑤ PR/commit でこの回の内容を正書きすること）"
 fi
 
 # --- ③ plan / apply ------------------------------------------------------------
@@ -174,8 +177,10 @@ if [ "$DO_APPLY" = "1" ]; then
 
 ✅ deploy 完了（env=${ENV} sha=${SHA}）。
    残作業: web_image_tag の bump を PR でコミットしてください（infra 変更は記録を残す）:
+     - main.tf の web_image_tag 行末コメントは stub（"${ENV} deploy ${SHA}…"）。
+       この回のデプロイ内容（#NNN / schema・secret 変更有無 / 疎通結果）に書き換えてから commit する。
      git add ${MAINTF}
-     git commit -m "feat(infra): ${ENV} web を ${SHA} へ bump"
+     git commit -m "feat(infra): ${ENV} web を ${SHA} へ bump（#NNN 反映）"
 EOF
 else
   note "③ terraform plan -target=module.cloud_run (${ENV}) — apply はしません"

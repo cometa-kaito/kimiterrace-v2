@@ -18,10 +18,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: events 生ログビューア (`/admin/system/events`) のページング/検索/集計 SELECT 層。
+ * UIUX-03: events 生ログビューア (`/ops/events`) のページング/検索/集計 SELECT 層。
  *
  * ## 置き場所 (並行レーン回避)
  * `packages/db` (chokepoint) を編集せず `apps/web/lib` に置く (`school-list.ts` と同じ規律)。

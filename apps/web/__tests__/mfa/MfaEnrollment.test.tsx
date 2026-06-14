@@ -41,7 +41,7 @@ vi.mock("firebase/auth", () => ({
 vi.mock("../../lib/auth/clientApp", () => ({ getClientAuth: vi.fn() }));
 
 import { TotpMultiFactorGenerator, multiFactor } from "firebase/auth";
-import { MfaEnrollment } from "../../app/admin/account/mfa/_components/MfaEnrollment";
+import { MfaEnrollment } from "../../app/app/account/mfa/_components/MfaEnrollment";
 import { getClientAuth } from "../../lib/auth/clientApp";
 import { recordMfaEnrollmentAudit } from "@/lib/mfa/enrollment-actions";
 
@@ -185,11 +185,11 @@ describe("MfaEnrollment 監査失敗 UX (#544 Reviewer Low-2)", () => {
  * currentUser を client SDK から復元できない状態 (cookie session のみで遷移 / 再読込で in-memory ユーザー
  * 喪失) の UX 回帰。requireRole は cookie session で通るためページは表示されるが、MFA 登録は IdP client SDK
  * の現在ユーザー (+ 再認証) を要する。この時ユーザーが詰まらないこと:
- * - 再ログイン導線 (`/login?next=/admin/account/mfa`) が必ず存在する (リンク/ボタンが無いと詰む)。
+ * - 再ログイン導線 (`/login?next=/app/account/mfa`) が必ず存在する (リンク/ボタンが無いと詰む)。
  * - 文言が問題報告 + 行動依頼 (案内であって「成功」ではない)。
  */
 describe("MfaEnrollment currentUser 未復元時の再ログイン導線 (詰み防止)", () => {
-  it("currentUser が無い時は再ログイン導線 (/login?next=/admin/account/mfa) を表示する", () => {
+  it("currentUser が無い時は再ログイン導線 (/login?next=/app/account/mfa) を表示する", () => {
     // currentUser=null。enroll/unenroll の mock は不要 (登録 UI まで到達しない)。
     getClientAuthMock.mockReturnValue({
       currentUser: null,
@@ -198,7 +198,7 @@ describe("MfaEnrollment currentUser 未復元時の再ログイン導線 (詰み
 
     // 行き先付き再ログインリンクが存在する (詰み防止の不変条件)。
     const loginLink = screen.getByRole("link", { name: /ログインし直す/ });
-    expect(loginLink).toHaveAttribute("href", "/login?next=/admin/account/mfa");
+    expect(loginLink).toHaveAttribute("href", "/login?next=/app/account/mfa");
 
     // 「登録」操作 UI はこの状態では出さない (登録には currentUser が必要)。
     expect(screen.queryByRole("button", { name: "二要素認証を登録" })).not.toBeInTheDocument();

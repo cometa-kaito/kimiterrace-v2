@@ -23,7 +23,10 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
-import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
+import {
+  DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  type SignageDesignPattern,
+} from "@/lib/signage/design-pattern";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -209,19 +212,30 @@ type SignageBoardProps = {
 };
 
 /**
- * 学校 / 端末が選んだデザインパターンに応じた盤面コンポーネントを返す（**デザインの拡張点**）。
- * `pattern1` = 旧キミテラス v1 レイアウト（既定）/ `pattern2` = 予定・来校者・呼び出し・センサ・天気・鉄道の
- * 掲示盤面。未知 / 将来パターンは既定 `pattern1` にフォールバックして必ず描画する（fail-soft）。将来パターン
- * 追加時は case と専用 Board を足すだけで拡張できる。再生制御（ポーリング/ローテーション/テレメトリ/時計）は
- * `SignageClient` が持ち、各 Board は表示専用で共通 props を受け取る。広告（右）と上部ヘッダーは両パターン共通。
+ * デザインパターン → 盤面コンポーネントの対応（**単一ソース**・デザインの拡張点）。`pattern1` = 旧キミテラス
+ * v1 レイアウト（既定）/ `pattern2` = 予定・来校者・呼び出し・センサ・天気・鉄道の掲示盤面。**新パターン追加＝
+ * ここに 1 行**足すだけで dispatch が追従する（`PATTERN_BLOCKS`（どのブロックを出すか）と同じ作法で、盤面の
+ * 選択も `switch`/`if` のハードコード分岐を作らない・finding①）。出すブロックの集合は `PATTERN_BLOCKS` 側が
+ * 単一ソースで持ち、本マップは「どのレイアウトで描くか」を持つ（両者は SignageClient.test の region ドリフト
+ * ガードで一致を機械担保）。
+ */
+const PATTERN_BOARDS: Record<
+  SignageDesignPattern,
+  (props: SignageBoardProps) => React.JSX.Element
+> = {
+  pattern1: Pattern1Board,
+  pattern2: Pattern2Board,
+};
+
+/**
+ * 学校 / 端末が選んだデザインパターンに応じた盤面を描画する。未知 / 将来パターン（型外の値が来た場合の保険）は
+ * 既定 `pattern1` にフォールバックして必ず描画する（fail-soft、盤面を壊さない）。再生制御（ポーリング/
+ * ローテーション/テレメトリ/時計）は `SignageClient` が持ち、各 Board は表示専用で共通 props を受け取る。
+ * 広告（右）と上部ヘッダーは両パターン共通。
  */
 function renderDesignBoard(pattern: SignageDesignPattern, props: SignageBoardProps) {
-  switch (pattern) {
-    case "pattern2":
-      return <Pattern2Board {...props} />;
-    default:
-      return <Pattern1Board {...props} />;
-  }
+  const Board = PATTERN_BOARDS[pattern] ?? PATTERN_BOARDS[DEFAULT_SIGNAGE_DESIGN_PATTERN];
+  return <Board {...props} />;
 }
 
 /** 全盤面共通のヘッダー帯（暗色）: 盤面日付 + 曜日 + 実時計 + クラス識別（#243）+ ブランディング。 */

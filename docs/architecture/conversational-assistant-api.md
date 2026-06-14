@@ -39,7 +39,7 @@ type AssistantDraft = { schedules: ScheduleItem[]; notices: NoticeItem[]; assign
 
 | event | data | 意味 |
 |---|---|---|
-| `meta` | `{ pattern, allowedSections }` | ターン開始時 1 回。実効パターンと許可セクション（UI が文脈把握）。 |
+| `meta` | `{ pattern, allowedSections, manualSections? }` | ターン開始時 1 回。実効パターン・AI が下書きできる許可セクション・**AI が作らない手入力セクション**（`manualSections`＝来校者/呼び出し等、ADR-034。UI はこれらに手入力フォーム導線を出す。pattern1 では空）。 |
 | `message` | `{ delta }` | AI 会話応答（prose）の差分。逐次 append でスレッド表示。 |
 | `draft` | `AssistantDraft` | 構造化下書きの**現在スナップショット**（許可セクションのみ）。最新で置換描画。 |
 | `error` | `{ status, reason, suspectedSurfaces?, message? }` | 拒否（下記）。入力・完成カードは保持。 |
@@ -63,11 +63,18 @@ meta → (message delta)* → (draft snapshot)* → done
 - **反映（保存）は本エンドポイントではなく既存の per-section save action**（`setScheduleAction` /
   `setNoticesAction` / `setAssignmentsAction`、ADR-036 決定3）で行う。本エンドポイントは下書きのみ（保存しない）。
 - 盤面プレビュー内蔵（finding 2b (c)）は `draft`（許可セクションのみ）をパターン単一ソースの描画に渡す
-  （その他レーンの `PATTERN_BLOCKS` 確定後に同源描画）。
+  （その他レーンの `PATTERN_BLOCKS` を同源描画）。
+- **手入力セクション**（`meta.manualSections`・来校者/呼び出し）は会話 AI が作らない。UI はこれらに手入力フォームへの
+  導線を出す（AI は reply で「手入力で追加してください」と案内する）。
 
-## 未確定（着地待ち）
+## パターン準拠の解決（実装済・PR④）
 
-- **許可セクションの解決**: pattern→ブロックの単一ソース（その他レーン `PATTERN_BLOCKS`）を consume して
-  `allowedSections` を決める。未着地の間はサーバ既定（pattern1=`[schedules,notices,assignments]` /
-  pattern2=`[schedules]`）の暫定マップで駆動し、確定後に差し替える（lane 調整ポイント1）。
-- **来校者/呼び出しの AI 生成可否**: ADR-034 改訂が前提（PR④・要ユーザー最終確認）。改訂されるまで本契約の下書き型は 3 セクション固定。
+`allowedSections` / `manualSections` は **サーバが実効パターンから解決**する（クライアントを信用しない）。route が
+学校レベルパターン（`getSignageDesignPattern`）を自校 RLS tx で読み、其他レーンの**単一ソース `PATTERN_BLOCKS`**
+（`editableBlocksForPattern`）を consume する（`assistant-sections.ts`）:
+- pattern1 → `allowedSections=[schedules,notices,assignments]` / `manualSections=[]`
+- pattern2 → `allowedSections=[schedules]` / `manualSections=["生徒呼び出し","来校者一覧"]`
+
+**来校者/呼び出しは ADR-034（決定3/5: 氏名を Vertex に送らない・AI 自動生成しない・2026-06-14 維持決定）により会話 AI で
+生成しない**＝下書き型は 3 セクション固定のまま、pattern2 ではこれらを手入力へ誘導する。AI レーンで独自の pattern→
+セクション表は持たない（`PATTERN_BLOCKS` 単一ソースを consume・ドリフト回避）。

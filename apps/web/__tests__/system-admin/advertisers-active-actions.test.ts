@@ -109,7 +109,7 @@ describe("setAdvertiserActiveAction", () => {
     const after = (auditValues?.diff as { after?: { isActive?: boolean; status?: string } })?.after;
     expect(after?.isActive).toBe(false);
     expect(after?.status).toBe("paused");
-    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/advertisers");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/ops/advertisers");
   });
 
   it("再開: is_active=true + status=active を同時 set する (不変条件)", async () => {

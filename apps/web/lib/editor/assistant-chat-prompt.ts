@@ -24,12 +24,14 @@ const SECTION_LABEL: Record<DraftSectionKind, string> = {
 
 /**
  * system プロンプト（会話アシスタントの役割・出力構造・**パターン準拠**・捏造禁止・PII 非出力）。
- * `allowed` はこのクラスの実効パターンが盤面に出すセクション（finding①）。許可外は作らせない。
- * 基準日は相対日付（「明日」「金曜」）を実在日付へ解決させるため明示する。
+ * `allowed` はこのクラスの実効パターンが盤面に出す（＝AI が下書きできる）セクション（finding①）。許可外は作らせない。
+ * `manualSectionLabels` は同パターンの編集ブロックのうち **AI が作らない**（来校者/呼び出し等・氏名を含む）もので、
+ * 非空なら「手入力フォームで追加して」と誘導させる（pattern2 で非空・ADR-034）。基準日は相対日付解決のため明示。
  */
 export function buildAssistantChatSystem(
   allowed: readonly DraftSectionKind[],
   referenceDateLabel: string,
+  manualSectionLabels: readonly string[] = [],
 ): string {
   const allowedLabels = allowed.map((s) => SECTION_LABEL[s]).join(" / ") || "（なし）";
   const lines = [
@@ -48,6 +50,15 @@ export function buildAssistantChatSystem(
     "マスクトークン（例 {{PHONE_001}}）が入力にあれば、その表記のまま保持する（展開・改変しない）。",
     "最後に必ず先生に『この内容で反映していいですか？』の確認を促す（自動保存はしない）。",
   ];
+  // pattern2 等で来校者/呼び出しが盤面に出る場合: これらは氏名を含み AI では作らない（ADR-034）。
+  // 手入力フォームへ誘導させる（AI が氏名を生成・Vertex 送信しないための明示ガード）。
+  if (manualSectionLabels.length > 0) {
+    const manual = manualSectionLabels.join("・");
+    lines.push(
+      `このクラスでは「${manual}」も盤面に出るが、これらは氏名を含むため **あなた（AI）は作らない**。` +
+        `先生が頼んできても、${manual}は『画面下の手入力フォームから追加してください』と reply で案内し、schedules/notices/assignments には入れない。`,
+    );
+  }
   return lines.join("\n");
 }
 

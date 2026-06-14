@@ -15,7 +15,7 @@ export default function NotFound() {
         お探しのページは存在しないか、移動または削除された可能性があります。URL
         をご確認のうえ、ホームからやり直してください。
       </p>
-      <Link href="/admin" style={linkStyle}>
+      <Link href="/app" style={linkStyle}>
         ホームに戻る
       </Link>
     </main>
