@@ -18,10 +18,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: コンテンツ公開履歴ブラウザ (`/admin/system/publishes`) の SELECT 層。
+ * UIUX-03: コンテンツ公開履歴ブラウザ (`/ops/publishes`) の SELECT 層。
  * `audit-log-list.ts` / `ai-chat-list.ts` と同構造 (共通 DataList 基盤)。
  *
  * ## 置き場所 (並行レーン回避)

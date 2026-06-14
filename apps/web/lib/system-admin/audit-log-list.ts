@@ -18,10 +18,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: 監査ログビューア (`/admin/system/audit`) のページング/検索/ソート対応 SELECT 層。
+ * UIUX-03: 監査ログビューア (`/ops/audit`) のページング/検索/ソート対応 SELECT 層。
  * `school-list.ts` / `user-list.ts` と同構造 (共通 DataList 基盤)。
  *
  * ## 置き場所 (並行レーン回避)

@@ -137,8 +137,8 @@ export async function updateSchoolAction(raw: {
       });
       return { id: v.value.id };
     });
-    revalidatePath("/admin/system/schools");
-    revalidatePath(`/admin/system/schools/${v.value.id}/edit`);
+    revalidatePath("/ops/schools");
+    revalidatePath(`/ops/schools/${v.value.id}/edit`);
     return { ok: true, data };
   } catch (error) {
     if (error instanceof SchoolNotFoundError) {
@@ -187,7 +187,7 @@ export async function createSchoolAction(raw: {
       await writeSchoolAudit(tx, user, row.id, "insert", { after: v.value });
       return { id: row.id };
     });
-    revalidatePath("/admin/system/schools");
+    revalidatePath("/ops/schools");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof SchoolNotFoundError) {
@@ -246,9 +246,9 @@ export async function deleteSchoolAction(raw: {
     });
     // 一覧に加え、削除済みの詳細/編集ページのキャッシュも purge する。次アクセスは getSchoolDetail /
     // getSchool が 0 行 → notFound() に倒れ、消えた学校の stale ページを返さない (#246 Low-3)。
-    revalidatePath("/admin/system/schools");
-    revalidatePath(`/admin/system/schools/${id}`);
-    revalidatePath(`/admin/system/schools/${id}/edit`);
+    revalidatePath("/ops/schools");
+    revalidatePath(`/ops/schools/${id}`);
+    revalidatePath(`/ops/schools/${id}/edit`);
     return { ok: true, data };
   } catch (error) {
     if (error instanceof SchoolNotFoundError) {
@@ -350,8 +350,8 @@ export async function setSchoolTeacherPasswordAction(raw: {
     });
   });
 
-  revalidatePath(`/admin/system/schools/${schoolId}/edit`);
-  revalidatePath(`/admin/system/schools/${schoolId}`);
+  revalidatePath(`/ops/schools/${schoolId}/edit`);
+  revalidatePath(`/ops/schools/${schoolId}`);
   // 公開ログイン画面（/login）の教員モード出し分けは「有効化済み学校が 1 校以上あるか」で決まる。
   // /login は force-dynamic だが、有効化直後に確実へ反映させるため明示的に revalidate する（安全側）。
   revalidatePath("/login");
@@ -386,8 +386,8 @@ export async function clearSchoolTeacherPasswordAction(raw: {
     });
   });
 
-  revalidatePath(`/admin/system/schools/${schoolId}/edit`);
-  revalidatePath(`/admin/system/schools/${schoolId}`);
+  revalidatePath(`/ops/schools/${schoolId}/edit`);
+  revalidatePath(`/ops/schools/${schoolId}`);
   // 無効化で教員モードの出し分けが変わりうるため /login も反映させる（set と対称、安全側）。
   revalidatePath("/login");
   return { ok: true, data: { enabled: false } };

@@ -161,7 +161,7 @@ describe("createSystemStaffAction (#508 system_admin 全校横断発行)", () =>
       tableName: "users",
       operation: "insert",
     });
-    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/users");
+    expect(revalidatePathMock).toHaveBeenCalledWith("/ops/users");
     expect(deleteIdpUserMock).not.toHaveBeenCalled();
   });
 

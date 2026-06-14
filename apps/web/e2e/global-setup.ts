@@ -103,9 +103,9 @@ export const SEED = {
    * storageState を書く (教員と同じ発行経路、test 用バックドアは作らない)。
    *
    * - **school_admin (SCHOOL1)**: SCHOOL1 の学校管理者。`/admin/school` (school_admin 自校面) 許可と
-   *   `/admin/system/*` (system_admin 専用) の 403 境界を検証する。`users` 行を SCHOOL1 配下に seed する。
+   *   `/ops/*` (system_admin 専用) の 403 境界を検証する。`users` 行を SCHOOL1 配下に seed する。
    * - **system_admin**: 横断ロール。**`school_id` claim を持たない** (normalizeClaims が system_admin の
-   *   school_id null を許容)。`/admin/system/*` 許可 + `/admin/editor`・`/admin/contents`・自校面は 403 を
+   *   school_id null を許容)。`/ops/*` 許可 + `/admin/editor`・`/admin/contents`・自校面は 403 を
    *   検証する。`users` には属さず `system_admins` allowlist に seed する (ADR-019 の system_admin 真実源)。
    *
    * email / password / UID はすべてテスト専用の明白値 (実 credential ではない、CLAUDE.md ルール5)。
@@ -467,7 +467,7 @@ async function seed(sql: RawSql): Promise<void> {
   );
 
   // 認可マトリクス e2e (#243) の SCHOOL1 学校管理者。SCHOOL1 配下に置き、school_admin 自校面 (/admin/school)
-  // 許可 + system_admin 専用面 (/admin/system/*) 403 を検証する。id = identity_uid = UID。
+  // 許可 + system_admin 専用面 (/ops/*) 403 を検証する。id = identity_uid = UID。
   await sql.unsafe(
     `INSERT INTO users (id, school_id, identity_uid, role, display_name, email, is_active)
      VALUES ('${SEED.SCHOOL_ADMIN_UID}', '${schoolId}', '${SEED.SCHOOL_ADMIN_UID}',
