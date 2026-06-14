@@ -16,7 +16,17 @@ import type { ActionResult } from "@/lib/school-admin/hub-core";
 import type { SchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useId, useState, useTransition } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import styles from "./hierarchy-manager.module.css";
 
 /**
  * 学校管理者ハブの階層 CRUD UI (#48-K / #48-K2 / #48-K3 UI再設計)。**Client Component**・**ツリー表示**。
@@ -149,17 +159,78 @@ export function HierarchyManager({
 
 type MenuItem = { label: string; danger?: boolean; onSelect: () => void };
 
+/**
+ * 行末の操作メニュー（WAI-ARIA menu button パターン）。Tab だけでなく**矢印キーで項目移動**できる:
+ * 開くと先頭項目へフォーカス → ↑↓ で巡回（端で巻き戻し）/ Home・End で先頭末尾 / Esc で閉じてトリガへ
+ * フォーカスを戻す / Tab はメニューを閉じて自然なフォーカス移動に委ねる。トリガは ↓ / Enter / Space で開く。
+ */
 function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // 開いたら先頭項目へフォーカスを移す（マウスでもキーボードでも一貫させる）。
+  useEffect(() => {
+    if (open) {
+      itemRefs.current[0]?.focus();
+    }
+  }, [open]);
+
+  const close = (returnFocus: boolean) => {
+    setOpen(false);
+    if (returnFocus) {
+      triggerRef.current?.focus();
+    }
+  };
+
+  // menuitem 上でのキー操作。フォーカス中の項目を基点に巡回する。
+  function onItemKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    const count = items.length;
+    if (count === 0) {
+      return;
+    }
+    // currentTarget = キーを受けた menuitem 自身（フォーカス中の項目）。これを基点に巡回する。
+    const current = itemRefs.current.indexOf(e.currentTarget);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      itemRefs.current[(current + 1 + count) % count]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      itemRefs.current[(current - 1 + count) % count]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      itemRefs.current[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      itemRefs.current[count - 1]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      close(true);
+    } else if (e.key === "Tab") {
+      // 自然なフォーカス移動に任せる（トリガには戻さない）。
+      close(false);
+    }
+  }
+
+  // トリガ上で ↓ / Enter / Space は開いて先頭項目へ（クリックと同じ入口をキーボードにも用意）。
+  function onTriggerKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setOpen(true);
+    }
+  }
+
   return (
     <span style={{ position: "relative", display: "inline-flex" }}>
       <button
+        ref={triggerRef}
         type="button"
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
         style={iconBtnStyle}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={onTriggerKeyDown}
       >
         <span aria-hidden style={{ fontSize: "1.05rem", lineHeight: 1 }}>
           ⋯
@@ -172,19 +243,23 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
             aria-hidden
             tabIndex={-1}
             style={overlayStyle}
-            onClick={() => setOpen(false)}
+            onClick={() => close(false)}
           />
-          <span role="menu" style={menuStyle}>
-            {items.map((it) => (
+          <span role="menu" aria-label={label} style={menuStyle}>
+            {items.map((it, i) => (
               <button
                 type="button"
                 role="menuitem"
                 key={it.label}
+                ref={(el) => {
+                  itemRefs.current[i] = el;
+                }}
                 style={{ ...menuItemStyle, color: it.danger ? C.danger : C.inkSecondary }}
                 onClick={() => {
-                  setOpen(false);
+                  close(true);
                   it.onSelect();
                 }}
+                onKeyDown={onItemKeyDown}
               >
                 {it.label}
               </button>
@@ -317,12 +392,13 @@ function NodeHeader({
 
   return (
     <div>
-      <div style={nodeHeaderRowStyle}>
+      <div style={nodeHeaderRowStyle} className={styles.row}>
         {leading}
         <span style={badgeStyle}>{badge}</span>
         <span style={nodeNameStyle}>{name}</span>
         {trailing}
         <span
+          className={styles.actions}
           style={{
             marginLeft: "auto",
             display: "inline-flex",
@@ -519,12 +595,14 @@ function GradeNode({
       />
 
       {!grade.hasClasses ? (
-        <div style={unitRowStyle}>
+        <div style={unitRowStyle} className={styles.row}>
           <p style={unitNoteStyle}>クラス分けなし・学年そのものが掲示単位です（{grade.name}）。</p>
           {unitClass ? (
             <span style={unitMetaStyle}>
               <StatusDot active={statusByClass[unitClass.id] ?? false} />
-              <EditorLink classId={unitClass.id} />
+              <span className={styles.actions}>
+                <EditorLink classId={unitClass.id} />
+              </span>
             </span>
           ) : null}
         </div>
@@ -607,11 +685,12 @@ function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report:
 
   return (
     <div>
-      <div style={classRowStyle}>
+      <div style={classRowStyle} className={styles.row}>
         <span style={classBadgeStyle}>クラス</span>
         <span style={classNameStyle}>{cls.name}</span>
         <StatusDot active={active} />
         <span
+          className={styles.actions}
           style={{
             marginLeft: "auto",
             display: "inline-flex",
