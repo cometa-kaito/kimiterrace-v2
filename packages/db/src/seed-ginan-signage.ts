@@ -19,10 +19,13 @@
  * `generateToken` = 32 byte 乱数 → base64url（約 43 文字）。`hashToken` = SHA-256 hex（64 文字）を DB に保存。
  * plaintext は signage_url にのみ載り、DB の magic_links には hash しか残さない（ルール5）。
  *
- * ## TTL（重要・サイネージは長寿命）
- * 生徒個別リンクの既定は 90 日だが、サイネージ（kiosk）は常時表示ゆえ短い失効は**画面が突然消える事故**になる。
- * よって既定 TTL を 3650 日（10 年）とし、env `SEED_GINAN_SIGNAGE_TTL_DAYS` で上書き可能にする。
- * トークンはクラス掲示物の匿名 read のみを許可し PII を含まない（F05）ため長寿命でも露出は最小。
+ * ## TTL（既定 1 年＝学年度カバー・2026-06-13 是正）
+ * サイネージ（kiosk）は常時表示ゆえ短すぎる失効は**画面が突然消える事故**になる一方、匿名トークンの長寿命は
+ * 漏洩窓を広げる。旧既定は 10 年（3650 日）だったが、**pattern2 盤面は「生徒呼び出し」で生徒実名を表示する
+ * （ADR-034）**ため「トークンは PII を含まない」前提は最早成立せず、10 年の匿名リンクは生徒実名まで露出しうる
+ * （指摘ログ finding④）。よって**既定 TTL を 365 日（1 年＝学年度をカバー）**に短縮し、年度途中の churn を避けつつ
+ * 漏洩窓を学年度幅に抑える。env `SEED_GINAN_SIGNAGE_TTL_DAYS` で上書き可能（年度末日付運用に切替える余地）。
+ * その場限り表示＋即時失効（revoke）は従来どおり維持する。
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -37,8 +40,11 @@ export const GINAN_SIGNAGE_GRADES: readonly [1, 2, 3] = [1, 2, 3];
 /** サイネージ表示 URL の既定 base（県教委 Wi-Fi 許可 FQDN）。 */
 export const DEFAULT_SIGNAGE_BASE_URL = "https://app.school-signage.net";
 
-/** magic link の既定 TTL（日）。サイネージは長寿命ゆえ 10 年（生徒個別リンクの 90 日とは別運用）。 */
-export const DEFAULT_SIGNAGE_TTL_DAYS = 3650;
+/**
+ * サイネージ magic link の既定 TTL（日）= **1 年（学年度をカバー）**。旧 10 年（3650 日）は pattern2 の生徒実名
+ * 露出に対し漏洩窓が過大なため 2026-06-13 に是正（上の TTL 節参照・指摘ログ finding④）。
+ */
+export const DEFAULT_SIGNAGE_TTL_DAYS = 365;
 
 /**
  * サイネージ表示 magic link トークンを生成する（apps/web の generateToken と同方式）。
@@ -95,7 +101,7 @@ export function resolveSignageBaseUrl(raw: string | undefined): string {
 }
 
 /**
- * env から TTL（日）を解決する（未指定なら既定 3650 日）。正の整数でなければ fail-fast。
+ * env から TTL（日）を解決する（未指定なら既定 365 日＝1 年）。正の整数でなければ fail-fast。
  */
 export function resolveSignageTtlDays(raw: string | undefined): number {
   const v = (raw ?? "").trim();

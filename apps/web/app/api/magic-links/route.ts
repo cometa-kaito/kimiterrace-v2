@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth/session";
 import { getDb } from "../../../lib/db";
 import {
+  EXPIRES_DEFAULT_DAYS,
   computeExpiresAt,
   isIssuerRole,
   isUuid,
@@ -66,10 +67,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   // 平文トークンは発行レスポンスのみ。DB には hash を保存する。
   const token = generateToken();
   const tokenHash = hashToken(token);
-  const expiresAt =
-    parsed.value.expiresInDays !== undefined
-      ? computeExpiresAt(parsed.value.expiresInDays, new Date())
-      : undefined;
+  // 有効期限はサーバ時刻起点で**常に明示算出**する（client 時刻を信用しない）。`expiresInDays` 省略時は
+  // 既定 1 年（`EXPIRES_DEFAULT_DAYS`、学年度カバー・finding④）を適用し、DB 列デフォルト（90 日）には
+  // 倒さない（既定を 1 箇所＝アプリ層に集約）。
+  const expiresAt = computeExpiresAt(
+    parsed.value.expiresInDays ?? EXPIRES_DEFAULT_DAYS,
+    new Date(),
+  );
 
   try {
     const issued = await withTenantContext(
