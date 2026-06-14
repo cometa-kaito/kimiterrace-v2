@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F10 (#46): updateAdvertiserAction の配線テスト。next/cache・guard・db を mock。fakeTx は
- * 更新前 SELECT (before / not_found 検出) → update().set().where().returning() → audit insert を提供する。
- * 不正 id・検証失敗・認可・更新値・監査 (operation=update / diff before+after / school_id・actor NULL)・
+ * F10 (#46) / 実装設計書 §4「最小縮退」: updateAdvertiserAction の配線テスト。next/cache・guard・db を mock。
+ * 縮退後は **表示名 (会社名) + 配信ステータス (active/paused)** の 2 項目のみを更新し、業種・連絡先・住所・備考は
+ * 触らない (set に含めない = 既存の商流フィールドを潰さない)。fakeTx は更新前 SELECT (before / not_found 検出)
+ * → update().set().where().returning() → audit insert を提供する。不正 id・検証失敗・認可・更新値・監査・
  * not_found を確認する。
  */
 
@@ -26,21 +27,11 @@ const sysAdmin = { uid: SYS_UID, role: "system_admin" as const, schoolId: null }
 
 const BEFORE_ROW = {
   companyName: "旧社名",
-  industry: "旧業種",
-  contactEmail: "old@example.com",
-  contactPhone: "000",
-  address: "旧住所",
-  notes: "旧備考",
   status: "prospect" as const,
 };
 
 const VALID_INPUT = {
   companyName: "新社名",
-  industry: "新業種",
-  contactEmail: "new@example.com",
-  contactPhone: "111",
-  address: "新住所",
-  notes: "新備考",
   status: "active" as const,
 };
 
@@ -96,9 +87,12 @@ describe("updateAdvertiserAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("メール形式が不正だと invalid で DB に到達しない", async () => {
-    const res = await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, contactEmail: "bad" });
-    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+  it("配信ステータスが 2 値以外 (prospect / 不正値) なら invalid で DB に到達しない", async () => {
+    // 縮退後は配信ステータスは active/paused のみ受理する (prospect は portal が正で v2 編集では不可)。
+    for (const status of ["prospect", "bogus", "ACTIVE", 1]) {
+      const res = await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, status });
+      expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    }
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
@@ -113,33 +107,28 @@ describe("updateAdvertiserAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("成功時: 全フィールド + status + 導出 is_active + updated_at を更新し、updatedBy は NULL", async () => {
+  it("成功時: 会社名 + status + 導出 is_active + updated_at のみ更新し、商流フィールドは set に含めない", async () => {
     const res = await updateAdvertiserAction(ADV_ID, VALID_INPUT);
     expect(res).toEqual({ ok: true, data: { id: ADV_ID } });
     expect(updateSet).toMatchObject({
       companyName: "新社名",
-      industry: "新業種",
-      contactEmail: "new@example.com",
-      contactPhone: "111",
-      address: "新住所",
-      notes: "新備考",
       // status=active なので is_active は導出で true (不変条件)。
       status: "active",
       isActive: true,
       updatedBy: null,
     });
     expect(updateSet?.updatedAt).toBeInstanceOf(Date);
+    // 業種・連絡先・住所・備考は触らない (既存の portal 由来データを潰さないため set に含めない)。
+    expect(updateSet).not.toHaveProperty("industry");
+    expect(updateSet).not.toHaveProperty("contactEmail");
+    expect(updateSet).not.toHaveProperty("contactPhone");
+    expect(updateSet).not.toHaveProperty("address");
+    expect(updateSet).not.toHaveProperty("notes");
   });
 
   it("status=paused に編集すると is_active=false に導出される (不変条件)", async () => {
     await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, status: "paused" });
     expect(updateSet).toMatchObject({ status: "paused", isActive: false });
-  });
-
-  it("不正な status は invalid で DB に到達しない", async () => {
-    const res = await updateAdvertiserAction(ADV_ID, { ...VALID_INPUT, status: "bogus" });
-    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
-    expect(withSessionMock).not.toHaveBeenCalled();
   });
 
   it("監査: operation=update / diff は before+after / school_id・actor_user_id は NULL だが actor_identity_uid に IdP uid", async () => {

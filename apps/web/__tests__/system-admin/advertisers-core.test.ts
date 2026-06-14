@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADVERTISER_DELIVERY_LABEL,
+  ADVERTISER_DELIVERY_ORDER,
   ADVERTISER_STATUS_LABEL,
   ADVERTISER_STATUS_ORDER,
   collectAdvertiserFieldErrors,
+  companyNameError,
   hasAdvertiserFieldErrors,
   isActiveForStatus,
   isAdvertiserStatus,
+  toDeliveryStatus,
   validateAdvertiserCreate,
+  validateAdvertiserEdit,
 } from "../../lib/system-admin/advertisers-core";
 
 /**
@@ -125,6 +130,45 @@ describe("advertiser status helpers", () => {
       ["active", "paused", "prospect"].sort(),
     );
     expect([...ADVERTISER_STATUS_ORDER]).toEqual(["prospect", "active", "paused"]);
+  });
+});
+
+describe("広告主編集 (最小縮退) のヘルパ", () => {
+  it("ADVERTISER_DELIVERY_ORDER / LABEL は配信 2 値 (active=稼働中 / paused=休止)", () => {
+    expect([...ADVERTISER_DELIVERY_ORDER]).toEqual(["active", "paused"]);
+    expect(ADVERTISER_DELIVERY_LABEL).toEqual({ active: "稼働中", paused: "休止" });
+  });
+
+  it("toDeliveryStatus: paused は休止、それ以外 (prospect / active) は稼働中扱い", () => {
+    expect(toDeliveryStatus("paused")).toBe("paused");
+    expect(toDeliveryStatus("active")).toBe("active");
+    expect(toDeliveryStatus("prospect")).toBe("active");
+  });
+
+  it("companyNameError: 空/空白/超過はメッセージ、1..200 は undefined", () => {
+    expect(companyNameError("")).toMatch(/会社名/);
+    expect(companyNameError("   ")).toMatch(/会社名/);
+    expect(companyNameError("あ".repeat(201))).toMatch(/会社名/);
+    expect(companyNameError("アクメ商事")).toBeUndefined();
+    expect(companyNameError("あ".repeat(200))).toBeUndefined();
+  });
+
+  it("validateAdvertiserEdit: 会社名必須 + 配信ステータスは active/paused のみ", () => {
+    expect(validateAdvertiserEdit({ companyName: " アクメ ", status: "active" })).toEqual({
+      ok: true,
+      value: { companyName: "アクメ", status: "active" },
+    });
+    expect(validateAdvertiserEdit({ companyName: "X", status: "paused" })).toMatchObject({
+      ok: true,
+      value: { status: "paused" },
+    });
+    // 会社名空は invalid。
+    expect(validateAdvertiserEdit({ companyName: "  ", status: "active" }).ok).toBe(false);
+    // prospect・enum 外・型不一致・未指定は invalid (縮退編集は 2 値のみ)。
+    expect(validateAdvertiserEdit({ companyName: "X", status: "prospect" }).ok).toBe(false);
+    expect(validateAdvertiserEdit({ companyName: "X", status: "bogus" }).ok).toBe(false);
+    expect(validateAdvertiserEdit({ companyName: "X", status: undefined }).ok).toBe(false);
+    expect(validateAdvertiserEdit({ companyName: "X", status: 1 }).ok).toBe(false);
   });
 });
 

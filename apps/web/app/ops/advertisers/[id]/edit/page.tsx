@@ -10,11 +10,16 @@ import { AdvertiserEditForm } from "./_components/AdvertiserEditForm";
 /**
  * F10 (#46): 広告主のフィールド編集 (`/ops/advertisers/{id}/edit`)。**Server Component**。
  *
+ * 実装設計書 §4「advertisers/[id]/edit 最小縮退」で編集面は **表示名 (会社名) + 配信ステータス (稼働中 /
+ * 休止) の 2 項目**に縮退した。業種・担当連絡先・住所・備考は portal が正のため扱わない。配信ステータスは
+ * 緊急停止スイッチ (一覧の稼働トグルと同じ is_active / status を操作) で、バグ「休止が配信に反映されない」の
+ * 修正対象箇所のため死守する。
+ *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え `requireRole(SYSTEM_ADMIN_ROLES)`
  * (system_admin のみ)。広告主マスタ (CRM) は cross-tenant で system_admin 専用、school_admin / teacher は
  * 403 (`/forbidden`)。`withSession` の RLS tx で `getAdvertiserDetail` を取得 — 可視範囲は advertisers の
  * RLS が決め、不可視 / 不存在 / 不正 id は 404 (`notFound()`)。実際の UPDATE・検証・監査は
- * `updateAdvertiserAction` が担う。稼働状態 (is_active) の切替は一覧の稼働トグルが管轄で本画面では扱わない。
+ * `updateAdvertiserAction` が担う。
  */
 export default async function EditAdvertiserPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(SYSTEM_ADMIN_ROLES);

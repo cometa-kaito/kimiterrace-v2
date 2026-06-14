@@ -50,21 +50,14 @@ export async function listAdvertisers(tx: TenantTx): Promise<AdvertiserSummary[]
 }
 
 /**
- * 編集フォームの初期値に使う**編集可能フィールドの全射影** (id + 7 フィールド)。一覧の軽量射影
- * (`AdvertiserSummary`) と違い、住所・電話・備考も含む。`status` (営業ステータス) は編集フォームの
- * セレクトに preselect するため含める。is_active は別アクション (稼働トグル) の管轄かつ status と不変条件で
- * 連動するため含めない。生徒 PII ではなく営業上のビジネス情報 (ルール4 の対象外)。
+ * 編集フォームの初期値に使う射影。実装設計書 §4「advertisers/[id]/edit 最小縮退」で編集面を
+ * **表示名 (会社名) + 配信ステータス (status)** の 2 項目に絞ったため、業種・連絡先・住所・備考は
+ * 射影しない (それらは portal が正で v2 編集では扱わない / データ露出面も縮小)。`status` は配信ステータス
+ * セレクトの初期選択 (`toDeliveryStatus`) に使う。is_active は status と不変条件で連動するため含めない。
  */
 export type AdvertiserDetail = Pick<
   InferSelectModel<typeof advertisers>,
-  | "id"
-  | "companyName"
-  | "industry"
-  | "contactEmail"
-  | "contactPhone"
-  | "address"
-  | "notes"
-  | "status"
+  "id" | "companyName" | "status"
 >;
 
 /**
@@ -80,11 +73,6 @@ export async function getAdvertiserDetail(
     .select({
       id: advertisers.id,
       companyName: advertisers.companyName,
-      industry: advertisers.industry,
-      contactEmail: advertisers.contactEmail,
-      contactPhone: advertisers.contactPhone,
-      address: advertisers.address,
-      notes: advertisers.notes,
       status: advertisers.status,
     })
     .from(advertisers)
