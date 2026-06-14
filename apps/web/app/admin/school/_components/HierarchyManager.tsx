@@ -710,19 +710,25 @@ function GradeNode({
   const [pending, start] = useTransition();
   const modeLabel = grade.hasClasses ? "クラス単位" : "学年単位";
   const unitClass = grade.classes[0];
+  // 学年名と同名の「裏方クラス」（学年単位の表示単位）。クラス単位⇄学年単位の往復で再利用する。
+  const backstageClass = grade.classes.find((c) => c.name === grade.name);
 
   // モード切替: クラス単位 → 学年単位（裏方クラスを 1 つ用意 + hasClasses=false）/ 学年単位 → クラス単位。
+  // **冪等化**: 既に同名の裏方クラスがあれば再利用し、毎回 createClassAction しない。これにより
+  // クラス単位⇄学年単位を往復しても同名クラスが孤児として累積しない（往復の自己回復）。
   const toUnit = () =>
     start(async () => {
-      const create = await createClassAction({
-        gradeId: grade.id,
-        name: grade.name,
-        academicYear: new Date().getFullYear(),
-        grade: deriveGradeNumber(grade.name),
-      });
-      if (!create.ok) {
-        report(create, "");
-        return;
+      if (!backstageClass) {
+        const create = await createClassAction({
+          gradeId: grade.id,
+          name: grade.name,
+          academicYear: new Date().getFullYear(),
+          grade: deriveGradeNumber(grade.name),
+        });
+        if (!create.ok) {
+          report(create, "");
+          return;
+        }
       }
       const res = await updateGradeAction({
         id: grade.id,
@@ -746,8 +752,13 @@ function GradeNode({
       report(res, "クラス単位に切り替えました。");
     });
 
+  // 学年単位化は「組が無い（=空）」か「残るクラスが裏方クラス 1 つだけ」のとき提示する。後者を許すことで、
+  // クラス単位に戻した後に裏方クラスだけが残った学年を、新規作成せず（裏方を再利用して）学年単位へ戻せる。
+  const canBecomeUnit =
+    grade.classes.length === 0 ||
+    (grade.classes.length === 1 && grade.classes[0]?.name === grade.name);
   const extraItems: MenuItem[] = grade.hasClasses
-    ? grade.classes.length === 0
+    ? canBecomeUnit
       ? [{ label: "学年単位にする（組に分けない）", onSelect: toUnit }]
       : []
     : [{ label: "クラスに分ける", onSelect: toClasses }];
