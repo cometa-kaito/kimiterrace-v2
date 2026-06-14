@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "cd0e807" # 2026-06-14 deploy: 学校管理(/admin/school) 本日の掲示状態(公開中/本日未入力)+エディタ導線 #869（PR1再設計#866に続くPR2・schema無変更=migrate不要・疎通200/no-cache確認済）
+  web_image_tag = "78f3e2d" # 2026-06-14 deploy: 学校管理(/admin/school) 新年度へ複製（一括操作＝現年度クラスを翌年度へ）#871（PR1再設計#866→PR2状態表示#869→本PR3で完結・schema無変更=migrate不要・疎通200/no-cache確認済）
 }
 
 module "network" {
