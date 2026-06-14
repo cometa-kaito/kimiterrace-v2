@@ -24,7 +24,7 @@ const BASE_PATH = "/ops/dashboard";
  * F08 (#44) 第4スライス / UIUX-03: システム管理者の **全校横断ダッシュボード**
  * (`/ops/dashboard`)。**Server Component**。
  *
- * F08 第1〜3スライス (`/admin/dashboard`) が school_admin / teacher の**自校**ビューを担うのに対し、
+ * F08 第1〜3スライス (`/app/dashboard`) が school_admin / teacher の**自校**ビューを担うのに対し、
  * 本ページは運営 (system_admin) が全校の活動量を横断で把握するための**学校別サマリー**を提供する。
  *
  * UIUX-03: 従来の「直近 30 日固定」を共通 DataList 基盤の**日付範囲ピッカー** (`?from=&to=`) に

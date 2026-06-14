@@ -55,7 +55,7 @@ const REPORT_SORT_KEYS = ["targetMonth", "schoolName", "pdfSizeBytes", "generate
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に限定する。横断 (全校) レポートの閲覧/取得は
  * system_admin 専用で、school_admin / teacher は 403 (`/forbidden`)。自校スコープの月次サマリー画面は
- * 別ルート (`/admin/reports`、PUBLISHER_ROLES) で存続する。可視範囲は RLS が決める (system_admin=全校)。
+ * 別ルート (`/app/reports`、PUBLISHER_ROLES) で存続する。可視範囲は RLS が決める (system_admin=全校)。
  * CRM 表は `system_admin_full_access` policy のみを持つため、広告主別集計は system_admin context でのみ
  * 行を返す (`withSession` は system_admin の role/uid で RLS context を張る、ルール2)。
  *

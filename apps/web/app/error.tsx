@@ -30,7 +30,7 @@ export default function ErrorBoundary({
           再読み込み
         </button>
         {/* 壊れたクライアント状態からも確実に復帰できるよう、ホームは素の <a>（フルリロード）。 */}
-        <a href="/admin" style={linkStyle}>
+        <a href="/app" style={linkStyle}>
           ホームに戻る
         </a>
       </div>

@@ -98,5 +98,5 @@ function revalidatePathsForTarget(target: EditorTarget): void {
   }
   // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。学年/学科/学校編集も配下クラスの
   // 実効データに影響するため、対象 path を再検証する。
-  revalidatePath("/admin/signage-preview/[classId]", "page");
+  revalidatePath("/app/signage-preview/[classId]", "page");
 }

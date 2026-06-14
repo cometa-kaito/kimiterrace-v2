@@ -92,7 +92,7 @@ function revalidatePathsForTarget(target: EditorTarget): void {
     revalidatePath("/app/editor/scope/school");
   }
   // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
-  revalidatePath("/admin/signage-preview/[classId]", "page");
+  revalidatePath("/app/signage-preview/[classId]", "page");
 }
 
 /** 指定対象・日付の連絡 (お知らせ) を保存する (scope 汎用)。 */

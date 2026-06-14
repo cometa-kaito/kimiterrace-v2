@@ -17,7 +17,7 @@ const BASE_PATH = "/ops/sensors";
  * F13 (#391, ADR-020) / UIUX-03: システム管理者の **全校横断 センサー状態ビュー**
  * (`/ops/sensors`)。**Server Component**。
  *
- * `/admin/sensors` (#486) が PUBLISHER_ROLES (school_admin/teacher) の **自校**ビューなのに対し、
+ * `/app/sensors` (#486) が PUBLISHER_ROLES (school_admin/teacher) の **自校**ビューなのに対し、
  * 本ページは system_admin の **全校横断**ビュー。全校のセンサーを所属校名つきで一望し、各センサーが
  * 沈黙していないか (電池切れ・通信断) を運用確認する。UIUX-03 で共通 DataList 基盤
  * (検索 / 列ソート / 稼働状態・撤去状態フィルタ / 設置日範囲 / ページング) を適用 — データ取得は

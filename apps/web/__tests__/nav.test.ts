@@ -51,9 +51,9 @@ describe("navItemsForRole", () => {
     expect(hrefs).toContain("/app/contents");
     expect(hrefs).toContain("/app/chat");
     // 監視系は学校側から撤去 (運営 = system_admin 専用)。
-    expect(hrefs).not.toContain("/admin/dashboard");
-    expect(hrefs).not.toContain("/admin/reports");
-    expect(hrefs).not.toContain("/admin/sensors");
+    expect(hrefs).not.toContain("/app/dashboard");
+    expect(hrefs).not.toContain("/app/reports");
+    expect(hrefs).not.toContain("/app/sensors");
   });
 
   it("掲示物 Q&A (/app/chat) は school_admin のみ nav に出す。system_admin は nav 非表示 (F06 #370、死リンク防止)。teacher は 2026-06-11 判断で nav から撤去 (機能・認可は残置・URL 直打ち可)", () => {
@@ -92,20 +92,20 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/contents");
   });
 
-  it("ダッシュボード (/admin/dashboard) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/dashboard を使う)", () => {
-    // 自校ビュー /admin/dashboard は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの
-    // nav からは撤去。system_admin は自校 /admin/dashboard ではなく全校版 /ops/dashboard を使う。
-    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/dashboard");
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/dashboard");
+  it("ダッシュボード (/app/dashboard) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/dashboard を使う)", () => {
+    // 自校ビュー /app/dashboard は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの
+    // nav からは撤去。system_admin は自校 /app/dashboard ではなく全校版 /ops/dashboard を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/dashboard");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/dashboard");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/dashboard");
   });
 
-  it("月次レポート (/admin/reports) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/reports を使う)", () => {
-    // 自校ビュー /admin/reports は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
-    // からは撤去。system_admin は自校 /admin/reports ではなく全校版 /ops/reports を使う。
-    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/reports");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/reports");
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/reports");
+  it("月次レポート (/app/reports) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/reports を使う)", () => {
+    // 自校ビュー /app/reports は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
+    // からは撤去。system_admin は自校 /app/reports ではなく全校版 /ops/reports を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/reports");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/reports");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/reports");
   });
 
   it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + イベントログ + 監査ログ + AIチャット + 公開履歴 + 学校設定 + TVコマンド + TVダウンタイム + パスワード変更（自校エディタは出さない、メンバーシップ・ビューアは商流SoR一元化 Phase1 で撤去、MFA は意図的に nav 撤去）", () => {
@@ -116,7 +116,7 @@ describe("navItemsForRole", () => {
       "/ops/advertisers",
       "/ops/dashboard",
       "/ops/sensors",
-      "/admin/tv-devices",
+      "/app/tv-devices",
       "/ops/reports",
       "/ops/feedback",
       "/ops/events",
@@ -126,39 +126,39 @@ describe("navItemsForRole", () => {
       "/ops/school-configs",
       "/ops/tv-commands",
       "/ops/tv-downtime",
-      "/admin/account/password",
+      "/app/account/password",
     ]);
     expect(hrefs).not.toContain("/app/editor");
     // 商流SoR一元化 Phase1 (2026-06-13): メンバーシップ・ビューアは nav から撤去 (テーブル/RLS は温存)。
     expect(hrefs).not.toContain("/ops/memberships");
   });
 
-  it("パスワード変更 (/admin/account/password) は個人 email/password アカウント (system_admin/school_admin) のみ。teacher (学校共通PW・ADR-032) には出さない (死リンク防止 / PASSWORD_CHANGE_ROLES と整合)", () => {
-    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/account/password");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/admin/account/password");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/account/password");
+  it("パスワード変更 (/app/account/password) は個人 email/password アカウント (system_admin/school_admin) のみ。teacher (学校共通PW・ADR-032) には出さない (死リンク防止 / PASSWORD_CHANGE_ROLES と整合)", () => {
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/app/account/password");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).toContain("/app/account/password");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/account/password");
   });
 
-  it("センサー管理 (/admin/sensors) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/sensors を使う)", () => {
-    // 自校ビュー /admin/sensors は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
-    // からは撤去。system_admin は自校 /admin/sensors ではなく全校版 /ops/sensors を使う。
-    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/sensors");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/sensors");
-    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/admin/sensors");
+  it("センサー管理 (/app/sensors) は誰の nav にも出さない (校務DX原則で運営専用に締め、school-side ルートは撤去。運営は /ops/sensors を使う)", () => {
+    // 自校ビュー /app/sensors は requireRole(SYSTEM_ADMIN_ROLES) に締めたため、school-side ロールの nav
+    // からは撤去。system_admin は自校 /app/sensors ではなく全校版 /ops/sensors を使う。
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/sensors");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/sensors");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).not.toContain("/app/sensors");
   });
 
-  it("モニタ設定 (/admin/tv-devices) は system_admin 専用 (F15 TV端末リモート管理、運営専用 nav・配線漏れ修正)", () => {
+  it("モニタ設定 (/app/tv-devices) は system_admin 専用 (F15 TV端末リモート管理、運営専用 nav・配線漏れ修正)", () => {
     // F15 のページ群 (一覧/編集/履歴/新規登録) は実装済だが nav 配線が漏れていた (広告主 #46 と同型)。
     // 校務DX原則でセンサー管理と同じく運営 (system_admin) 専用に出す (school_admin/teacher の nav には出さない)。
     // 編集自体は TV_CONFIG_EDIT_ROLES(school_admin/system_admin) が URL 直打ちで可能だが、nav 導線は運営に集約。
-    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/admin/tv-devices");
-    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/admin/tv-devices");
-    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/admin/tv-devices");
+    expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/app/tv-devices");
+    expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/app/tv-devices");
+    expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/app/tv-devices");
   });
 
-  it("センサー管理（全校） (/ops/sensors) は system_admin 専用 (F13 全校横断、自校 /admin/sensors とは別ルート)", () => {
+  it("センサー管理（全校） (/ops/sensors) は system_admin 専用 (F13 全校横断、自校 /app/sensors とは別ルート)", () => {
     // /ops/sensors は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/sensors は別ルートで存続。
+    // nav からも publisher には出さない (死リンク防止)。自校ビュー /app/sensors は別ルートで存続。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/sensors");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/sensors");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/sensors");
@@ -181,19 +181,19 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/advertisers");
   });
 
-  it("全校ダッシュボード (/ops/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /admin/dashboard とは別ルート)", () => {
+  it("全校ダッシュボード (/ops/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /app/dashboard とは別ルート)", () => {
     // cross-tenant の横断ビューは requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校ビュー /admin/dashboard は別ルートで存続。
+    // nav からも publisher には出さない (死リンク防止)。自校ビュー /app/dashboard は別ルートで存続。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/dashboard");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/dashboard");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/dashboard");
   });
 
-  it("二要素認証 (/admin/account/mfa) は誰の nav にも出さない (2026-06-07 ユーザー判断: MFA 現状非運用ゆえ UI 入口を撤去・機能は残置)", () => {
+  it("二要素認証 (/app/account/mfa) は誰の nav にも出さない (2026-06-07 ユーザー判断: MFA 現状非運用ゆえ UI 入口を撤去・機能は残置)", () => {
     // ⚠️ 意図的な撤去。enrollment ページ / Server Action / 強制ゲート / policy は残置しており、MFA 運用
     // 開始時に nav 3 項目を再追加すれば復帰する。「配線漏れ」と誤認して再追加しないこと (nav.ts の注記参照)。
     for (const role of ["system_admin", "school_admin", "teacher"] as const) {
-      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/admin/account/mfa");
+      expect(navItemsForRole(role).map((i) => i.href)).not.toContain("/app/account/mfa");
     }
   });
 

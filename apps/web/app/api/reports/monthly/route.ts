@@ -10,10 +10,10 @@ import { NextResponse } from "next/server";
  *
  * - GET /api/reports/monthly?ym=YYYY-MM … 対象月の学校別サマリーを CSV (text/csv) で返す
  *
- * 画面 (`/admin/reports`) と同じ `getMonthlySchoolSummary` (学校別サマリー) + `getMonthlyAdReach`
+ * 画面 (`/app/reports`) と同じ `getMonthlySchoolSummary` (学校別サマリー) + `getMonthlyAdReach`
  * (広告別 到達数 reach、minute-dedup) を使い、表計算へ取り込める形で 1 ファイルに持ち帰れるようにする。
  *
- * **認可 (校務DX原則: 監視系は運営専用、画面 `/admin/reports` と整合)**: 月次レポートは閲覧系のため
+ * **認可 (校務DX原則: 監視系は運営専用、画面 `/app/reports` と整合)**: 月次レポートは閲覧系のため
  * 学校側 (teacher / school_admin) に出さず、運営 (system_admin) 専用に締める。**認可は二層** (ルール2
  * 多層防御): `allowedRoles` (SYSTEM_ADMIN_ROLES) で非対象ロールを 403 早期 deny + DB の RLS
  * (`tenant_isolation` / `system_admin_full_access`) が越境を DB レベルで止める。未認証は 401。

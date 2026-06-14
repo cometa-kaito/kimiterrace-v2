@@ -111,7 +111,7 @@ async function finish<T>(
     revalidatePath(adsPath(target));
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。親階層 (学校/学科/学年) 広告は配下全クラスに
     // 継承表示されるため、動的 signage-preview ページ全体を revalidate する。
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantError) {

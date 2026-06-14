@@ -87,7 +87,7 @@ describe("shouldRedirectToMfaEnrollment (強制ゲート判定)", () => {
 
 describe("定数", () => {
   it("MFA_ENROLLMENT_PATH は /admin 配下 (requireRole で守られる)", () => {
-    expect(MFA_ENROLLMENT_PATH).toBe("/admin/account/mfa");
+    expect(MFA_ENROLLMENT_PATH).toBe("/app/account/mfa");
   });
 
   it("PATHNAME_HEADER は middleware / layout が共有する単一ソース", () => {

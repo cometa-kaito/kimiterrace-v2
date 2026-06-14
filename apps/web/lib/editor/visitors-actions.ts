@@ -60,7 +60,7 @@ export async function setVisitorsAction(
 
   revalidatePath(`/app/editor/${classId}`);
   // サイネージ (#48-E1) も即時反映。
-  revalidatePath("/admin/signage-preview/[classId]", "page");
+  revalidatePath("/app/signage-preview/[classId]", "page");
   return { ok: true, data: { count } };
 }
 
