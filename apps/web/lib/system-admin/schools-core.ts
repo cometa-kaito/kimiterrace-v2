@@ -50,6 +50,15 @@ export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
+/**
+ * 検証用「テスト校」かどうかを校名で判定する (運営整理 §4 v2編: 「テスト」校は検証用として削除禁止)。
+ * 校名に「テスト」を含む学校を対象とし、誤って検証用テナントを hard-delete する事故を防ぐ。削除アクション
+ * (server) と削除ボタン (client) の双方がこの単一ソースで判定する。
+ */
+export function isTestSchoolName(name: string): boolean {
+  return name.includes("テスト");
+}
+
 /** 前後空白を除いた 1..max 文字。空・超過は null (不正)。 */
 function normalizeRequired(value: unknown, max: number): string | null {
   if (typeof value !== "string") {

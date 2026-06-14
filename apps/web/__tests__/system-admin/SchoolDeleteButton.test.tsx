@@ -87,4 +87,14 @@ describe("SchoolDeleteButton (#246 Low-2 タイプ確認)", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "削除" })).toBeInTheDocument();
   });
+
+  it("検証用テスト校 (校名に「テスト」を含む) は削除ボタンが無効で確認パネルを開けない (運営整理 §4)", () => {
+    render(<SchoolDeleteButton schoolId={SCHOOL_ID} schoolName="E2Eテスト高校" />);
+    const btn = screen.getByRole("button", { name: "削除" });
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(deleteMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/検証用のテスト校は削除できません/)).toBeInTheDocument();
+  });
 });

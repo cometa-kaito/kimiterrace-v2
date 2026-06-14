@@ -3,9 +3,22 @@ import {
   HIERARCHY_MODES,
   collectSchoolFieldErrors,
   hasSchoolFieldErrors,
+  isTestSchoolName,
   isUuid,
   validateSchoolUpdate,
 } from "../../lib/system-admin/schools-core";
+
+describe("isTestSchoolName (テスト校削除禁止判定・運営整理 §4)", () => {
+  it("校名に「テスト」を含むものを検証用テスト校と判定する", () => {
+    expect(isTestSchoolName("テスト")).toBe(true);
+    expect(isTestSchoolName("E2Eテスト高校")).toBe(true);
+    expect(isTestSchoolName("テスト高校")).toBe(true);
+  });
+  it("「テスト」を含まない通常校は false", () => {
+    expect(isTestSchoolName("岐南工業高校")).toBe(false);
+    expect(isTestSchoolName("")).toBe(false);
+  });
+});
 
 /**
  * #48-L (#123): 学校編集の入力検証 (pure) を固定する。Server Action / RLS に到達する前の

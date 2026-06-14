@@ -117,6 +117,24 @@ describe("deleteSchoolAction", () => {
     expect(res).toEqual({ ok: true, data: { id: SCHOOL_ID } });
   });
 
+  it("検証用テスト校 (校名に「テスト」を含む) は forbidden で削除も監査もしない (運営整理 §4)", async () => {
+    selectRows = [
+      {
+        id: SCHOOL_ID,
+        name: "E2Eテスト高校",
+        prefecture: "岐阜県",
+        code: "T",
+        hierarchyMode: "class",
+        notes: null,
+      },
+    ];
+    const res = await deleteSchoolAction({ id: SCHOOL_ID });
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    // 削除 (audit insert) は走らない。
+    expect(captured.find((v) => v.tableName === "schools")).toBeUndefined();
+    expect(revalidatePathMock).not.toHaveBeenCalled();
+  });
+
   it("監査: operation=delete / actor 系 NULL だが actor_identity_uid に IdP uid / school_id=対象校 id / diff.before", async () => {
     await deleteSchoolAction({ id: SCHOOL_ID });
     const audit = captured.find((v) => v.tableName === "schools");

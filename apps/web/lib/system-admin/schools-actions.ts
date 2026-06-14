@@ -23,7 +23,9 @@ import { SYSTEM_ADMIN_ROLES } from "./roles";
 import {
   type ActionResult,
   conflict,
+  forbidden,
   invalid,
+  isTestSchoolName,
   isUuid,
   notFound,
   validateSchoolCreate,
@@ -81,6 +83,9 @@ function isForeignKeyViolation(error: unknown): boolean {
 
 /** 対象校が RLS で不可視 (他校 / 不存在) のとき tx をロールバックさせる。 */
 class SchoolNotFoundError extends Error {}
+
+/** 検証用テスト校への削除を拒否する (運営整理 §4: テスト校削除禁止)。tx をロールバックさせる。 */
+class TestSchoolDeleteError extends Error {}
 
 /**
  * 学校の基本フィールド (name / prefecture / code) + 階層モードを更新する。
@@ -227,6 +232,10 @@ export async function deleteSchoolAction(raw: {
       if (!before) {
         throw new SchoolNotFoundError();
       }
+      // 検証用テスト校は誤削除防止のため削除禁止 (運営整理 §4)。削除も監査も行わず tx をロールバックする。
+      if (isTestSchoolName(before.name)) {
+        throw new TestSchoolDeleteError();
+      }
       const deleted = await deleteSchool(tx, id);
       if (deleted.length === 0) {
         throw new SchoolNotFoundError();
@@ -253,6 +262,9 @@ export async function deleteSchoolAction(raw: {
   } catch (error) {
     if (error instanceof SchoolNotFoundError) {
       return notFound("指定された学校が見つかりません。");
+    }
+    if (error instanceof TestSchoolDeleteError) {
+      return forbidden("検証用のテスト校は削除できません。");
     }
     if (isForeignKeyViolation(error)) {
       return conflict(
