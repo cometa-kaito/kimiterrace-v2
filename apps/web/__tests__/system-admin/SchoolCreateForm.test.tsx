@@ -12,7 +12,7 @@ const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/lib/system-admin/schools-actions", () => ({ createSchoolAction: vi.fn() }));
 
-import { SchoolCreateForm } from "../../app/admin/system/schools/new/_components/SchoolCreateForm";
+import { SchoolCreateForm } from "../../app/ops/schools/new/_components/SchoolCreateForm";
 import { createSchoolAction } from "../../lib/system-admin/schools-actions";
 
 const createMock = vi.mocked(createSchoolAction);
@@ -64,7 +64,7 @@ describe("SchoolCreateForm 項目別検証", () => {
         hierarchyMode: "class",
       }),
     );
-    await waitFor(() => expect(push).toHaveBeenCalledWith(`/admin/system/schools/${SCHOOL_ID}`));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/ops/schools/${SCHOOL_ID}`));
   });
 
   it("サーバ失敗時は上部にエラーを表示し push しない", async () => {

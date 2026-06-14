@@ -23,7 +23,7 @@ import { getMonthlyAdReach, getMonthlySchoolSummary } from "@kimiterrace/db";
  * 校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に締める。teacher / school_admin は nav から
  * 撤去済み + ここで 403 (`/forbidden`)。全校横断の月次レポート履歴 / PDF ダウンロードは
- * `/admin/system/reports` で運営に提供する。
+ * `/ops/reports` で運営に提供する。
  *
  * 注: 本ページの集計 (`getMonthlySchoolSummary` 等) は school_id スコープ前提だが、system_admin は
  * school_id を持たず通常 nav からは到達しない (撤去済)。URL 直打ちの system_admin に対しては RLS の

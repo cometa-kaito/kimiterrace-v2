@@ -154,7 +154,7 @@ export async function createOperatorAdAction(raw: {
       });
       return { id: newId };
     });
-    revalidatePath(`/admin/system/advertisers/${advertiserId}/ads`);
+    revalidatePath(`/ops/advertisers/${advertiserId}/ads`);
     revalidatePath("/admin/signage-preview/[classId]", "page");
     return { ok: true, data };
   } catch (error) {
@@ -199,7 +199,7 @@ export async function deleteOperatorAdAction(
       });
       return { id: adId, advertiserId: target.advertiserId };
     });
-    revalidatePath(`/admin/system/advertisers/${result.advertiserId}/ads`);
+    revalidatePath(`/ops/advertisers/${result.advertiserId}/ads`);
     revalidatePath("/admin/signage-preview/[classId]", "page");
     return { ok: true, data: { id: result.id } };
   } catch (error) {

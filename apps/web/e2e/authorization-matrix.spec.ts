@@ -85,17 +85,17 @@ const PAGE_CASES: readonly PageCase[] = [
     allow: ["school_admin", "teacher"],
     allowUrl: /\/admin\/contents$/,
   },
-  // /admin/system/schools = SYSTEM_ADMIN_ROLES (system_admin のみ)。school_admin/teacher は 403。
+  // /ops/schools = SYSTEM_ADMIN_ROLES (system_admin のみ)。school_admin/teacher は 403。
   {
-    label: "/admin/system/schools (system_admin only)",
-    path: "/admin/system/schools",
+    label: "/ops/schools (system_admin only)",
+    path: "/ops/schools",
     allow: ["system_admin"],
     allowUrl: /\/admin\/system\/schools$/,
   },
-  // /admin/system/users = SYSTEM_ADMIN_ROLES (system_admin のみ)。横断ユーザー管理。
+  // /ops/users = SYSTEM_ADMIN_ROLES (system_admin のみ)。横断ユーザー管理。
   {
-    label: "/admin/system/users (system_admin only)",
-    path: "/admin/system/users",
+    label: "/ops/users (system_admin only)",
+    path: "/ops/users",
     allow: ["system_admin"],
     allowUrl: /\/admin\/system\/users$/,
   },

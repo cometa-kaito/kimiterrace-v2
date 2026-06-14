@@ -11,7 +11,7 @@ const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/lib/system-admin/operator-ads-actions", () => ({ createOperatorAdAction: vi.fn() }));
 
-import { OperatorAdForm } from "../../app/admin/system/advertisers/[id]/ads/_components/OperatorAdForm";
+import { OperatorAdForm } from "../../app/ops/advertisers/[id]/ads/_components/OperatorAdForm";
 import { createOperatorAdAction } from "../../lib/system-admin/operator-ads-actions";
 
 const createMock = vi.mocked(createOperatorAdAction);

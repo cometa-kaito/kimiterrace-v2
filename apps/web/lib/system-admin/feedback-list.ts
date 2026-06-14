@@ -5,10 +5,10 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: フィードバック一覧 (`/admin/system/feedback`) のページング/検索/ソート対応 SELECT 層。
+ * UIUX-03: フィードバック一覧 (`/ops/feedback`) のページング/検索/ソート対応 SELECT 層。
  * `school-list.ts` 踏襲 — `packages/db` (chokepoint) を編集せず `apps/web/lib` に置き、テーブルは
  * barrel から import、型は schema 由来 (`FeedbackSummary`、ルール3)。単一テーブル・JOIN 無しの
  * ため **SQL 側で limit/offset + count** する (全件スキャン廃止)。

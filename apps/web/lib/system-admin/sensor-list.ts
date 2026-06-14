@@ -8,10 +8,10 @@ import {
   type SortDir,
   dateRangeBounds,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: システム管理者のセンサー一覧 (`/admin/system/sensors`) の検索/ソート/ページング層。
+ * UIUX-03: システム管理者のセンサー一覧 (`/ops/sensors`) の検索/ソート/ページング層。
  * `school-list.ts` と同じく `apps/web/lib` に置く (packages/db は編集しない、並行レーン回避)。
  *
  * ## ★ SQL 側ではなく **メモリ内**でフィルタ/ソート/ページングする (意図的なフォールバック)

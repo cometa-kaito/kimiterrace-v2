@@ -1,7 +1,7 @@
 import type { TenantRole } from "@kimiterrace/db";
 
 /**
- * #48-L: システム管理画面 (`/admin/system/*`) を許可するロール集合。
+ * #48-L: システム管理画面 (`/ops/*`) を許可するロール集合。
  *
  * 横断運用 (全校マスタの閲覧/管理) は **system_admin のみ**。school_admin / teacher は自校スコープの
  * `/admin/school`・`/admin/editor` 側に閉じる (nav.ts の NAV_BY_ROLE と整合)。実データの越境は

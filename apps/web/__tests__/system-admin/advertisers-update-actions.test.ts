@@ -157,8 +157,8 @@ describe("updateAdvertiserAction", () => {
       updatedBy: null,
       diff: { before: BEFORE_ROW, after: VALID_INPUT },
     });
-    expect(revalidatePathMock).toHaveBeenCalledWith("/admin/system/advertisers");
-    expect(revalidatePathMock).toHaveBeenCalledWith(`/admin/system/advertisers/${ADV_ID}/edit`);
+    expect(revalidatePathMock).toHaveBeenCalledWith("/ops/advertisers");
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/ops/advertisers/${ADV_ID}/edit`);
   });
 
   it("対象が不可視 / 不存在 (before 0 行) は not_found、UPDATE を走らせない", async () => {

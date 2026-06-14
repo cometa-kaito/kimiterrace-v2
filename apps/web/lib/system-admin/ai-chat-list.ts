@@ -21,7 +21,7 @@ import {
   dateRangeBounds,
   escapeLike,
   pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+} from "@/app/_components/datalist/list-params";
 
 /**
  * UIUX-03 PR4: ai_chat 監査ビューア (⚠ PII 最重要) の SELECT 層。

@@ -180,7 +180,7 @@ export type AllSensorDeviceStatus = SensorDeviceStatus & {
 
 /**
  * F13 (#391, ADR-020): **全校横断**の登録センサーを、直近検知時刻 + ヘルス状態 + **所属校名**つきで
- * 列挙する。**SELECT のみ**。system_admin のセンサー運用面 (`/admin/system/sensors`) が消費する。
+ * 列挙する。**SELECT のみ**。system_admin のセンサー運用面 (`/ops/sensors`) が消費する。
  *
  * `listSensorDeviceStatuses` (自校版) を変えずに併設する sibling — 自校スコープの呼び出し側
  * (`/admin/sensors`) は所属校名を必要としない (単一校なので自明) ため射影を増やさず据え置き、

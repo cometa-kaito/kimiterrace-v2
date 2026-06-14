@@ -70,6 +70,26 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  *   空になるため、フォント実体を trace に明示追加する (Issue #311)。万一同梱漏れしても
  *   `instrumentation.ts` の起動時 assert が loud failure として検知する。
  */
+/**
+ * namespace 改称の旧 URL 温存リダイレクト (経路設計実装設計書 §4.1/§42.5)。
+ *
+ * `/admin/system/*` を運営・配信コンソール `/ops/*` へ物理改称したのに伴い、旧 URL のブックマーク /
+ * 外部リンクを **308 (permanent・method 保持)** で新パスへ恒久リダイレクトする。301 ではなく 308 を使うのは、
+ * 万一旧パス宛の POST (Server Action 等) が残っていてもメソッドを GET に落とさず安全に転送するため。
+ *
+ * **適用層の選択**: middleware ではなく `next.config` の `redirects()` に置く。redirects は Next の評価順で
+ * middleware より前段に走り、**auth ゲート (middleware) のコードに一切手を入れない** ため回帰面が小さい。
+ * middleware の matcher は負の先読みで `/ops` を自動的に保護対象に含むため、保護目的の matcher 変更は不要。
+ *
+ * **段階導入の規律**: `:path*` は 0 個以上のセグメントに一致するため `source` は旧パスの **移設済 prefix のみ**
+ * を列挙する (未移設の prefix を足すと、まだ移動していない実体へ 308 して 404 を生む)。学校系 `/admin/*`→`/app/*`
+ * は後続 PR で実体移設と同時に追加する。テスト容易性のため named export し `__tests__` から mapping を pin する。
+ */
+export const NAMESPACE_REDIRECTS = [
+  // PR-1: 運営・配信コンソール。/admin/system 配下を /ops へ (実体は app/ops/* に移設済)。
+  { source: "/admin/system/:path*", destination: "/ops/:path*", permanent: true },
+] as const;
+
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
@@ -136,6 +156,12 @@ const nextConfig: NextConfig = {
         ],
       },
     ];
+  },
+
+  // namespace 改称の旧 URL を新 namespace へ 308 で恒久リダイレクトする (NAMESPACE_REDIRECTS の JSDoc 参照)。
+  // mapping 本体は named export して `__tests__/config/namespace-redirects.test.ts` で pin する。
+  async redirects() {
+    return [...NAMESPACE_REDIRECTS];
   },
 };
 

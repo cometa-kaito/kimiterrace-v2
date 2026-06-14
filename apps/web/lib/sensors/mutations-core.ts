@@ -11,7 +11,7 @@ import { canonicalizeMac } from "./switchbot";
  * **書き込みロール (teacher は書けない)**: 一覧ページ `/admin/sensors` は read を `PUBLISHER_ROLES`
  * (school_admin / teacher) に開くが、**mutation は school_admin のみ** (`SENSOR_WRITE_ROLES`)。
  * センサーの設置/設定は自校の運用管理操作であり、school_admin に限定する。teacher は閲覧のみ。
- * system_admin の全校横断センサー操作は別面 (`/admin/system/sensors`、本スライス非対象) に分けるため
+ * system_admin の全校横断センサー操作は別面 (`/ops/sensors`、本スライス非対象) に分けるため
  * 本集合には含めない ([[rls-tenant-not-role-boundary]] / advertisers と同じ per-surface 方針)。
  * 実データ越境は `sensor_devices` の RLS (tenant_isolation、ADR-019) が DB レベルで止め、本集合は
  * UX 層の早期 gate (`requireRole`) と Server Action の認可第一層に使う (多層防御、CLAUDE.md ルール2)。
