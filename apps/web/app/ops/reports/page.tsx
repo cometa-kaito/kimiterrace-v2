@@ -36,8 +36,8 @@ const REPORT_SORT_KEYS = ["targetMonth", "schoolName", "pdfSizeBytes", "generate
  *
  * **認可**: `/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に限定する。横断 (全校) レポートの閲覧/取得は
- * system_admin 専用で、school_admin / teacher は 403 (`/forbidden`)。自校スコープの月次サマリー画面は
- * 別ルート (`/app/reports`、PUBLISHER_ROLES) で存続する。可視範囲は RLS が決める (system_admin=全校)。
+ * system_admin 専用で、school_admin / teacher は 403 (`/forbidden`)。月次レポートは運営の本ルートに
+ * 一本化済みで、独立した自校用ルートは持たない (§43)。可視範囲は RLS が決める (system_admin=全校)。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きの `<table>` + `<th scope>` で提示し
  * 色のみに依存しない (PDF 履歴は DataTable が `aria-sort` を付す)。
