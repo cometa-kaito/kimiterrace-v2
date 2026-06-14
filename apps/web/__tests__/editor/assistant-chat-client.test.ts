@@ -23,9 +23,11 @@ describe("parseSseFrames", () => {
     )}event: mes`;
     const { frames, rest } = parseSseFrames(buf);
     expect(frames).toHaveLength(2);
-    expect(frames[0].event).toBe("meta");
-    expect(frames[1].event).toBe("message");
-    expect(JSON.parse(frames[1].data)).toEqual({ delta: "hi" });
+    const [first, second] = frames;
+    if (!first || !second) throw new Error("expected 2 frames");
+    expect(first.event).toBe("meta");
+    expect(second.event).toBe("message");
+    expect(JSON.parse(second.data)).toEqual({ delta: "hi" });
     expect(rest).toBe("event: mes");
   });
 
