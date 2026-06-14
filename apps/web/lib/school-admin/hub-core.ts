@@ -262,7 +262,13 @@ export function validateId(raw: unknown): Validated<{ id: string }> {
  *  掲示単位にならないため複製対象外。
  *
  *  注: source は常に最新年度なので、本操作は **実行のたびに 1 年進む**（target は常に未存在の年度）。
- *  二重実行は UI 側のボタン無効化 (useTransition pending) で抑止し、対象年度は確認モーダルで明示する。
+ *  単一操作の二重押下は UI のボタン無効化 (useTransition pending) で抑止し、対象年度は確認モーダルで明示する。
+ *
+ *  並行/再実行による翌年度クラスの重複生成は二段で防ぐ:
+ *    1. DB: 部分 unique index ux_classes_school_year_grade_name（恒久ガード・直列化の砦）。
+ *    2. app: planNextYearDuplication に「既に target 年度にあるクラス」(existingTargetKeys) を渡し除外
+ *       （並行コミットを RLS tx 内で観測できた場合に 23505 を避け graceful skip する防御。観測できない
+ *        phantom race は 1 の index が 23505 → conflict に倒す）。
  * ------------------------------------------------------------------ */
 
 export type ClassYearRow = {
@@ -278,15 +284,50 @@ export type NextYearPlan = {
   toCreate: { gradeId: string; name: string; grade: number; academicYear: number }[];
 };
 
-/** 現クラス一覧から「翌年度へ複製すべきクラス」を算出する純関数。クラスが無ければ null。 */
-export function planNextYearDuplication(rows: ClassYearRow[]): NextYearPlan | null {
+/**
+ * (gradeId, name) を複製の同一性キーにする。gradeId は常に UUID（空白を含まない固定書式）なので、
+ * 空白区切りでも先頭の UUID 部分が境界として一意に決まり、name に空白があっても別ペアと衝突しない。
+ */
+export function classDupKey(gradeId: string, name: string): string {
+  return `${gradeId} ${name}`;
+}
+
+/**
+ * rows（自校の全クラス）から複製の source(最新年度)/target(=source+1) を決める。rows が空なら null。
+ * source は常に最新年度ゆえ target は常に未存在年度（本操作は実行のたびに 1 年進む・冪等ではない）。
+ * action 側が target 年度の既存クラス取得 (getTargetYearClassKeys) のために先に target を知るのに使う。
+ */
+export function nextDuplicationYears(
+  rows: ClassYearRow[],
+): { sourceYear: number; targetYear: number } | null {
   if (rows.length === 0) {
     return null;
   }
   const sourceYear = Math.max(...rows.map((r) => r.academicYear));
-  const targetYear = sourceYear + 1;
+  return { sourceYear, targetYear: sourceYear + 1 };
+}
+
+/**
+ * 現クラス一覧から「翌年度へ複製すべきクラス」を算出する純関数。クラスが無ければ null。
+ *
+ * @param rows 自校の全クラス（全年度）。source=最新年度 / target=source+1 を決める。
+ * @param existingTargetKeys 既に target 年度に存在するクラスの classDupKey 集合。冪等化のため除外する
+ *   （並行コミットを RLS tx 内で観測できた場合に重複 insert を避け graceful skip するための防御。観測
+ *    できない phantom race の恒久ガードは DB の部分 unique index ux_classes_school_year_grade_name）。
+ *   未指定は空集合（除外なし＝従来挙動）。
+ */
+export function planNextYearDuplication(
+  rows: ClassYearRow[],
+  existingTargetKeys: ReadonlySet<string> = new Set(),
+): NextYearPlan | null {
+  const years = nextDuplicationYears(rows);
+  if (!years) {
+    return null;
+  }
+  const { sourceYear, targetYear } = years;
   const toCreate = rows
     .filter((r) => r.academicYear === sourceYear && r.gradeId)
+    .filter((r) => !existingTargetKeys.has(classDupKey(r.gradeId as string, r.name)))
     .map((r) => ({
       gradeId: r.gradeId as string,
       name: r.name,

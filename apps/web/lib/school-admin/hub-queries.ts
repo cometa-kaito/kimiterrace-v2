@@ -1,6 +1,6 @@
 import { type TenantTx, classes, dailyData, departments, grades } from "@kimiterrace/db";
 import { asc, count, desc, eq, sql } from "drizzle-orm";
-import type { ClassYearRow } from "./hub-core";
+import { type ClassYearRow, classDupKey } from "./hub-core";
 
 /**
  * 学校管理者ハブの読み取り (#48-K)。自校の学科・学年・クラス階層を取得する。
@@ -193,4 +193,30 @@ export async function getClassYearRows(tx: TenantTx): Promise<ClassYearRow[]> {
       academicYear: classes.academicYear,
     })
     .from(classes);
+}
+
+/**
+ * 指定年度に既に存在するクラスの classDupKey 集合（gradeId=null は除外・自校 RLS 限定）。
+ *
+ * 「新年度へ複製」(#48-K3 PR3 冪等化) で target 年度の既存クラスを insert 前に取得し除外するために使う。
+ * getClassYearRows とは別の SELECT として **insert 直前に**呼ぶことで、並行 tx が target 年度クラスを
+ * 先にコミットしていれば READ COMMITTED でそれを観測でき、重複 insert (→ 23505) を graceful に避けられる。
+ * 観測できない phantom race の恒久ガードは部分 unique index ux_classes_school_year_grade_name。
+ * RLS により自校のみが対象 (ルール2、手書き WHERE school_id は書かない)。
+ */
+export async function getTargetYearClassKeys(
+  tx: TenantTx,
+  targetYear: number,
+): Promise<Set<string>> {
+  const rows = await tx
+    .select({ gradeId: classes.gradeId, name: classes.name })
+    .from(classes)
+    .where(eq(classes.academicYear, targetYear));
+  const keys = new Set<string>();
+  for (const r of rows) {
+    if (r.gradeId) {
+      keys.add(classDupKey(r.gradeId, r.name));
+    }
+  }
+  return keys;
 }
