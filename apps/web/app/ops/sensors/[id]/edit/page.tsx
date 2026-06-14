@@ -7,7 +7,7 @@ import { notFound } from "next/navigation";
 import { SensorForm } from "../../_components/SensorForm";
 
 /**
- * F13 (#391, ADR-020): 来場検知センサーの **編集**フォームページ `/app/sensors/[id]/edit`。
+ * F13 (#391, ADR-020): 来場検知センサーの **編集**フォームページ `/ops/sensors/[id]/edit`。
  * **Server Component**。
  *
  * **認可（校務DX原則: 監視系は運営専用）**: 一覧 / 登録と同じく本ページも `requireRole(SYSTEM_ADMIN_ROLES)`

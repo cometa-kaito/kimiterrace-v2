@@ -11,11 +11,11 @@ import { getOwnSensorDevice, getPresenceHistory } from "@kimiterrace/db";
 import { notFound } from "next/navigation";
 
 /**
- * F13 (#391, ADR-020): 来場検知センサーの **検知履歴**ページ `/app/sensors/[id]/history`。
+ * F13 (#391, ADR-020): 来場検知センサーの **検知履歴**ページ `/ops/sensors/[id]/history`。
  * **Server Component**。ユーザー依頼「人感センサのデータを過去のデータなど全て UI から見れるように」。
  *
  * 1 センサーの過去の検知を ①JST 日別の検知数、②最新の生検知一覧（時刻・状態）で時系列に見せる。期間は
- * `?range=`（1d/7d/30d/90d/all）で切替。一覧（俯瞰）は `/app/sensors`、本ページは個別深掘り。
+ * `?range=`（1d/7d/30d/90d/all）で切替。一覧（俯瞰）は `/ops/sensors`、本ページは個別深掘り。
  *
  * **認可（校務DX原則: 監視系は運営専用）**: 一覧 / 編集と同じく `requireRole(SYSTEM_ADMIN_ROLES)`
  * （system_admin のみ）。teacher / school_admin は nav 非掲載 + 403。対象センサーと履歴を 1 つの
@@ -62,7 +62,7 @@ export default async function SensorHistoryPage({
   return (
     <section>
       <p style={backLinkStyle}>
-        <a href="/app/sensors" style={linkStyle}>
+        <a href="/ops/sensors" style={linkStyle}>
           ← センサー管理に戻る
         </a>
       </p>
@@ -205,7 +205,7 @@ function RangeLink({
     );
   }
   return (
-    <a href={`/app/sensors/${sensorId}/history?range=${optKey}`} style={rangeChipStyle}>
+    <a href={`/ops/sensors/${sensorId}/history?range=${optKey}`} style={rangeChipStyle}>
       {label}
     </a>
   );

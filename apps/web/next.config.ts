@@ -93,19 +93,34 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  *
  * **§43 reconciliation (tv-devices を /ops へ)**: 運営4ビューのうち tv-devices だけ /app 配下に残っていたため
  * §4.1 最終形に合わせ `/ops/tv-devices` へ移設した。旧 `/admin/tv-devices`(改称前) と `/app/tv-devices`(PR-3 の
- * 一時的着地) の両方を `/ops/tv-devices` へ 308 する。dashboard/sensors/reports は all-school 版が既に /ops に
- * あり self-school 版との統合は §43 feature-merge の別トラック (未着手)。
+ * 一時的着地) の両方を `/ops/tv-devices` へ 308 する。
+ *
+ * **§43 reconciliation (dashboard/sensors/reports を /ops へ)**: 監視系の自校重複を撤去し all-school 版
+ * `/ops/{dashboard,sensors,reports}` に統合した (sensors は CRUD を /ops 配下へ merge、dashboard/reports は
+ * 自校版を retire)。catch-all `/admin/:path*`→`/app/:path*` のままだと `/admin/dashboard` 等が削除済みの
+ * `/app/*` へ飛び 404 になるため、**catch-all より前**に `/admin/{dashboard,sensors,reports}/:path*`→
+ * `/ops/...` を per-prefix で置く。あわせて PR-3 の一時着地 `/app/{dashboard,sensors,reports}/:path*` も
+ * (`/app/tv-devices` と同様) catch-all の後で `/ops/...` へ 308 する。
  */
 export const NAMESPACE_REDIRECTS = [
   // PR-1: 運営・配信コンソール。/admin/system 配下を /ops へ。**catch-all より前** (より具体的・first-match-wins)。
   { source: "/admin/system/:path*", destination: "/ops/:path*", permanent: true },
   // §43: tv-devices を /ops へ。旧 /admin/tv-devices も /ops/tv-devices へ。**catch-all より前**。
   { source: "/admin/tv-devices/:path*", destination: "/ops/tv-devices/:path*", permanent: true },
-  // PR-2/PR-3: 残る学校系 /admin/* (editor/school/contents/chat/teacher-input/account/signage-preview/
-  // dashboard/sensors/reports) と素の /admin index を /app へ catch-all で集約 (全て app/app/* に移設済)。
+  // §43: 監視系 (dashboard/sensors/reports) を /ops へ統合。旧 /admin/* も /ops/* へ。**catch-all より前**
+  // (さもないと /admin/dashboard 等が catch-all で削除済みの /app/* へ飛び 404)。
+  { source: "/admin/dashboard/:path*", destination: "/ops/dashboard/:path*", permanent: true },
+  { source: "/admin/sensors/:path*", destination: "/ops/sensors/:path*", permanent: true },
+  { source: "/admin/reports/:path*", destination: "/ops/reports/:path*", permanent: true },
+  // PR-2/PR-3: 残る学校系 /admin/* (editor/school/contents/chat/teacher-input/account/signage-preview)
+  // と素の /admin index を /app へ catch-all で集約 (全て app/app/* に移設済)。
   { source: "/admin/:path*", destination: "/app/:path*", permanent: true },
   // §43: PR-3 で一時的に /app/tv-devices に着地していた分も /ops/tv-devices へ温存 (catch-all の後で可・/app は別前段)。
   { source: "/app/tv-devices/:path*", destination: "/ops/tv-devices/:path*", permanent: true },
+  // §43: 監視系の PR-3 一時着地 /app/{dashboard,sensors,reports} も /ops/* へ温存 (catch-all の後)。
+  { source: "/app/dashboard/:path*", destination: "/ops/dashboard/:path*", permanent: true },
+  { source: "/app/sensors/:path*", destination: "/ops/sensors/:path*", permanent: true },
+  { source: "/app/reports/:path*", destination: "/ops/reports/:path*", permanent: true },
 ] as const;
 
 const nextConfig: NextConfig = {
