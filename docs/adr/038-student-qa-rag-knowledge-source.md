@@ -1,6 +1,6 @@
 # ADR-038: 生徒/保護者向け Q&A(RAG) の知識源と embedding バッチの本番有効化
 
-- 状態: Accepted（2026-06-13、ユーザー判断「本番有効化まで進める」/ 学校体験リニューアル item4）
+- 状態: Accepted（2026-06-13）。ただし **D1（知識源=published contents）と D2（embedding バッチの本番有効化）は [ADR-040](040-rag-knowledge-source-daily-data.md) で Superseded**（2026-06-14、知識源を編集 daily_data に再ソース化・直接注入へ変更。embedding Job は未 apply 据置）。D4（PII 境界）/ D5（general_supplement フォールバック）は ADR-040 でも維持。
 - 日付: 2026-06-13（Proposed / Accepted 同日。embedding バッチ Job の本番点灯に伴う知識源の確定）
 - 関連: [ADR-005 (Vertex AI)](005-vertex-ai.md), [ADR-007 (pgvector / 埋め込みモデル)](007-pgvector.md), [ADR-019 (RLS 二層)](019-rls-two-layer-tenant-isolation.md), [ADR-028 (F06 回答ポリシー)](028-f06-chatbot-answer-policy.md), [ADR-030 (authoring 時 PII ガード)](030-authoring-time-pii-gate.md), [F06 生徒対話](../requirements/functional/F06-student-qa.md), [`docs/compliance/embedding-pii-masking.md`](../compliance/embedding-pii-masking.md), [CLAUDE.md ルール2 (RLS) / ルール4 (PII) / ルール8 (Terraform)](../../CLAUDE.md), #416 / #365 / #398（embedding バッチ）, #593（AI kill-switch）
 

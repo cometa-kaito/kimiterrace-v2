@@ -66,6 +66,7 @@
 | 033 | [エディタ AI 連絡ドラフトは構造化リストのストリーミング + 項目ごと採否 UX](033-streaming-structured-ai-draft-ux.md)（`streamObject` array `elementStream`、可逆プレビュー・refine-in-place・PII/要確認をカード可視化・楽観+Undo。全件一括 apply / prose トークン流し / 自動挿入 を不採用。#243 ②） | Accepted |
 | 038 | [生徒/保護者向け Q&A(RAG) の知識源と embedding バッチの本番有効化](038-student-qa-rag-knowledge-source.md)（知識源=school_admin が `/app/contents` で公開した published content_versions。盤面再利用/教員 teacher-input 残置を不採用。embedding バッチ Job を staging/prod で有効化＝初回起動が冪等バックフィル、PII マスク境界不変、空知識は general_supplement フォールバック。item4） | Accepted |
 | 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Accepted |
+| 040 | [生徒/保護者向け Q&A の知識源を編集(daily_data)に再ソース化](040-rag-knowledge-source-daily-data.md)（**ADR-038 D1/D2 を supersede**。知識源=生徒クラスの今日表示中 daily_data 連絡/提出物を直接注入（埋め込み非経由）。`getEffectiveDailyData` の鮮度窓+クラス階層+RLS を再利用、embedding Job は未 apply 据置・curated contents 経路は温存、PII は既存 fail-closed 踏襲で露出面拡大は残存リスク。item4 後続） | Accepted |
 
 ## ルール
 
