@@ -23,7 +23,7 @@ vi.mock("@/lib/school-admin/hub-actions", () => ({
   reorderHierarchyAction: vi.fn(),
 }));
 
-import { HierarchyManager } from "../../app/admin/school/_components/HierarchyManager";
+import { HierarchyManager } from "../../app/app/school/_components/HierarchyManager";
 import {
   createClassAction,
   createGradeAction,
@@ -241,7 +241,7 @@ describe("HierarchyManager（⋯メニュー / 一括操作 / 学年単位 配�
     expect(screen.getByText("公開中")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "エディタ" })).toHaveAttribute(
       "href",
-      "/admin/editor/c1",
+      "/app/editor/c1",
     );
   });
 

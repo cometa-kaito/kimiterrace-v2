@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
  * 「予定」「連絡」「提出物」を盤面側で確実に出すことを回帰として固定する。
  */
 
-import { EditorBoard } from "../../app/admin/editor/[classId]/_components/EditorBoard";
+import { EditorBoard } from "../../app/app/editor/[classId]/_components/EditorBoard";
 
 describe("EditorBoard", () => {
   it("3 セクションの見出しと渡したノードを盤面に並べ、広告/天気はプレビュー枠で出す", () => {

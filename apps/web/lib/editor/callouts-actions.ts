@@ -56,7 +56,7 @@ export async function setCalloutsAction(
     return invalid("編集対象のクラスが見つかりません。");
   }
 
-  revalidatePath(`/admin/editor/${classId}`);
+  revalidatePath(`/app/editor/${classId}`);
   revalidatePath("/admin/signage-preview/[classId]", "page");
   return { ok: true, data: { count } };
 }

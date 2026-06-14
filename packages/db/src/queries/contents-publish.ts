@@ -252,7 +252,7 @@ export type CreateContentInput = {
  * F01/F04: 新しい content を draft で作成し、初版バージョンを追記する (#509 S3a)。
  *
  * 教員入力 (F01 ファイル / F02 音声・チャット) の抽出結果を「編集してから公開」できる **下書き**の
- * 受け皿。作成後は既存エディタ (`/admin/contents/[id]`) で編集 → `publishContent` で公開する。
+ * 受け皿。作成後は既存エディタ (`/app/contents/[id]`) で編集 → `publishContent` で公開する。
  *
  * - contents に status=draft で INSERT (created_by/updated_by = actor)。
  * - 初版を content_versions に保管 (F04.2 履歴、version=1)。

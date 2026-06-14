@@ -47,8 +47,8 @@ describe("isRoleAllowed", () => {
 describe("requireUser (401)", () => {
   it("未認証 → /login?next= に redirect (戻り先をエンコードして載せる)", async () => {
     getCurrentUser.mockResolvedValue(null);
-    await expect(requireUser("/admin/editor")).rejects.toMatchObject({
-      url: "/login?next=%2Fadmin%2Feditor",
+    await expect(requireUser("/app/editor")).rejects.toMatchObject({
+      url: "/login?next=%2Fapp%2Feditor",
     });
   });
 

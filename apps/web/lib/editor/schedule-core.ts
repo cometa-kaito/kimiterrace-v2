@@ -121,19 +121,19 @@ export function targetId(target: EditorTarget): string | null {
 
 /**
  * 編集対象のエディタ画面 path を返す (date クエリは付けない)。クラスは既存
- * `/admin/editor/[classId]`、scope 編集は `/admin/editor/scope/...`。route 形を 1 か所に閉じ込め、
+ * `/app/editor/[classId]`、scope 編集は `/app/editor/scope/...`。route 形を 1 か所に閉じ込め、
  * 日付変更ナビ (client) と index / scope ページ (server) で同じ path 生成を共有する。
  */
 export function editorBasePath(target: EditorTarget): string {
   switch (target.scope) {
     case "school":
-      return "/admin/editor/scope/school";
+      return "/app/editor/scope/school";
     case "department":
-      return `/admin/editor/scope/department/${target.departmentId}`;
+      return `/app/editor/scope/department/${target.departmentId}`;
     case "grade":
-      return `/admin/editor/scope/grade/${target.gradeId}`;
+      return `/app/editor/scope/grade/${target.gradeId}`;
     case "class":
-      return `/admin/editor/${target.classId}`;
+      return `/app/editor/${target.classId}`;
   }
 }
 

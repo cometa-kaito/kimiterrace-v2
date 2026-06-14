@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/lib/teacher-input/draft-actions", () => ({ createDraftFromInputAction: vi.fn() }));
 
 import { listTeacherInputs } from "@kimiterrace/db";
-import TeacherInputHistoryPage from "../../app/admin/teacher-input/history/page";
+import TeacherInputHistoryPage from "../../app/app/teacher-input/history/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { TEACHER_INPUT_STAFF_ROLES } from "../../lib/teacher-input/roles";

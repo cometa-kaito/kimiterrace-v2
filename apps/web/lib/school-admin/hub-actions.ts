@@ -75,7 +75,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * mutation の共通後処理: 自校 tx で `build` を実行 → `/admin/school` を revalidate →
+ * mutation の共通後処理: 自校 tx で `build` を実行 → `/app/school` を revalidate →
  * 統一エラー写像。CrossTenantError → invalid、HubNotFoundError → not_found、
  * ChildExistsError → conflict、unique 違反 → conflict (同名 500 化を防ぐ)、
  * それ以外は再 throw (想定外は握り潰さない)。
@@ -88,7 +88,7 @@ async function finish<T>(
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
     // (ADR-019 §#95 / Issue #197)。ハブは常に特定 school を対象にするテナントスコープ操作。
     const data = await withSession(build, { tenantScoped: true });
-    revalidatePath("/admin/school");
+    revalidatePath("/app/school");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantError) {

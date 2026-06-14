@@ -10,7 +10,7 @@ import { type FormEvent, useState, useTransition } from "react";
 
 /**
  * F11 (#508): system_admin が **任意校に学校管理者を発行**するフォーム。**Client Component** —
- * `createSystemStaffAction` を呼ぶ。`/admin/school/members/new` の `StaffCreateForm` (school_admin 自校版)
+ * `createSystemStaffAction` を呼ぶ。`/app/school/members/new` の `StaffCreateForm` (school_admin 自校版)
  * の system_admin 全校横断版で、**発行先の学校**を入力で選べる点が異なる。教員は学校共通PW (ADR-032・系統A)
  * でログインし個別アカウントを持たないため発行対象でない (教員アカウント概念の撤去・2026-06-10)。
  *

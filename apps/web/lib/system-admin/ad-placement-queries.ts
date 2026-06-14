@@ -5,7 +5,7 @@ import { asc, desc, eq } from "drizzle-orm";
  * F10 / #46: **system_admin（運営）の広告掲載導線**用に、指定校のクラス一覧を取得する。
  *
  * 運営が広告主の素材を各クラスのサイネージへ掲載できるよう、`/ops/schools/{id}/ads` から
- * クラスを選んで `/admin/editor/{classId}/ads`（クラス別広告管理、ADS_ROLES = school_admin/system_admin）
+ * クラスを選んで `/app/editor/{classId}/ads`（クラス別広告管理、ADS_ROLES = school_admin/system_admin）
  * へ導く。
  *
  * **テナント境界は RLS が担保（ルール2）**: 本関数は **system_admin の RLS コンテキスト

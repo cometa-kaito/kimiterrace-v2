@@ -62,30 +62,30 @@ type PageCase = {
 };
 
 const PAGE_CASES: readonly PageCase[] = [
-  // /admin レイアウト = ADMIN_ROLES (system_admin/school_admin/teacher)。全管理ロール許可。
-  // 各ロールは homePathForRole で別ホームへ redirect される緩い形: school_admin→/admin/school・
-  // teacher→/admin/editor は /admin 配下だが、**system_admin→/ops/schools**（namespace 改称 §4.1）は
-  // /ops 配下に着地する。よって allowUrl は両 namespace を許容する（/forbidden・/login でないことは別途確認）。
+  // /admin index = ADMIN_ROLES (system_admin/school_admin/teacher)。全管理ロール許可。/admin layout/page は
+  // PR-3 まで残置し、homePathForRole で各ロール別ホームへ redirect する: school_admin→/app/school・
+  // teacher→/app/editor（namespace 改称 §4.1 で /app へ）・system_admin→/ops/schools。いずれも /admin 配下には
+  // 着地しないため、allowUrl は新 namespace (/app・/ops) を許容する（/forbidden・/login でないことは別途確認）。
   {
     label: "/admin (ADMIN_ROLES)",
     path: "/admin",
     allow: ALL_ROLES,
-    allowUrl: /\/(admin|ops)(\/|$)/,
+    allowUrl: /\/(app|ops)(\/|$)/,
   },
-  // /admin/editor/[classId] = EDITOR_ROLES (school_admin/teacher)。system_admin は 403。
+  // /app/editor/[classId] = EDITOR_ROLES (school_admin/teacher)。system_admin は 403。
   // SEED.CLASS_ID は SCHOOL1 のクラス。school_admin/teacher は同一校なので RLS 可視で到達できる。
   {
-    label: "/admin/editor/[classId] (EDITOR_ROLES; system_admin 403)",
-    path: `/admin/editor/${SEED.CLASS_ID}`,
+    label: "/app/editor/[classId] (EDITOR_ROLES; system_admin 403)",
+    path: `/app/editor/${SEED.CLASS_ID}`,
     allow: ["school_admin", "teacher"],
-    allowUrl: new RegExp(`/admin/editor/${SEED.CLASS_ID}`),
+    allowUrl: new RegExp(`/app/editor/${SEED.CLASS_ID}`),
   },
-  // /admin/contents = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403 (自校用一覧)。
+  // /app/contents = PUBLISHER_ROLES (school_admin/teacher)。system_admin は 403 (自校用一覧)。
   {
-    label: "/admin/contents (PUBLISHER_ROLES; system_admin 403)",
-    path: "/admin/contents",
+    label: "/app/contents (PUBLISHER_ROLES; system_admin 403)",
+    path: "/app/contents",
     allow: ["school_admin", "teacher"],
-    allowUrl: /\/admin\/contents$/,
+    allowUrl: /\/app\/contents$/,
   },
   // /ops/schools = SYSTEM_ADMIN_ROLES (system_admin のみ)。school_admin/teacher は 403。
   {
@@ -101,7 +101,7 @@ const PAGE_CASES: readonly PageCase[] = [
     allow: ["system_admin"],
     allowUrl: /\/ops\/users$/,
   },
-  // /admin/school/members（school_admin の自校教職員管理）は教員アカウント概念の撤去（2026-06-10）で
+  // /app/school/members（school_admin の自校教職員管理）は教員アカウント概念の撤去（2026-06-10）で
   // ページごと廃止したため、認可マトリクスからも除外（教員は学校共通パスワード=系統A のみでログイン）。
 ];
 

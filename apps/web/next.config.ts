@@ -82,12 +82,25 @@ export const CONTENT_SECURITY_POLICY_REPORT_ONLY = CSP_REPORT_ONLY_DIRECTIVES.jo
  * middleware の matcher は負の先読みで `/ops` を自動的に保護対象に含むため、保護目的の matcher 変更は不要。
  *
  * **段階導入の規律**: `:path*` は 0 個以上のセグメントに一致するため `source` は旧パスの **移設済 prefix のみ**
- * を列挙する (未移設の prefix を足すと、まだ移動していない実体へ 308 して 404 を生む)。学校系 `/admin/*`→`/app/*`
- * は後続 PR で実体移設と同時に追加する。テスト容易性のため named export し `__tests__` から mapping を pin する。
+ * を列挙する (未移設の prefix を足すと、まだ移動していない実体へ 308 して 404 を生む)。素の `/admin/:path*`
+ * catch-all は **まだ置かない** — `/admin` 配下には未移設の account / signage-preview / dashboard / sensors /
+ * reports / tv-devices が残るため。それらと `/admin` index は後続 PR-3 で移設し catch-all へ集約する。
+ * テスト容易性のため named export し `__tests__` から mapping を pin する。
  */
 export const NAMESPACE_REDIRECTS = [
   // PR-1: 運営・配信コンソール。/admin/system 配下を /ops へ (実体は app/ops/* に移設済)。
   { source: "/admin/system/:path*", destination: "/ops/:path*", permanent: true },
+  // PR-2: 学校コンソール中核。/admin/<prefix> 配下を /app へ (実体は app/app/<prefix>/* に移設済)。
+  // prefix 単位で列挙し、未移設 (/admin/account 等) を飲み込む素の /admin/:path* catch-all は張らない。
+  { source: "/admin/editor/:path*", destination: "/app/editor/:path*", permanent: true },
+  { source: "/admin/school/:path*", destination: "/app/school/:path*", permanent: true },
+  { source: "/admin/contents/:path*", destination: "/app/contents/:path*", permanent: true },
+  { source: "/admin/chat/:path*", destination: "/app/chat/:path*", permanent: true },
+  {
+    source: "/admin/teacher-input/:path*",
+    destination: "/app/teacher-input/:path*",
+    permanent: true,
+  },
 ] as const;
 
 const nextConfig: NextConfig = {
