@@ -7,6 +7,8 @@
  * PII を入れない（device_id / 教室ラベルの生値はここで扱わない、ルール4）。
  */
 
+import type { DowntimeCauseCategory } from "./downtime-cause";
+
 /** ダウンタイム原因（`tv_device_downtime.cause_hint`）の表示ラベル。NULL = 未判定。 */
 export const TV_DOWNTIME_CAUSE_LABEL: Record<"unknown" | "reboot" | "network", string> = {
   unknown: "原因不明",
@@ -21,6 +23,64 @@ export const TV_DOWNTIME_CAUSE_LABEL: Record<"unknown" | "reboot" | "network", s
 export function formatDowntimeCause(cause: string | null): string {
   if (cause === null) return "未判定";
   return TV_DOWNTIME_CAUSE_LABEL[cause as keyof typeof TV_DOWNTIME_CAUSE_LABEL] ?? "未判定";
+}
+
+// ---------------------------------------------------------------------------
+// 推定原因カテゴリの表示（運営整理 Phase6 / BUG-2 切り分け加速）
+// downtime-cause.ts の estimateDowntimeCause が返すカテゴリの日本語ラベル・根拠文・候補を一元管理する。
+// DB の cause_hint enum（上記 TV_DOWNTIME_CAUSE_LABEL）とは別系統（表示・診断専用、ルール3 の値域は混同しない）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 推定原因カテゴリの表示ラベル。`Record<DowntimeCauseCategory, string>` への代入でカテゴリ全値の網羅を
+ * コンパイル時に強制する（カテゴリが増えるとここがエラーになり気付ける、ルール3 と同じ網羅性ガード）。
+ * 色のみに依存しないテキスト（NFR05 / WCAG 2.2 AA）。
+ */
+export const DOWNTIME_CAUSE_CATEGORY_LABEL: Record<DowntimeCauseCategory, string> = {
+  reboot: "再起動・電源復帰の可能性",
+  network: "通信断",
+  scheduled_off: "消灯時間帯（正常の可能性）",
+  indeterminate: "応答途絶（未確定）",
+  ongoing_action: "未復帰・要対応",
+  ongoing_watch: "未復帰・様子見（消灯中）",
+};
+
+/**
+ * 推定の **根拠（透明性）**。なぜこの推定なのかを運営者に 1 行で示す。schedule 由来は「現在設定基準」と
+ * 明示し、過去の設定変更でズレうる soft context であることを伝える（downtime-cause.ts の 2 層トラスト参照）。
+ */
+export const DOWNTIME_CAUSE_CATEGORY_RATIONALE: Record<DowntimeCauseCategory, string> = {
+  reboot: "復帰時に端末の再起動を観測（last_boot_at 進行）。",
+  network: "復帰時に通信断として記録（cause_hint=network）。",
+  scheduled_off:
+    "発生時刻が現在の消灯スケジュール窓内のため、正常な黒画面の可能性（現在設定基準・過去設定とは異なる場合あり）。",
+  indeterminate:
+    "ポーリング途絶のみ観測。電源OFF / ネット断 / アプリ停止は区別できません（ADR-023）。",
+  ongoing_action: "未復帰、かつ現在は表示時間帯。応答が戻っていないため要対応。",
+  ongoing_watch: "未復帰、ただし現在は消灯時間帯のため、まずは様子見。",
+};
+
+/**
+ * `indeterminate`（応答途絶・未確定）のときに併記する候補。断定せず 3 つを正直に並べる
+ * （ADR-023 §悪い影響: 心拍だけでは区別不能）。
+ */
+export const DOWNTIME_CAUSE_INDETERMINATE_CANDIDATES: readonly string[] = [
+  "電源OFF",
+  "ネットワーク断",
+  "アプリ停止",
+];
+
+/** 推定原因カテゴリの表示用記述（ラベル・根拠・候補）をまとめて返す。候補は indeterminate のときのみ。 */
+export function describeDowntimeCause(category: DowntimeCauseCategory): {
+  label: string;
+  rationale: string;
+  candidates: readonly string[];
+} {
+  return {
+    label: DOWNTIME_CAUSE_CATEGORY_LABEL[category],
+    rationale: DOWNTIME_CAUSE_CATEGORY_RATIONALE[category],
+    candidates: category === "indeterminate" ? DOWNTIME_CAUSE_INDETERMINATE_CANDIDATES : [],
+  };
 }
 
 /**

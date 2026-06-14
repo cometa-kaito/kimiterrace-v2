@@ -270,8 +270,9 @@ export const TV_DOWNTIME_SORT_COLUMNS = {
 export const TV_DOWNTIME_SORT_KEYS = Object.keys(TV_DOWNTIME_SORT_COLUMNS) as readonly string[];
 
 type TvDowntimeRow = InferSelectModel<typeof tvDeviceDowntime>;
+type TvDeviceRow = InferSelectModel<typeof tvDevices>;
 
-/** 一覧 1 行。schema 由来の射影 + JOIN 解決した校名 / デバイスラベル。notes (運用メモ) は出さない。 */
+/** 一覧 1 行。schema 由来の射影 + JOIN 解決した校名 / デバイスラベル / スケジュール。notes (運用メモ) は出さない。 */
 export type TvDowntimeLogEntry = Pick<
   TvDowntimeRow,
   "id" | "deviceId" | "schoolId" | "wentDownAt" | "recoveredAt" | "durationSec" | "causeHint"
@@ -279,6 +280,11 @@ export type TvDowntimeLogEntry = Pick<
   schoolName: string;
   /** 設置場所ラベル (tv_devices.label)。デバイス不可視/未設定は null → 呼び出し側で id 短縮表示。 */
   deviceLabel: string | null;
+  /**
+   * デバイスの現在の表示スケジュール (tv_devices.schedule_json)。推定原因の「消灯時間帯か」判定に使う
+   * (estimateDowntimeCause)。デバイス不可視 (leftJoin で null) は常時 ON 扱い。非 PII・非 secret。
+   */
+  scheduleJson: TvDeviceRow["scheduleJson"];
 };
 
 /** 一覧 1 ページ分 + 総件数。 */
@@ -342,6 +348,7 @@ export async function listTvDowntimeLogPage(
         schoolId: tvDeviceDowntime.schoolId,
         schoolName: schools.name,
         deviceLabel: tvDevices.label,
+        scheduleJson: tvDevices.scheduleJson,
         wentDownAt: tvDeviceDowntime.wentDownAt,
         recoveredAt: tvDeviceDowntime.recoveredAt,
         durationSec: tvDeviceDowntime.durationSec,

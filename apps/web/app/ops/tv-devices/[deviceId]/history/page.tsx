@@ -1,13 +1,15 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { isUuid } from "@/lib/tv/config-edit-core";
+import { estimateDowntimeCause } from "@/lib/tv/downtime-cause";
 import {
-  formatDowntimeCause,
+  describeDowntimeCause,
   formatDowntimeDuration,
   formatJstTimestamp,
 } from "@/lib/tv/downtime-format";
 import { ADMIN_ROLES } from "@/lib/nav";
 import { shortDeviceId } from "@/lib/tv/status";
+import type { TvSchedule } from "@kimiterrace/db/schema";
 import {
   DEFAULT_UPTIME_WINDOW_DAYS,
   type TvDowntimeHistoryRow,
@@ -65,6 +67,9 @@ export default async function TvDeviceHistoryPage({
     notFound();
   }
   const { device, history, summary } = data;
+  // 継続中行の文脈評価（要対応/様子見）はリクエストで 1 回だけ now を固定し全行で共有する
+  // （時刻境界で行ごとに判定がぶれないように）。
+  const now = new Date();
 
   return (
     <section>
@@ -115,7 +120,12 @@ export default async function TvDeviceHistoryPage({
           </thead>
           <tbody>
             {history.map((row) => (
-              <DowntimeRow key={row.id} row={row} />
+              <DowntimeRow
+                key={row.id}
+                row={row}
+                schedule={device.scheduleJson ?? null}
+                now={now}
+              />
             ))}
           </tbody>
         </table>
@@ -150,9 +160,31 @@ function UptimeSummaryCard({
   );
 }
 
-/** ダウンタイム 1 件の行。継続中（recovered_at NULL）は復帰列「—」・状態「継続中」で明示。 */
-function DowntimeRow({ row }: { row: TvDowntimeHistoryRow }) {
+/**
+ * ダウンタイム 1 件の行。継続中（recovered_at NULL）は復帰列「—」・状態「継続中」で明示。
+ * 推定原因は per-row 確定事実（causeHint）+ デバイスの現在 schedule から estimateDowntimeCause で導き、
+ * ラベル + 根拠文 +（未確定時は）候補 3 つを色のみに依存せずテキストで示す（NFR05 / WCAG 2.2 AA、ADR-023）。
+ */
+function DowntimeRow({
+  row,
+  schedule,
+  now,
+}: {
+  row: TvDowntimeHistoryRow;
+  schedule: TvSchedule | null;
+  now: Date;
+}) {
   const ongoing = row.recoveredAt === null;
+  const category = estimateDowntimeCause(
+    {
+      wentDownAt: row.wentDownAt,
+      recoveredAt: row.recoveredAt,
+      causeHint: row.causeHint,
+      schedule,
+    },
+    now,
+  );
+  const cause = describeDowntimeCause(category);
   return (
     <tr>
       <th scope="row" style={tdLeftStyle}>
@@ -161,7 +193,13 @@ function DowntimeRow({ row }: { row: TvDowntimeHistoryRow }) {
       <td style={tdLeftStyle}>{formatJstTimestamp(row.recoveredAt)}</td>
       <td style={tdLeftStyle}>{formatDowntimeDuration(row.durationSec)}</td>
       <td style={tdLeftStyle}>{ongoing ? "継続中" : "復帰済み"}</td>
-      <td style={tdLeftStyle}>{formatDowntimeCause(row.causeHint)}</td>
+      <td style={tdLeftStyle}>
+        <div>{cause.label}</div>
+        {cause.candidates.length > 0 ? (
+          <div style={causeCandidatesStyle}>候補: {cause.candidates.join(" / ")}</div>
+        ) : null}
+        <div style={causeRationaleStyle}>{cause.rationale}</div>
+      </td>
     </tr>
   );
 }
@@ -225,4 +263,18 @@ const tdLeftStyle: React.CSSProperties = {
   padding: "0.5rem 0.6rem",
   borderBottom: "1px solid #f3f4f6",
   fontWeight: 500,
+};
+const causeCandidatesStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: "0.78rem",
+  fontWeight: 400,
+  marginTop: "0.15rem",
+};
+const causeRationaleStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: "0.75rem",
+  fontWeight: 400,
+  marginTop: "0.15rem",
+  maxWidth: "28rem",
+  lineHeight: 1.5,
 };
