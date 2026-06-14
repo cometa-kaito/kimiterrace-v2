@@ -65,9 +65,10 @@ POST /api/partner/delivery
 {
   "advertiser": { "portalCompanyId":"uuid","companyName":"…","industry":"…","contactEmail":"…","status":"active|prospect|paused" },
   "contract":   { "portalContractId":"uuid","monthlyFeeJpy":30000,"startedAt":"ISO","endedAt":"ISO|null","targetV2SchoolIds":["uuid"] },
-  "ads": [ { "portalPlacementId":"uuid","v2SchoolId":"uuid","scope":"school|grade|department|class","scopeRef":"学科名|学年名|クラス名|null","mediaType":"image|video","durationSec":7,"displayOrder":1,"assetFetchUrl":"https://…(短命署名URL)","caption":"…?","linkUrl":"…?" } ]
+  "ads": [ { "portalPlacementId":"uuid","v2SchoolId":"uuid","scope":"school|grade|department|class","scopeRef":"学科名|学年名|クラス名|null","mediaType":"image|video","durationSec":7,"displayOrder":1,"assetFetchUrl":"https://…(短命署名URL)","title":"素材タイトル(広告名)…?","caption":"…?","linkUrl":"…?" } ]
 }
 ```
+- **title / caption（広告名 = 「(無題の広告)」修正・運営整理 §4）**: `title` は portal の**素材タイトル（広告名）**で任意（≤60文字）。v2 は専用の `ads.title` 列を持たず **`caption` に流用**する（ユーザー判断 2026-06-14）。正規化規則は **`caption` が明示指定されていればそれを優先、無ければ `title` を `caption` として採用**（両方 null なら null）。これにより月次レポート PDF の「（無題の広告）」フォールバックは caption も title も無い場合のみに限定される。portal は素材タイトルを **必ず** `title`（または `caption`）で送ること。
 - **scope / scopeRef（Phase4 §0b 枠モデル）**: `scope` は配信スコープ。`school`=学校全体（`scopeRef`=null）。`department`/`grade`/`class` は `scopeRef` に**対象の名前**（学科名/学年名/クラス名）を入れる。v2 が **`v2SchoolId` の学校内で名前一致解決**して `ads.grade_id`/`class_id`/`department_id` を確定する（`ck_ads_scope` 充足）。非 school で `scopeRef` 欠如は **400**。学校内に対象が無い/曖昧（class 名が複数一致）は **409**（再送で直らない・portal 側を直す）。※学校特定後の sub-scope は名前一致で解決する（学校ブリッジ `v2_school_id` の「名前一致禁止」規律は学校特定のみが対象）。
 - **挙動**: `portalCompanyId`/`portalContractId`/`portalPlacementId` を**冪等キー**に `advertisers`/`contracts`/`ads` を upsert。`assetFetchUrl` を v2 が取得して **GCS（ad-media バケット・キー `ads/partner/<portalPlacementId>`）へ再ホスト** → `ads.media_url` には**同一オリジン配信パス `/ad-media/<key>`**（ADR-037・県教委 Wi-Fi FQDN 許可リスト対応。API レスポンス契約には影響しない v2 内部表現）。
 - **200**: `{ "applied": { "advertisers":1, "contracts":1, "ads":3 }, "advertiserId":"uuid" }`。

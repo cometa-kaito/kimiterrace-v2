@@ -103,6 +103,10 @@ const adSchema = z
     displayOrder: z.number().int().min(ORDER_MIN).max(ORDER_MAX),
     assetFetchUrl: httpsUrl,
     caption: nullableTrimmed(CAPTION_MAX),
+    // portal 素材タイトル（広告名）。「(無題の広告)」修正（運営整理 §4 / K3）: ads に専用の title 列は持たず
+    // **caption に流用**する（ユーザー判断 2026-06-14）。caption が明示指定されていればそれを優先し、無ければ
+    // title を caption として採用する（下の正規化）。月次レポート PDF は caption 未設定時のみ「(無題の広告)」に倒す。
+    title: nullableTrimmed(CAPTION_MAX),
     linkUrl: z
       .union([httpsUrl, z.null()])
       .optional()
@@ -193,7 +197,9 @@ export function parseDeliveryPayload(raw: unknown): ParseResult {
     durationSec: a.durationSec,
     displayOrder: a.displayOrder,
     assetFetchUrl: a.assetFetchUrl,
-    caption: a.caption,
+    // 「(無題の広告)」修正: caption が無ければ portal 素材タイトル(title)を caption として採用する
+    // （title 専用列は持たず caption に一本化）。両方 null なら null（PDF が「(無題の広告)」に倒す）。
+    caption: a.caption ?? a.title,
     linkUrl: a.linkUrl,
   }));
 
