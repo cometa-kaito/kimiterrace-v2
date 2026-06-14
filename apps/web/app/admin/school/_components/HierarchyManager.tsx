@@ -1110,8 +1110,7 @@ function NextYearCopy({
             <p style={modalBodyStyle}>
               {currentYear}年度 の構成を {targetYear}年度
               に複製します。各クラスを新年度の空クラスとして作成します（予定・公開内容は複製されません）。
-              実行のたびに翌年度へ1年進みます。{targetYear}年度
-              のクラスが既にある場合は実行しないでください。
+              実行のたびに翌年度へ1年進みます。重複は作成されません（既存クラスはスキップされます）。
             </p>
             <div style={modalActionsStyle}>
               <button type="button" style={ghostBtnStyle} onClick={() => setOpen(false)}>
@@ -1127,7 +1126,9 @@ function NextYearCopy({
                     if (res.ok) {
                       notify(
                         true,
-                        `${res.data.created}件のクラスを${res.data.targetYear}年度に複製しました。`,
+                        res.data.created === 0
+                          ? `${res.data.targetYear}年度のクラスは既に揃っています（新規作成なし）。`
+                          : `${res.data.created}件のクラスを${res.data.targetYear}年度に複製しました。`,
                       );
                       setOpen(false);
                     } else {
