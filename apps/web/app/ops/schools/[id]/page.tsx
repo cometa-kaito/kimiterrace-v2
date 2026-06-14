@@ -2,6 +2,15 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
+import {
+  type SchoolTree,
+  type TreeClass,
+  type TreeDepartment,
+  type TreeDevice,
+  type TreeGrade,
+  getSchoolTree,
+} from "@/lib/system-admin/school-tree";
+import { TV_STATUS_ICON, TV_STATUS_LABEL, classifyTvLiveness } from "@/lib/tv/status";
 import { getSchoolDetail } from "@kimiterrace/db";
 import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
 import Link from "next/link";
@@ -15,14 +24,17 @@ const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
 };
 
 /**
- * #48-L2 (#123): システム管理者の学校詳細 (`/ops/schools/{id}`)。**Server Component**。
+ * #48-L2 (#123) / 運営整理 §4 item3: システム管理者の学校詳細 (`/ops/schools/{id}`)。**Server Component**。
+ *
+ * マスタ情報に加え、配下を **学科 → 学年 → クラス → 設置場所 → モニタ** の**階層ツリー**で展開する
+ * (`getSchoolTree`)。数字サマリ (件数カード) で止めず、運営がどこにモニタが設置済 / 未設置かを構造で把握できる
+ * ようにする。物理最小単位はモニタ = `tv_devices` 1 行で、その `label` が設置場所を表す (統合マスター §0b)。
+ * モニタの稼働状態は `last_seen_at` 鮮度から判定 (`classifyTvLiveness`、TV 一覧と同一ロジック)、行から
+ * 端末設定 (`/ops/tv-devices/{id}/edit`) へ遷移できる。
  *
  * **認可**: `/admin` layout の `requireRole(ADMIN_ROLES)` に加え `requireRole(SYSTEM_ADMIN_ROLES)`
- * (system_admin のみ)。school_admin / teacher は 403 (`/forbidden`)。
- *
- * `withSession` の RLS tx で `getSchoolDetail` を取得 — マスタ全フィールド + 配下の学年/クラス/学科の
- * 件数。可視範囲は schools の RLS が決め (system_admin=全校)、不可視 (他校 / 不存在 / 不正 id) は
- * 404 (`notFound()`)。編集は本画面の「編集」リンクから `/{id}/edit` (#48-L1) へ。
+ * (system_admin のみ)。school_admin / teacher は 403。可視範囲は schools / 配下テーブルの RLS が決め
+ * (system_admin=全校)、不可視 / 不存在 / 不正 id は 404。秘匿値 (device_id・MAC 等) はツリーに出さない (ルール4)。
  */
 export default async function SystemSchoolDetailPage({
   params,
@@ -39,6 +51,9 @@ export default async function SystemSchoolDetailPage({
     notFound();
   }
   const { school, counts } = detail;
+  const tree = await withSession((tx) => getSchoolTree(tx, school.id));
+  // 稼働判定の基準時刻はリクエスト時の 1 点に固定する (ツリー全体で一貫させる)。
+  const now = new Date();
 
   return (
     <article style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -79,7 +94,141 @@ export default async function SystemSchoolDetailPage({
           <CountCard label="クラス" value={counts.classes} />
         </div>
       </section>
+
+      <section>
+        <h2 style={sectionTitleStyle}>階層ツリー（学科 → 学年 → クラス → 設置場所・モニタ）</h2>
+        <p style={treeNoteStyle}>
+          設置場所はモニタのラベルで表します。モニタ行から端末設定を編集できます。
+        </p>
+        <SchoolTreeView tree={tree} now={now} />
+      </section>
     </article>
+  );
+}
+
+/** 学校階層ツリー本体。学科モードは学科 → 学年、クラスモードは学年直下から展開する。 */
+function SchoolTreeView({ tree, now }: { tree: SchoolTree; now: Date }) {
+  const isEmpty =
+    tree.departments.length === 0 && tree.grades.length === 0 && tree.schoolDevices.length === 0;
+  if (isEmpty) {
+    return <p style={emptyStyle}>階層 (学年・学科・クラス) がまだ登録されていません。</p>;
+  }
+  return (
+    <div style={treeStyle}>
+      {tree.departments.map((d) => (
+        <DepartmentNode key={d.id} dept={d} now={now} />
+      ))}
+      {tree.grades.map((g) => (
+        <GradeNode key={g.id} grade={g} now={now} />
+      ))}
+      {tree.schoolDevices.length > 0 ? (
+        <details style={nodeStyle}>
+          <summary style={summaryStyle}>
+            学校全体（設置場所）
+            <span style={badgeCountStyle}>モニタ {tree.schoolDevices.length}</span>
+          </summary>
+          <DeviceList devices={tree.schoolDevices} now={now} />
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function DepartmentNode({ dept, now }: { dept: TreeDepartment; now: Date }) {
+  return (
+    <details style={nodeStyle} open>
+      <summary style={summaryStyle}>
+        🏛 {dept.name}
+        <span style={badgeCountStyle}>学年 {dept.grades.length}</span>
+      </summary>
+      <div style={childrenStyle}>
+        {dept.grades.map((g) => (
+          <GradeNode key={g.id} grade={g} now={now} />
+        ))}
+        {dept.devices.length > 0 ? (
+          <DeviceList devices={dept.devices} now={now} caption="学科直下のモニタ" />
+        ) : null}
+        {dept.grades.length === 0 && dept.devices.length === 0 ? (
+          <p style={emptyStyle}>この学科に学年がありません。</p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function GradeNode({ grade, now }: { grade: TreeGrade; now: Date }) {
+  return (
+    <details style={nodeStyle}>
+      <summary style={summaryStyle}>
+        📚 {grade.name}
+        <span style={badgeCountStyle}>クラス {grade.classes.length}</span>
+      </summary>
+      <div style={childrenStyle}>
+        {grade.classes.map((c) => (
+          <ClassNode key={c.id} cls={c} now={now} />
+        ))}
+        {grade.devices.length > 0 ? (
+          <DeviceList devices={grade.devices} now={now} caption="学年直下のモニタ" />
+        ) : null}
+        {grade.classes.length === 0 && grade.devices.length === 0 ? (
+          <p style={emptyStyle}>この学年にクラスがありません。</p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ClassNode({ cls, now }: { cls: TreeClass; now: Date }) {
+  return (
+    <div style={classRowStyle}>
+      <div style={classHeadStyle}>
+        <span>🏫 {cls.name}</span>
+        <span style={yearStyle}>{cls.academicYear}年度</span>
+        <span style={badgeCountStyle}>モニタ {cls.devices.length}</span>
+      </div>
+      {cls.devices.length > 0 ? (
+        <DeviceList devices={cls.devices} now={now} />
+      ) : (
+        <p style={emptyStyle}>モニタ未設置</p>
+      )}
+    </div>
+  );
+}
+
+function DeviceList({
+  devices,
+  now,
+  caption,
+}: {
+  devices: TreeDevice[];
+  now: Date;
+  caption?: string;
+}) {
+  return (
+    <div style={deviceWrapStyle}>
+      {caption ? <p style={deviceCaptionStyle}>{caption}</p> : null}
+      <ul style={deviceListStyle}>
+        {devices.map((d) => {
+          const status = classifyTvLiveness(d.lastSeenAt, now);
+          return (
+            <li key={d.id} style={deviceItemStyle}>
+              <span style={deviceLabelStyle}>📺 {d.label ?? "（ラベル未設定）"}</span>
+              <span
+                style={statusBadgeStyle}
+                title={d.monitoringEnabled ? undefined : "死活監視オフ"}
+              >
+                {/* アイコンは色の補助、テキストラベルが本体 (NFR05: 色のみに依存しない)。 */}
+                <span aria-hidden="true">{TV_STATUS_ICON[status]}</span> {TV_STATUS_LABEL[status]}
+                {d.monitoringEnabled ? "" : "（監視オフ）"}
+              </span>
+              <Link href={`/ops/tv-devices/${d.id}/edit`} style={deviceLinkStyle}>
+                端末設定
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -155,3 +304,77 @@ const cardStyle: React.CSSProperties = {
 };
 const cardValueStyle: React.CSSProperties = { fontSize: "1.5rem", fontWeight: 700 };
 const cardLabelStyle: React.CSSProperties = { fontSize: "0.8rem", color: "#6b7280" };
+const treeNoteStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: "0.8rem",
+  margin: "0 0 0.6rem",
+};
+const treeStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "0.4rem" };
+const nodeStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "8px",
+  padding: "0.4rem 0.75rem",
+};
+const summaryStyle: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: "0.92rem",
+  display: "flex",
+  alignItems: "center",
+  gap: "0.6rem",
+};
+const childrenStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.4rem",
+  margin: "0.5rem 0 0.25rem 1rem",
+  paddingLeft: "0.75rem",
+  borderLeft: "2px solid #f3f4f6",
+};
+const classRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+  padding: "0.35rem 0",
+};
+const classHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.6rem",
+  fontSize: "0.9rem",
+};
+const yearStyle: React.CSSProperties = { fontSize: "0.75rem", color: "#9ca3af" };
+const badgeCountStyle: React.CSSProperties = { fontSize: "0.72rem", color: "#6b7280" };
+const deviceWrapStyle: React.CSSProperties = { marginLeft: "1.25rem" };
+const deviceCaptionStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#9ca3af",
+  margin: "0.25rem 0",
+};
+const deviceListStyle: React.CSSProperties = {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+};
+const deviceItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.6rem",
+  fontSize: "0.85rem",
+};
+const deviceLabelStyle: React.CSSProperties = { color: "#374151" };
+const statusBadgeStyle: React.CSSProperties = {
+  fontSize: "0.72rem",
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  color: "#374151",
+};
+const deviceLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.8rem" };
+const emptyStyle: React.CSSProperties = {
+  color: "#9ca3af",
+  fontSize: "0.82rem",
+  margin: "0.25rem 0",
+};
