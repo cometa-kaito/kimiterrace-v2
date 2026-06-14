@@ -1,6 +1,6 @@
 "use client";
 
-import { EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
+import { EXPIRES_DEFAULT_DAYS, EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 
@@ -226,7 +226,7 @@ export function MagicLinkManager({
     <div>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
         <label style={{ fontSize: "0.9rem" }}>
-          有効期限(日、未指定で既定):{" "}
+          有効期限(日、未指定で既定 {EXPIRES_DEFAULT_DAYS}日＝1年):{" "}
           <input
             type="number"
             inputMode="numeric"
@@ -234,7 +234,7 @@ export function MagicLinkManager({
             max={EXPIRES_MAX_DAYS}
             value={expiresInDays}
             onChange={(e) => setExpiresInDays(e.target.value)}
-            placeholder="90"
+            placeholder={String(EXPIRES_DEFAULT_DAYS)}
             style={inputStyle}
           />
         </label>

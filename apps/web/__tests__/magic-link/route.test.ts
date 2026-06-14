@@ -57,6 +57,13 @@ vi.mock("@kimiterrace/db", () => ({
 import { POST as EXTEND } from "../../app/api/magic-links/[id]/extend/route";
 import { POST as REVOKE } from "../../app/api/magic-links/[id]/revoke/route";
 import { GET, POST } from "../../app/api/magic-links/route";
+import { EXPIRES_DEFAULT_DAYS } from "../../lib/magic-link/request";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** createClassMagicLink に渡った expiresAt（Date）を取り出す。 */
+function passedExpiresAt(): Date {
+  return createClassMagicLink.mock.calls[0]?.[1]?.expiresAt as Date;
+}
 
 function jsonRequest(body: unknown): Request {
   return new Request("http://test/api/magic-links", {
@@ -78,6 +85,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("POST /api/magic-links (発行)", () => {
@@ -129,6 +137,45 @@ describe("POST /api/magic-links (発行)", () => {
         classId: CLASS_ID,
         schoolId: TEACHER.schoolId,
       }),
+    );
+  });
+
+  it("expiresInDays 省略時は既定 1 年 (EXPIRES_DEFAULT_DAYS) を明示適用する (DB 90 日に倒さない・finding④)", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-13T00:00:00.000Z");
+    vi.setSystemTime(now);
+    getCurrentUser.mockResolvedValue(TEACHER);
+    createClassMagicLink.mockResolvedValue({
+      id: LINK_ID,
+      classId: CLASS_ID,
+      expiresAt: new Date(now.getTime() + EXPIRES_DEFAULT_DAYS * DAY_MS),
+      revokedAt: null,
+      createdAt: now,
+    });
+    const res = await POST(jsonRequest({ classId: CLASS_ID }));
+    expect(res.status).toBe(201);
+    // DB 列デフォルト(90日)に倒さず、サーバ時刻起点で既定 365 日の Date を明示的に渡す。
+    const expected = new Date(now.getTime() + EXPIRES_DEFAULT_DAYS * DAY_MS);
+    expect(passedExpiresAt()).toBeInstanceOf(Date);
+    expect(passedExpiresAt().toISOString()).toBe(expected.toISOString());
+    expect(EXPIRES_DEFAULT_DAYS).toBe(365);
+  });
+
+  it("expiresInDays 明示指定はその日数でサーバ時刻起点に算出する", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-13T00:00:00.000Z");
+    vi.setSystemTime(now);
+    getCurrentUser.mockResolvedValue(TEACHER);
+    createClassMagicLink.mockResolvedValue({
+      id: LINK_ID,
+      classId: CLASS_ID,
+      expiresAt: new Date(now.getTime() + 30 * DAY_MS),
+      revokedAt: null,
+      createdAt: now,
+    });
+    await POST(jsonRequest({ classId: CLASS_ID, expiresInDays: 30 }));
+    expect(passedExpiresAt().toISOString()).toBe(
+      new Date(now.getTime() + 30 * DAY_MS).toISOString(),
     );
   });
 
