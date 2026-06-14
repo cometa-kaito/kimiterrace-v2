@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "0cfe217" # 2026-06-13 deploy: サイネージ pattern1 天気をアイコンのみ化(#847) 反映（schema 無変更=migrate 不要）
+  web_image_tag = "f042fe8" # 2026-06-14 deploy: namespace改称 /admin→/ops(運営)・/app(学校)（#891/#894/#895）反映。旧URLは308温存・staging疎通済（schema無変更=migrate不要）
 }
 
 module "network" {
