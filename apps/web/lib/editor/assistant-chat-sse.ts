@@ -128,6 +128,11 @@ export interface AssistantChatArgs {
   allowedSections: readonly DraftSectionKind[];
   /** 実効サイネージパターン（meta フレーム表示用・例 "pattern1"）。 */
   pattern: string;
+  /**
+   * 同パターンで盤面に出るが **AI が作らない**（教員手入力の）セクションのラベル（来校者一覧/生徒呼び出し
+   * 等・ADR-034）。system プロンプトの手入力誘導 + meta フレームに使う（pattern1 では空）。読み取り専用。
+   */
+  manualSectionLabels: readonly string[];
 }
 
 /** SSE 開始後の `error` フレームを送って終了する小ヘルパの戻り（呼び出し側で return する）。 */
@@ -184,10 +189,11 @@ export async function respondWithAssistantChat(
       const send: SendFn = (event, data) =>
         controller.enqueue(encoder.encode(sseFrame(event, data)));
       try {
-        // meta: パターン文脈と許可セクションを最初に通知（UI が把握）。
+        // meta: パターン文脈・許可セクション・手入力セクション（来校者/呼び出し等）を最初に通知（UI が把握）。
         send(ASSISTANT_CHAT_EVENTS.meta, {
           pattern: args.pattern,
           allowedSections: args.allowedSections,
+          manualSections: args.manualSectionLabels,
         });
 
         // Vertex 送信サーフェスを **1 回だけ**組み立てる（会話履歴 + 現在の下書きを平坦化）。soft-gate と
@@ -214,7 +220,11 @@ export async function respondWithAssistantChat(
 
         // 単一マスク往復: 上の userPrompt に 1 回だけ電話/メールをマスク。fail-closed: 残存（辞書化漏れ）なら
         // 送らず中止（ルール4）。
-        const system = buildAssistantChatSystem(args.allowedSections, dateLabel);
+        const system = buildAssistantChatSystem(
+          args.allowedSections,
+          dateLabel,
+          args.manualSectionLabels,
+        );
         const { masked, dictionary } = maskPII(userPrompt, []);
         if (findUnmaskedPii(masked, []).length > 0) {
           sendError(send, 422, "pii_leak");

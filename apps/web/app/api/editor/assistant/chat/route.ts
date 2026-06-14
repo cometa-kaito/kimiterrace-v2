@@ -1,8 +1,14 @@
 import { isRoleAllowed } from "@/lib/auth/guard";
 import { getCurrentUser } from "@/lib/auth/session";
-import { DRAFT_SECTION_KINDS } from "@/lib/editor/assistant-chat-core";
+import { getDb } from "@/lib/db";
 import { respondWithAssistantChat } from "@/lib/editor/assistant-chat-sse";
+import {
+  resolveAllowedSections,
+  resolveManualSectionLabels,
+} from "@/lib/editor/assistant-sections";
 import { EDITOR_ROLES, parseEditorTarget, toEditorActor } from "@/lib/editor/schedule-core";
+import { getSignageDesignPattern } from "@/lib/signage/signage-design";
+import { type TenantContext, withTenantContext } from "@kimiterrace/db";
 
 /**
  * 会話型 AI アシスタント（finding 2b）の **SSE route** `POST /api/editor/assistant/chat`。
@@ -37,22 +43,24 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, "invalid_target");
   }
 
-  // 許可セクション解決（finding①）。
-  // TODO(PR④ パターン準拠): 実効パターンを `getSignageDesignPattern`（学校レベル既定 + 端末 ?design）と
-  // **その他レーンの単一ソース `PATTERN_BLOCKS`** から解決して allowedSections/pattern を決める
-  // （pattern2 なら [schedules] 等）。暫定は pattern1 = 全セクション。**AI レーンで独自の pattern→セクション表は
-  // 定義しない**（PATTERN_BLOCKS 単一ソースの二重化＝ドリフトを避ける・調整ポイント1）。
-  const allowedSections = [...DRAFT_SECTION_KINDS];
-  const pattern = "pattern1";
+  const tenantContext: TenantContext = {
+    userId: user.uid,
+    schoolId: actor.schoolId,
+    role: user.role,
+  };
+
+  // パターン準拠の許可セクション解決（finding①）。学校レベルの実効パターンを自校 RLS tx で読み（エディタは
+  // 端末別 ?design を持たないので学校既定）、其他レーンの**単一ソース `PATTERN_BLOCKS`** を consume して
+  // 会話型 AI が下書きできるセクション（pattern2 なら [schedules]）＋手入力誘導するセクション（来校者/呼び出し）を
+  // 導く。**AI レーンで独自の pattern→セクション表は定義しない**（二重化＝ドリフト回避・調整ポイント1）。
+  const pattern = await withTenantContext(getDb(), tenantContext, (tx) =>
+    getSignageDesignPattern(tx),
+  );
+  const allowedSections = resolveAllowedSections(pattern);
+  const manualSectionLabels = resolveManualSectionLabels(pattern);
 
   return respondWithAssistantChat(
-    {
-      target,
-      actor,
-      tenantContext: { userId: user.uid, schoolId: actor.schoolId, role: user.role },
-      allowedSections,
-      pattern,
-    },
+    { target, actor, tenantContext, allowedSections, pattern, manualSectionLabels },
     request,
   );
 }

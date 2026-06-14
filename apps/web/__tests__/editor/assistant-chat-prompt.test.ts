@@ -36,6 +36,21 @@ describe("buildAssistantChatSystem", () => {
     // 「これ以外のセクションは作らない」誘導が入る。
     expect(sys).toContain("これ以外のセクションは作らない");
   });
+
+  it("手入力セクション（来校者/呼び出し）があれば、AIで作らず手入力フォームへ誘導させる（ADR-034）", () => {
+    const sys = buildAssistantChatSystem(["schedules"], "2026年6月13日（土）", [
+      "生徒呼び出し",
+      "来校者一覧",
+    ]);
+    expect(sys).toContain("生徒呼び出し・来校者一覧");
+    expect(sys).toContain("あなた（AI）は作らない");
+    expect(sys).toContain("手入力フォームから追加してください");
+  });
+
+  it("手入力セクションが空（pattern1）なら誘導文を出さない", () => {
+    const sys = buildAssistantChatSystem(["schedules", "notices", "assignments"], "x", []);
+    expect(sys).not.toContain("手入力フォームから追加してください");
+  });
 });
 
 describe("buildAssistantChatUser", () => {
