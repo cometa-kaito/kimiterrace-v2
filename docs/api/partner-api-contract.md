@@ -52,6 +52,7 @@ GET /api/partner/advertisers/{advertiserId}/metrics?ym=YYYY-MM[&by=school]
 }
 ```
 - ⚠️ **`presence` を追加供給する**（現 advertiser-report は presence 除外＝広告反応指標のみ）。presence は「対象校×契約期間の presence events」を distinct(device_mac) で集計＝**接触機会**（"居た"。"見た"=impressions/reach とは別物、統合マスター §4 で確定）。表記は「接触機会」、視認は断定しない（§32.3）。
+- 📌 **`taps` の系譜（Phase5 月次レポート「クリック数」の供給元）**: `taps` = **`linkUrl` を設定した広告のクリックスルー数**。サイネージで広告領域全体をタップ→新規タブ遷移した回数を `type='tap'`・`payload.adId` で計上する（`linkUrl` 無し広告のタップは `<a>` 化されず計上しない）。実装経路 = `SignageClient`（tap テレメトリ）→ `events` → `advertiser-metrics`（`count(distinct events.id) filter (type='tap')`）。**portal の月次レポートはこの `taps` を「クリック数」として表示し「1回以上のみ表示」する**（接触単価=推定は portal 側で `monthly_fee_jpy / presence` から算出）。本注記はフィールド無変更の系譜明示のみ＝**契約ロック不変**（新フィールド `clicks` は追加しない。portal 側で `taps`→クリック数 にマップする）。
 - エラー: 401 / 404（advertiser無）/ 422（ym不正）/ 500。冪等・PII無し。
 
 ## 3. K3 — 配信 push 受け口（write・Flow B の v2 側）
