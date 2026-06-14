@@ -22,9 +22,10 @@ export interface AllowedUploadType {
 }
 
 /**
- * 許可 MIME → 拡張子。F01 受け入れ条件の PDF / DOCX / XLSX / PNG / JPEG。
+ * 許可 MIME → 拡張子。F01 受け入れ条件の PDF / DOCX / XLSX / CSV / PNG / JPEG。
  * 抽出レイヤ（@kimiterrace/ai の extractText）が対応する形式に揃える。
- * 画像（png/jpeg）はアップロード自体は受理するが、テキスト化は OCR 配線（ADR-024 決定3）後。
+ * CSV（text/csv）は TextExtractor が UTF-8 デコードで素通り（表の取り込み・ユーザー決定 2026-06-13）。
+ * 画像（png/jpeg）は Gemini マルチモーダル OCR（ADR-038）で配線済（旧 ADR-024 決定3 の Vision を supersede）。
  */
 export const ALLOWED_UPLOAD_TYPES: readonly AllowedUploadType[] = [
   { mime: "application/pdf", ext: "pdf" },
@@ -36,6 +37,7 @@ export const ALLOWED_UPLOAD_TYPES: readonly AllowedUploadType[] = [
     mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ext: "xlsx",
   },
+  { mime: "text/csv", ext: "csv" },
   { mime: "image/png", ext: "png" },
   { mime: "image/jpeg", ext: "jpg" },
 ] as const;
@@ -147,7 +149,7 @@ export async function readStreamCapped(
 /**
  * 画像 MIME の先頭マジックバイト署名（PR #522 L-2）。MIME 文字列は偽装可能なので、画像は宣言 MIME と
  * 実バイト列の整合をここで検査する。PDF/DOCX/XLSX は抽出器パースが fail-close (422) で実質検証されるが、
- * 画像は OCR 未配線（ADR-024 決定3）でパース検証が無いため、保存前にマジックバイトで弾く。
+ * 画像 OCR (Gemini/ADR-038) は画素を読むだけで形式検証をしないため、保存前にマジックバイトで弾く。
  */
 const IMAGE_MAGIC_BYTES: Readonly<Record<string, readonly (readonly number[])[]>> = {
   "image/png": [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
@@ -186,7 +188,7 @@ export function uploadErrorMessage(status: number): string {
     case 413:
       return "ファイルが大きすぎます（上限 50MB）。";
     case 415:
-      return "対応していない形式です（PDF / Word / Excel / PNG / JPEG のみ）。";
+      return "対応していない形式です（PDF / Word / Excel / CSV / PNG / JPEG のみ）。";
     case 422:
       return "ファイルを読み取れませんでした（破損・暗号化の可能性）。";
     case 502:

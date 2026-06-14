@@ -148,6 +148,7 @@ export {
   createDefaultRegistry,
   extractText,
   createVisionOcrClient,
+  createGeminiOcrClient,
   TextExtractor,
   PdfExtractor,
   DocxExtractor,
@@ -170,4 +171,5 @@ export type {
   OcrResult,
   RegistryOptions,
   VisionOcrConfig,
+  GeminiOcrConfig,
 } from "./extract/index.js";
