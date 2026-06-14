@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<TvCommandStatusValue, string> = TV_COMMAND_STATUS_LAB
  * (`/ops/tv-commands`)。**Server Component**。
  *
  * `tv_device_commands` (F15 / ADR-022: ポーリング型コマンドキュー) の発行履歴を、学校・デバイス・
- * 発行者つきで全校横断に一覧する。**デバイス単位の履歴表示とは別物**: `/app/tv-devices/[deviceId]/edit`
+ * 発行者つきで全校横断に一覧する。**デバイス単位の履歴表示とは別物**: `/ops/tv-devices/[deviceId]/edit`
  * の「最近のコマンド」(`listRecentTvCommands`) は school_admin も使う 1 台分の直近表示で、本ページは
  * system_admin が「どの学校のどの TV に・誰が・何を・届いたか」を運用調査する**全校横断ログ**。
  * 共通 DataList 基盤 (検索 / 列ソート / 状態・種別・学校フィルタ / 発行日範囲 / ページング) を適用し、

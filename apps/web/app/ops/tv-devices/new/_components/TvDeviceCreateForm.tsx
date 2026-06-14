@@ -100,10 +100,10 @@ export function TvDeviceCreateForm({ schools }: { schools: SchoolOption[] }) {
         </p>
         <code style={deviceIdStyle}>{created.deviceId}</code>
         <div style={{ display: "flex", gap: "1rem", marginTop: "1rem", flexWrap: "wrap" }}>
-          <Link href={`/app/tv-devices/${created.id}/edit`} style={linkBtnStyle}>
+          <Link href={`/ops/tv-devices/${created.id}/edit`} style={linkBtnStyle}>
             設定を編集
           </Link>
-          <Link href="/app/tv-devices" style={linkBtnStyle}>
+          <Link href="/ops/tv-devices" style={linkBtnStyle}>
             一覧へ戻る
           </Link>
         </div>

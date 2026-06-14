@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * F15 §4.2 / F16 §5 (ADR-022/ADR-023, #494 Reviewer Low-2): TV デバイス一覧の「操作」列リンク出し分けを pin する。
  *
- * 一覧 (`/app/tv-devices`) は `ADMIN_ROLES`（teacher 含む）が閲覧できる。操作列には:
+ * 一覧 (`/ops/tv-devices`) は `ADMIN_ROLES`（teacher 含む）が閲覧できる。操作列には:
  *  - **稼働履歴**（F16 §5、`/[id]/history`）: 閲覧専用ページで ADMIN_ROLES 全員に出す（teacher も到達可）。
  *  - **設定編集**（F15 §4.2、`/[id]/edit`）: `TV_CONFIG_EDIT_ROLES`（school_admin / system_admin）限定。
  *    teacher に出すと 403 に終わる死リンクになるため、**編集可ロールのときだけ**出す（死リンク防止）。
@@ -26,7 +26,7 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("@kimiterrace/db", () => ({ listTvDevices: vi.fn() }));
 
 import { listTvDevices } from "@kimiterrace/db";
-import TvDevicesPage from "../../app/app/tv-devices/page";
+import TvDevicesPage from "../../app/ops/tv-devices/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import { ADMIN_ROLES } from "../../lib/nav";
@@ -81,7 +81,7 @@ describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
     expect(screen.getByText("1年A組")).toBeInTheDocument();
     // 稼働履歴は ADMIN_ROLES 全員に出る（行 PK の履歴ページ、F16 §5）。
     const history = screen.getByRole("link", { name: HISTORY_LINK_NAME });
-    expect(history).toHaveAttribute("href", `/app/tv-devices/${DEVICE.id}/history`);
+    expect(history).toHaveAttribute("href", `/ops/tv-devices/${DEVICE.id}/history`);
     // 操作列ヘッダは履歴リンクのため常に出る。編集リンクだけが teacher には無い（死リンク防止）。
     expect(screen.getByText("操作")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: EDIT_LINK_NAME })).toBeNull();
@@ -91,10 +91,10 @@ describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
     arrangeRole("school_admin");
     render(await TvDevicesPage(pageProps()));
     const link = screen.getByRole("link", { name: EDIT_LINK_NAME });
-    expect(link).toHaveAttribute("href", `/app/tv-devices/${DEVICE.id}/edit`);
+    expect(link).toHaveAttribute("href", `/ops/tv-devices/${DEVICE.id}/edit`);
     expect(screen.getByRole("link", { name: HISTORY_LINK_NAME })).toHaveAttribute(
       "href",
-      `/app/tv-devices/${DEVICE.id}/history`,
+      `/ops/tv-devices/${DEVICE.id}/history`,
     );
     expect(screen.getByText("操作")).toBeInTheDocument();
   });

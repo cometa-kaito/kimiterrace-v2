@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ProvisionForm } from "./_components/ProvisionForm";
 
 /**
- * C方式 TV プロビジョニング（`/app/tv-devices/provision`）。**Server Component**。
+ * C方式 TV プロビジョニング（`/ops/tv-devices/provision`）。**Server Component**。
  *
  * **認可**: プロビジョニングは cross-tenant（任意校に設置）+ device 登録 + signage 発行を伴うため
  * **system_admin 限定**（`ONBOARDING_ROLES`）。`requireRole` で teacher / school_admin を /forbidden に弾く。
@@ -34,7 +34,7 @@ export default async function ProvisionPage() {
   return (
     <section style={{ maxWidth: "640px" }}>
       <p style={{ margin: "0 0 0.75rem" }}>
-        <Link href="/app/tv-devices" style={{ color: "#1d4ed8", fontSize: "0.85rem" }}>
+        <Link href="/ops/tv-devices" style={{ color: "#1d4ed8", fontSize: "0.85rem" }}>
           ← TV デバイス一覧へ戻る
         </Link>
       </p>

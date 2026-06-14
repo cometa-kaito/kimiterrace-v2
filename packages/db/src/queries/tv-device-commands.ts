@@ -10,7 +10,7 @@ import { tvDevices } from "../schema/tv-devices.js";
 /**
  * F15 (ADR-022): TV リモートコマンドキューのクエリ層。3 経路:
  *
- *  1. **発行（管理セッション）**: `enqueueTvCommand`。`/app/tv-devices/:id` の Server Action から
+ *  1. **発行（管理セッション）**: `enqueueTvCommand`。`/ops/tv-devices/:id` の Server Action から
  *     `withSession` の RLS tx 内で呼ぶ。device 行 PK から device_id + school_id を RLS スコープで解決し、
  *     `tv_device_commands` に pending を 1 件 INSERT + `audit_log` 追記（同 tx・原子的）。手書き WHERE
  *     school_id は書かず RLS に委譲（ルール2）: school_admin は `tenant_isolation` で自校のみ、system_admin は
@@ -268,7 +268,7 @@ export type TvCommandSummary = Pick<
 
 /**
  * 管理一覧: 指定デバイス（行 PK）の **最近のコマンド履歴**を新しい順に取得する（RLS で school スコープ）。
- * `/app/tv-devices/:id` の状態表示用。可視範囲は RLS が決める（自校のみ / system_admin は全校）。
+ * `/ops/tv-devices/:id` の状態表示用。可視範囲は RLS が決める（自校のみ / system_admin は全校）。
  * device_id で突き合わせるため、行 PK → device_id を同 RLS context で解決してから引く。
  *
  * 手書き WHERE school_id は書かず RLS に委譲（ルール2）。呼び出し側は非 BYPASSRLS 接続を使うこと。

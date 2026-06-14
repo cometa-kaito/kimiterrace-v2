@@ -15,7 +15,7 @@ import { type TvSchedule, tvDevices } from "../schema/tv-devices.js";
  *     **BYPASSRLS は使わない**（ルール2）。`system_admin` role context（`system_admin_full_access`
  *     policy）で解決し、`device_id` は**グローバル UNIQUE**（schema 参照）なので必ず 1 行に解決して
  *     テナント越境配信を構造的に防ぐ。
- *  2. **管理一覧（認証セッション）**: `listTvDevices`。`/app/tv-devices` の Server Component から
+ *  2. **管理一覧（認証セッション）**: `listTvDevices`。`/ops/tv-devices` の Server Component から
  *     `withSession` の RLS context 下で呼ぶ。可視範囲は RLS が決める（school_admin=自校 /
  *     system_admin=全校）。WHERE にテナント条件は書かない（schools.ts と同方針、ルール2）。
  *

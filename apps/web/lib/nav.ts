@@ -68,7 +68,7 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // (表示 ON/OFF 時刻・曜日) / センサー MAC 等を設定 (編集ページ #494) + 死活/設定版/履歴表示。ページ群は
     // 実装・テスト済 (#487/#494/#496/#497/#499/#500/#628) だが **nav 配線が漏れて URL 直打ちでしか到達でき
     // なかった** (広告主 #46 と同型の配線漏れ)。校務DX原則でセンサー管理と同じく運営 (system_admin) 専用に出す。
-    { label: "モニタ設定", href: "/app/tv-devices" },
+    { label: "モニタ設定", href: "/ops/tv-devices" },
     // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (system_admin 専用、cross-tenant)。校務DX原則で
     // 自校の月次サマリービュー (/app/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
     { label: "月次レポート", href: "/ops/reports" },
