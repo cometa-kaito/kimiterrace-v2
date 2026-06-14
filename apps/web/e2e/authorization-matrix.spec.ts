@@ -63,12 +63,14 @@ type PageCase = {
 
 const PAGE_CASES: readonly PageCase[] = [
   // /admin レイアウト = ADMIN_ROLES (system_admin/school_admin/teacher)。全管理ロール許可。
-  // 各ロールは homePathForRole で別ホームへ redirect されるため allowUrl は /admin 配下に留まる緩い形。
+  // 各ロールは homePathForRole で別ホームへ redirect される緩い形: school_admin→/admin/school・
+  // teacher→/admin/editor は /admin 配下だが、**system_admin→/ops/schools**（namespace 改称 §4.1）は
+  // /ops 配下に着地する。よって allowUrl は両 namespace を許容する（/forbidden・/login でないことは別途確認）。
   {
     label: "/admin (ADMIN_ROLES)",
     path: "/admin",
     allow: ALL_ROLES,
-    allowUrl: /\/admin(\/|$)/,
+    allowUrl: /\/(admin|ops)(\/|$)/,
   },
   // /admin/editor/[classId] = EDITOR_ROLES (school_admin/teacher)。system_admin は 403。
   // SEED.CLASS_ID は SCHOOL1 のクラス。school_admin/teacher は同一校なので RLS 可視で到達できる。
