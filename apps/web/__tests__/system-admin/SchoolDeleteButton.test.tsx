@@ -11,7 +11,7 @@ const { push, refresh } = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() })
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
 vi.mock("@/lib/system-admin/schools-actions", () => ({ deleteSchoolAction: vi.fn() }));
 
-import { SchoolDeleteButton } from "../../app/admin/system/schools/[id]/_components/SchoolDeleteButton";
+import { SchoolDeleteButton } from "../../app/ops/schools/[id]/_components/SchoolDeleteButton";
 import { deleteSchoolAction } from "../../lib/system-admin/schools-actions";
 
 const deleteMock = vi.mocked(deleteSchoolAction);
@@ -50,7 +50,7 @@ describe("SchoolDeleteButton (#246 Low-2 タイプ確認)", () => {
     expect(confirmBtn).toBeEnabled();
     fireEvent.click(confirmBtn);
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith({ id: SCHOOL_ID }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/system/schools"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/ops/schools"));
     expect(refresh).toHaveBeenCalled();
   });
 

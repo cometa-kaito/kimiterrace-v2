@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
 vi.mock("@/lib/system-admin/advertisers-actions", () => ({ updateAdvertiserAction: vi.fn() }));
 
 import type { AdvertiserDetail } from "../../lib/system-admin/advertisers-queries";
-import { AdvertiserEditForm } from "../../app/admin/system/advertisers/[id]/edit/_components/AdvertiserEditForm";
+import { AdvertiserEditForm } from "../../app/ops/advertisers/[id]/edit/_components/AdvertiserEditForm";
 import { updateAdvertiserAction } from "../../lib/system-admin/advertisers-actions";
 
 const updateMock = vi.mocked(updateAdvertiserAction);
@@ -75,6 +75,6 @@ describe("AdvertiserEditForm 項目別検証 + 更新", () => {
         status: "active",
       }),
     );
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/admin/system/advertisers"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/ops/advertisers"));
   });
 });

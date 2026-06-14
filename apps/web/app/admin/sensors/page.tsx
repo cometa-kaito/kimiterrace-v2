@@ -20,7 +20,7 @@ import { type SensorDeviceStatus, listSensorDeviceStatuses } from "@kimiterrace/
  * **認可（校務DX原則: 監視系は運営専用）**: センサー管理は「自校の運営を見る／設定する」運用系で、先生・
  * 校長の校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)`（system_admin のみ）に締める。teacher / school_admin は nav から
- * 撤去済み + ここで 403（`/forbidden`）。全校横断のセンサー状態ビューは `/admin/system/sensors` で運営に
+ * 撤去済み + ここで 403（`/forbidden`）。全校横断のセンサー状態ビューは `/ops/sensors` で運営に
  * 提供する。データの school 境界は `withSession` が張る RLS context が DB レベルで強制する（`sensor_devices`
  * の `tenant_isolation` / `system_admin_full_access`、CLAUDE.md ルール2）。クエリは `school_id` 条件を
  * 書かず RLS に委譲する。
@@ -111,7 +111,7 @@ export default async function SensorsPage() {
         日以内なら「静観」（休日・長期休暇等）、7
         日以上検知が無ければ「応答なし」（電池切れ・通信断の
         疑い）、一度も検知が無ければ「未検知」。検知回数は人感センサーの動き検知回数で、個人を識別する
-        情報は含みません。全校横断のセンサー状態ビューは「センサー管理（全校）」（/admin/system/sensors）
+        情報は含みません。全校横断のセンサー状態ビューは「センサー管理（全校）」（/ops/sensors）
         で提供します。
       </p>
     </section>

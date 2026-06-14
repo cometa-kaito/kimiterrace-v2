@@ -31,7 +31,7 @@ import {
  * **認可 (校務DX原則: 監視系は運営専用)**: 効果ダッシュボードは「自校の運営を見る」閲覧系で、先生・
  * 校長の校務を楽にする機能ではない。`/admin` レイアウトの `requireRole(ADMIN_ROLES)` に加え、本ページは
  * `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ) に締める。teacher / school_admin は nav から
- * 撤去済み + ここで 403 (`/forbidden`)。全校横断の効果ダッシュボードは `/admin/system/dashboard` で
+ * 撤去済み + ここで 403 (`/forbidden`)。全校横断の効果ダッシュボードは `/ops/dashboard` で
  * 運営に提供する。
  *
  * 注: 本ページの集計は school_id スコープ前提だが、system_admin は school_id を持たず通常 nav からは
@@ -46,7 +46,7 @@ import {
  * 注: **AI 効果コメント (`<EffectCommentPanel />`) は本ページから撤去した**。当該 Server Action
  * `generateEffectComment` は `PUBLISHER_ROLES` (school_admin / teacher) を要し school_id 必須のため、
  * system_admin 専用化した本ページでは未捕捉の ForbiddenError になる + system_admin は school_id を
- * 持たず空集計で意味が無い。全校横断の効果可視化は `/admin/system/dashboard` で運営に提供する。
+ * 持たず空集計で意味が無い。全校横断の効果可視化は `/ops/dashboard` で運営に提供する。
  *
  * **アクセシビリティ (NFR05 / WCAG 2.2 AA)**: 数値は文字ラベル付きで提示し、色のみに依存しない。
  * ランキングは `<table>` + `<th scope>`、時系列バーも各行に件数テキストを併記して読み上げ可能にする。
@@ -138,7 +138,7 @@ export default async function DashboardPage() {
       <PresenceHeatmap heatmap={presenceHeatmap} />
 
       {/* AI 効果コメント (EffectCommentPanel) は school 専用機能のため system_admin 専用化に伴い撤去
-          (docstring 参照)。全校横断の効果可視化は /admin/system/dashboard で運営に提供する。 */}
+          (docstring 参照)。全校横断の効果可視化は /ops/dashboard で運営に提供する。 */}
 
       {/* ADR-025: 延べ表示数(engagement) と 広告主向け到達数(reach) を取り違えないよう明示する。 */}
       <p style={footnoteStyle}>

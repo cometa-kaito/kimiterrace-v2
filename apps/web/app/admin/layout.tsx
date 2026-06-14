@@ -4,7 +4,9 @@ import { PATHNAME_HEADER } from "@/lib/mfa/policy";
 import { ADMIN_ROLES } from "@/lib/nav";
 import { headers } from "next/headers";
 import type { ReactNode } from "react";
-import { AppShell } from "./_components/AppShell";
+// 共通シェルは namespace 改称 (/admin/system→/ops、/admin→/app) に伴い、複数 namespace の layout から
+// 共有するため `app/_components/` (中立) へ移設した。/ops/layout.tsx も同じ AppShell を import する。
+import { AppShell } from "@/app/_components/AppShell";
 
 /**
  * `/admin` 配下の共通レイアウト (#48-C)。**Server Component**。

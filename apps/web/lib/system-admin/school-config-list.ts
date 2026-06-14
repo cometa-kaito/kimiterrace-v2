@@ -20,14 +20,10 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import {
-  type ListParams,
-  escapeLike,
-  pageWindow,
-} from "@/app/admin/_components/datalist/list-params";
+import { type ListParams, escapeLike, pageWindow } from "@/app/_components/datalist/list-params";
 
 /**
- * UIUX-03: 学校設定ビューア (`/admin/system/school-configs`) のページング/検索/ソート対応 SELECT 層。
+ * UIUX-03: 学校設定ビューア (`/ops/school-configs`) のページング/検索/ソート対応 SELECT 層。
  * `audit-log-list.ts` / `event-log.ts` と同構造 (共通 DataList 基盤)。
  *
  * ## 置き場所 (並行レーン回避)

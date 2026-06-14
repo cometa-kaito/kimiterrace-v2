@@ -97,7 +97,7 @@ export type StaffDirectoryEntry = Pick<
 
 /**
  * F11 (#47 / #324): **全校横断**の教職員一覧を返す。**SELECT のみ**。system_admin のユーザー管理面
- * (`/admin/system/users`) が消費し、ADR-026 のロール変更 / 無効化 操作系 (D2 / 全校無効化) の土台となる。
+ * (`/ops/users`) が消費し、ADR-026 のロール変更 / 無効化 操作系 (D2 / 全校無効化) の土台となる。
  *
  * ## 認可 / テナント (CLAUDE.md ルール2、多層防御)
  * `WHERE school_id` を書かない — 可視範囲は RLS が決める。`users` / `schools` の

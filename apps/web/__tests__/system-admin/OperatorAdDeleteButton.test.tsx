@@ -11,7 +11,7 @@ const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 vi.mock("@/lib/system-admin/operator-ads-actions", () => ({ deleteOperatorAdAction: vi.fn() }));
 
-import { OperatorAdDeleteButton } from "../../app/admin/system/advertisers/[id]/ads/_components/OperatorAdDeleteButton";
+import { OperatorAdDeleteButton } from "../../app/ops/advertisers/[id]/ads/_components/OperatorAdDeleteButton";
 import { deleteOperatorAdAction } from "../../lib/system-admin/operator-ads-actions";
 
 const deleteMock = vi.mocked(deleteOperatorAdAction);

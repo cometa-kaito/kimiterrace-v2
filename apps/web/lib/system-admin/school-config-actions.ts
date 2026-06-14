@@ -153,7 +153,7 @@ export async function updateSchoolConfigValueAction(raw: {
       });
       return { id };
     });
-    revalidatePath("/admin/system/school-configs");
+    revalidatePath("/ops/school-configs");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof ConfigNotFoundError) {
