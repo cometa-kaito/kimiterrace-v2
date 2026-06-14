@@ -69,6 +69,60 @@ export function isActiveForStatus(status: AdvertiserStatus): boolean {
   return status !== "paused";
 }
 
+/**
+ * 配信ステータス (v2 運営が操作する 2 値)。`active`=稼働中 / `paused`=休止。商流ステージ (`prospect`) は
+ * **portal が正**のため v2 の編集 UI には出さない (実装設計書 §4「advertisers/[id]/edit 最小縮退」)。
+ * 値は advertiser_status enum の部分集合なので `AdvertiserStatus` にそのまま代入できる (ルール3)。
+ */
+export const ADVERTISER_DELIVERY_ORDER = ["active", "paused"] as const;
+export type AdvertiserDeliveryStatus = (typeof ADVERTISER_DELIVERY_ORDER)[number];
+
+/** 配信ステータスの日本語ラベル (稼働中 / 休止)。2 値を網羅する。 */
+export const ADVERTISER_DELIVERY_LABEL = {
+  active: "稼働中",
+  paused: "休止",
+} as const satisfies Record<AdvertiserDeliveryStatus, string>;
+
+/**
+ * 現在の営業ステータスから配信ステータス 2 値を導く。`prospect` は稼働中扱い (不変条件
+ * `isActiveForStatus(prospect)=true` と整合)。編集フォームの初期選択に使う。
+ */
+export function toDeliveryStatus(status: AdvertiserStatus): AdvertiserDeliveryStatus {
+  return status === "paused" ? "paused" : "active";
+}
+
+/** 表示名 (会社名) の項目別エラー文言を返す (無ければ undefined)。create と同じ規則・同じ上限。 */
+export function companyNameError(value: unknown): string | undefined {
+  return required(value, COMPANY_MAX)
+    ? undefined
+    : `会社名は 1〜${COMPANY_MAX} 文字で入力してください。`;
+}
+
+/** 縮退した編集フォームの検証済み入力 (表示名 + 配信ステータス 2 値)。 */
+export type AdvertiserEditInput = {
+  companyName: string;
+  status: AdvertiserDeliveryStatus;
+};
+
+/**
+ * 広告主編集 (最小縮退) の入力検証。会社名 (1..200) 必須 + 配信ステータスは active/paused の 2 値のみ受理する
+ * (`prospect` は商流ステージで portal が正のため v2 編集では受け付けない)。業種・連絡先・住所・備考は受け取らず、
+ * 本 Action は表示名と配信可否のみ更新する (既存の商流フィールドを v2 から上書き・消去しない)。
+ */
+export function validateAdvertiserEdit(raw: {
+  companyName?: unknown;
+  status?: unknown;
+}): Validated<AdvertiserEditInput> {
+  const companyName = required(raw.companyName, COMPANY_MAX);
+  if (!companyName) {
+    return { ok: false, message: `会社名は 1〜${COMPANY_MAX} 文字で入力してください。` };
+  }
+  if (raw.status !== "active" && raw.status !== "paused") {
+    return { ok: false, message: "配信ステータスの指定が不正です。" };
+  }
+  return { ok: true, value: { companyName, status: raw.status } };
+}
+
 /** 検証済みの広告主作成入力。任意項目は未指定を null に正規化する。status は既定 'prospect'。 */
 export type AdvertiserCreateInput = {
   companyName: string;

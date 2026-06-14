@@ -2,10 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * F10 (#46): AdvertiserEditForm の**項目別インライン検証 (FormField)** + 既定値・更新経路。
- * updateAdvertiserAction と router を mock し、(1) 既定値を埋め、必須を空にして送信すると項目エラーで送信を
- * 止める (2) メール形式違反を項目別に出す (3) 正常編集で id 付きで action を呼び一覧へ push、を検証する。
- * 検証規則そのものは advertisers-core.test.ts (collectAdvertiserFieldErrors) で固定。
+ * F10 (#46) / 実装設計書 §4「最小縮退」: AdvertiserEditForm は **表示名 + 配信ステータス (稼働中 / 休止)** の
+ * 2 項目に縮退した。updateAdvertiserAction と router を mock し、(1) 表示名の既定値・空送信の項目エラー停止
+ * (2) 配信ステータスの既定選択 (3) 正常編集で id + {companyName, status} で action を呼び一覧へ push、を検証する。
  */
 
 const { push, refresh } = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -21,11 +20,6 @@ const updateMock = vi.mocked(updateAdvertiserAction);
 const ADV: AdvertiserDetail = {
   id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   companyName: "アクメ商事",
-  industry: "広告",
-  contactEmail: "sales@acme.example",
-  contactPhone: "03-1234-5678",
-  address: "東京都",
-  notes: "重要顧客",
   status: "active",
 };
 
@@ -36,10 +30,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("AdvertiserEditForm 項目別検証 + 更新", () => {
-  it("既定値を埋め、会社名を空にして送信すると項目エラーで送信を止める", () => {
+describe("AdvertiserEditForm 最小縮退 (表示名 + 配信ステータス)", () => {
+  it("表示名は既定値を埋め、空にして送信すると項目エラーで送信を止める", () => {
     render(<AdvertiserEditForm advertiser={ADV} />);
-    const name = screen.getByRole("textbox", { name: "会社名" });
+    const name = screen.getByRole("textbox", { name: "表示名" });
     expect(name).toHaveValue("アクメ商事"); // defaultValue
     fireEvent.change(name, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "保存する" }));
@@ -47,32 +41,35 @@ describe("AdvertiserEditForm 項目別検証 + 更新", () => {
     expect(screen.getByText(/会社名は 1〜200 文字/)).toBeInTheDocument();
   });
 
-  it("メール形式違反は contactEmail 項目エラーで送信しない", () => {
+  it("配信ステータスは現在値 (稼働中) を初期選択する", () => {
     render(<AdvertiserEditForm advertiser={ADV} />);
-    fireEvent.change(screen.getByRole("textbox", { name: "担当メールアドレス" }), {
-      target: { value: "not-an-email" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存する" }));
-    expect(updateMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/メールアドレスの形式が正しくありません/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "配信ステータス" })).toHaveValue("active");
   });
 
-  it("正常編集で id 付きで updateAdvertiserAction を呼び、一覧へ push する", async () => {
+  it("休止中 (paused) の広告主は配信ステータスが休止で初期選択される", () => {
+    render(<AdvertiserEditForm advertiser={{ ...ADV, status: "paused" }} />);
+    expect(screen.getByRole("combobox", { name: "配信ステータス" })).toHaveValue("paused");
+  });
+
+  it("見込み (prospect) の広告主は稼働中扱いで初期選択される (不変条件)", () => {
+    render(<AdvertiserEditForm advertiser={{ ...ADV, status: "prospect" }} />);
+    expect(screen.getByRole("combobox", { name: "配信ステータス" })).toHaveValue("active");
+  });
+
+  it("正常編集で id + {companyName, status} で updateAdvertiserAction を呼び、一覧へ push する", async () => {
     updateMock.mockResolvedValue({ ok: true, data: { id: ADV.id } });
     render(<AdvertiserEditForm advertiser={ADV} />);
-    fireEvent.change(screen.getByRole("textbox", { name: "会社名" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "表示名" }), {
       target: { value: "アクメ商事株式会社" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "配信ステータス" }), {
+      target: { value: "paused" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存する" }));
     await waitFor(() =>
       expect(updateMock).toHaveBeenCalledWith(ADV.id, {
         companyName: "アクメ商事株式会社",
-        industry: "広告",
-        contactEmail: "sales@acme.example",
-        contactPhone: "03-1234-5678",
-        address: "東京都",
-        notes: "重要顧客",
-        status: "active",
+        status: "paused",
       }),
     );
     await waitFor(() => expect(push).toHaveBeenCalledWith("/ops/advertisers"));

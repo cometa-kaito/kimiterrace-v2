@@ -6,10 +6,10 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
 import {
-  type AdvertiserCreateInput,
+  type AdvertiserEditInput,
   type AdvertiserStatus,
   isActiveForStatus,
-  validateAdvertiserCreate,
+  validateAdvertiserEdit,
 } from "./advertisers-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, invalid, isUuid, notFound } from "./schools-core";
@@ -18,28 +18,24 @@ import { type ActionResult, invalid, isUuid, notFound } from "./schools-core";
 class AdvertiserNotFoundError extends Error {}
 
 /**
- * F10 (#46): 広告主 (CRM) のフィールドを編集する Server Action (会社名・業種・連絡先・住所・備考)。
- * is_active は `setAdvertiserActiveAction` (稼働トグル) の管轄なのでここでは触らない。
+ * F10 (#46) / 実装設計書 §4「advertisers/[id]/edit 最小縮退」: 広告主の **表示名 (会社名) と配信ステータス
+ * (稼働中 / 休止)** を編集する Server Action。業種・連絡先・住所・備考は portal が正のため受け取らず、
+ * **既存の商流フィールドは一切上書き・消去しない** (縮退フォームから送られないフィールドを null で潰さない)。
+ * 配信ステータスは緊急停止スイッチ (休止=配信対象外) で、バグ「休止が配信に反映されない」の修正対象箇所のため死守する。
  *
- * **認可 / RLS**: 作成と同様 `requireRole(SYSTEM_ADMIN_ROLES)` + advertisers `system_admin_full_access`
- * の UPDATE (ルール2)。検証は作成と同じ `validateAdvertiserCreate` を再利用する (入力フィールドは同一)。
+ * **認可 / RLS**: `requireRole(SYSTEM_ADMIN_ROLES)` + advertisers `system_admin_full_access` の UPDATE (ルール2)。
+ * 検証は `validateAdvertiserEdit` (会社名必須 + 配信ステータス 2 値) を使う。
  *
  * **not_found**: 対象が RLS 不可視 / 不存在なら UPDATE が 0 行に倒れ `not_found` を返す (手書き WHERE は
  * 対象特定であってテナント境界ではない)。
  *
- * **監査 (ルール1)**: 変更前後を同一 tx で audit_log に記録する。`before` は更新前に SELECT した編集可能
- * フィールド、`after` は検証済み入力。advertisers は cross-tenant なので school_id は NULL、actor_user_id は
- * FK 制約で NULL だが actor_identity_uid に IdP uid を載せ「誰が」を立証可能にする。
+ * **監査 (ルール1)**: 変更前後 (会社名 + status) を同一 tx で audit_log に記録する。advertisers は cross-tenant
+ * なので school_id は NULL、actor_user_id は FK 制約で NULL だが actor_identity_uid に IdP uid を載せ立証可能にする。
  */
 export async function updateAdvertiserAction(
   id: unknown,
   raw: {
     companyName?: unknown;
-    industry?: unknown;
-    contactEmail?: unknown;
-    contactPhone?: unknown;
-    address?: unknown;
-    notes?: unknown;
     status?: unknown;
   },
 ): Promise<ActionResult<{ id: string }>> {
@@ -47,8 +43,8 @@ export async function updateAdvertiserAction(
     return invalid("広告主の指定が不正です。");
   }
   const advertiserId = id;
-  // 作成と同一の入力なので検証も共有する (会社名必須 + 長さ / メール形式)。
-  const v = validateAdvertiserCreate(raw);
+  // 縮退フォーム専用の検証 (会社名必須 + 配信ステータスは active/paused のみ)。
+  const v = validateAdvertiserEdit(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
@@ -57,15 +53,10 @@ export async function updateAdvertiserAction(
   try {
     const data = await withSession(async (tx: TenantTx, user) => {
       const isSystemAdmin = user.role === "system_admin";
-      // 監査の before 用に更新前の編集可能フィールドを同一 tx で取得 (兼 not_found 検出)。
+      // 監査の before 用に更新対象フィールドのみを同一 tx で取得 (兼 not_found 検出)。
       const [before] = await tx
         .select({
           companyName: advertisers.companyName,
-          industry: advertisers.industry,
-          contactEmail: advertisers.contactEmail,
-          contactPhone: advertisers.contactPhone,
-          address: advertisers.address,
-          notes: advertisers.notes,
           status: advertisers.status,
         })
         .from(advertisers)
@@ -76,13 +67,9 @@ export async function updateAdvertiserAction(
       }
       const updated = await tx
         .update(advertisers)
+        // 表示名と配信ステータスのみ更新する。業種・連絡先・住所・備考には触れない (portal が正)。
         .set({
           companyName: v.value.companyName,
-          industry: v.value.industry,
-          contactEmail: v.value.contactEmail,
-          contactPhone: v.value.contactPhone,
-          address: v.value.address,
-          notes: v.value.notes,
           status: v.value.status,
           // 不変条件 (PR #534): is_active は status から導出して整合させる (paused ⟺ false)。
           isActive: isActiveForStatus(v.value.status),
@@ -111,13 +98,13 @@ export async function updateAdvertiserAction(
   }
 }
 
-/** フィールド編集を audit_log に追記 (operation=update、diff は変更前後の編集可能フィールド)。 */
+/** 表示名・配信ステータス編集を audit_log に追記 (operation=update、diff は変更前後)。 */
 async function writeAdvertiserUpdateAudit(
   tx: TenantTx,
   user: { uid: string; role: string },
   advertiserId: string,
-  before: AdvertiserCreateInput,
-  after: AdvertiserCreateInput,
+  before: { companyName: string; status: AdvertiserStatus },
+  after: AdvertiserEditInput,
 ): Promise<void> {
   // system_admin は users 行ではないため actor_user_id / created_by / updated_by は FK 制約で null
   // にせざるを得ない。実行者は FK の無い actor_identity_uid に IdP uid を必ず載せて、users 行の有無に

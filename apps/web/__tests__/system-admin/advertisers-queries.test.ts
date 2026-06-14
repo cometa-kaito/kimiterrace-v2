@@ -136,22 +136,18 @@ describe("getAdvertiserDetail", () => {
     detailRows = [];
   });
 
-  it("射影は編集可能フィールド全部 (住所/電話/備考/status を含む)、is_active は含めない", async () => {
+  it("射影は縮退後の編集フィールド (id / companyName / status) のみ — 商流フィールド・is_active は含めない", async () => {
     await getAdvertiserDetail(fakeDetailTx(), "a1");
     expect(Object.keys(detailProjection ?? {}).sort()).toEqual(
-      [
-        "address",
-        "companyName",
-        "contactEmail",
-        "contactPhone",
-        "id",
-        "industry",
-        "notes",
-        "status",
-      ].sort(),
+      ["companyName", "id", "status"].sort(),
     );
     expect(detailProjection).toHaveProperty("status");
     expect(detailProjection).not.toHaveProperty("isActive");
+    // 業種・連絡先・住所・備考は portal が正のため射影しない (データ露出面の縮小)。
+    expect(detailProjection).not.toHaveProperty("industry");
+    expect(detailProjection).not.toHaveProperty("contactEmail");
+    expect(detailProjection).not.toHaveProperty("address");
+    expect(detailProjection).not.toHaveProperty("notes");
   });
 
   it("id で eq フィルタ + limit(1) を掛ける", async () => {
@@ -164,11 +160,6 @@ describe("getAdvertiserDetail", () => {
     const row = {
       id: "a1",
       companyName: "X社",
-      industry: "広告",
-      contactEmail: "a@example.com",
-      contactPhone: null,
-      address: null,
-      notes: null,
       status: "active",
     };
     detailRows = [row];
