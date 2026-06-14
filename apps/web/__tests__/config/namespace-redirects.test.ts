@@ -28,12 +28,25 @@ describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
   });
 
   it("残る学校系 /admin/* を /app/* へ catch-all で 308 集約する (PR-3)", () => {
-    // 素の /admin/:path* catch-all (index + account/signage-preview/dashboard/sensors/reports/
-    // editor/school/contents/chat/teacher-input を一括) が /app/:path* へ。:path* は 0 セグメントにも一致。
+    // 素の /admin/:path* catch-all (index + account/signage-preview/editor/school/contents/chat/
+    // teacher-input を一括) が /app/:path* へ。:path* は 0 セグメントにも一致。
     const catchAll = NAMESPACE_REDIRECTS.find((r) => r.source === "/admin/:path*");
     expect(catchAll, "/admin catch-all 未配線").toBeDefined();
     expect(catchAll?.destination).toBe("/app/:path*");
     expect(catchAll?.permanent).toBe(true);
+  });
+
+  it("§43: 監視系 dashboard/sensors/reports は /ops へ。旧 /admin/* と一時的 /app/* の両方を /ops/* へ 308", () => {
+    for (const view of ["dashboard", "sensors", "reports"]) {
+      const fromAdmin = NAMESPACE_REDIRECTS.find((r) => r.source === `/admin/${view}/:path*`);
+      expect(fromAdmin, `/admin/${view} 未配線`).toBeDefined();
+      expect(fromAdmin?.destination).toBe(`/ops/${view}/:path*`);
+      expect(fromAdmin?.permanent).toBe(true);
+      const fromApp = NAMESPACE_REDIRECTS.find((r) => r.source === `/app/${view}/:path*`);
+      expect(fromApp, `/app/${view} 未配線`).toBeDefined();
+      expect(fromApp?.destination).toBe(`/ops/${view}/:path*`);
+      expect(fromApp?.permanent).toBe(true);
+    }
   });
 
   it("§43: tv-devices は /ops へ。旧 /admin/tv-devices と一時的 /app/tv-devices の両方を /ops/tv-devices へ 308", () => {
@@ -57,11 +70,17 @@ describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
     }
   });
 
-  it("順序: 具体 prefix (/admin/system・/admin/tv-devices → /ops) は /admin catch-all (→ /app) より前 (first-match-wins)", () => {
-    // 逆順だと /admin/system/schools や /admin/tv-devices が /admin/:path* に先に飲まれ /app/... (存在しない) へ 308 → 404。
+  it("順序: 具体 /admin prefix (system・tv-devices・dashboard・sensors・reports → /ops) は /admin catch-all (→ /app) より前 (first-match-wins)", () => {
+    // 逆順だと /admin/system/schools や /admin/dashboard 等が /admin/:path* に先に飲まれ /app/... (削除済み) へ 308 → 404。
     const catchAllIdx = NAMESPACE_REDIRECTS.findIndex((r) => r.source === "/admin/:path*");
     expect(catchAllIdx).toBeGreaterThanOrEqual(0);
-    for (const specific of ["/admin/system/:path*", "/admin/tv-devices/:path*"]) {
+    for (const specific of [
+      "/admin/system/:path*",
+      "/admin/tv-devices/:path*",
+      "/admin/dashboard/:path*",
+      "/admin/sensors/:path*",
+      "/admin/reports/:path*",
+    ]) {
       const idx = NAMESPACE_REDIRECTS.findIndex((r) => r.source === specific);
       expect(idx, `${specific} が未配線`).toBeGreaterThanOrEqual(0);
       expect(idx, `${specific} は /admin catch-all より前であるべき`).toBeLessThan(catchAllIdx);

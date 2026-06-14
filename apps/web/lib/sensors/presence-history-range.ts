@@ -1,5 +1,6 @@
 /**
- * F13: presence 履歴ページ（/app/sensors/[id]/history）の **期間プリセット**の純ロジック。
+ * F13: presence 履歴ページ（/ops/sensors/[id]/history、§43 で /app/sensors から統合）の
+ * **期間プリセット**の純ロジック。
  *
  * URL の `?range=` クエリ（`1d` / `7d` / `30d` / `90d` / `all`）を、DB クエリ用の `from`/`to`（UTC の
  * Date）と表示ラベルに解決する。Server Component から呼ぶが、決定的に単体テストできるよう `now` を引数で

@@ -8,11 +8,12 @@ import { canonicalizeMac } from "./switchbot";
  * `"use server"` ファイル (mutations-actions.ts) は async 関数しか export できない Next の制約のため、
  * 検証・型・定数はここに分離する (ads-core.ts / hub-core.ts と同じ構成)。
  *
- * **書き込みロール (teacher は書けない)**: 一覧ページ `/app/sensors` は read を `PUBLISHER_ROLES`
- * (school_admin / teacher) に開くが、**mutation は school_admin のみ** (`SENSOR_WRITE_ROLES`)。
- * センサーの設置/設定は自校の運用管理操作であり、school_admin に限定する。teacher は閲覧のみ。
- * system_admin の全校横断センサー操作は別面 (`/ops/sensors`、本スライス非対象) に分けるため
- * 本集合には含めない ([[rls-tenant-not-role-boundary]] / advertisers と同じ per-surface 方針)。
+ * **書き込みロール (teacher は書けない)**: 一覧 / 登録 / 編集ページ `/ops/sensors` (§43 で自校重複
+ * `/app/sensors` から統合) は閲覧を system_admin に締めるが、**mutation は school_admin のみ**
+ * (`SENSOR_WRITE_ROLES`)。センサーの設置/設定は自校の運用管理操作であり、school_admin に限定する。
+ * teacher は閲覧のみ。system_admin は全校ビューを開けるが actor が school_id を持たないため実書き込みは
+ * できない (フォーム送信は forbidden)。本集合は UX 層の早期 gate と Server Action の認可第一層に使う
+ * ([[rls-tenant-not-role-boundary]] / advertisers と同じ per-surface 方針)。
  * 実データ越境は `sensor_devices` の RLS (tenant_isolation、ADR-019) が DB レベルで止め、本集合は
  * UX 層の早期 gate (`requireRole`) と Server Action の認可第一層に使う (多層防御、CLAUDE.md ルール2)。
  *

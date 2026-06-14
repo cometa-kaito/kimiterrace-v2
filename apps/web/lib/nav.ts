@@ -57,20 +57,20 @@ const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
     // 「収益中核機能が nav から不可視」の再発防止)。商流レコードの編集ページ群はルート温存のまま
     // 一覧バナーで portal へ誘導。物理削除は参照ゼロ実証後の別 PR (Opus/ユーザー判断)。
     { label: "広告配信割当", href: "/ops/advertisers" },
-    // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。校務DX原則で
-    // 自校ビュー (/app/dashboard) も system_admin 限定に締めたため、ダッシュボードは運営専用に一本化。
+    // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。§43 で自校重複
+    // (/app/dashboard) を撤去し /ops/dashboard に一本化したため、ダッシュボードは運営専用。
     { label: "全校ダッシュボード", href: "/ops/dashboard" },
-    // F13 (#391, ADR-020): 全校横断の来場検知センサー状態ビュー (system_admin 専用、cross-tenant)。
-    // 校務DX原則で自校ビュー (/app/sensors とその登録/編集) も system_admin 限定に締めたため、センサー
-    // 管理は運営専用。requireRole(SYSTEM_ADMIN_ROLES) で publisher は 403 → 死リンク防止。
+    // F13 (#391, ADR-020): 全校横断の来場検知センサー状態ビュー (system_admin 専用、cross-tenant)。§43 で
+    // 自校重複の一覧 (/app/sensors) を撤去し、登録/編集/履歴の CRUD も /ops/sensors 配下へ統合したため、
+    // センサー管理は運営専用。requireRole(SYSTEM_ADMIN_ROLES) で publisher は 403 → 死リンク防止。
     { label: "センサー管理（全校）", href: "/ops/sensors" },
     // F15 (ADR-022): TV(サイネージ)端末のリモート管理。モニタごとに signage URL / 起動スケジュール
     // (表示 ON/OFF 時刻・曜日) / センサー MAC 等を設定 (編集ページ #494) + 死活/設定版/履歴表示。ページ群は
     // 実装・テスト済 (#487/#494/#496/#497/#499/#500/#628) だが **nav 配線が漏れて URL 直打ちでしか到達でき
     // なかった** (広告主 #46 と同型の配線漏れ)。校務DX原則でセンサー管理と同じく運営 (system_admin) 専用に出す。
     { label: "モニタ設定", href: "/ops/tv-devices" },
-    // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (system_admin 専用、cross-tenant)。校務DX原則で
-    // 自校の月次サマリービュー (/app/reports) も system_admin 限定に締めたため、月次レポートは運営専用。
+    // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (system_admin 専用、cross-tenant)。§43 で自校の
+    // 月次サマリービュー (/app/reports) を撤去し /ops/reports に一本化したため、月次レポートは運営専用。
     { label: "月次レポート", href: "/ops/reports" },
     { label: "フィードバック", href: "/ops/feedback" },
     // UIUX-03 (PR2-4): 不足ビューア群 (system_admin 専用、cross-tenant)。events / audit_log / ai_chat の

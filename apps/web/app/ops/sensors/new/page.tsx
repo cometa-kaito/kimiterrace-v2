@@ -5,10 +5,10 @@ import { listSchoolClassesForSensorForm } from "@kimiterrace/db";
 import { SensorForm } from "../_components/SensorForm";
 
 /**
- * F13 (#391, ADR-020): 来場検知センサーの **新規登録**フォームページ `/app/sensors/new`。**Server Component**。
+ * F13 (#391, ADR-020): 来場検知センサーの **新規登録**フォームページ `/ops/sensors/new`。**Server Component**。
  *
  * **認可（校務DX原則: 監視系は運営専用）**: センサー管理は学校側の校務を楽にする機能ではないため、
- * 一覧 (`/app/sensors`) と同じく本ページも `requireRole(SYSTEM_ADMIN_ROLES)`（system_admin のみ）に
+ * 一覧 (`/ops/sensors`) と同じく本ページも `requireRole(SYSTEM_ADMIN_ROLES)`（system_admin のみ）に
  * 締める。teacher / school_admin は nav から撤去済み + ここで 403 → /forbidden。
  *
  * クラス選択肢は `withSession` の RLS context で取得する (`classes` の tenant_isolation /

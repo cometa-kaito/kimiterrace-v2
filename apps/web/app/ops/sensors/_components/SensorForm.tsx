@@ -12,7 +12,7 @@ import { type FormEvent, useState, useTransition } from "react";
  * F13 (#391, ADR-020): 来場検知センサーの **登録 / 編集**フォーム。**Client Component**。
  *
  * Server Actions (`createSensorDeviceAction` / `updateSensorDeviceAction`) を呼び、成功時は一覧
- * `/app/sensors` へ戻る。認可 (school_admin のみ) / 検証 / 監査 / cross-tenant / device_mac 一意衝突は
+ * `/ops/sensors` へ戻る。認可 (school_admin のみ) / 検証 / 監査 / cross-tenant / device_mac 一意衝突は
  * Server Action 側 + RLS が担保するので、ここは入力収集と結果表示に徹する (AdsManager と同方針)。
  *
  * **登録時のみ MAC を入力**できる (編集では MAC を変えない = webhook 解決キーの不変性)。設置場所ラベルは
@@ -62,7 +62,7 @@ export function SensorForm({
       if (res.ok) {
         setMsg({ ok: true, text: isEdit ? "更新しました。" : "登録しました。" });
         // 一覧へ戻り、Server Component を再取得する。
-        router.push("/app/sensors");
+        router.push("/ops/sensors");
         router.refresh();
       } else {
         setMsg({ ok: false, text: res.error.message });
@@ -148,7 +148,7 @@ export function SensorForm({
         <button type="submit" disabled={pending} style={submitStyle}>
           {pending ? "送信中…" : isEdit ? "更新する" : "登録する"}
         </button>
-        <a href="/app/sensors" style={cancelStyle}>
+        <a href="/ops/sensors" style={cancelStyle}>
           一覧へ戻る
         </a>
       </div>

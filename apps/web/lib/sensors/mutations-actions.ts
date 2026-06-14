@@ -95,7 +95,7 @@ async function authorize(): Promise<SensorActor | ActionResult<never>> {
 async function finish<T>(build: (tx: TenantTx) => Promise<T>): Promise<ActionResult<T>> {
   try {
     const data = await withSession(build);
-    revalidatePath("/app/sensors");
+    revalidatePath("/ops/sensors");
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantClassError) {
@@ -208,7 +208,7 @@ export async function updateSensorDeviceAction(
     if (!result.updated) {
       return notFound("センサーが見つかりません。");
     }
-    revalidatePath("/app/sensors");
+    revalidatePath("/ops/sensors");
     return { ok: true, data: { id: result.id } };
   } catch (error) {
     if (error instanceof CrossTenantClassError) {

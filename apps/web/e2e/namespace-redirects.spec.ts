@@ -30,18 +30,24 @@ test.describe("namespace 改称リダイレクト (§4.1/§42.5)", () => {
     ["/admin/tv-devices/abc123/edit", "/ops/tv-devices/abc123/edit"],
     // PR-3 で一時的に /app/tv-devices に着地していた分も /ops/tv-devices へ。
     ["/app/tv-devices", "/ops/tv-devices"],
+    // §43: 監視系 (dashboard/sensors/reports) は /ops へ統合。旧 /admin/* は catch-all より前で /ops/* へ。
+    ["/admin/dashboard", "/ops/dashboard"],
+    ["/admin/sensors", "/ops/sensors"],
+    ["/admin/sensors/abc123/edit", "/ops/sensors/abc123/edit"],
+    ["/admin/reports", "/ops/reports"],
+    // PR-3 で一時的に /app/{dashboard,sensors,reports} に着地していた分も /ops/* へ。
+    ["/app/dashboard", "/ops/dashboard"],
+    ["/app/sensors", "/ops/sensors"],
+    ["/app/reports", "/ops/reports"],
     // 学校系中核 → /app。
     ["/admin/editor/abc123", "/app/editor/abc123"],
     ["/admin/school", "/app/school"],
     ["/admin/contents", "/app/contents"],
     ["/admin/chat", "/app/chat"],
     ["/admin/teacher-input", "/app/teacher-input"],
-    // /app へ集約した残り (account/signage-preview/dashboard/sensors/reports) も catch-all で転送される。
+    // /app へ集約した残り (account/signage-preview) も catch-all で転送される。
     ["/admin/account/password", "/app/account/password"],
     ["/admin/signage-preview/abc123", "/app/signage-preview/abc123"],
-    ["/admin/dashboard", "/app/dashboard"],
-    ["/admin/sensors", "/app/sensors"],
-    ["/admin/reports", "/app/reports"],
     // 素の /admin index も catch-all で /app (= role 別 home へ redirect する着地ページ) へ。
     ["/admin", "/app"],
   ];

@@ -156,9 +156,9 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/tv-devices");
   });
 
-  it("センサー管理（全校） (/ops/sensors) は system_admin 専用 (F13 全校横断、自校 /app/sensors とは別ルート)", () => {
+  it("センサー管理（全校） (/ops/sensors) は system_admin 専用 (F13 全校横断、§43 で /app/sensors を統合)", () => {
     // /ops/sensors は requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校ビュー /app/sensors は別ルートで存続。
+    // nav からも publisher には出さない (死リンク防止)。自校重複 /app/sensors は §43 で撤去し本ルートへ統合。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/sensors");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/sensors");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/sensors");
@@ -181,9 +181,9 @@ describe("navItemsForRole", () => {
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/advertisers");
   });
 
-  it("全校ダッシュボード (/ops/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、自校 /app/dashboard とは別ルート)", () => {
+  it("全校ダッシュボード (/ops/dashboard) は system_admin 専用 (F08 第4スライス cross-tenant、§43 で /app/dashboard を撤去)", () => {
     // cross-tenant の横断ビューは requireRole(SYSTEM_ADMIN_ROLES) で publisher を 403 にするため、
-    // nav からも publisher には出さない (死リンク防止)。自校ビュー /app/dashboard は別ルートで存続。
+    // nav からも publisher には出さない (死リンク防止)。自校重複 /app/dashboard は §43 で撤去済み。
     expect(navItemsForRole("system_admin").map((i) => i.href)).toContain("/ops/dashboard");
     expect(navItemsForRole("school_admin").map((i) => i.href)).not.toContain("/ops/dashboard");
     expect(navItemsForRole("teacher").map((i) => i.href)).not.toContain("/ops/dashboard");
