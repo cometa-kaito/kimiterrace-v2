@@ -29,7 +29,7 @@ import { type ProvisioningInput, validateProvisioningInput } from "./provisionin
  * ロジックを seed CLI と共有、token plaintext は signage_url のみ・DB は hash）→ `withSession`（system_admin
  * context）で **同一 tx に 4 つの書込み**:
  *   1. `tv_devices` 行を事前作成（signage_url を焼く、createTvDevice）。
- *   2. サイネージ magic link を発行（hash のみ・class スコープ・長寿命）。composite FK (class_id, school_id) が
+ *   2. サイネージ magic link を発行（hash のみ・class スコープ・1 年＝学年度カバー）。composite FK (class_id, school_id) が
  *      「クラスが当該校に属す」ことを INSERT 時に DB で強制する（越境 class_id は 23503）。
  *   3. デバイス登録の監査（onboarding と同形、system_admin は actor_user_id=null + actor_identity_uid）。
  *   4. プロビジョニングジョブ作成（createProvisioningJob、job 監査は同関数が書く）。
@@ -93,7 +93,7 @@ export async function createProvisioningJobAction(
           notes: config.notes,
           createdBy: null,
         });
-        // 2. サイネージ magic link 発行（hash のみ・class スコープ・10 年）。expires_at は Date を bind せず
+        // 2. サイネージ magic link 発行（hash のみ・class スコープ・1 年＝学年度カバー）。expires_at は Date を bind せず
         //    DB 側 make_interval で算出（[[feedback_pg_date_bind_enum_insert]]）。composite FK が class∈school を強制。
         await tx.insert(magicLinks).values({
           schoolId,
