@@ -41,7 +41,7 @@ import {
  * ## 既存クエリ (packages/db) との関係 — 重複実装ではない
  * `packages/db/src/queries/tv-device-commands.ts` (`listRecentTvCommands`) /
  * `tv-downtime.ts` (`listTvDeviceDowntime`) は **デバイス 1 台**の履歴を引く射影で、
- * `/admin/tv-devices/[deviceId]` 配下のデバイス単位ビューが使う。本層は **全校横断**の運用ログ一覧
+ * `/app/tv-devices/[deviceId]` 配下のデバイス単位ビューが使う。本層は **全校横断**の運用ログ一覧
  * (学校・デバイス・発行者を JOIN 解決 + 検索/フィルタ/ソート/ページング) で要件が異なるため、
  * `apps/web/lib` 側に別途持つ (デバイス単位の取得セマンティクスは packages/db に単一ソースのまま)。
  *

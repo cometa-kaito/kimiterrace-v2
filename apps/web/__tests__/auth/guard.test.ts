@@ -62,7 +62,7 @@ describe("requireRole (403)", () => {
   it("未認証 → /login (role チェック前に 401 で弾く)", async () => {
     getCurrentUser.mockResolvedValue(null);
     await expect(requireRole(["system_admin"])).rejects.toMatchObject({
-      url: "/login?next=%2Fadmin",
+      url: "/login?next=%2Fapp",
     });
   });
 

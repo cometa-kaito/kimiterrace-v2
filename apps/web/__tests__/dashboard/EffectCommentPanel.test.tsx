@@ -13,7 +13,7 @@ vi.mock("@/lib/dashboard/effect-comment-action", () => ({
   generateEffectComment: vi.fn(),
 }));
 
-import { EffectCommentPanel } from "../../app/admin/dashboard/_components/EffectCommentPanel";
+import { EffectCommentPanel } from "../../app/app/dashboard/_components/EffectCommentPanel";
 import { generateEffectComment } from "../../lib/dashboard/effect-comment-action";
 
 const generateMock = vi.mocked(generateEffectComment);

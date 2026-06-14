@@ -104,7 +104,7 @@ export default async function ClassEditorPage({
             */}
               <p style={{ margin: "0 0 0.25rem" }}>
                 <Link
-                  href={`/admin/signage-preview/${classId}?date=${date}`}
+                  href={`/app/signage-preview/${classId}?date=${date}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{

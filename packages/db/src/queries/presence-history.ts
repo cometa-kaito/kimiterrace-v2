@@ -8,7 +8,7 @@ import { sensorDevices } from "../schema/sensor-devices.js";
  *
  * `sensor-devices-status.ts`（デバイス台帳 + 直近検知 + ヘルス）が「いま各センサーが生きているか」の
  * 俯瞰なのに対し、本モジュールは **特定 1 センサーの過去の検知を時系列で全部見る**ための read モデル。
- * 管理画面 `/admin/sensors/[id]/history` が消費する（ユーザー依頼「人感センサのデータを過去のデータなど
+ * 管理画面 `/app/sensors/[id]/history` が消費する（ユーザー依頼「人感センサのデータを過去のデータなど
  * 全て UI から見れるように」）。
  *
  * 返すのは ①期間内の生検知イベント（occurred_at + detection_state、新しい順・上限つき）、②**JST 日別**の

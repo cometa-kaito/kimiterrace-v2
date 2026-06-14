@@ -9,7 +9,7 @@ import { tvProvisioningJobs } from "../schema/tv-provisioning-jobs.js";
 /**
  * C方式 TV プロビジョニングジョブのクエリ層。3 経路（tv_device_commands と同じ二層 RLS 思想）:
  *
- *  1. **作成（管理セッション）**: `createProvisioningJob`。`/admin/tv-devices/provision` の Server Action が
+ *  1. **作成（管理セッション）**: `createProvisioningJob`。`/app/tv-devices/provision` の Server Action が
  *     `withSession`（system_admin = ONBOARDING_ROLES）の RLS tx 内で呼ぶ。pending を 1 件 INSERT +
  *     `audit_log` 追記（同 tx・原子的、ルール1）。
  *  2. **claim（エージェント API・セッション無し）**: `claimNextProvisioningJob`。`POST /api/tv/provisioning/claim`

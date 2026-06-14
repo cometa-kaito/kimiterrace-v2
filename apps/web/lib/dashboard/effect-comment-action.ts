@@ -18,7 +18,7 @@ import { type GenerateEffectCommentDeps, defaultDeps, maskStats } from "./effect
 /**
  * F08 (#44, slice 2): **AI 効果コメント生成** Server Action（ダッシュボードの後続スライス）。
  *
- * 効果ダッシュボード (`/admin/dashboard`、school_admin / teacher) の「今月の反応」を、当月 vs 前月の
+ * 効果ダッシュボード (`/app/dashboard`、school_admin / teacher) の「今月の反応」を、当月 vs 前月の
  * 集計から Gemini に 2〜3 文で要約させる。フロー:
  *
  *   requireRole(PUBLISHER_ROLES) → withSession (RLS context tx)

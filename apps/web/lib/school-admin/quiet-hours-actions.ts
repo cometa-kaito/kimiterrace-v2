@@ -181,7 +181,7 @@ export async function saveQuietHoursAction(
 
     revalidatePath(quietHoursPath(target));
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
-    revalidatePath("/admin/signage-preview/[classId]", "page");
+    revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data: { id } };
   } catch (error) {
     if (error instanceof CrossTenantError) {

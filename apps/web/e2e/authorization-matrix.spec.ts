@@ -62,12 +62,13 @@ type PageCase = {
 };
 
 const PAGE_CASES: readonly PageCase[] = [
-  // /admin index = ADMIN_ROLES (system_admin/school_admin/teacher)。全管理ロール許可。/admin layout/page は
-  // PR-3 まで残置し、homePathForRole で各ロール別ホームへ redirect する: school_admin→/app/school・
-  // teacher→/app/editor（namespace 改称 §4.1 で /app へ）・system_admin→/ops/schools。いずれも /admin 配下には
-  // 着地しないため、allowUrl は新 namespace (/app・/ops) を許容する（/forbidden・/login でないことは別途確認）。
+  // /admin index = ADMIN_ROLES (system_admin/school_admin/teacher)。全管理ロール許可。namespace 改称 §4.1 (PR-3)
+  // で /admin index/layout は /app へ移設済 — 旧 `/admin` は catch-all 308 で `/app` へ転送され、そこから
+  // homePathForRole で各ロール別ホームへ redirect する: school_admin→/app/school・teacher→/app/editor・
+  // system_admin→/ops/schools。いずれも /admin 配下には着地しないため、allowUrl は新 namespace (/app・/ops) を
+  // 許容する（/forbidden・/login でないことは別途確認）。旧 `/admin` 入口の後方互換 (308→着地) を回帰ガードする。
   {
-    label: "/admin (ADMIN_ROLES)",
+    label: "旧 /admin 入口 (catch-all 308 → /app → home; ADMIN_ROLES)",
     path: "/admin",
     allow: ALL_ROLES,
     allowUrl: /\/(app|ops)(\/|$)/,
@@ -196,7 +197,7 @@ const API_CASES: readonly ApiCase[] = [
     denyStatus: 403,
   },
   // GET /api/reports/monthly = SYSTEM_ADMIN_ROLES (system_admin のみ)。校務DX原則で月次レポートは
-  // 運営専用に締めたため、teacher / school_admin は 403。画面 /admin/reports と整合。
+  // 運営専用に締めたため、teacher / school_admin は 403。画面 /app/reports と整合。
   {
     label: "GET /api/reports/monthly (SYSTEM_ADMIN_ROLES; teacher/school_admin 403)",
     method: "GET",

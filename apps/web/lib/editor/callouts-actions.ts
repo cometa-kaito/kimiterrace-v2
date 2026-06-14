@@ -57,7 +57,7 @@ export async function setCalloutsAction(
   }
 
   revalidatePath(`/app/editor/${classId}`);
-  revalidatePath("/admin/signage-preview/[classId]", "page");
+  revalidatePath("/app/signage-preview/[classId]", "page");
   return { ok: true, data: { count } };
 }
 

@@ -3,7 +3,7 @@ import type { TenantRole } from "@kimiterrace/db";
 /**
  * パスワード設定 / 変更フォーム共通の **入力検証 (純ロジック)** と **対象ロール**。
  *
- * - リセットページ (`/reset-password`) と ログイン後のパスワード変更 (`/admin/account/password`) の双方が
+ * - リセットページ (`/reset-password`) と ログイン後のパスワード変更 (`/app/account/password`) の双方が
  *   同じ規則・同じメッセージを使う単一ソース (staff-create-core と同構成)。
  * - 真の強度ポリシーは Identity Platform 側 (最小 6 文字等) でも効くが、ここでは最低限の UX ガード
  *   (長さ + 確認一致) を client / server 双方が共有する。
@@ -30,7 +30,7 @@ export function validateNewPassword(password: string, confirm: string): Password
  *
  * teacher は学校共通パスワード (ADR-032) でログインし個人パスワードを持たない (共通アカウントを変更すると
  * 学校全体に波及する) ため対象外。共通パスワードの設定は system_admin が学校編集 UI で行う。
- * `/admin/account/password` の `requireRole` と nav (`lib/nav.ts`) の両方がこの集合に揃える。
+ * `/app/account/password` の `requireRole` と nav (`lib/nav.ts`) の両方がこの集合に揃える。
  */
 export const PASSWORD_CHANGE_ROLES = [
   "system_admin",

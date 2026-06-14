@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * fix #2: ログイン後のパスワード変更 (`/admin/account/password`) の挙動。
+ * fix #2: ログイン後のパスワード変更 (`/app/account/password`) の挙動。
  *
  * 検証する不変条件:
  * - 正常: 現在PWで再認証 (`signInWithEmailAndPassword`) → `updatePassword` → 成功表示。currentUser に依存
@@ -30,7 +30,7 @@ vi.mock("firebase/auth", () => ({
 vi.mock("../../lib/auth/clientApp", () => ({ getClientAuth: vi.fn(() => ({})) }));
 
 import { signInWithEmailAndPassword, updatePassword } from "firebase/auth";
-import { ChangePasswordForm } from "../../app/admin/account/password/_components/ChangePasswordForm";
+import { ChangePasswordForm } from "../../app/app/account/password/_components/ChangePasswordForm";
 
 const signInMock = vi.mocked(signInWithEmailAndPassword);
 const updatePasswordMock = vi.mocked(updatePassword);
@@ -105,7 +105,7 @@ describe("ChangePasswordForm", () => {
     render(<ChangePasswordForm email={null} />);
     expect(screen.getByRole("link", { name: "ログインし直す" })).toHaveAttribute(
       "href",
-      "/login?next=/admin/account/password",
+      "/login?next=/app/account/password",
     );
     expect(screen.queryByRole("button", { name: "パスワードを変更" })).not.toBeInTheDocument();
   });
