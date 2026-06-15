@@ -31,19 +31,32 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/**
+ * 任意の正整数 env を取得する（未設定 / 非数値 / 0 以下なら undefined → 既定にフォールバック）。
+ * `raw ? Number.parseInt(...) : undefined` だと非数値で `NaN` が `timeoutMs` に流れ、`config.timeoutMs ?? 10_000`
+ * は `NaN`（nullish でない）を素通しして `setTimeout(abort, NaN)` ≒ `setTimeout(abort, 0)` となり **全 fetch を
+ * 即 abort** する。`Number.isFinite` で弾いて既定（10s）に倒す（tv-liveness-job と同方針）。
+ */
+function optionalIntEnv(name: string): number | undefined {
+  const raw = env[name];
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /** エラーメッセージから接続文字列（DSN）を伏せる（ルール5: secret をログに出さない）。 */
 function redactDsn(s: string): string {
   return s.replace(/postgres(?:ql)?:\/\/[^\s"]+/gi, "postgres://<redacted>");
 }
 
 async function main(): Promise<void> {
-  const timeoutRaw = env.RAILWAY_FETCH_TIMEOUT_MS;
   const config: RunRailwayFetchConfig = {
     databaseUrl: requireEnv("DATABASE_URL"),
     userAgent:
       env.RAILWAY_FETCH_USER_AGENT ??
       "kimiterrace-railway-fetch/1.0 (+https://rebounder.jp; contact: ops@rebounder.jp)",
-    timeoutMs: timeoutRaw ? Number.parseInt(timeoutRaw, 10) : undefined,
+    // 非数値（NaN）を渡さない。未設定 / 不正なら undefined で既定（10s）に倒す（即 abort を防ぐ）。
+    timeoutMs: optionalIntEnv("RAILWAY_FETCH_TIMEOUT_MS"),
     ...(env.RAILWAY_STATUS_URL ? { url: env.RAILWAY_STATUS_URL } : {}),
   };
 
