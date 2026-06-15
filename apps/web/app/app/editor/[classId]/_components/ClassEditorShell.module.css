@@ -55,6 +55,10 @@
   }
   .tabBar {
     position: fixed;
+    /* ベースの sticky 用 top:0 を必ず解除する。fixed で top:0 と bottom:0 が両立すると
+     * 高さが viewport 全高にストレッチし、フッターが全画面を覆って全操作をブロックする
+     * （2026-06-15 本番事故）。下部固定だけにするため top:auto。 */
+    top: auto;
     left: 0;
     right: 0;
     bottom: 0;
