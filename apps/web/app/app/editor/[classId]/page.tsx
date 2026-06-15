@@ -74,16 +74,18 @@ export default async function ClassEditorPage({
 
   return (
     <>
-      <header style={{ marginBottom: "1rem" }}>
-        {/* ?stay=1: 単一クラス teacher の自動直行（着地）とのループを防ぎ、選択画面に留まれるようにする。 */}
-        <Link
-          href="/app/editor?stay=1"
-          style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}
-        >
-          ← 編集対象の選択へ戻る
+      {/* 画面付随物（戻る + クラス名）は小さく薄いパンくずに格下げ＝主役（タブ以下の編集面）に視線が
+          向くようにする（ユーザー指摘 2026-06-15）。クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ
+          控えめにする。?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
+      <nav aria-label="パンくず" style={breadcrumbRowStyle}>
+        <Link href="/app/editor?stay=1" style={breadcrumbBackStyle}>
+          <span aria-hidden="true">‹</span> 戻る
         </Link>
-        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0" }}>{schedule.className}</h1>
-      </header>
+        <span aria-hidden="true" style={breadcrumbSepStyle}>
+          ／
+        </span>
+        <h1 style={classTitleStyle}>{schedule.className}</h1>
+      </nav>
 
       <ClassEditorShell
         ai={
@@ -165,4 +167,32 @@ const boardCardStyle: React.CSSProperties = {
 const boardCardTitleStyle: React.CSSProperties = {
   fontSize: "1.05rem",
   margin: "0 0 0.5rem",
+};
+
+// 画面付随物（戻る/クラス名）を小さく薄く＝主役の邪魔をしないパンくず。
+const breadcrumbRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.4rem",
+  marginBottom: "0.85rem",
+  flexWrap: "wrap",
+};
+const breadcrumbBackStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.15rem",
+  fontSize: tokens.fontSize.xs,
+  color: tokens.color.muted,
+  textDecoration: "none",
+};
+const breadcrumbSepStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.xs,
+  color: tokens.color.border,
+};
+// クラス名は h1（見出し階層は維持）だが視覚的には控えめ（小さめ・neutral）にする。
+const classTitleStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.sm,
+  fontWeight: 600,
+  color: tokens.color.neutralFg,
+  margin: 0,
 };
