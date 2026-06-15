@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AuthUser } from "../../lib/auth/session";
-import { isValidDate, toEditorActor, validateScheduleItems } from "../../lib/editor/schedule-core";
+import {
+  SCHEDULE_SLOT_OPTIONS,
+  isValidDate,
+  scheduleSlotLabel,
+  scheduleSlotSortKey,
+  toEditorActor,
+  validateScheduleItems,
+} from "../../lib/editor/schedule-core";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
 
@@ -60,10 +67,43 @@ describe("validateScheduleItems", () => {
     expect(validateScheduleItems([{ period: 13, subject: "x" }]).ok).toBe(false);
   });
 
+  it("特殊スロット (morning / lunch / afterschool) を受理", () => {
+    const r = validateScheduleItems([
+      { period: "morning", subject: "朝の会" },
+      { period: "lunch", subject: "昼食" },
+      { period: "afterschool", subject: "部活" },
+    ]);
+    expect(r.ok && r.value.map((i) => i.period)).toEqual(["morning", "lunch", "afterschool"]);
+  });
+
+  it("未知の文字列 period は拒否", () => {
+    expect(validateScheduleItems([{ period: "evening", subject: "x" }]).ok).toBe(false);
+    expect(validateScheduleItems([{ period: "0", subject: "x" }]).ok).toBe(false);
+  });
+
+  it("特殊スロットと数値が混在しても morning < periods < lunch < afterschool に正規化", () => {
+    const r = validateScheduleItems([
+      { period: "afterschool", subject: "部活" },
+      { period: 2, subject: "数学" },
+      { period: "morning", subject: "朝の会" },
+      { period: 1, subject: "国語" },
+      { period: "lunch", subject: "昼食" },
+    ]);
+    expect(r.ok && r.value.map((i) => i.period)).toEqual(["morning", 1, 2, "lunch", "afterschool"]);
+  });
+
   it("時限の重複は拒否", () => {
     const r = validateScheduleItems([
       { period: 1, subject: "国語" },
       { period: 1, subject: "数学" },
+    ]);
+    expect(r.ok).toBe(false);
+  });
+
+  it("特殊スロットの重複は拒否", () => {
+    const r = validateScheduleItems([
+      { period: "lunch", subject: "昼食A" },
+      { period: "lunch", subject: "昼食B" },
     ]);
     expect(r.ok).toBe(false);
   });
@@ -102,5 +142,49 @@ describe("validateScheduleItems", () => {
     expect(
       validateScheduleItems([{ period: 1, subject: "x", targetAudience: "あ".repeat(51) }]).ok,
     ).toBe(false);
+  });
+});
+
+describe("scheduleSlotLabel", () => {
+  it("数値時限は `N限`", () => {
+    expect(scheduleSlotLabel(1)).toBe("1限");
+    expect(scheduleSlotLabel(12)).toBe("12限");
+  });
+  it("特殊スロットは 朝 / 昼休み / 放課後", () => {
+    expect(scheduleSlotLabel("morning")).toBe("朝");
+    expect(scheduleSlotLabel("lunch")).toBe("昼休み");
+    expect(scheduleSlotLabel("afterschool")).toBe("放課後");
+  });
+});
+
+describe("scheduleSlotSortKey", () => {
+  it("morning < 1 < 12 < lunch < afterschool の順に並ぶ", () => {
+    const slots = ["afterschool", 12, "morning", 1, "lunch"] as const;
+    const sorted = [...slots].sort((a, b) => scheduleSlotSortKey(a) - scheduleSlotSortKey(b));
+    expect(sorted).toEqual(["morning", 1, 12, "lunch", "afterschool"]);
+  });
+});
+
+describe("SCHEDULE_SLOT_OPTIONS", () => {
+  it("morning / 1..12 / lunch / afterschool を順に並べた 15 件", () => {
+    expect(SCHEDULE_SLOT_OPTIONS.map((o) => o.value)).toEqual([
+      "morning",
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      "lunch",
+      "afterschool",
+    ]);
+    expect(SCHEDULE_SLOT_OPTIONS[0]).toEqual({ value: "morning", label: "朝" });
+    expect(SCHEDULE_SLOT_OPTIONS[1]).toEqual({ value: 1, label: "1限" });
   });
 });

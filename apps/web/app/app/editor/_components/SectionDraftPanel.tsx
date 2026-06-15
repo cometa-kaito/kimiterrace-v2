@@ -10,6 +10,7 @@ import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import type { ActionResult, ScheduleItem } from "@/lib/editor/schedule-core";
+import { SCHEDULE_SLOT_OPTIONS, isSpecialSlot } from "@/lib/editor/schedule-core";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useRef, useState } from "react";
@@ -424,15 +425,20 @@ export const SCHEDULE_DRAFT_CONFIG: SectionDraftConfig<ScheduleItem> = {
     <div style={fieldWrap}>
       <label style={fieldLabel}>
         時限{" "}
-        <input
-          type="number"
-          min={1}
-          max={12}
-          value={item.period}
+        <select
+          value={String(item.period)}
           aria-label="時限"
-          style={{ ...fieldInput, width: "4rem" }}
-          onChange={(e) => set({ period: Number(e.target.value) })}
-        />
+          style={{ ...fieldInput, width: "6rem" }}
+          onChange={(e) =>
+            set({ period: isSpecialSlot(e.target.value) ? e.target.value : Number(e.target.value) })
+          }
+        >
+          {SCHEDULE_SLOT_OPTIONS.map((opt) => (
+            <option key={String(opt.value)} value={String(opt.value)}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </label>
       <label style={fieldLabel}>
         科目{" "}

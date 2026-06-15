@@ -23,6 +23,7 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
+import { isSpecialSlot, scheduleSlotSortKey } from "@/lib/editor/schedule-core";
 import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   type SignageDesignPattern,
@@ -832,7 +833,10 @@ const SOURCE_BADGE_LABEL: Record<"school" | "department" | "grade", string> = {
   grade: "学年共通",
 };
 
-/** 予定要素を時限 (period) 昇順に並べる。period 欠損/不正は末尾へ。元配列は破壊しない。 */
+/**
+ * 予定要素を時限 (period) 昇順に並べる。並びは morning < 1..12 < lunch < afterschool
+ * （{@link scheduleSlotSortKey} 単一ソース）。period 欠損/不正は末尾へ。元配列は破壊しない。
+ */
 function sortByPeriod(items: unknown[]): unknown[] {
   return [...items].sort((a, b) => periodOf(a) - periodOf(b));
 }
@@ -841,7 +845,10 @@ function periodOf(item: unknown): number {
   if (item && typeof item === "object" && !Array.isArray(item)) {
     const p = (item as Record<string, unknown>).period;
     if (typeof p === "number" && Number.isFinite(p)) {
-      return p;
+      return scheduleSlotSortKey(p);
+    }
+    if (isSpecialSlot(p)) {
+      return scheduleSlotSortKey(p);
     }
   }
   return Number.POSITIVE_INFINITY;

@@ -31,6 +31,15 @@ describe("formatSignageItem", () => {
       expect(formatSignageItem("schedules", { subject: "国語" })).toEqual({ text: "国語" });
     });
 
+    it("特殊スロットはラベルを冠する (朝 / 昼休み / 放課後)", () => {
+      expect(formatSignageItem("schedules", { period: "morning", subject: "朝の会" })).toEqual({
+        text: "朝 朝の会",
+      });
+      expect(formatSignageItem("schedules", { period: "afterschool", subject: "部活" })).toEqual({
+        text: "放課後 部活",
+      });
+    });
+
     it("subject 欠落は汎用フォールバック", () => {
       expect(formatSignageItem("schedules", { period: 2 })).toEqual({ text: '{"period":2}' });
     });
@@ -157,6 +166,15 @@ describe("parseScheduleRow (予定グリッドの時限 + 内容 + 場所/対象
     expect(parseScheduleRow({ period: 2, subject: "英語" })).toEqual({
       periodLabel: "2限",
       content: "英語",
+      location: null,
+      targetAudience: null,
+    });
+  });
+
+  it("特殊スロットは時限ラベルにその名称 (昼休み)", () => {
+    expect(parseScheduleRow({ period: "lunch", subject: "委員会" })).toEqual({
+      periodLabel: "昼休み",
+      content: "委員会",
       location: null,
       targetAudience: null,
     });
