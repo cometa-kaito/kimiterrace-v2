@@ -222,6 +222,33 @@ async function streamFixedAnswer(
   return { kind: "stream", textStream, done };
 }
 
+/** モデル出力に PII 残存を検出したときの安全置換文 (生 PII を表示・保存しない、ルール4 fail-closed)。 */
+const PII_LEAK_REPLY = "内部エラーにより応答を表示できませんでした。";
+
+/**
+ * モデル応答 (マスク空間) にも PII 残存検査を通す多層防御 (ルール4・兄弟 `assistant-chat-sse.ts` と同方針)。
+ *
+ * 入力 (質問・コンテキスト) は Vertex 送信前に fail-closed でマスク済みだが、モデルが **辞書化漏れの氏名や
+ * ハルシネーションした電話/メール**を出力する可能性は残る。それが生徒へストリームされ 10 年保管 DB に
+ * 永続するのを防ぐため、出力の各チャンクでも `findUnmaskedPii` を回し、検出した時点で以降のチャンクを
+ * 打ち切る。完全な PII パターン (電話/メール/名簿氏名) は最新チャンクで初めて揃うため、揃った時点でその
+ * チャンクを出さずに停止すれば生 PII の表示を防げる。
+ */
+function gateChatOutput(
+  source: AsyncIterable<string>,
+  piiEntries: readonly PiiEntry[],
+): AsyncIterable<string> {
+  return (async function* () {
+    let acc = "";
+    for await (const chunk of source) {
+      const next = acc + chunk;
+      if (findUnmaskedPii(next, piiEntries).length > 0) return;
+      acc = next;
+      yield chunk;
+    }
+  })();
+}
+
 /**
  * 生徒・教員の質問 1 件を処理する SSE ハンドラの中核 (#370)。
  *
@@ -391,18 +418,24 @@ export async function executeChat(params: ExecuteChatParams): Promise<ExecuteCha
     const final = await stream.done;
     // 空ストリーム or 全文が定型拒否でも、契約として 1 行は assistant を残す
     // (会話履歴の連続性 + 監査追跡性のため)。
-    const finalText = final.fullText.length > 0 ? final.fullText : OUT_OF_SCOPE_REPLY;
+    const rawFinal = final.fullText.length > 0 ? final.fullText : OUT_OF_SCOPE_REPLY;
+    // 多層防御 (ルール4): モデル出力に PII 残存 (辞書化漏れ・ハルシネーション) があれば 10 年保管 DB に
+    // 生 PII を残さない。定型文へ倒し、model_version をセンチネルにして監査で「出力 PII で伏せた」痕跡を残す。
+    // confidence も 0 に倒す (定型文に意味的根拠は無い)。表示側 (textStream) は gateChatOutput が打ち切る。
+    const leaked = findUnmaskedPii(rawFinal, piiEntries).length > 0;
+    const finalText = leaked ? PII_LEAK_REPLY : rawFinal;
     const row = await appendAssistantMessage(tx, {
       schoolId,
       sessionId: session.id,
       maskedText: finalText,
-      modelVersion: final.modelVersion,
+      modelVersion: leaked ? "pii-redacted-output" : final.modelVersion,
       evidence,
-      confidenceScore,
+      confidenceScore: leaked ? 0 : confidenceScore,
       tokenCount: final.tokenCount,
     });
     return { assistantMessageId: row.id, sessionId: session.id };
   })();
 
-  return { kind: "stream", textStream: stream.textStream, done };
+  // 表示も多層防御: モデル出力をチャンク単位で PII 検査し、残存検出時点で打ち切る (ルール4)。
+  return { kind: "stream", textStream: gateChatOutput(stream.textStream, piiEntries), done };
 }
