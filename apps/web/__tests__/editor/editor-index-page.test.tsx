@@ -91,7 +91,7 @@ const hierarchy = {
       displayOrder: 0,
       hasClasses: true,
       departmentId: DEPT_ID,
-      classes: [{ id: CLASS_ID, name: "1年A組", academicYear: 2026, grade: 1 }],
+      classes: [{ id: CLASS_ID, name: "1年A組", grade: 1 }],
     },
   ],
 };
@@ -240,11 +240,10 @@ describe("EditorIndexPage 単一クラス teacher の自動直行（?stay ルー
           hasClasses: true,
           departmentId: null,
           classes: [
-            { id: CLASS_ID, name: "1年A組", academicYear: 2026, grade: 1 },
+            { id: CLASS_ID, name: "1年A組", grade: 1 },
             {
               id: "33333333-3333-4333-8333-333333333333",
               name: "1年B組",
-              academicYear: 2026,
               grade: 1,
             },
           ],

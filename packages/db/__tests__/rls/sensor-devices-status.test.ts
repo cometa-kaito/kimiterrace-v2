@@ -58,8 +58,8 @@ describeOrSkip("RLS: F13 listSensorDeviceStatuses (#391)", () => {
     fx = await seedBaseFixture(sql);
     // school A: クラス 1 件 (class 紐付け検証用)。
     const [cls] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, '1-A', 1)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, '1-A', 1)
       RETURNING id
     `;
     // school A: 4 デバイス (各ヘルス状態 1 つずつ)。healthy のみクラス紐付け。

@@ -33,8 +33,8 @@ describeOrSkip("RLS: F13 sensor_devices (#391)", () => {
     `;
     // class_id 紐付け検証用にクラスを 1 件（school A）
     await sql`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, '1-A', 1)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, '1-A', 1)
     `;
   });
 

@@ -50,13 +50,13 @@ describeOrSkip("#226 quiet_hours の cross-tenant ガード × system_admin 降�
     sysAdminA.schoolId = fx.schoolA;
     classA = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, name, academic_year, grade)
-        VALUES (${fx.schoolA}, '1-A', 2026, 1) RETURNING id`
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '1-A', 1) RETURNING id`
     )[0].id;
     classB = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, name, academic_year, grade)
-        VALUES (${fx.schoolB}, '1-B', 2026, 1) RETURNING id`
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolB}, '1-B', 1) RETURNING id`
     )[0].id;
   }, 30000);
 

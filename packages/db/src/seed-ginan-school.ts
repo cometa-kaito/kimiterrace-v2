@@ -40,9 +40,6 @@ export const GINAN_SCHOOL = {
 /** 学科名（電子工学科）。sensor/TV シードと共有。 */
 export const GINAN_DEPARTMENT = GINAN_ECE_DEPARTMENT_NAME;
 
-/** クラスの年度（PoC 年度）。env `SEED_GINAN_ACADEMIC_YEAR` で上書き可（CLI 側）。 */
-export const GINAN_ACADEMIC_YEAR = 2026;
-
 /** 電子工学科 1〜3 年（各学年 1 クラス）。 */
 export const GINAN_GRADES: readonly GinanGradeSeed[] = [
   { grade: 1, gradeName: "1年", className: "A組" },

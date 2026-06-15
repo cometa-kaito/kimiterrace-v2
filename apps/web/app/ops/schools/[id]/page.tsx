@@ -183,7 +183,6 @@ function ClassNode({ cls, now }: { cls: TreeClass; now: Date }) {
     <div style={classRowStyle}>
       <div style={classHeadStyle}>
         <span>🏫 {cls.name}</span>
-        <span style={yearStyle}>{cls.academicYear}年度</span>
         <span style={badgeCountStyle}>モニタ {cls.devices.length}</span>
       </div>
       {cls.devices.length > 0 ? (
@@ -343,7 +342,6 @@ const classHeadStyle: React.CSSProperties = {
   gap: "0.6rem",
   fontSize: "0.9rem",
 };
-const yearStyle: React.CSSProperties = { fontSize: "0.75rem", color: "#9ca3af" };
 const badgeCountStyle: React.CSSProperties = { fontSize: "0.72rem", color: "#6b7280" };
 const deviceWrapStyle: React.CSSProperties = { marginLeft: "1.25rem" };
 const deviceCaptionStyle: React.CSSProperties = {

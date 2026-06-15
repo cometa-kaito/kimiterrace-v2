@@ -64,8 +64,8 @@ describeOrSkip(
       // school A にクラスを 1 件 (BYPASSRLS = テーブル所有者接続で投入)。
       classA1 = (
         await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '1-A', 1) RETURNING id
       `
       )[0].id;
 

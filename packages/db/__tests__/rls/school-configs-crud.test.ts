@@ -55,8 +55,8 @@ describeOrSkip("queries: school_configs quiet_hours CRUD クエリ層 (#48-J-2)"
     )[0].id;
     classA1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, ${gradeA1}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, ${gradeA1}, '1-A', 1) RETURNING id
       `
     )[0].id;
     const gradeB1 = (
@@ -67,8 +67,8 @@ describeOrSkip("queries: school_configs quiet_hours CRUD クエリ層 (#48-J-2)"
     )[0].id;
     classB1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolB}, ${gradeB1}, 2026, '1-B', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolB}, ${gradeB1}, '1-B', 1) RETURNING id
       `
     )[0].id;
   });

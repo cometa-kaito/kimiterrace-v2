@@ -29,8 +29,8 @@ describeOrSkip("RLS: student_callouts（生徒呼び出し）", () => {
 
   async function seedClass(schoolId: string, name: string): Promise<string> {
     const [row] = await raw<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${schoolId}, 2026, ${name}, 1) RETURNING id`;
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${schoolId}, ${name}, 1) RETURNING id`;
     return row.id;
   }
 

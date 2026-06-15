@@ -351,8 +351,8 @@ async function seedSchool2(sql: RawSql): Promise<void> {
      ON CONFLICT (id) DO NOTHING;`,
   );
   await sql.unsafe(
-    `INSERT INTO classes (id, school_id, grade_id, academic_year, name, grade)
-     VALUES ('${classId}', '${schoolId}', '${gradeId}', 2026, '1組', 1)
+    `INSERT INTO classes (id, school_id, grade_id, name, grade)
+     VALUES ('${classId}', '${schoolId}', '${gradeId}', '1組', 1)
      ON CONFLICT (id) DO NOTHING;`,
   );
   await sql.unsafe(
@@ -402,8 +402,8 @@ async function seedGoldenClass(sql: RawSql): Promise<void> {
   const notices = JSON.stringify([{ text: SEED.GOLDEN_INITIAL_NOTICE }]);
 
   await sql.unsafe(
-    `INSERT INTO classes (id, school_id, grade_id, academic_year, name, grade)
-     VALUES ('${classId}', '${schoolId}', '${gradeId}', 2026, '2組', 1)
+    `INSERT INTO classes (id, school_id, grade_id, name, grade)
+     VALUES ('${classId}', '${schoolId}', '${gradeId}', '2組', 1)
      ON CONFLICT (id) DO NOTHING;`,
   );
   await sql.unsafe(
@@ -473,8 +473,8 @@ async function seed(sql: RawSql): Promise<void> {
   );
 
   await sql.unsafe(
-    `INSERT INTO classes (id, school_id, grade_id, academic_year, name, grade)
-     VALUES ('${classId}', '${schoolId}', '${gradeId}', 2026, '1組', 1)
+    `INSERT INTO classes (id, school_id, grade_id, name, grade)
+     VALUES ('${classId}', '${schoolId}', '${gradeId}', '1組', 1)
      ON CONFLICT (id) DO NOTHING;`,
   );
 

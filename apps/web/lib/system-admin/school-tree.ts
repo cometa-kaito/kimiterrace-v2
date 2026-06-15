@@ -40,7 +40,6 @@ export type TreeDevice = {
 export type TreeClass = {
   id: string;
   name: string;
-  academicYear: number;
   devices: TreeDevice[];
 };
 
@@ -74,7 +73,7 @@ export type SchoolTree = {
 
 type DeptRow = { id: string; name: string; displayOrder: number };
 type GradeRow = { id: string; name: string; departmentId: string | null; displayOrder: number };
-type ClassRow = { id: string; name: string; gradeId: string | null; academicYear: number };
+type ClassRow = { id: string; name: string; gradeId: string | null };
 type DeviceRow = {
   id: string;
   label: string | null;
@@ -134,7 +133,7 @@ export function assembleSchoolTree(input: {
     }
   }
 
-  // クラスを学年ごとにまとめる (年度降順 → 名前 → id で決定的)。
+  // クラスを学年ごとにまとめる (名前 → id で決定的)。
   const classesByGrade = new Map<string, TreeClass[]>();
   for (const c of input.classes) {
     if (!c.gradeId) {
@@ -143,7 +142,6 @@ export function assembleSchoolTree(input: {
     const tc: TreeClass = {
       id: c.id,
       name: c.name,
-      academicYear: c.academicYear,
       devices: (devicesByClass.get(c.id) ?? []).sort(compareDevice),
     };
     const list = classesByGrade.get(c.gradeId);
@@ -154,7 +152,7 @@ export function assembleSchoolTree(input: {
     }
   }
   for (const list of classesByGrade.values()) {
-    list.sort((a, b) => b.academicYear - a.academicYear || a.name.localeCompare(b.name, "ja"));
+    list.sort((a, b) => a.name.localeCompare(b.name, "ja") || a.id.localeCompare(b.id));
   }
 
   // 学年を学科ごとにまとめる (displayOrder → 名前)。department_id null は top-level。
@@ -223,7 +221,6 @@ export async function getSchoolTree(db: Selectable, schoolId: string): Promise<S
       id: classes.id,
       name: classes.name,
       gradeId: classes.gradeId,
-      academicYear: classes.academicYear,
     })
     .from(classes)
     .where(eq(classes.schoolId, schoolId));

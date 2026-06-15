@@ -49,12 +49,12 @@ describeOrSkip("RLS: F13 sensor_devices mutations (#391)", () => {
     fx = await seedBaseFixture(sql);
     // school A / B にクラスを 1 つずつ (class_id 紐付け + cross-tenant 検証用)。
     const [ca] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, '1-A', 1) RETURNING id
     `;
     const [cb] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolB}, 2026, '2-B', 2) RETURNING id
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolB}, '2-B', 2) RETURNING id
     `;
     classAId = ca.id;
     classBId = cb.id;

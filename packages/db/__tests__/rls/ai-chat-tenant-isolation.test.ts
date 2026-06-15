@@ -41,8 +41,8 @@ describeOrSkip("RLS ai_chat_sessions / ai_chat_messages (テナント分離 read
     const mkClass = async (school: string, name: string) =>
       (
         await sql<{ id: string }[]>`
-          INSERT INTO classes (school_id, academic_year, name, grade)
-          VALUES (${school}, 2026, ${name}, 1) RETURNING id
+          INSERT INTO classes (school_id, name, grade)
+          VALUES (${school}, ${name}, 1) RETURNING id
         `
       )[0].id;
     const mkMagic = async (school: string, klass: string, hash: string) =>

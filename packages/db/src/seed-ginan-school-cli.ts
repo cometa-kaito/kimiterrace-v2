@@ -1,6 +1,5 @@
 import postgres from "postgres";
 import {
-  GINAN_ACADEMIC_YEAR,
   GINAN_DEPARTMENT,
   GINAN_GRADES,
   GINAN_SCHOOL,
@@ -32,7 +31,6 @@ import {
 
 const SCHOOL_NAME = process.env.SEED_GINAN_SCHOOL_NAME ?? GINAN_SCHOOL.name;
 const DEPARTMENT_NAME = process.env.SEED_GINAN_DEPARTMENT_NAME ?? GINAN_DEPARTMENT;
-const ACADEMIC_YEAR = Number(process.env.SEED_GINAN_ACADEMIC_YEAR ?? GINAN_ACADEMIC_YEAR);
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
@@ -107,8 +105,8 @@ async function main(): Promise<void> {
         let classAction: string;
         if (existingCount === 0) {
           await tx`
-            INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-            VALUES (${schoolId}, ${gradeId}, ${ACADEMIC_YEAR}, ${g.className}, ${g.grade})`;
+            INSERT INTO classes (school_id, grade_id, name, grade)
+            VALUES (${schoolId}, ${gradeId}, ${g.className}, ${g.grade})`;
           classAction = "created";
         } else {
           classAction = "exists";
@@ -117,7 +115,6 @@ async function main(): Promise<void> {
       }
       summary.grades = perGrade;
       summary.department = DEPARTMENT_NAME;
-      summary.academicYear = ACADEMIC_YEAR;
     });
 
     console.log(JSON.stringify(summary));

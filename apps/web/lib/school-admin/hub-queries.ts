@@ -6,13 +6,12 @@ import {
   getDailyWindowRows,
   grades,
 } from "@kimiterrace/db";
-import { asc, count, desc, eq } from "drizzle-orm";
+import { asc, count, eq } from "drizzle-orm";
 import {
   EFFECTIVE_LOOKBACK_DAYS,
   isAssignmentActive,
   isNoticeActive,
 } from "@/lib/signage/effective-daily-data";
-import { type ClassYearRow, classDupKey } from "./hub-core";
 
 /**
  * 学校管理者ハブの読み取り (#48-K)。自校の学科・学年・クラス階層を取得する。
@@ -26,7 +25,6 @@ export type DepartmentView = { id: string; name: string; displayOrder: number };
 export type ClassView = {
   id: string;
   name: string;
-  academicYear: number;
   grade: number;
 };
 export type GradeView = {
@@ -64,11 +62,10 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
         id: classes.id,
         gradeId: classes.gradeId,
         name: classes.name,
-        academicYear: classes.academicYear,
         grade: classes.grade,
       })
       .from(classes)
-      .orderBy(desc(classes.academicYear), asc(classes.grade), asc(classes.name)),
+      .orderBy(asc(classes.grade), asc(classes.name)),
   ]);
 
   // クラスを親学年ごとにまとめる (学年未割当 = grade_id null は階層外として除外)。
@@ -78,7 +75,7 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
       continue;
     }
     const list = byGrade.get(c.gradeId) ?? [];
-    list.push({ id: c.id, name: c.name, academicYear: c.academicYear, grade: c.grade });
+    list.push({ id: c.id, name: c.name, grade: c.grade });
     byGrade.set(c.gradeId, list);
   }
 
@@ -221,42 +218,4 @@ export function computeTodayActiveClasses(
     }
   }
   return out;
-}
-
-/** 自校の全クラスの年度・親学年・名前・学年数 (新年度複製 #48-K3 PR3 の元データ・RLS 自校限定)。 */
-export async function getClassYearRows(tx: TenantTx): Promise<ClassYearRow[]> {
-  return tx
-    .select({
-      gradeId: classes.gradeId,
-      name: classes.name,
-      grade: classes.grade,
-      academicYear: classes.academicYear,
-    })
-    .from(classes);
-}
-
-/**
- * 指定年度に既に存在するクラスの classDupKey 集合（gradeId=null は除外・自校 RLS 限定）。
- *
- * 「新年度へ複製」(#48-K3 PR3 冪等化) で target 年度の既存クラスを insert 前に取得し除外するために使う。
- * getClassYearRows とは別の SELECT として **insert 直前に**呼ぶことで、並行 tx が target 年度クラスを
- * 先にコミットしていれば READ COMMITTED でそれを観測でき、重複 insert (→ 23505) を graceful に避けられる。
- * 観測できない phantom race の恒久ガードは部分 unique index ux_classes_school_year_grade_name。
- * RLS により自校のみが対象 (ルール2、手書き WHERE school_id は書かない)。
- */
-export async function getTargetYearClassKeys(
-  tx: TenantTx,
-  targetYear: number,
-): Promise<Set<string>> {
-  const rows = await tx
-    .select({ gradeId: classes.gradeId, name: classes.name })
-    .from(classes)
-    .where(eq(classes.academicYear, targetYear));
-  const keys = new Set<string>();
-  for (const r of rows) {
-    if (r.gradeId) {
-      keys.add(classDupKey(r.gradeId, r.name));
-    }
-  }
-  return keys;
 }

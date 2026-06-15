@@ -180,11 +180,11 @@ function transformSchool(s: V1School, out: MigrationRows): void {
 
     for (const cls of grade.classes ?? []) {
       const classId = v2Id.class(s.id, grade.id, cls.id);
+      // V1 の academicYear は v2 では破棄（年度撤去でクラスは校内の単一集合）。
       out.classes.push({
         id: classId,
         schoolId,
         gradeId,
-        academicYear: cls.academicYear,
         name: cls.name,
         grade: cls.grade,
         createdBy: null,

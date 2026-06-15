@@ -56,8 +56,8 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
     )[0].id;
     classA1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, ${gradeA1}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, ${gradeA1}, '1-A', 1) RETURNING id
       `
     )[0].id;
     ownAd2 = (
@@ -101,8 +101,8 @@ describeOrSkip("queries: ads CRUD クエリ層 (#48-J)", () => {
     )[0].id;
     classB1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolB}, ${gradeB1}, 2026, '1-B', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolB}, ${gradeB1}, '1-B', 1) RETURNING id
       `
     )[0].id;
     await sql`INSERT INTO ads (school_id, scope, class_id, media_url, media_type, display_order)

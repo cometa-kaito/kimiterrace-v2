@@ -38,8 +38,8 @@ describeOrSkip("RLS: F0 階層基盤テーブル (#48-A)", () => {
     `;
     // class スコープ検証用にクラスを 1 件 (school A)
     const [c] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, '1-A', 1)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, '1-A', 1)
       RETURNING id
     `;
     classA = c.id;

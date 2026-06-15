@@ -120,7 +120,7 @@ staging-bringup §A と同手順を prod で:
   - 実行例: `gcloud run jobs execute kimiterrace-migrate --region asia-northeast1 --project signage-v2-prod`
 - [ ] **B4-2. 岐南テナント seed（先に）**: `kimiterrace-seed-ginan-sch`（`dist/seed-ginan-school-cli.js`）を実行。学校「岐阜県立岐南工業高等学校」+ 電子工学科 + 1〜3 年 grades + 各 1 クラス（A組）を作成。
   - `gcloud run jobs execute kimiterrace-seed-ginan-sch --region asia-northeast1 --project signage-v2-prod`
-  - ⚠️ **クラス重複バグ注意**（[STATUS 2026-06-08](../STATUS.md)）: `schools.name` は UNIQUE でなく、class の冪等性は `(school_id, grade_id, name, academic_year)` の SELECT→INSERT で担保される（`packages/db/src/seed-ginan-school-cli.ts`）。**学校行を二重に作る / `SEED_GINAN_ACADEMIC_YEAR` を前回と変える**と別クラスが増殖し、後続 TV seed の class 一意解決が `ambiguous→null` に落ちる。prod では学校行が 1 つ・academic_year が一貫していることを seed 後に確認する。
+  - ⚠️ **クラス重複バグ注意**（[STATUS 2026-06-08](../STATUS.md)）: `schools.name` は UNIQUE でなく、class の冪等性は学年配下に既存クラスが在るかの SELECT→INSERT で担保される（`packages/db/src/seed-ginan-school-cli.ts`）。年度撤去後はクラスが校内の単一集合になり、`(school_id, grade_id, name)` の部分 UNIQUE index `ux_classes_school_grade_name` で重複が DB レベルで封じられる。**学校行を二重に作る**と別クラスが増殖し後続 TV seed の class 一意解決が `ambiguous→null` に落ちうるため、prod では学校行が 1 つであることを seed 後に確認する。
 - [ ] **B4-3. 岐南 TV デバイス seed（次に・この順）**: `kimiterrace-seed-ginan-tv`（`dist/seed-ginan-tv-devices-cli.js`）を実行。前提は B4-2 完了（岐南テナント existence、無ければ fail-loud）。
   - `gcloud run jobs execute kimiterrace-seed-ginan-tv --region asia-northeast1 --project signage-v2-prod`
   - 🔴 **最重要: 実機の本物の device_id を使う**。現行の `packages/db/src/seed-ginan-tv-devices.ts` は **staging 用のプレースホルダ device_id**（`0e1c0001-…` / `0e1c0002-…` / `0e1c0003-…`）をハードコードしている。これは TV が初回起動時に自前生成した値ではない。**プレースホルダのまま prod に seed すると、実機がポーリングしてくる本物の device_id が `unknown` 扱いになり cutover が無効になる**。

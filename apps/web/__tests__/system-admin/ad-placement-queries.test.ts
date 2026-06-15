@@ -11,7 +11,6 @@ import { listSchoolClassesForAdPlacement } from "../../lib/system-admin/ad-place
 type Row = {
   classId: string;
   className: string;
-  academicYear: number;
   grade: number;
   gradeName: string | null;
   departmentName: string | null;
@@ -36,7 +35,6 @@ describe("listSchoolClassesForAdPlacement", () => {
       {
         classId: "c1",
         className: "1組",
-        academicYear: 2026,
         grade: 1,
         gradeName: "1年",
         departmentName: null,
@@ -44,7 +42,6 @@ describe("listSchoolClassesForAdPlacement", () => {
       {
         classId: "c2",
         className: "未割当",
-        academicYear: 2026,
         grade: 0,
         gradeName: null,
         departmentName: null,
@@ -53,7 +50,6 @@ describe("listSchoolClassesForAdPlacement", () => {
       {
         classId: "c3",
         className: "A組",
-        academicYear: 2026,
         grade: 1,
         gradeName: "1年",
         departmentName: "電子工学科",
@@ -64,21 +60,18 @@ describe("listSchoolClassesForAdPlacement", () => {
       {
         classId: "c1",
         className: "1組",
-        academicYear: 2026,
         gradeName: "1年",
         departmentName: null,
       },
       {
         classId: "c2",
         className: "未割当",
-        academicYear: 2026,
         gradeName: "（学年未割当）",
         departmentName: null,
       },
       {
         classId: "c3",
         className: "A組",
-        academicYear: 2026,
         gradeName: "1年",
         departmentName: "電子工学科",
       },
