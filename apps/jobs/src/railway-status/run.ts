@@ -78,7 +78,9 @@ export async function fetchMeitetsuStatus(
   config: HttpFetchConfig,
 ): Promise<ParsedTrainStatus | null> {
   const fetchImpl = config.fetchImpl ?? fetch;
-  const timeoutMs = config.timeoutMs ?? 10_000;
+  // `?? 10_000` は nullish のみ。NaN（非数値 env 由来）は素通りし `setTimeout(abort, NaN)` ≒ 即 abort に
+  // なるため、有限値でなければ既定 10s に倒す（多層防御）。
+  const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
   const url = config.url ?? MEITETSU_STATUS_URL;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

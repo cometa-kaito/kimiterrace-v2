@@ -31,6 +31,19 @@ function requireEnv(name: string): string {
 }
 
 /**
+ * 任意の正整数 env を取得する（未設定 / 非数値 / 0 以下なら undefined → 呼び出し側の既定にフォールバック）。
+ * `Number.parseInt("abc")` 等は `NaN` を返すため、`raw ? Number.parseInt(...) : undefined` だと NaN が
+ * そのまま `batchSize` に流れ、`Math.max(1, Math.trunc(NaN)) = NaN` で分割ループが 1 周も回らず **embedding を
+ * 1 件も生成しない無言失敗**になる。`Number.isFinite` で弾いて既定（32）に倒す（tv-liveness-job と同方針）。
+ */
+function optionalIntEnv(name: string): number | undefined {
+  const raw = env[name];
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
  * エラーメッセージから接続文字列 (DSN) を伏せる（ルール5: secret をログに出さない）。
  * postgres 接続エラーは host / 認証情報を message に含めうるため、URL を一律マスクする。
  */
@@ -39,13 +52,13 @@ function redactDsn(s: string): string {
 }
 
 async function main(): Promise<void> {
-  const batchSizeRaw = env.EMBED_BATCH_SIZE;
   const config: RunEmbeddingBatchConfig = {
     databaseUrl: requireEnv("DATABASE_URL"),
     project: requireEnv("GCP_PROJECT"),
     location: env.VERTEX_LOCATION ?? "asia-northeast1",
     modelId: env.EMBEDDING_MODEL_ID,
-    batchSize: batchSizeRaw ? Number.parseInt(batchSizeRaw, 10) : undefined,
+    // 非数値（NaN）を渡さない。未設定 / 不正なら undefined で既定（32）に倒す（無言で 0 件生成を防ぐ）。
+    batchSize: optionalIntEnv("EMBED_BATCH_SIZE"),
   };
 
   const summary = await runEmbeddingBatch(config);
