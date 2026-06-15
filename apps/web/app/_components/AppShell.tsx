@@ -23,15 +23,15 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
 
   return (
     <div style={rootStyle}>
-      <header style={headerStyle}>
+      <header className="admin-header">
         {/* ブランドのワードマーク（キミテラス）。 */}
-        <img src="/brand/logo-wordmark.png" alt="キミテラス" style={brandLogoStyle} />
+        <img src="/brand/logo-wordmark.png" alt="キミテラス" className="admin-header__logo" />
         {/* UIUX-03 (統一入口): ここが「キミテラス配信管理」(プロダクト側コンソール) であることを
             明示する。社内 ops (商流) は portal `/admin` (Rebounder・緑) が担い、配色は跨いで分ける
-            (「今どっちにいるか」を最優先・UIUX-00)。 */}
-        <span style={consoleLabelStyle}>配信管理</span>
-        <span style={roleBadgeStyle}>{ROLE_LABEL[user.role]}</span>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            (「今どっちにいるか」を最優先・UIUX-00)。狭幅ではロゴで伝わるため CSS で畳む。 */}
+        <span className="admin-header__label">配信管理</span>
+        <span className="admin-header__badge">{ROLE_LABEL[user.role]}</span>
+        <div className="admin-header__actions">
           {/* 統一入口の戻り導線 (UIUX-03 A)。Rebounder 社内ポータルは運営専用のため
               system_admin にのみ表示する (学校ロールに社内ツールの存在を見せない)。
               URL は env で上書き可 (既定=本番 portal)。リンク遷移のみで fetch はしない。 */}
@@ -45,7 +45,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
               ＝「教員アカウント」という概念をユーザーに見せない（ユーザー要望 2026-06-10）。
               職員・管理者（school_admin / system_admin）は個別アカウントゆえ実メールを表示する。 */}
           {user.role !== "teacher" && user.email && (
-            <span style={userEmailStyle}>{user.email}</span>
+            <span className="admin-header__email">{user.email}</span>
           )}
           <SignOutButton />
         </div>
@@ -85,30 +85,6 @@ const rootStyle: React.CSSProperties = {
   flexDirection: "column",
 };
 
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.75rem",
-  padding: "0.6rem 1.25rem",
-  borderBottom: "1px solid var(--brand-border)",
-  background: "#fff",
-};
-
-const brandLogoStyle: React.CSSProperties = { height: "1.7rem", width: "auto", display: "block" };
-
-const userEmailStyle: React.CSSProperties = {
-  fontSize: "0.8rem",
-  color: "var(--brand-muted)",
-};
-
-const consoleLabelStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  fontWeight: 700,
-  color: "var(--brand-muted)",
-  borderLeft: "1px solid var(--brand-border)",
-  paddingLeft: "0.75rem",
-};
-
 const portalLinkStyle: React.CSSProperties = {
   fontSize: "0.8rem",
   color: "var(--brand-muted)",
@@ -116,16 +92,6 @@ const portalLinkStyle: React.CSSProperties = {
   border: "1px solid var(--brand-border)",
   borderRadius: "999px",
   padding: "0.15rem 0.6rem",
-};
-
-const roleBadgeStyle: React.CSSProperties = {
-  fontSize: "0.78rem",
-  fontWeight: 600,
-  padding: "0.15rem 0.6rem",
-  borderRadius: "999px",
-  background: "var(--brand-bg-soft)",
-  border: "1px solid var(--brand-border)",
-  color: "var(--brand-muted)",
 };
 
 const bodyStyle: React.CSSProperties = { display: "flex", flex: 1 };
