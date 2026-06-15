@@ -148,6 +148,10 @@ export function useAutoSaveSection<I>({
     }
   });
 
+  // serialized を deps に含めるのは意図的: 編集のたびに本 effect を再実行して debounce タイマを貼り直す
+  // （入力が止まってから保存する）。本体は serialized を直接読まないため biome は「余分」と判定するが、
+  // 再実行トリガとして必要（外すと初回編集から debounceMs 後に途中保存してしまう）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は debounce 再起動の意図的トリガ
   useEffect(() => {
     if (!dirty) {
       return;
