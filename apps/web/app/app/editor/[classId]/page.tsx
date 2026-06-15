@@ -182,6 +182,9 @@ export default async function ClassEditorPage({
       <ClassEditorShell
         ai={
           <EditorChat
+            // 対象日変更時は再マウントして新日付の下書きで初期化する（key 無しだと useState が初期化されず
+            // 旧日付の中身が残り、保存で新日付に移ってしまうデータ混線バグになる）。
+            key={date}
             scope="class"
             targetId={classId}
             date={date}
@@ -215,6 +218,10 @@ export default async function ClassEditorPage({
                 だけを実配置上の編集に載せ替え）。見出し「予定」「連絡」「提出物」と placeholder は維持（e2e 温存）。
                 スマホ（≤899px）はプレビューを畳み従来の縦積みフォームに倒す。 */}
             <WysiwygBoardEditor
+              // 対象日変更時は再マウントして新日付のデータで初期化する。これが無いと WysiwygBoardEditor と
+              // 配下の Schedule/Notice/Assignment エディタの useState(initial...) が再初期化されず、旧日付の
+              // 入力が残ったまま保存され「中身が変更先の日付に移る」混線バグになる（ユーザー報告 2026-06-16）。
+              key={date}
               classId={classId}
               date={date}
               base={boardBase}
@@ -228,10 +235,21 @@ export default async function ClassEditorPage({
             {showVisitors || showCallouts ? (
               <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
                 {showVisitors && visitors ? (
-                  <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+                  // key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。
+                  <VisitorsEditor
+                    key={date}
+                    classId={classId}
+                    date={date}
+                    initialItems={visitors}
+                  />
                 ) : null}
                 {showCallouts && callouts ? (
-                  <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+                  <CalloutsEditor
+                    key={date}
+                    classId={classId}
+                    date={date}
+                    initialItems={callouts}
+                  />
                 ) : null}
               </div>
             ) : null}
