@@ -20,6 +20,16 @@
   /* タブ下〜画面下を占有（全画面チャット）。offset = ヘッダ+パンくず+タブバー+余白の概算。 */
   height: calc(100dvh - 11.5rem);
   min-height: 360px;
+  /* 親 .admin-main の padding-bottom(>768px=1.5rem) の分だけページがオーバーフローして縦スクロールが
+   * 出る → 入力欄(.composer)が viewport 底に張り付かず「固定されていない」ように見える（2026-06-15 報告）。
+   * 負の margin-bottom でその padding を相殺し、ページスクロールを消して入力欄を画面最下部に固定する。 */
+  margin-bottom: -1.5rem;
+}
+@media (max-width: 768px) and (min-width: 641px) {
+  /* この帯域は .admin-main の padding が 1rem。相殺量を合わせる。 */
+  .chat {
+    margin-bottom: -1rem;
+  }
 }
 .thread {
   flex: 1;
@@ -48,6 +58,8 @@
     min-height: calc(100dvh - 12rem);
     overflow: visible;
     border-radius: 0.6rem;
+    /* モバイルは自然フロー＋composer を下部固定タブの上に sticky 配置するので、PC 用の負 margin は不要。 */
+    margin-bottom: 0;
   }
   .thread {
     flex: 0 1 auto;
