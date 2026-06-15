@@ -6,7 +6,9 @@ import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
-import { getCalloutsForClass, getVisitorsForClass } from "@kimiterrace/db";
+import { SignageBoard } from "@/app/app/signage-preview/[classId]/_components/SignageBoard";
+import { getEffectiveDailyData } from "@/lib/signage/effective-daily-data";
+import { getCalloutsForClass, getEffectiveAdsForClass, getVisitorsForClass } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -65,13 +67,16 @@ export default async function ClassEditorPage({
     const assignments = await getClassAssignments(tx, classId, date);
     const visitors = await getVisitorsForClass(tx, classId, date);
     const callouts = await getCalloutsForClass(tx, classId, date);
-    return { schedule, notices, assignments, visitors, callouts };
+    // プレビュータブ用: 教室のサイネージに実際どう出るか（class>grade>dept>school のマージ結果 + 実効広告）。
+    const previewDaily = await getEffectiveDailyData(tx, classId, date);
+    const previewAds = await getEffectiveAdsForClass(tx, classId);
+    return { schedule, notices, assignments, visitors, callouts, previewDaily, previewAds };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
   if (!data || !data.notices || !data.assignments) {
     notFound();
   }
-  const { schedule, notices, assignments, visitors, callouts } = data;
+  const { schedule, notices, assignments, visitors, callouts, previewDaily, previewAds } = data;
 
   return (
     <>
@@ -146,16 +151,27 @@ export default async function ClassEditorPage({
           </>
         }
         preview={
-          <p style={{ margin: 0 }}>
-            <Link
-              href={`/app/signage-preview/${classId}?date=${date}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontSize: "0.95rem", fontWeight: 600, color: tokens.color.primaryHover }}
-            >
-              サイネージ表示を確認（別タブ） →
-            </Link>
-          </p>
+          <div>
+            {/* 教室のサイネージに「今どう出るか」をページ内に埋め込む（SignageBoard を直接描画＝iframe/
+                シェル二重化なし）。別タブの全画面表示は補助導線として残す。 */}
+            <p style={{ margin: "0 0 0.75rem" }}>
+              <Link
+                href={`/app/signage-preview/${classId}?date=${date}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+              >
+                別タブで全画面表示 →
+              </Link>
+            </p>
+            {previewDaily ? (
+              <div style={previewFrameStyle}>
+                <SignageBoard date={date} daily={previewDaily} ads={previewAds} />
+              </div>
+            ) : (
+              <p style={{ color: tokens.color.muted }}>プレビューを表示できませんでした。</p>
+            )}
+          </div>
         }
       />
       <RememberLastClass classId={classId} />
@@ -172,6 +188,14 @@ const boardCardStyle: React.CSSProperties = {
 const boardCardTitleStyle: React.CSSProperties = {
   fontSize: "1.05rem",
   margin: "0 0 0.5rem",
+};
+
+// プレビュータブ: サイネージ盤面をページ内に埋め込む枠（白背景＝教室での実表示に近い見え方）。
+const previewFrameStyle: React.CSSProperties = {
+  border: `1px solid ${tokens.color.border}`,
+  borderRadius: tokens.radius.lg,
+  padding: "1.25rem",
+  background: "#fff",
 };
 
 // 画面付随物（戻る/クラス名）を小さく薄く＝主役の邪魔をしないパンくず。
