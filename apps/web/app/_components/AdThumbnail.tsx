@@ -99,9 +99,13 @@ const playBadgeStyle: CSSProperties = {
   color: "#fff",
 };
 
-/** http(s) 絶対 URL か 同一オリジン相対パス（`/` 始まり）だけリンク先に採用（`javascript:`/`data:` を弾く）。 */
+/**
+ * http(s) 絶対 URL か **同一オリジン相対パス**（単一 `/` 始まり）だけをリンク先に採用する。
+ * `javascript:`/`data:` 等の危険スキームに加え、**プロトコル相対 `//host`**（別オリジンへ飛ぶ
+ * オープンリダイレクト）も弾く（`SignageClient.safeHttpUrl` と同じ安全側の方針）。
+ */
 function safeHttpOrRelative(url: string): string | null {
-  if (url.startsWith("/")) {
+  if (url.startsWith("/") && !url.startsWith("//")) {
     return url;
   }
   try {
