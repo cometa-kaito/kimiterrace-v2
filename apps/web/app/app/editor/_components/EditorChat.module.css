@@ -1,0 +1,147 @@
+/*
+ * AIで作るタブの 2 ペイン配置 + 微インタラクション（配置最適化 PR2）。
+ * - PC(>=900px): 左=会話(thread+composer) / 右=下書きプレビュー(追従 sticky)。"見ながら作る"。
+ * - モバイル(<900px): 縦 1 カラム(会話 → 下書き)。
+ * インライン style では media query / :hover / :focus-visible / keyframes が書けないため module 化。
+ * 色は tokens.ts と同値（border #e5e7eb / bgSoft #f7f8fa / ink #1f2937 / muted #6b7280 /
+ * primary #ea580c / primaryHover #c2410c / blue #6fa8c7）。
+ */
+
+.pane {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+.side {
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .pane {
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  }
+  .side {
+    position: sticky;
+    top: 0.5rem;
+  }
+}
+
+/* 押せる場所を分かりやすく: 共通のホバー/フォーカス/押下フィードバック。 */
+.btn {
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.08s ease,
+    box-shadow 0.15s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.btn:focus-visible {
+  outline: 2px solid #6fa8c7;
+  outline-offset: 1px;
+}
+
+.iconBtn {
+  width: 40px;
+  min-height: 40px;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #6b7280;
+  font-size: 1.2rem;
+  flex: none;
+}
+.iconBtn:hover:not(:disabled) {
+  background: #f7f8fa;
+  color: #1f2937;
+}
+
+.mic {
+  width: 44px;
+  min-height: 44px;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #1f2937;
+  font-size: 1.2rem;
+  flex: none;
+}
+.mic:hover {
+  background: #f7f8fa;
+}
+.micActive {
+  width: 44px;
+  min-height: 44px;
+  border: none;
+  border-radius: 0.6rem;
+  background: #ea580c;
+  color: #fff;
+  font-size: 1.2rem;
+  flex: none;
+}
+
+.send {
+  min-height: 44px;
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-radius: 0.6rem;
+  background: #ea580c;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  flex: none;
+}
+.send:hover:not(:disabled) {
+  background: #c2410c;
+}
+.send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.apply {
+  min-height: 44px;
+  padding: 0.5rem 1.2rem;
+  border: none;
+  border-radius: 0.6rem;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.apply:hover:not(:disabled) {
+  background: #c2410c;
+}
+.apply:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 下書きが「ビュン」と現れる（追加コンテンツの気づき）。 */
+.itemIn {
+  animation: ktSlideIn 0.34s cubic-bezier(0.2, 0.85, 0.25, 1.05) both;
+}
+@keyframes ktSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 視覚過敏設定では動きを止める（色/文言で意味は伝わる・NFR05）。 */
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .itemIn {
+    transition: none;
+    animation: none;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+}
