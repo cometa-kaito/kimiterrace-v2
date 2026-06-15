@@ -1,25 +1,28 @@
 import { AssignmentEditor } from "@/app/app/editor/[classId]/_components/AssignmentEditor";
-import { EditorBoard } from "@/app/app/editor/[classId]/_components/EditorBoard";
+import { ClassEditorShell } from "@/app/app/editor/[classId]/_components/ClassEditorShell";
 import { NoticeEditor } from "@/app/app/editor/[classId]/_components/NoticeEditor";
-import { EditorAssistant } from "@/app/app/editor/_components/EditorAssistant";
 import { ScheduleEditor } from "@/app/app/editor/[classId]/_components/ScheduleEditor";
+import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getEditorTargetData } from "@/lib/editor/daily-data-read";
 import { EDITOR_ROLES, type EditorTarget, isValidDate } from "@/lib/editor/schedule-core";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 /**
  * scope エディタ (段A-2) の共通ビュー。学校全体 / 学科全体 / 学年全体の各ページが本コンポーネントに
- * `target` を渡して 3 セクション編集器を描画する。`[classId]` ページと同じ構成 (戻るリンク + 見出し +
- * 予定 / 連絡 / 提出物) を target 汎用にしたもの。
+ * `target` を渡して編集する。**クラスエディタと同じタブ shell**（AIで作る / 盤面を編集 / プレビュー・
+ * UIUX-02 AI 前面化）に揃え、開いた瞬間は会話型 AI ({@link EditorChat}) が既定タブになる
+ * （旧版は AI が FAB に隠れ、scope では前面化が未配線だった。クラス編集と UX を統一）。
  *
  * `EDITOR_ROLES` (teacher / school_admin) に限定。`?date=YYYY-MM-DD` で対象日を指定 (既定は JST 今日)。
  * 対象が自校で不可視 (別テナント / 不在) なら RLS 経由で `getEditorTargetData` が null → 404。
  * 3 セクションを 1 つの `withSession` 内でまとめて読み (RLS tx を共有)、各クライアント編集器に渡す。
+ * EditorChat は `scope` 汎用（保存も `setScheduleAction(scope, targetId, …)` 経由）なので scope でも動作。
  */
 const JST = "Asia/Tokyo";
 
@@ -72,15 +75,34 @@ export async function ScopeEditorView({
 
   return (
     <>
-      <EditorBoard
-        header={
-          <header style={{ marginBottom: "1rem" }}>
-            <Link href="/app/editor" style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-              ← 編集対象の選択へ戻る
-            </Link>
-            <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
+      <header style={{ marginBottom: "1rem" }}>
+        <Link href="/app/editor" style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}>
+          ← 編集対象の選択へ戻る
+        </Link>
+        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
+        <p style={mutedStyle}>
+          この内容は配下の全クラスのサイネージに共通で表示されます
+          (クラス個別の入力があればそちらが優先)。
+        </p>
+      </header>
+
+      <ClassEditorShell
+        ai={
+          <EditorChat
+            scope={target.scope}
+            targetId={assistantTargetId}
+            date={data.date}
+            initialDraft={{
+              schedules: data.schedule,
+              notices: data.notices,
+              assignments: data.assignments,
+            }}
+          />
+        }
+        board={
+          <>
             {canManageAds || canManageQuietHours ? (
-              <p style={{ margin: "0 0 0.25rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 1rem" }}>
                 {canManageAds ? (
                   <Link href={scopeSubHref(target, "ads")} style={{ fontSize: "0.9rem" }}>
                     広告管理 →
@@ -93,32 +115,49 @@ export async function ScopeEditorView({
                 ) : null}
               </p>
             ) : null}
-            <p style={mutedStyle}>
-              この内容は配下の全クラスのサイネージに共通で表示されます
-              (クラス個別の入力があればそちらが優先)。
-            </p>
-          </header>
+            <div style={{ display: "grid", gap: "1rem" }}>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>予定</h2>
+                <ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>連絡</h2>
+                <NoticeEditor target={target} date={data.date} initialItems={data.notices} />
+              </section>
+              <section style={boardCardStyle}>
+                <h2 style={boardCardTitleStyle}>提出物</h2>
+                <AssignmentEditor
+                  target={target}
+                  date={data.date}
+                  initialItems={data.assignments}
+                />
+              </section>
+            </div>
+          </>
         }
-        schedule={<ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />}
-        notices={<NoticeEditor target={target} date={data.date} initialItems={data.notices} />}
-        assignments={
-          <AssignmentEditor target={target} date={data.date} initialItems={data.assignments} />
+        preview={
+          <p style={{ margin: 0, color: tokens.color.muted, fontSize: "0.95rem" }}>
+            ここで保存した内容は配下の全クラスのサイネージに共通表示されます
+            (クラス個別の入力があれば
+            そちらが優先)。実際の表示は各クラスのサイネージ／プレビューでご確認ください。
+          </p>
         }
-      />
-      <EditorAssistant
-        scope={target.scope}
-        targetId={assistantTargetId}
-        date={data.date}
-        existingNotices={data.notices}
-        existingSchedules={data.schedule}
-        existingAssignments={data.assignments}
       />
     </>
   );
 }
 
 const mutedStyle: React.CSSProperties = {
-  color: "#6b7280",
+  color: tokens.color.muted,
   fontSize: "0.85rem",
+  margin: "0 0 0.5rem",
+};
+const boardCardStyle: React.CSSProperties = {
+  border: `1px solid ${tokens.color.border}`,
+  borderRadius: tokens.radius.lg,
+  padding: "1rem 1.25rem",
+};
+const boardCardTitleStyle: React.CSSProperties = {
+  fontSize: "1.05rem",
   margin: "0 0 0.5rem",
 };
