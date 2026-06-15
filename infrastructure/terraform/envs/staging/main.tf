@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "a580ab7" # 2026-06-14 deploy: §43 運営4ビュー /ops 統合（#899 tv-devices移設 / #902 sensors CRUD merge+dashboard/reports retire / #905 orphan dead code cleanup）反映。schema無変更=migrate不要。staging apply済・308実機疎通済（/admin・/app の {dashboard,sensors,reports,tv-devices}→/ops、/ops/sensors/new 200=登録到達）
+  web_image_tag = "0d0b399" # staging deploy 0d0b399（内容は PR/commit に記述）
 }
 
 module "network" {
