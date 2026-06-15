@@ -2,8 +2,13 @@
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
-import type { EditorTarget, ScheduleItem } from "@/lib/editor/schedule-core";
-import { editorBasePath, targetId } from "@/lib/editor/schedule-core";
+import type { EditorTarget, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
+import {
+  SCHEDULE_SLOT_OPTIONS,
+  editorBasePath,
+  isSpecialSlot,
+  targetId,
+} from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
@@ -31,12 +36,17 @@ import { toEditorTarget } from "./target";
  * 切替時は debounce 取りこぼしを防ぐため確実に保存してから遷移する（flush）。
  */
 type Row = {
-  period: number;
+  period: SchedulePeriod;
   subject: string;
   note: string;
   location: string;
   targetAudience: string;
 };
+
+/** select の値（文字列）を Row.period（number | 特殊スロット）に戻す。数値時限は number 化。 */
+function parseSlotValue(value: string): SchedulePeriod {
+  return isSpecialSlot(value) ? value : Number(value);
+}
 
 /** 行 state を保存ペイロード（ScheduleItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
 function toScheduleItems(rows: Row[]): ScheduleItem[] {
@@ -74,16 +84,15 @@ export function ScheduleEditor({
 
   const items = toScheduleItems(rows);
   const serialized = serializeForDirty(items);
-  // 全行が有効（科目あり・時限 1..12）かつ時限が重複しないなら自動保存。未入力/重複があるうちは保存しない
-  // （サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
+  // 全行が有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ slot が重複しないなら自動保存。
+  // 未入力/重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
   const periods = rows.map((r) => r.period);
   const complete =
     rows.every(
       (r) =>
         r.subject.trim().length > 0 &&
-        Number.isInteger(r.period) &&
-        r.period >= 1 &&
-        r.period <= 12,
+        (isSpecialSlot(r.period) ||
+          (Number.isInteger(r.period) && r.period >= 1 && r.period <= 12)),
     ) && new Set(periods).size === periods.length;
   const auto = useAutoSaveSection({
     serialized,
@@ -96,7 +105,9 @@ export function ScheduleEditor({
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
   function addRow() {
-    const nextPeriod = rows.length > 0 ? Math.max(...rows.map((r) => r.period)) + 1 : 1;
+    // 既定は従来通り次の空き番号（数値時限のみ対象。特殊スロットは max 計算に含めない）。
+    const numericPeriods = rows.map((r) => r.period).filter((p): p is number => !isSpecialSlot(p));
+    const nextPeriod = numericPeriods.length > 0 ? Math.max(...numericPeriods) + 1 : 1;
     setRows((prev) => [
       ...prev,
       { period: nextPeriod, subject: "", note: "", location: "", targetAudience: "" },
@@ -144,15 +155,18 @@ export function ScheduleEditor({
               // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
               <tr key={i}>
                 <td style={tdStyle}>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={r.period}
-                    onChange={(e) => update(i, { period: Number(e.target.value) })}
-                    style={{ ...inputStyle, width: "4rem" }}
+                  <select
+                    value={String(r.period)}
+                    onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
+                    style={{ ...inputStyle, width: "6rem" }}
                     aria-label={`${i + 1} 行目の時限`}
-                  />
+                  >
+                    {SCHEDULE_SLOT_OPTIONS.map((opt) => (
+                      <option key={String(opt.value)} value={String(opt.value)}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td style={tdStyle}>
                   <input

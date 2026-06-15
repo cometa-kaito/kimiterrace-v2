@@ -166,13 +166,78 @@ export function isValidDate(value: unknown): value is string {
 }
 
 /**
- * 予定の 1 コマ。`period` は時限 (1..12)、`subject` は科目名 (1..32)、`note` は任意の補足。
- * `location`（場所）/ `targetAudience`（対象者）はパターン2 盤面で表示する任意フィールド（例: 場所
- * 「体育館」、対象者「3年生」）。いずれも施設/学年区分で **PII ではない**（ルール4 対象外）。サイネージ
- * (#48-E1) は `subject` を代表ラベルとして描画する。
+ * 時限を持たない特殊スロット。1〜12 限に**加えて**選べる時間帯（朝の会・昼休み・放課後）。
+ * 数値の時限と区別するため文字列リテラルにする。daily_data.schedules は JSONB なので migration 不要。
+ */
+export const SPECIAL_SLOTS = ["morning", "lunch", "afterschool"] as const;
+export type SpecialSlot = (typeof SPECIAL_SLOTS)[number];
+
+/**
+ * 予定 1 コマの時限。数値 (1..12) に加え、特殊スロット (朝 / 昼休み / 放課後) を取りうる。
+ * **この union を単一ソースとする**（手書きで別宣言しない、ルール3）。
+ */
+export type SchedulePeriod = number | SpecialSlot;
+
+/** `period` が特殊スロット文字列か。 */
+export function isSpecialSlot(value: unknown): value is SpecialSlot {
+  return typeof value === "string" && (SPECIAL_SLOTS as readonly string[]).includes(value);
+}
+
+/** 特殊スロットの表示ラベル（select の選択肢・サイネージ整形で共有）。 */
+const SPECIAL_SLOT_LABEL: Record<SpecialSlot, string> = {
+  morning: "朝",
+  lunch: "昼休み",
+  afterschool: "放課後",
+};
+
+/**
+ * 並び順キー。**morning < 1 < 2 < … < 12 < lunch < afterschool**。
+ * 数値時限 (1..12) はその値、morning は全数値の手前 (0)、lunch / afterschool は全数値の後ろに
+ * 連続した大きな有限値で置く（`Infinity - 1 === Infinity` で潰れるのを避け、両者を区別する）。
+ * 保存（validate のソート）・描画（盤面の並べ替え）で同じキーを使う。
+ */
+const SPECIAL_SLOT_SORT_KEY: Record<SpecialSlot, number> = {
+  morning: 0,
+  lunch: 1000,
+  afterschool: 1001,
+};
+export function scheduleSlotSortKey(period: SchedulePeriod): number {
+  if (isSpecialSlot(period)) {
+    return SPECIAL_SLOT_SORT_KEY[period];
+  }
+  return period;
+}
+
+/** 時限の表示ラベル（数値→`N限`、特殊→朝 / 昼休み / 放課後）。サイネージ・エディタで共有。 */
+export function scheduleSlotLabel(period: SchedulePeriod): string {
+  if (isSpecialSlot(period)) {
+    return SPECIAL_SLOT_LABEL[period];
+  }
+  return `${period}限`;
+}
+
+/** select 用の時限オプション 1 件。`value` は number（数値時限）または特殊スロット文字列。 */
+export type ScheduleSlotOption = { value: SchedulePeriod; label: string };
+
+/**
+ * select の選択肢列（並び順 morning < 1..12 < lunch < afterschool）。エディタ各所で共有する単一ソース。
+ * value は数値時限なら number、特殊スロットなら文字列。
+ */
+export const SCHEDULE_SLOT_OPTIONS: readonly ScheduleSlotOption[] = [
+  { value: "morning", label: SPECIAL_SLOT_LABEL.morning },
+  ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}限` })),
+  { value: "lunch", label: SPECIAL_SLOT_LABEL.lunch },
+  { value: "afterschool", label: SPECIAL_SLOT_LABEL.afterschool },
+];
+
+/**
+ * 予定の 1 コマ。`period` は時限 (1..12) または特殊スロット (朝 / 昼休み / 放課後)、`subject` は科目名
+ * (1..32)、`note` は任意の補足。`location`（場所）/ `targetAudience`（対象者）はパターン2 盤面で表示する
+ * 任意フィールド（例: 場所「体育館」、対象者「3年生」）。いずれも施設/学年区分で **PII ではない**
+ * （ルール4 対象外）。サイネージ (#48-E1) は `subject` を代表ラベルとして描画する。
  */
 export type ScheduleItem = {
-  period: number;
+  period: SchedulePeriod;
   subject: string;
   note?: string;
   location?: string;
@@ -201,8 +266,25 @@ function normalizeString(value: unknown, max: number): string | null {
 }
 
 /**
+ * 入力の `period` を正規化する。number 1..12 / 数値文字列 "1".."12" は number 化し、特殊スロット 3 文字列
+ * (morning / lunch / afterschool) はそのまま通す。いずれにも該当しなければ null（不正）。
+ * 既存の numeric データは後方互換でそのまま有効。
+ */
+function normalizePeriod(raw: unknown): SchedulePeriod | null {
+  if (isSpecialSlot(raw)) {
+    return raw;
+  }
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= MAX_ITEMS) {
+    return n;
+  }
+  return null;
+}
+
+/**
  * 予定配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
- * period の重複は許容しない (同じ時限が 2 つあると描画・編集が破綻するため)。
+ * period の重複は許容しない (同じ時限・スロットが 2 つあると描画・編集が破綻するため)。
+ * period は数値時限 (1..12) もしくは特殊スロット (朝 / 昼休み / 放課後) を許容する。
  */
 export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (!Array.isArray(raw)) {
@@ -211,24 +293,22 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (raw.length > MAX_ITEMS) {
     return { ok: false, message: `予定は最大 ${MAX_ITEMS} コマまでです。` };
   }
-  const seen = new Set<number>();
+  const seen = new Set<SchedulePeriod>();
   const items: ScheduleItem[] = [];
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) {
       return { ok: false, message: "予定の各コマが不正です。" };
     }
     const rec = entry as Record<string, unknown>;
-    const period = typeof rec.period === "string" ? Number(rec.period) : rec.period;
-    if (
-      typeof period !== "number" ||
-      !Number.isInteger(period) ||
-      period < 1 ||
-      period > MAX_ITEMS
-    ) {
-      return { ok: false, message: `時限は 1〜${MAX_ITEMS} の整数で入力してください。` };
+    const period = normalizePeriod(rec.period);
+    if (period === null) {
+      return {
+        ok: false,
+        message: `時限は 1〜${MAX_ITEMS} の整数、または 朝 / 昼休み / 放課後 を選択してください。`,
+      };
     }
     if (seen.has(period)) {
-      return { ok: false, message: `時限 ${period} が重複しています。` };
+      return { ok: false, message: `「${scheduleSlotLabel(period)}」が重複しています。` };
     }
     seen.add(period);
     const subject = normalizeString(rec.subject, SUBJECT_MAX);
@@ -263,7 +343,7 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
     }
     items.push(item);
   }
-  // 時限の昇順に正規化 (保存・描画の決定性)。
-  items.sort((a, b) => a.period - b.period);
+  // 時限の昇順に正規化 (保存・描画の決定性)。並びは morning < 1..12 < lunch < afterschool。
+  items.sort((a, b) => scheduleSlotSortKey(a.period) - scheduleSlotSortKey(b.period));
   return { ok: true, value: items };
 }

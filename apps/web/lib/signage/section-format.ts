@@ -30,7 +30,8 @@
  */
 
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
-import type { ScheduleItem } from "@/lib/editor/schedule-core";
+import type { ScheduleItem, SchedulePeriod } from "@/lib/editor/schedule-core";
+import { isSpecialSlot, scheduleSlotLabel } from "@/lib/editor/schedule-core";
 import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
 import type { EffectiveDailyData } from "@/lib/signage/effective-daily-data";
 
@@ -74,15 +75,29 @@ function shortDate(deadline: string): string {
   return `${Number(m[2])}/${Number(m[3])}`;
 }
 
-/** 予定: "N限 科目（補足）"。`period` を冠して時限を明示する。 */
+/**
+ * opaque JSONB の `period` を表示用 `SchedulePeriod` に防御的に narrow する（fail-soft）。
+ * 正の整数（数値時限）または特殊スロット文字列（朝 / 昼休み / 放課後）のみ採用し、それ以外は null。
+ */
+function slotOf(rec: Record<string, unknown>): SchedulePeriod | null {
+  const period = field<ScheduleItem>(rec, "period");
+  if (typeof period === "number" && Number.isInteger(period) && period > 0) {
+    return period;
+  }
+  if (isSpecialSlot(period)) {
+    return period;
+  }
+  return null;
+}
+
+/** 予定: "N限 科目（補足）" / "朝 科目"。`period` ラベルを冠して時限・時間帯を明示する。 */
 function formatSchedule(rec: Record<string, unknown>): SignageLine | null {
   const subject = str(field<ScheduleItem>(rec, "subject"));
   if (!subject) {
     return null;
   }
-  const period = field<ScheduleItem>(rec, "period");
-  const hasPeriod = typeof period === "number" && Number.isInteger(period) && period > 0;
-  const head = hasPeriod ? `${period}限 ${subject}` : subject;
+  const slot = slotOf(rec);
+  const head = slot !== null ? `${scheduleSlotLabel(slot)} ${subject}` : subject;
   const note = str(field<ScheduleItem>(rec, "note"));
   return { text: note ? `${head}（${note}）` : head };
 }
@@ -184,11 +199,10 @@ export function parseScheduleRow(item: unknown): SignageScheduleRow {
     const rec = item as Record<string, unknown>;
     const subject = str(field<ScheduleItem>(rec, "subject"));
     if (subject) {
-      const period = field<ScheduleItem>(rec, "period");
-      const hasPeriod = typeof period === "number" && Number.isInteger(period) && period > 0;
+      const slot = slotOf(rec);
       const note = str(field<ScheduleItem>(rec, "note"));
       return {
-        periodLabel: hasPeriod ? `${period}限` : "",
+        periodLabel: slot !== null ? scheduleSlotLabel(slot) : "",
         content: note ? `${subject}（${note}）` : subject,
         location: str(field<ScheduleItem>(rec, "location")),
         targetAudience: str(field<ScheduleItem>(rec, "targetAudience")),
