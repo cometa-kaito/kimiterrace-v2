@@ -146,4 +146,29 @@ describe("fetchAreaFromJma", () => {
     ) as unknown as typeof fetch;
     await expect(fetchAreaFromJma("999999", config(fetchImpl))).rejects.toThrow(/status=404/);
   });
+
+  it("timeoutMs が非数値（NaN）でも即 abort せず取得できる（全 fetch 即 abort 回帰）", async () => {
+    // 非数値 env（WEATHER_FETCH_TIMEOUT_MS="abc" 等）が NaN として伝播すると、旧実装は
+    // `config.timeoutMs ?? 10_000` が NaN を素通しし `setTimeout(abort, NaN)` ≒ 0ms abort で全 fetch を
+    // 即座に中断していた。abort signal を尊重するフェイク fetch で「即 abort されない」ことを固定する。
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(
+          () => resolve(new Response(JSON.stringify([]), { status: 200 })),
+          10,
+        );
+        init?.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("aborted"));
+        });
+      });
+    }) as unknown as typeof fetch;
+
+    const area = await fetchAreaFromJma("210000", {
+      userAgent: "test-ua/1.0",
+      timeoutMs: Number.NaN,
+      fetchImpl,
+    });
+    expect(area.parsed.areaCode).toBe("210000");
+  });
 });

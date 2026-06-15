@@ -166,6 +166,24 @@ describe("embedPendingContent", () => {
     expect(port.saved).toHaveLength(0);
   });
 
+  it("batchSize が非数値（NaN）でも既定 32 に倒して全件埋め込む（無言 0 件失敗の回帰）", async () => {
+    // 非数値 env（EMBED_BATCH_SIZE="abc" 等）が `Number.parseInt` → NaN として伝播した場合、旧実装は
+    // `Math.max(1, Math.trunc(NaN)) = NaN` で分割ループ（`i += NaN`）が 1 周も回らず embedded:0 になっていた。
+    const pending: PendingVersion[] = Array.from({ length: 3 }, (_x, i) => ({
+      versionId: `v${i}`,
+      snapshot: { title: `t${i}`, body: `b${i}` },
+    }));
+    const port = fakePort(pending);
+    const client = fakeClient();
+
+    const res = await embedPendingContent(port, client, { batchSize: Number.NaN });
+
+    expect(res.embedded).toBe(3);
+    expect(port.saved).toHaveLength(3);
+    // 既定 32 ＞ 件数なので 1 チャンクにまとまる。
+    expect(client.seen.map((c) => c.length)).toEqual([3]);
+  });
+
   it("client が返す embedding 数がチャンクと不一致なら throw", async () => {
     const port = fakePort([{ versionId: "v1", snapshot: { title: "a", body: "aa" } }]);
     const brokenClient: EmbeddingClient = {
