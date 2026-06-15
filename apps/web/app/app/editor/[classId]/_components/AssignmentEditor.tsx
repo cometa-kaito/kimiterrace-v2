@@ -5,7 +5,7 @@ import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { isValidDate, targetId } from "@/lib/editor/schedule-core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
   inputStyle,
@@ -41,11 +41,17 @@ export function AssignmentEditor({
   target: targetProp,
   date,
   initialItems,
+  onItemsChange,
 }: {
   classId?: string;
   target?: EditorTarget;
   date: string;
   initialItems: AssignmentItem[];
+  /**
+   * WYSIWYG ライブプレビュー連動（任意・追加 prop）。編集のたび現在の保存ペイロード相当（{@link toAssignmentItems}
+   * 正規化後）を親へ通知する。**保存・検証・自動保存・RLS/監査の挙動には一切影響しない**（観測専用）。
+   */
+  onItemsChange?: (items: AssignmentItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
   const [rows, setRows] = useState<Row[]>(
@@ -54,6 +60,11 @@ export function AssignmentEditor({
 
   const items = toAssignmentItems(rows);
   const serialized = serializeForDirty(items);
+  // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（観測専用・保存ロジックとは独立）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [serialized, onItemsChange]);
   // 科目名・提出物名が空 / 締切が不正な行があるうちは保存しない（サーバ必須項目が揃った時点で自動保存）。
   const complete = rows.every(
     (r) => r.subject.trim().length > 0 && r.task.trim().length > 0 && isValidDate(r.deadline),

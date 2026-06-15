@@ -1,0 +1,165 @@
+/**
+ * WysiwygBoardEditor.module.css — 実サイネージ配置の上で編集する WYSIWYG エディタ（PR・B）。
+ *
+ * 上段に実機と同一レイアウトの**大きなライブプレビュー**（{@link ScaledSignageBoard}）を置き、その上に各領域
+ * （予定 / 連絡 / 提出物）の**クリック可能なオーバーレイ**を重ねる。領域クリックで下のエディタへスクロール +
+ * フォーカスし、対応エディタをハイライトする（プレビューと編集の連動）。盤面の描画・配色・配置は
+ * `signage.module.css`（実機）を再利用し、ここでは編集アフォーダンス（ホバー / フォーカスリング / 選択中枠）
+ * のみを足す。広告領域はオーバーレイを置かない（編集対象外・表示のみ）。
+ *
+ * レイアウトは PC / 広い画面向け（WYSIWYG）。スマホ（≤899px）はプレビューを畳み、従来の縦積みフォームに倒す
+ * （タスク指示: スマホは現行の編集 UI のままで良い）。
+ */
+
+.root {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* プレビュー（盤面）+ オーバーレイの重ね合わせ枠。盤面の 16:9 にオーバーレイを inset:0 で重ねる。 */
+.canvas {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 盤面（ScaledSignageBoard）のラッパ。aria-hidden で AT から外すだけで、レイアウトは盤面 .frame に委ねる。 */
+.boardLayer {
+  display: block;
+  width: 100%;
+}
+
+/* クリック可能オーバーレイ層。盤面 16:9 の上に絶対配置し、領域ごとのボタンを盤面の配置に合わせて並べる。 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  /* 盤面ヘッダー帯（暗色・約 5%）の下から始める。広告は右 30%・編集対象外なので左 70% にだけ領域を敷く。 */
+  display: grid;
+  grid-template-columns: 70% 30%;
+  grid-template-rows: 5% 47.5% 47.5%;
+  grid-template-areas:
+    "header header"
+    "schedule ad"
+    "notices ad"
+    "assignments ad";
+  /* 実機は予定が上段全幅・連絡左下・提出物右下なので、左 70% 内をさらに分ける（下記の各領域で grid-area 指定）。 */
+}
+
+/* 左 70% を「予定（上段全幅）/ 連絡（左下）/ 提出物（右下）」に割る内側グリッド。 */
+.infoOverlay {
+  grid-column: 1 / 2;
+  grid-row: 2 / 4;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  grid-template-areas:
+    "schedule schedule"
+    "notices assignments";
+  gap: 0;
+  padding: 0.4vmin 1vmin 1vmin;
+}
+
+.region {
+  position: relative;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.region:hover {
+  border-color: rgba(44, 82, 130, 0.55);
+  background-color: rgba(44, 82, 130, 0.06);
+}
+.region:focus-visible {
+  outline: none;
+  border-color: #2c5282;
+  box-shadow: 0 0 0 3px rgba(44, 82, 130, 0.3);
+}
+/* 選択中の領域（対応エディタが下でアクティブ）。常時うっすら枠を出して「ここを編集中」を示す。 */
+.regionActive {
+  border-color: #2c5282;
+  background-color: rgba(44, 82, 130, 0.08);
+}
+
+.regionSchedule {
+  grid-area: schedule;
+}
+.regionNotices {
+  grid-area: notices;
+}
+.regionAssignments {
+  grid-area: assignments;
+}
+
+/* 領域名バッジ（ホバー / フォーカスで浮かせる）。普段は控えめ、操作可能と分かるラベル。 */
+.regionLabel {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(44, 82, 130, 0.9);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.region:hover .regionLabel,
+.region:focus-visible .regionLabel,
+.regionActive .regionLabel {
+  opacity: 1;
+}
+
+/* 編集器スタック（プレビューの下）。各セクションをカードに包み、選択中はハイライト。 */
+.editors {
+  display: grid;
+  gap: 1rem;
+}
+.editorCard {
+  border: 1px solid var(--editor-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  scroll-margin-top: 1rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.editorCardActive {
+  border-color: #2c5282;
+  box-shadow: 0 0 0 3px rgba(44, 82, 130, 0.18);
+}
+.editorCardTitle {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: var(--editor-muted, #6b7280);
+  margin: 0;
+}
+
+/* スマホ（≤899px）: WYSIWYG プレビューを畳む（実機もこの幅で縦積みに倒れる）。従来の縦積みフォームを主に。 */
+@media (max-width: 899px) {
+  .canvas {
+    display: none;
+  }
+  .hint {
+    display: none;
+  }
+}
