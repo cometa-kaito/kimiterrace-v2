@@ -58,7 +58,7 @@ export default async function EditorIndexPage({
   const lastClass = lastClassId ? (allClasses.find((c) => c.id === lastClassId) ?? null) : null;
 
   return (
-    <div style={{ maxWidth: "780px" }}>
+    <div style={{ maxWidth: "780px", marginInline: "auto" }}>
       <h1 style={{ fontSize: "1.15rem", marginBottom: "0.15rem" }}>編集するクラスを選ぶ</h1>
       <p style={{ margin: "0 0 0.75rem", color: color.muted, fontSize: fontSize.xs }}>
         クラスを選ぶとそのクラスだけに表示。共通は全クラスへ（個別入力が優先）。
