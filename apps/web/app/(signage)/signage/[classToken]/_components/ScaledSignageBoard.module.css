@@ -1,0 +1,37 @@
+/**
+ * ScaledSignageBoard.module.css — 実機サイネージ盤面（16:9・1280×720）を任意幅へ**縮小**して静止描画する
+ * ラッパのスタイル（F・盤面ビューの再利用部品化。サムネ / エディタキャンバス用）。
+ *
+ * 仕組み:
+ *   - `.frame` が 16:9 のレイアウト枠を確保する（`aspect-ratio: 16 / 9`）。`width` 未指定時は container
+ *     query で枠幅に追従させるため `container-type: inline-size` を張る（JS 計測不要 = Server 互換）。
+ *   - `.stage` を固定 TV 解像度（1280×720）で置き、`transform: scale(var(--sb-scale))` で枠幅にフィットさせる
+ *     （`transform-origin: top left`）。盤面（`signage.module.css` の `.signageRoot`）は `position: absolute;
+ *     inset: 0` なので、`.stage` を `position: relative` の固定サイズにして 1280×720 を厳密に与える。
+ *   - 既定の `--sb-scale` は container query 単位（`cqw`）で枠幅の 1/1280 に追従する。`width` 指定時は
+ *     コンポーネントがインラインで `--sb-scale` を上書きする（静的・JS 不要）。
+ *
+ * read-only / 静的: ポーリング・実時計・ローテーション・テレメトリは持たない（`SignageBoardView` に now=null・
+ * 広告静止・onAdTap=noop で渡す）。クリックは親（エディタ）が扱うのでリンクも張らない。
+ */
+
+.frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  /* width 未指定（レスポンシブ）時、cqw 単位で枠幅に scale を追従させるためのコンテナ。 */
+  container-type: inline-size;
+  /* 既定スケール: 枠幅(100cqw) を TV 解像度幅(1280px) で割る。width 指定時はインラインで上書きされる。 */
+  --sb-scale: calc(100cqw / 1280);
+  /* 描画前のちらつき防止に外殻を白く塗る（盤面本体も白地）。 */
+  background: #ffffff;
+}
+
+.stage {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  transform-origin: top left;
+  transform: scale(var(--sb-scale));
+}
