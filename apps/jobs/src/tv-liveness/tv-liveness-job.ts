@@ -11,12 +11,17 @@ import { deliverTvLivenessAlerts } from "./slack.js";
  * フェイク無しでも実 PG で検証可能）と `packages/db` の純関数（`classifyTvLiveness`）に置き、本ファイルは
  * env 読取・構造化ログ・Slack 配信結線・終了コードの I/O 結線のみに徹する（`weather/weather-job.ts` と同じ分離）。
  *
- * ## 24/7 タイト監視（F16 §9、OFF 時間帯緩和の撤廃）
- * TV は夜間も黒画面のまま 60 秒ポーリングを続ける（スリープしない）ため、**夜間の無音 = 実障害**。よって
- * OFF 時間帯に閾値を緩める旧仕様（30 分）を撤廃し、**24/7 単一のタイト閾値 ≈120 秒**（= 60 秒ポーリング 2 回
- * 欠落、瞬断耐性あり）を適用する。実装は本エントリで `{ downThresholdSec: 120, offHoursThresholdSec: 120 }`
- * を渡し、純判定側（`classifyTvLiveness` の `isStale`）が OFF 時間帯でも同じ閾値を使うようにする
- * （`tv-liveness.ts` に OFF 時間帯の「アラート skip」分岐は無く、閾値を揃えれば緩和は完全に消える）。
+ * ## ON 時間帯のタイト監視（F16 §9） + スケジュール OFF 時間帯のスキップ（運営整理 BUG-2）
+ * TV は ON 時間帯は黒画面のまま 60 秒ポーリングを続ける（スリープしない）ため、**ON 中の無音 = 実障害**。よって
+ * ON 時間帯には **単一のタイト閾値 ≈120 秒**（= 60 秒ポーリング 2 回欠落、瞬断耐性あり）を適用する。
+ * 本エントリで `{ downThresholdSec: 120, offHoursThresholdSec: 120 }` を渡す。
+ *
+ * 一方で **スケジュール OFF 時間帯は死活評価そのものをスキップする**（`classifyTvLiveness` が
+ * `isSignageOffHours` で `continue`、`tv-liveness.ts`）。OFF 中の黒画面は正常で応答なしに数えない（運営整理
+ * BUG-2: 正常な OFF と復帰不能の応答なしを区別する）。復帰不能の本当の応答なしは、ON 時間帯に入って
+ * downThreshold を超えた時点で検出される。**したがって「24/7 連続のハードダウン検知」ではなく、各端末の ON
+ * 時間帯内でのみタイト監視が効く**（OFF 中に死んだ端末は次の ON で検出。scheduleJson が NULL の端末は常時 ON
+ * 扱いで全時間帯監視）。`offHoursThresholdSec` は現状この OFF スキップにより未使用（後方互換で受けるのみ）。
  * env `TV_DOWN_THRESHOLD_SEC` / `TV_OFF_HOURS_THRESHOLD_SEC` での上書きは引き続き可能だが、既定を 120/120 に倒す。
  *
  * ## 遠隔起動（F16 拡張）
@@ -82,10 +87,10 @@ function redactDsn(s: string): string {
 }
 
 async function main(): Promise<void> {
-  // 24/7 タイト監視（F16 §9）: 既定を 120/120 に倒し OFF 緩和を撤廃する。env 指定があればそれを優先する
-  // （運用での微調整余地は残す）。通常 / OFF を同値に揃えることで `isStale` が OFF 時間帯でも同じ閾値を使い、
-  // 緩和は完全に消える（`tv-liveness.ts` 側に OFF 時間帯のアラート skip 分岐は無い）。閾値の確定は
-  // resolveThresholds（純関数 seam）に委ね、env 読取だけここで行う。
+  // ON 時間帯のタイト監視（F16 §9）: 既定を 120/120 に倒す。env 指定があればそれを優先する（運用での微調整
+  // 余地は残す）。なお `classifyTvLiveness` はスケジュール OFF 時間帯を `isSignageOffHours` でスキップする
+  // （運営整理 BUG-2）ため、この閾値が効くのは各端末の ON 時間帯内のみ（OFF 中のハードダウンは次の ON で
+  // 検出）。閾値の確定は resolveThresholds（純関数 seam）に委ね、env 読取だけここで行う。
   const now = new Date();
   const config: RunTvLivenessConfig = {
     databaseUrl: requireEnv("DATABASE_URL"),

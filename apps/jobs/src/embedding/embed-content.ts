@@ -84,7 +84,10 @@ export async function embedPendingContent(
   client: EmbeddingClient,
   options: EmbedPendingOptions = {},
 ): Promise<EmbedPendingResult> {
-  const batchSize = Math.max(1, Math.trunc(options.batchSize ?? 32));
+  // 非有限値（NaN/Infinity）が来ても 32 に倒す。`Math.max(1, Math.trunc(NaN)) = NaN` だと分割ループが
+  // 1 周も回らず embedding を 0 件しか作らない無言失敗になるため、`Number.isFinite` で防御する（多層防御）。
+  const rawBatch = Math.trunc(options.batchSize ?? 32);
+  const batchSize = Number.isFinite(rawBatch) ? Math.max(1, rawBatch) : 32;
   const maskEntries = options.maskEntries ?? [];
   const pending = await port.listPending();
 
