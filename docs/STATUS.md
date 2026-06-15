@@ -7,7 +7,7 @@
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
 - **web デプロイ手順: [runbooks/web-deploy.md](runbooks/web-deploy.md)（`scripts/deploy/deploy-web.sh <env> --apply`）。過去の引き継ぎ内の長い再デプロイ手順は読み返さずこれを使う。**
-- 最終更新: 2026-06-14 (22:30 JST) ／ 更新者: Claude Code
+- 最終更新: 2026-06-16 (JST) ／ 更新者: Claude Code
 
 ---
 
@@ -26,8 +26,8 @@
 ## 現在地サマリ（2026-06-08）
 
 - **main HEAD**: `f00e2e97`（#865 magic link ロール再編 squash merge）。URL は **namespace 改称完了**で `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（#891/#894/#895、下記「直近の完了」2026-06-14 / [[ref_namespace_rename_breaks_e2e_url_asserts]]）。
-- **staging live**: image `web:f042fe8`（2026-06-14・namespace 改称反映）。`/api/health` 200 / `/login` は `private,no-cache`。旧 `/admin/*`→`/ops`・`/app` の **308 を実機疎通済**（本セッション検証）。`migrate_image_tag` 据置（schema 変更なし）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。
-- **prod live**: image `web:f042fe8`（2026-06-14・rev `kimiterrace-web-00032-djf`、別セッション [#897](https://github.com/cometa-kaito/kimiterrace-v2/pull/897) で bump+apply。#893 K3配信 scope拡張 も同梱）。#897 記録の疎通: `/ops` 307・`/app` 307・`/admin` 308・`/api/health` 200。schema 無変更=migrate 不要。
+- **staging live**: image `web:6618708`（2026-06-16・エディタ刷新「モニタの壁」+WYSIWYG編集+年度撤去）。`/api/health` 200 / `/login` `private,no-cache`。**migrate 実行済**（`20260615120000`: `academic_year` 列・`ix_classes_school_year` 削除 + `ux_classes_school_grade_name` 新設）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。
+- **prod live**: image `web:6618708`（2026-06-16・rev `kimiterrace-web-00043-dh7`、稼働 digest=`web:6618708` 突合確認）。`/api/health` 200・`cache-control private,no-cache`。**migrate 実行済**（同 `20260615120000`・本番に同名重複クラス無し＝fail-safe 通過）。bump 記録 [#957](https://github.com/cometa-kaito/kimiterrace-v2/pull/957)。
 - **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/ops/schools/<id>/edit`（旧 `/admin/system/...`、§4.1 改称）で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
 - **Cloud Run URL**: `https://kimiterrace-web-5wkl3il5zq-an.a.run.app`（`/api/health` 200）。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash）。
@@ -39,6 +39,12 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-06-16: **エディタ大改修「実画面モニタの壁」+ 盤面WYSIWYG編集 + 年度(academic_year)完全撤去（4 PR・staging/prod デプロイ済）**。ユーザー案＝廊下のサイネージTVを画面に再現し、各モニタに**実機サイネージを縮小表示**、クリックで拡大編集。承認済みプレビューを反復設計後、orchestrator で並行ワーカー実装→ fresh Reviewer→ 自律 merge:
+  - [#953](https://github.com/cometa-kaito/kimiterrace-v2/pull/953) 盤面描画を再利用部品 `SignageBoardView`（純粋描画）/`ScaledSignageBoard`（1280×720→transform scale・16:9・read-only）に抽出。**実機サイネージ挙動は不変**（SignageClient は再生制御を保持し描画を移譲）。
+  - [#955](https://github.com/cometa-kaito/kimiterrace-v2/pull/955) エディタ着地（`/app/editor`）を学科ごとの**実画面縮小モニタの壁**に刷新。PC複数列/スマホ3列+ハンバーガー横リスト、状態ドット（表示中/未入力）、**タイトル/説明文/年度 非表示**。payload は `buildSignagePayloadForClass`（実機と単一ソース）。teacher 自動直行/cookie IDOR 突合は維持。
+  - [#956](https://github.com/cometa-kaito/kimiterrace-v2/pull/956) `/app/editor/[classId]` の「盤面を編集」タブを**実レイアウト上の連動プレビュー WYSIWYG**化。領域(予定/連絡/提出物)クリックで該当エディタにフォーカス、入力でプレビュー即更新。**保存/バリデーション/RLS/監査は不変**（追記 `onItemsChange` は観測専用・既定 no-op、`buildEditorPreviewPayload` は純関数・DB非依存）。
+  - [#954](https://github.com/cometa-kaito/kimiterrace-v2/pull/954) **年度(academic_year)を完全撤去**＝クラスは校内の単一集合に。`classes.academic_year` 列・`ix_classes_school_year`・「新年度へ複製」機能を削除、一意index を `ux_classes_school_grade_name (school_id, grade_id, name) WHERE grade_id IS NOT NULL` へ張替（migration `20260615120000`・単一tx＝重複時 fail-safe rollback）。schema/queries/UI/seed/e2e/tests を全追随。
+  - **デプロイ**: staging→prod を web-deploy runbook で（migrate→web）。両環境 `/api/health` 200、prod 稼働 rev `00043` の image digest=`web:6618708` 突合確認。記録 [#957](https://github.com/cometa-kaito/kimiterrace-v2/pull/957)。⚠️ 本回踏んだ罠＝**prod の migrate build は `cloudbuild-migrate.yaml` 既定 `_REPO`(staging固定) を上書きしないと prod AR に push されず Job が `Image not found` で error state**（runbook §schema に明記済・#957）。
 - 2026-06-14: **運営整理 v2編「縮退・移設一式」item1〜4 + item3 を出荷（6 PR landed）+ item5(sensors) は次レーン**。正本 = `Desktop/app/運営整理-判定記録-2026-06-13.md` §4 v2編。各項目 ≤500行・別 Reviewer・自律 merge で分割実装:
   - **item1**（[#911](https://github.com/cometa-kaito/kimiterrace-v2/pull/911)）`/ops/advertisers/[id]/edit` 最小縮退 = 表示名+配信ステータス(稼働中/休止 2値)のみ。業種/連絡先/住所/備考は portal が正で UI 撤去 + **Action は他列を一切上書きしない**(null 潰し回避)。配信ステータス=BUG-1 修正箇所＝死守(維持)。設計判断: 2値集約(ユーザー承認)。
   - **item4a**（[#912](https://github.com/cometa-kaito/kimiterrace-v2/pull/912)）`/ops/reports` を学校向け月次専用にスリム化(広告主別ブロック撤去・portal一本化)。
