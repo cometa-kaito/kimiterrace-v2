@@ -17,6 +17,11 @@
   margin-bottom: 1rem;
   background: #f7f8fa;
   border-radius: 0.6rem;
+  /* PC: スクロールしてもタブを上部に固定（盤面/プレビューが長くても常に切替できる・ユーザー要望 2026-06-15）。 */
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .tab {
@@ -30,12 +35,16 @@
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
+/* 選択中タブはどれを選んでいるか分かるようブランドのオレンジで塗る（ユーザー要望 2026-06-15）。 */
 .tab[aria-selected="true"] {
-  background: #fff;
-  color: #1f2937;
-  border: 1px solid #e5e7eb;
+  background: #ea580c;
+  color: #fff;
+  border: 1px solid #ea580c;
 }
 
 /* モバイル: タブを画面下の固定ボトムナビに（親指で届く・入力中でも切替が容易）。 */
