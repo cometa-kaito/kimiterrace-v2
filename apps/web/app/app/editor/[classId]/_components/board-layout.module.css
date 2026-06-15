@@ -1,0 +1,22 @@
+/*
+ * 盤面を編集タブの配置（配置最適化 PR3）。
+ * - 既定(狭い画面): 縦 1 カラム。
+ * - 広い画面(>=1080px): 2 カラム。中央寄せキャンバス(最大1100px)内で 1 カラムあたり >=520px を確保でき、
+ *   提出物/来校者の表(min-width 30rem=480px)が窮屈にならない時だけ 2 カラムにする（#673「2カラムで
+ *   提出物が窮屈」を、十分広い時だけ 2 カラム化して回避）。
+ * - `.full` を付けたセクションは常に全幅（予定は時限×科目…と横に広い表のため全幅が読みやすい）。
+ * インライン style では media query が書けないため module 化。
+ */
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1080px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .full {
+    grid-column: 1 / -1;
+  }
+}
