@@ -1,3 +1,4 @@
+import { AdThumbnail } from "@/app/_components/AdThumbnail";
 import type { EffectiveDailyData, MergedSection } from "@/lib/signage/effective-daily-data";
 import { type SignageSectionKind, formatSignageItem } from "@/lib/signage/section-format";
 import type { EffectiveAd } from "@kimiterrace/db";
@@ -41,9 +42,14 @@ export function SignageBoard({
           <ul style={adsListStyle}>
             {ads.map((ad) => (
               <li key={ad.adId} style={adItemStyle}>
-                <span style={adMediaStyle}>{ad.mediaType === "video" ? "🎬" : "🖼"}</span>
+                <AdThumbnail
+                  mediaUrl={ad.mediaUrl}
+                  mediaType={ad.mediaType === "video" ? "video" : "image"}
+                  caption={ad.caption}
+                  size={48}
+                />
                 <span style={{ fontSize: `${ad.captionFontScale}rem` }}>
-                  {ad.caption ?? ad.mediaUrl}
+                  {ad.caption ?? (ad.mediaType === "video" ? "動画広告" : "画像広告")}
                 </span>
                 {ad.isInherited ? <span style={badgeStyle}>{ad.sourceScope}</span> : null}
               </li>
@@ -142,7 +148,6 @@ const adsListStyle: React.CSSProperties = {
   gap: "0.4rem",
 };
 const adItemStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "0.5rem" };
-const adMediaStyle: React.CSSProperties = { fontSize: "1.1rem" };
 const badgeStyle: React.CSSProperties = {
   fontSize: "0.7rem",
   padding: "0.1rem 0.4rem",

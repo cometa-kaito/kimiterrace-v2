@@ -1,3 +1,4 @@
+import { AdThumbnail } from "@/app/_components/AdThumbnail";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getAdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
@@ -71,6 +72,12 @@ export default async function AdvertiserAdsPage({ params }: { params: Promise<{ 
           <ul style={listStyle}>
             {data.adList.map((ad) => (
               <li key={ad.adId} style={itemStyle}>
+                <AdThumbnail
+                  mediaUrl={ad.mediaUrl}
+                  mediaType={ad.mediaType === "video" ? "video" : "image"}
+                  caption={ad.caption}
+                  size={64}
+                />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <strong>{ad.schoolName}</strong>
                   <span style={metaStyle}>
