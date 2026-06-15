@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  GINAN_ACADEMIC_YEAR,
   GINAN_DEPARTMENT,
   GINAN_GRADES,
   GINAN_SCHOOL,
@@ -34,11 +33,6 @@ describe("GINAN_GRADES", () => {
       expect(g.className.length).toBeLessThanOrEqual(64);
       expect(`${g.gradeName}${g.className}`).not.toMatch(/\d{3,}/);
     }
-  });
-
-  it("年度は PoC 年度（>0 の整数）", () => {
-    expect(Number.isInteger(GINAN_ACADEMIC_YEAR)).toBe(true);
-    expect(GINAN_ACADEMIC_YEAR).toBeGreaterThan(0);
   });
 });
 

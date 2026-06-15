@@ -20,8 +20,8 @@ const grades = [
     hasClasses: true,
     departmentId: "d1",
     classes: [
-      { id: "c1", name: "1組", academicYear: 2026, grade: 1 },
-      { id: "c2", name: "2組", academicYear: 2026, grade: 1 },
+      { id: "c1", name: "1組", grade: 1 },
+      { id: "c2", name: "2組", grade: 1 },
     ],
   },
   {
@@ -30,7 +30,7 @@ const grades = [
     displayOrder: 0,
     hasClasses: true,
     departmentId: "d2",
-    classes: [{ id: "c3", name: "A組", academicYear: 2026, grade: 2 }],
+    classes: [{ id: "c3", name: "A組", grade: 2 }],
   },
 ];
 

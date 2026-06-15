@@ -12,9 +12,7 @@ import {
   conflict,
   forbidden,
   invalid,
-  nextDuplicationYears,
   notFound,
-  planNextYearDuplication,
   toHubActor,
   validateClassInput,
   validateClassUpdate,
@@ -25,12 +23,7 @@ import {
   validateId,
   validateReorder,
 } from "./hub-core";
-import {
-  countClassesInGrade,
-  countGradesInDepartment,
-  getClassYearRows,
-  getTargetYearClassKeys,
-} from "./hub-queries";
+import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
 
 /**
  * 学校管理者ハブの Server Actions (#48-K / #48-K2、ADR-008 — 画面 mutation は Server Actions)。
@@ -244,7 +237,6 @@ export async function createGradeAction(raw: {
 export async function createClassAction(raw: {
   gradeId?: unknown;
   name?: unknown;
-  academicYear?: unknown;
   grade?: unknown;
 }): Promise<ActionResult<{ id: string }>> {
   const v = validateClassInput(raw);
@@ -266,7 +258,6 @@ export async function createClassAction(raw: {
         schoolId: actor.schoolId,
         gradeId: v.value.gradeId,
         name: v.value.name,
-        academicYear: v.value.academicYear,
         grade: v.value.grade,
         createdBy: actor.userId,
         updatedBy: actor.userId,
@@ -409,11 +400,10 @@ export async function updateGradeAction(raw: {
   }, "同名の学年が既に存在します。");
 }
 
-/** クラスをリネーム / 年度・学年数を変更する (親学年の付替は scope 外、別 issue)。 */
+/** クラスをリネーム / 学年数を変更する (親学年の付替は scope 外、別 issue)。 */
 export async function updateClassAction(raw: {
   id?: unknown;
   name?: unknown;
-  academicYear?: unknown;
   grade?: unknown;
 }): Promise<ActionResult<{ id: string }>> {
   const v = validateClassUpdate(raw);
@@ -429,7 +419,6 @@ export async function updateClassAction(raw: {
     const [before] = await tx
       .select({
         name: classes.name,
-        academicYear: classes.academicYear,
         grade: classes.grade,
       })
       .from(classes)
@@ -442,7 +431,6 @@ export async function updateClassAction(raw: {
       .update(classes)
       .set({
         name: v.value.name,
-        academicYear: v.value.academicYear,
         grade: v.value.grade,
         updatedBy: actor.userId,
         updatedAt: new Date(),
@@ -456,7 +444,6 @@ export async function updateClassAction(raw: {
         before,
         after: {
           name: v.value.name,
-          academicYear: v.value.academicYear,
           grade: v.value.grade,
         },
       },
@@ -630,65 +617,4 @@ export async function reorderHierarchyAction(raw: {
     }
     return { count };
   }, "並べ替えに失敗しました。");
-}
-
-/* ================================================================== *
- *  新年度へ複製 (#48-K3 PR3)
- *
- *  現在の最新年度のクラス群を翌年度の空クラスとして複製する (予定/公開内容は複製しない)。
- *  対象算出は純関数 planNextYearDuplication (hub-core)。source は常に最新年度ゆえ実行のたびに 1 年進む
- *  (冪等ではない・target は常に未存在年度)。各 insert を監査 (ルール1)・自校 RLS tx (ルール2)。
- *
- *  並行実行/別タブ再実行による翌年度クラスの重複生成は二段で防ぐ:
- *    1. DB: 部分 unique index ux_classes_school_year_grade_name が (school,year,grade,name) を直列化する
- *       (恒久ガード)。競合 insert は 23505 → finish の conflict 写像で graceful に返る。
- *    2. app: insert 直前に target 年度の既存クラス (getTargetYearClassKeys) を自校 RLS tx 内で取得し、
- *       planNextYearDuplication で除外する。先行 tx のコミットを観測できた場合に 23505 を避け graceful に
- *       skip する防御 (観測できない phantom race は 1 の index が倒す)。
- *  単一操作の二重押下は UI のボタン無効化でも抑止し、対象年度は確認モーダルで明示する。
- * ================================================================== */
-
-/** 現年度のクラスを翌年度へ複製する。複製できるクラスが無ければ not_found。 */
-export async function duplicateClassesToNextYearAction(): Promise<
-  ActionResult<{ created: number; targetYear: number }>
-> {
-  const actor = await authorize();
-  if ("ok" in actor) {
-    return actor;
-  }
-
-  return finish(async (tx) => {
-    const rows = await getClassYearRows(tx);
-    const years = nextDuplicationYears(rows);
-    if (!years) {
-      throw new HubNotFoundError("複製できるクラスがありません。");
-    }
-    // target 年度の既存クラスを insert 直前に取得し除外する (並行コミットを観測できた場合の graceful skip)。
-    const existingTarget = await getTargetYearClassKeys(tx, years.targetYear);
-    const plan = planNextYearDuplication(rows, existingTarget);
-    if (!plan) {
-      throw new HubNotFoundError("複製できるクラスがありません。");
-    }
-    for (const c of plan.toCreate) {
-      const [row] = await tx
-        .insert(classes)
-        .values({
-          schoolId: actor.schoolId,
-          gradeId: c.gradeId,
-          name: c.name,
-          academicYear: c.academicYear,
-          grade: c.grade,
-          createdBy: actor.userId,
-          updatedBy: actor.userId,
-        })
-        .returning({ id: classes.id });
-      await writeAudit(tx, actor, {
-        tableName: "classes",
-        recordId: row?.id as string,
-        operation: "insert",
-        diff: { after: c, reason: "duplicate-next-year" },
-      });
-    }
-    return { created: plan.toCreate.length, targetYear: plan.targetYear };
-  }, "新年度への複製に失敗しました。");
 }

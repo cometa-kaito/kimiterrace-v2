@@ -112,7 +112,6 @@ describe("transformExport", () => {
     const c = def(rows.classes[0]);
     expect(c.gradeId).toBe(v2Id.grade("S1", "G1"));
     expect(c.schoolId).toBe(v2Id.school("S1"));
-    expect(c.academicYear).toBe(2026);
   });
 
   it("scope 列: 各 scope で正しい *_id のみ非 null (schema CHECK 整合)", () => {

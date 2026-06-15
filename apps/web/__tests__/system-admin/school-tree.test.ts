@@ -35,8 +35,8 @@ describe("assembleSchoolTree", () => {
         { id: "g2", name: "2年", departmentId: null, displayOrder: 1 },
       ],
       classes: [
-        { id: "c1", name: "A組", gradeId: "g1", academicYear: 2026 },
-        { id: "c2", name: "B組", gradeId: "g1", academicYear: 2026 },
+        { id: "c1", name: "A組", gradeId: "g1" },
+        { id: "c2", name: "B組", gradeId: "g1" },
       ],
       devices: [
         device("d1", { classId: "c1", label: "1A教室" }),
@@ -78,7 +78,7 @@ describe("assembleSchoolTree", () => {
     const tree = assembleSchoolTree({
       departments: [{ id: "dep1", name: "科", displayOrder: 0 }],
       grades: [{ id: "g1", name: "1年", departmentId: "dep1", displayOrder: 0 }],
-      classes: [{ id: "c1", name: "A", gradeId: "g1", academicYear: 2026 }],
+      classes: [{ id: "c1", name: "A", gradeId: "g1" }],
       // class/grade/dept すべて指定されたデバイスは class に置かれる。
       devices: [device("d1", { classId: "c1", gradeId: "g1", departmentId: "dep1" })],
     });
@@ -88,13 +88,13 @@ describe("assembleSchoolTree", () => {
     expect(tree.schoolDevices).toEqual([]);
   });
 
-  it("クラスは年度降順→名前、モニタはラベル→id で決定的に並ぶ", () => {
+  it("クラスは名前→id、モニタはラベル→id で決定的に並ぶ", () => {
     const tree = assembleSchoolTree({
       departments: [],
       grades: [{ id: "g1", name: "1年", departmentId: null, displayOrder: 0 }],
       classes: [
-        { id: "c-old", name: "A組", gradeId: "g1", academicYear: 2025 },
-        { id: "c-new", name: "A組", gradeId: "g1", academicYear: 2026 },
+        { id: "c-b", name: "B組", gradeId: "g1" },
+        { id: "c-a", name: "A組", gradeId: "g1" },
       ],
       devices: [
         device("dz", { label: "Z" }),
@@ -102,8 +102,8 @@ describe("assembleSchoolTree", () => {
         device("dn", { label: null }),
       ],
     });
-    // 年度降順 (2026 が先)。
-    expect(tree.grades[0]?.classes.map((c) => c.academicYear)).toEqual([2026, 2025]);
+    // 名前昇順 (A組 が先)。
+    expect(tree.grades[0]?.classes.map((c) => c.name)).toEqual(["A組", "B組"]);
     // 学校レベルモニタ: null(空文字) → "A" → "Z"。
     expect(tree.schoolDevices.map((d) => d.id)).toEqual(["dn", "da", "dz"]);
   });
@@ -112,7 +112,7 @@ describe("assembleSchoolTree", () => {
     const tree = assembleSchoolTree({
       departments: [],
       grades: [{ id: "g1", name: "1年", departmentId: null, displayOrder: 0 }],
-      classes: [{ id: "c1", name: "浮きクラス", gradeId: null, academicYear: 2026 }],
+      classes: [{ id: "c1", name: "浮きクラス", gradeId: null }],
       devices: [],
     });
     expect(tree.grades[0]?.classes).toEqual([]);

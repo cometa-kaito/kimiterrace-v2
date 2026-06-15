@@ -45,7 +45,6 @@ const TRANSCRIPT =
 const CLASS_ID = process.env.SEED_CLASS_ID ?? "e2e51111-0000-4000-8000-000000000006";
 const MAGIC_LINK_ID = process.env.SEED_MAGIC_LINK_ID ?? "e2e51111-0000-4000-8000-000000000007";
 const CLASS_NAME = process.env.SEED_CLASS_NAME ?? "3年1組";
-const ACADEMIC_YEAR = Number(process.env.SEED_ACADEMIC_YEAR ?? "2026");
 const CLASS_GRADE = Number(process.env.SEED_CLASS_GRADE ?? "3");
 
 // 平文サイネージトークン。**ハードコードしない** (ルール5)。env 指定があればそれ、無ければ 256bit 乱数を
@@ -91,10 +90,10 @@ async function main(): Promise<void> {
         ON CONFLICT (id) DO NOTHING`;
 
       // 4) クラス（サイネージ表示対象）。grade_id は NULL（学年未割当・学年スコープは引かない）。
-      //    created_by/updated_by は省略 = NULL（system 作成）。academic_year/name/grade は notNull。
+      //    created_by/updated_by は省略 = NULL（system 作成）。name/grade は notNull。
       await tx`
-        INSERT INTO classes (id, school_id, academic_year, name, grade)
-        VALUES (${CLASS_ID}, ${SCHOOL_ID}, ${ACADEMIC_YEAR}, ${CLASS_NAME}, ${CLASS_GRADE})
+        INSERT INTO classes (id, school_id, name, grade)
+        VALUES (${CLASS_ID}, ${SCHOOL_ID}, ${CLASS_NAME}, ${CLASS_GRADE})
         ON CONFLICT (id) DO NOTHING`;
 
       // 5) 当日 (JST) の school scope daily_data。各 JSONB 要素は section-format.ts の確定スキーマ:

@@ -233,8 +233,8 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
         INSERT INTO departments (school_id, name) VALUES (${fx.schoolA}, '電子工学科') RETURNING id`;
       deptId = d.id;
       const [c] = await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id`;
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '1-A', 1) RETURNING id`;
       classId = c.id;
     });
 

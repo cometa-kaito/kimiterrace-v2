@@ -22,8 +22,8 @@ describeOrSkip("RLS: listClassesWithSchool", () => {
   beforeEach(async () => {
     fx = await seedBaseFixture(sql);
     await sql`RESET ROLE`;
-    await sql`INSERT INTO classes (school_id, academic_year, name, grade) VALUES (${fx.schoolA}, 2026, 'prov-A-1組', 1)`;
-    await sql`INSERT INTO classes (school_id, academic_year, name, grade) VALUES (${fx.schoolB}, 2026, 'prov-B-1組', 1)`;
+    await sql`INSERT INTO classes (school_id, name, grade) VALUES (${fx.schoolA}, 'prov-A-1組', 1)`;
+    await sql`INSERT INTO classes (school_id, name, grade) VALUES (${fx.schoolB}, 'prov-B-1組', 1)`;
   });
 
   afterAll(async () => {

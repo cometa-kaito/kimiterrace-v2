@@ -76,8 +76,8 @@ describeOrSkip("RLS: ハブ update/delete 越境 (#48-K2 M-1)", () => {
     // A の学年にクラスを 1 件 (学年削除ガード検証用)。
     classA = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, ${gradeA}, 2026, '1-A', 1) RETURNING id`
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, ${gradeA}, '1-A', 1) RETURNING id`
     )[0].id;
   });
 

@@ -35,8 +35,8 @@ describeOrSkip("ai_chat_sessions 認証経路 XOR + 教員経路 RLS (#370)", ()
     // 生徒経路の FK 充足用に school A のクラス + magic_link を用意する。
     classA = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '1-A', 1) RETURNING id
       `
     )[0].id;
     magicA = (

@@ -1,16 +1,16 @@
 import { type TenantTx, classes, dailyData } from "@kimiterrace/db";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { type ScheduleItem, validateScheduleItems } from "./schedule-core";
 
-/** エディタ着地用: 自校のクラス一覧 (新しい年度順)。RLS で自校に限定。 */
-export type EditableClass = { id: string; name: string; academicYear: number };
+/** エディタ着地用: 自校のクラス一覧 (学年→名前順)。RLS で自校に限定。 */
+export type EditableClass = { id: string; name: string };
 
 export async function getSchoolClasses(tx: TenantTx): Promise<EditableClass[]> {
-  // grade 列は並び替えにのみ使い、結果には含めない (着地 UI は年度名のみ表示)。
+  // grade 列は並び替えにのみ使い、結果には含めない。
   return await tx
-    .select({ id: classes.id, name: classes.name, academicYear: classes.academicYear })
+    .select({ id: classes.id, name: classes.name })
     .from(classes)
-    .orderBy(desc(classes.academicYear), asc(classes.grade), asc(classes.name));
+    .orderBy(asc(classes.grade), asc(classes.name));
 }
 
 /**

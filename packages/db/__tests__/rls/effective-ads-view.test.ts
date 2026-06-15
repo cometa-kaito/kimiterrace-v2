@@ -60,14 +60,14 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
     )[0].id;
     classA1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, ${gradeA1}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, ${gradeA1}, '1-A', 1) RETURNING id
       `
     )[0].id;
     classA2 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, NULL, 2026, '0-X', 0) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, NULL, '0-X', 0) RETURNING id
       `
     )[0].id;
 
@@ -80,8 +80,8 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
     )[0].id;
     classB1 = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolB}, ${gradeB1}, 2026, '1-B', 1) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolB}, ${gradeB1}, '1-B', 1) RETURNING id
       `
     )[0].id;
 
@@ -124,14 +124,14 @@ describeOrSkip("VIEW: effective_ads_per_class (#48-F)", () => {
     // grade_id NULL のクラス = 学校スコープ広告のみ継承 → 広告主紐付き class 広告を隔離検証できる
     classAdvStatic = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, NULL, 2026, '広告主静的', 0) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, NULL, '広告主静的', 0) RETURNING id
       `
     )[0].id;
     classAdvToggle = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, grade_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, NULL, 2026, '広告主トグル', 0) RETURNING id
+        INSERT INTO classes (school_id, grade_id, name, grade)
+        VALUES (${fx.schoolA}, NULL, '広告主トグル', 0) RETURNING id
       `
     )[0].id;
     // 稼働広告主の class 広告 (配信される) と 休止広告主の class 広告 (除外される)

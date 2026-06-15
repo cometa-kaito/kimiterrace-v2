@@ -7,7 +7,6 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   deleteGradeAction,
-  duplicateClassesToNextYearAction,
   reorderHierarchyAction,
   updateClassAction,
   updateDepartmentAction,
@@ -103,14 +102,12 @@ export function HierarchyManager({
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
   const isEmpty = !hasDepartments && grades.length === 0;
-  const allYears = grades.flatMap((g) => g.classes.map((c) => c.academicYear));
-  const currentYear = allYears.length > 0 ? Math.max(...allYears) : null;
 
   return (
     <div style={pageStyle}>
       <div style={headerRowStyle}>
         <h1 style={h1Style}>学校管理</h1>
-        {!isEmpty ? (
+        {hasDepartments ? (
           <button type="button" style={toolbarBtnStyle} onClick={() => setBulkOpen((v) => !v)}>
             一括操作 <span aria-hidden>{bulkOpen ? "▴" : "▾"}</span>
           </button>
@@ -130,7 +127,6 @@ export function HierarchyManager({
       {bulkOpen ? (
         <div style={bulkPanelStyle}>
           {hasDepartments ? <BulkAddYears departments={departments} report={report} /> : null}
-          <NextYearCopy currentYear={currentYear} notify={notify} />
         </div>
       ) : null}
 
@@ -706,7 +702,6 @@ function GradeNode({
         const create = await createClassAction({
           gradeId: grade.id,
           name: grade.name,
-          academicYear: new Date().getFullYear(),
           grade: deriveGradeNumber(grade.name),
         });
         if (!create.ok) {
@@ -829,7 +824,6 @@ function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report:
       const res = await updateClassAction({
         id: cls.id,
         name: fd.get("name"),
-        academicYear: fd.get("academicYear"),
         // 学年数はツリーの親に追従するため編集させず現状値を保持する。
         grade: cls.grade,
       });
@@ -847,14 +841,6 @@ function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report:
           required
           style={inputStyle}
           aria-label="クラス名"
-        />
-        <input
-          name="academicYear"
-          type="number"
-          defaultValue={cls.academicYear}
-          required
-          style={orderInputStyle}
-          aria-label="年度"
         />
         <button type="submit" disabled={pending} style={primaryBtnStyle}>
           {pending ? "保存中…" : "保存"}
@@ -885,7 +871,7 @@ function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report:
           <RowMenu
             label="クラスの操作"
             items={[
-              { label: "名称・年度を編集", onSelect: () => setEditing(true) },
+              { label: "名称を編集", onSelect: () => setEditing(true) },
               { label: "削除", danger: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -1196,8 +1182,7 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
       const res = await createClassAction({
         gradeId: grade.id,
         name: fd.get("name"),
-        // 年度は今年を自動設定、学年数は親の学年名から自動算出（UI では入力させない）。
-        academicYear: new Date().getFullYear(),
+        // 学年数は親の学年名から自動算出（UI では入力させない）。
         grade: deriveGradeNumber(grade.name),
       });
       report(res, "クラスを追加しました。");
@@ -1264,69 +1249,6 @@ function BulkAddYears({ departments, report }: { departments: Dept[]; report: Re
         {pending ? "追加中…" : "全学科に一括追加"}
       </button>
     </form>
-  );
-}
-
-/** 新年度へ複製（現年度のクラスを翌年度の空クラスへ。実行ごとに翌年度へ1年進む）。クラスが無い校では出さない。 */
-function NextYearCopy({
-  currentYear,
-  notify,
-}: {
-  currentYear: number | null;
-  notify: (ok: boolean, text: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [pending, start] = useTransition();
-  if (currentYear === null) {
-    return null;
-  }
-  const targetYear = currentYear + 1;
-  return (
-    <>
-      <button type="button" style={secondaryBtnStyle} onClick={() => setOpen(true)}>
-        新年度へ複製
-      </button>
-      {open ? (
-        <div style={modalOverlayStyle} role="dialog" aria-modal="true" aria-label="新年度へ複製">
-          <div style={modalCardStyle}>
-            <p style={modalTitleStyle}>新年度へ複製</p>
-            <p style={modalBodyStyle}>
-              {currentYear}年度 の構成を {targetYear}年度
-              に複製します。各クラスを新年度の空クラスとして作成します（予定・公開内容は複製されません）。
-              実行のたびに翌年度へ1年進みます。重複は作成されません（既存クラスはスキップされます）。
-            </p>
-            <div style={modalActionsStyle}>
-              <button type="button" style={ghostBtnStyle} onClick={() => setOpen(false)}>
-                キャンセル
-              </button>
-              <button
-                type="button"
-                disabled={pending}
-                style={primaryBtnStyle}
-                onClick={() =>
-                  start(async () => {
-                    const res = await duplicateClassesToNextYearAction();
-                    if (res.ok) {
-                      notify(
-                        true,
-                        res.data.created === 0
-                          ? `${res.data.targetYear}年度のクラスは既に揃っています（新規作成なし）。`
-                          : `${res.data.created}件のクラスを${res.data.targetYear}年度に複製しました。`,
-                      );
-                      setOpen(false);
-                    } else {
-                      notify(false, res.error.message);
-                    }
-                  })
-                }
-              >
-                {pending ? "複製中…" : `${targetYear}年度に複製する`}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -1684,37 +1606,3 @@ const srOnlyStyle: React.CSSProperties = {
   border: 0,
 };
 const bulkPanelStyle: React.CSSProperties = { display: "grid", gap: "0.6rem" };
-const modalOverlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(28,25,23,0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: "1rem",
-  zIndex: 50,
-};
-const modalCardStyle: React.CSSProperties = {
-  width: "420px",
-  maxWidth: "100%",
-  background: "#fff",
-  borderRadius: "12px",
-  padding: "1.1rem 1.25rem",
-};
-const modalTitleStyle: React.CSSProperties = {
-  fontSize: "1rem",
-  fontWeight: 500,
-  color: C.inkPrimary,
-  margin: "0 0 0.6rem",
-};
-const modalBodyStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: C.inkSecondary,
-  lineHeight: 1.7,
-  margin: "0 0 1rem",
-};
-const modalActionsStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "0.5rem",
-};

@@ -35,12 +35,12 @@ describeOrSkip("#48-L2 getSchoolDetail (マスタ + 階層件数 / RLS)", () => 
     await raw`INSERT INTO grades (school_id, name) VALUES (${fx.schoolA}, '1年'), (${fx.schoolA}, '2年')`;
     await raw`INSERT INTO departments (school_id, name) VALUES (${fx.schoolA}, '普通科')`;
     await raw`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, 'A組', 1), (${fx.schoolA}, 2026, 'B組', 1), (${fx.schoolA}, 2026, 'C組', 2)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, 'A組', 1), (${fx.schoolA}, 'B組', 1), (${fx.schoolA}, 'C組', 2)
     `;
     // schoolB: 学年 1 / クラス 1 (件数が混ざらないことの対照)
     await raw`INSERT INTO grades (school_id, name) VALUES (${fx.schoolB}, '1年')`;
-    await raw`INSERT INTO classes (school_id, academic_year, name, grade) VALUES (${fx.schoolB}, 2026, 'A組', 1)`;
+    await raw`INSERT INTO classes (school_id, name, grade) VALUES (${fx.schoolB}, 'A組', 1)`;
   });
 
   afterAll(async () => {

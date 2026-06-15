@@ -81,14 +81,13 @@ export default async function SchoolAdPlacementPage({
             const primaryLabel = isDepartmentMode
               ? [c.departmentName, c.gradeName].filter(Boolean).join(" ") || c.className
               : c.className;
-            const metaLabel = isDepartmentMode
-              ? `${c.academicYear}年度`
-              : `${c.gradeName} / ${c.academicYear}年度`;
+            // 学科制は主表記に学科×学年が入るため副表記は不要。クラス制は学年を副表記にする。
+            const metaLabel = isDepartmentMode ? "" : c.gradeName;
             return (
               <li key={c.classId} style={itemStyle}>
                 <span>
                   <strong>{primaryLabel}</strong>
-                  <span style={metaStyle}>{metaLabel}</span>
+                  {metaLabel ? <span style={metaStyle}>{metaLabel}</span> : null}
                 </span>
                 <Link href={`/app/editor/${c.classId}/ads`} style={manageLinkStyle}>
                   広告管理 →

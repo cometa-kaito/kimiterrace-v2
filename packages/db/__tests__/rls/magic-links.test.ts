@@ -41,14 +41,14 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
 
     classA = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, academic_year, name, grade)
-        VALUES (${fx.schoolA}, 2026, '1-A', 1) RETURNING id
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '1-A', 1) RETURNING id
       `
     )[0].id;
     classB = (
       await sql<{ id: string }[]>`
-        INSERT INTO classes (school_id, academic_year, name, grade)
-        VALUES (${fx.schoolB}, 2026, '1-B', 1) RETURNING id
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolB}, '1-B', 1) RETURNING id
       `
     )[0].id;
 

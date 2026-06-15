@@ -218,6 +218,13 @@
       "when": 1781405142865,
       "tag": "20260614024542_chilly_guardsmen",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1781913600000,
+      "tag": "20260615120000_remove_academic_year",
+      "breakpoints": true
     }
   ]
 }

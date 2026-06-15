@@ -1,5 +1,5 @@
 import { type TenantTx, classes, departments, grades } from "@kimiterrace/db";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 /**
  * F10 / #46: **system_admin（運営）の広告掲載導線**用に、指定校のクラス一覧を取得する。
@@ -19,7 +19,6 @@ export type SchoolClassForAdPlacement = {
   gradeName: string;
   // 学科制(department モード)校では学科名が入る。クラス制では null。表示分岐 (BUG-3) に使う。
   departmentName: string | null;
-  academicYear: number;
 };
 
 export async function listSchoolClassesForAdPlacement(
@@ -30,7 +29,6 @@ export async function listSchoolClassesForAdPlacement(
     .select({
       classId: classes.id,
       className: classes.name,
-      academicYear: classes.academicYear,
       grade: classes.grade,
       gradeName: grades.name,
       // 学科は学年経由 (grades.department_id)。クラス制校では学年に学科が無く null。
@@ -40,12 +38,11 @@ export async function listSchoolClassesForAdPlacement(
     .leftJoin(grades, eq(classes.gradeId, grades.id))
     .leftJoin(departments, eq(grades.departmentId, departments.id))
     .where(eq(classes.schoolId, schoolId))
-    .orderBy(desc(classes.academicYear), asc(classes.grade), asc(classes.name));
+    .orderBy(asc(classes.grade), asc(classes.name));
 
   return rows.map((r) => ({
     classId: r.classId,
     className: r.className,
-    academicYear: r.academicYear,
     // 学年未割当 (grade_id null → leftJoin で gradeName null) は文言でフォールバック。
     gradeName: r.gradeName ?? "（学年未割当）",
     departmentName: r.departmentName ?? null,

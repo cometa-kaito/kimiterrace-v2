@@ -30,14 +30,14 @@ describeOrSkip("RLS: memberships テナント分離 (#266)", () => {
 
     // 各校にクラスを 1 件ずつ（BYPASSRLS = テーブル所有者接続で投入）
     const [cA] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolA}, 2026, '1-A', 1)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolA}, '1-A', 1)
       RETURNING id
     `;
     classA = cA.id;
     const [cB] = await sql<{ id: string }[]>`
-      INSERT INTO classes (school_id, academic_year, name, grade)
-      VALUES (${fx.schoolB}, 2026, '1-B', 1)
+      INSERT INTO classes (school_id, name, grade)
+      VALUES (${fx.schoolB}, '1-B', 1)
       RETURNING id
     `;
     classB = cB.id;
