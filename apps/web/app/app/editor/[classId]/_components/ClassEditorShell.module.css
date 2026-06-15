@@ -1,0 +1,63 @@
+/*
+ * クラス / scope エディタのタブ shell スタイル。
+ * - デスクトップ: 従来どおり上部のタブバー。
+ * - モバイル (≤640px): 親指で届く画面下の **固定ボトムナビ** にする（ネイティブアプリ的・フォーム入力中
+ *   でもタブ移動が容易）。インライン style では media query を表現できないため CSS module 化した。
+ * 色・角丸はインライン時代と同値（tokens.ts: bgSoft #f7f8fa / radius.md 0.6rem / radius.sm 0.4rem /
+ * muted #6b7280 / ink #1f2937 / border #e5e7eb / fontSize.sm 0.85rem）。
+ */
+.shell {
+  position: relative;
+}
+
+.tabBar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+  background: #f7f8fa;
+  border-radius: 0.6rem;
+}
+
+.tab {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.4rem 0.8rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #6b7280;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid #e5e7eb;
+}
+
+/* モバイル: タブを画面下の固定ボトムナビに（親指で届く・入力中でも切替が容易）。 */
+@media (max-width: 640px) {
+  .shell {
+    /* 下部固定バー + iOS セーフエリア の分だけ末尾に余白を足し、入力欄や末尾がバーに隠れないようにする。 */
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+  .tabBar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    margin-bottom: 0;
+    border-radius: 0;
+    border-top: 1px solid #e5e7eb;
+    background: #fff;
+    padding: 0.25rem 0.25rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+  }
+  .tab {
+    min-height: 48px;
+  }
+}
