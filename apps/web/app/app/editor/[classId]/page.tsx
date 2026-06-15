@@ -17,6 +17,7 @@ import { NoticeEditor } from "./_components/NoticeEditor";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { ScheduleEditor } from "./_components/ScheduleEditor";
 import { VisitorsEditor } from "./_components/VisitorsEditor";
+import boardLayout from "./_components/board-layout.module.css";
 
 /**
  * クラス別エディタ — 会話型 AI への作り直し（finding 2b・学校体験リニューアル 2026-06-13）。
@@ -116,10 +117,11 @@ export default async function ClassEditorPage({
                 ) : null}
               </p>
             ) : null}
-            {/* 盤面を編集タブ: 1 カラム全幅でセクションを積む（finding: 旧 2 カラムで提出物が窮屈→横スクロール
-                を解消）。広告/天気の read-only プレビューは「プレビュー」タブに集約したのでここには出さない。 */}
-            <div style={{ display: "grid", gap: "1rem" }}>
-              <section style={boardCardStyle}>
+            {/* 盤面を編集タブ: 予定（時限×科目…と横に広い表）は全幅、連絡/提出物は広い画面でのみ 2 カラム
+                （board-layout.module.css。十分広い時だけ＝提出物の表が窮屈にならない・#673 の知見）。
+                広告/天気の read-only プレビューは「プレビュー」タブに集約したのでここには出さない。 */}
+            <div className={boardLayout.grid}>
+              <section className={boardLayout.full} style={boardCardStyle}>
                 <h2 style={boardCardTitleStyle}>予定</h2>
                 <ScheduleEditor
                   classId={schedule.classId}
@@ -136,8 +138,11 @@ export default async function ClassEditorPage({
                 <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
               </section>
             </div>
-            <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
-            <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+            {/* 来校者 / 呼び出しも広い画面では 2 カラム（各エディタは自前の見出し・幅を持つのでセル内に素直に収まる）。 */}
+            <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
+              <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+              <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+            </div>
           </>
         }
         preview={
