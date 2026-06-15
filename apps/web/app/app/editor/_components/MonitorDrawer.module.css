@@ -1,0 +1,183 @@
+/**
+ * MonitorDrawer.module.css — スマホのハンバーガー → 横リスト（ドロワー）のスタイル（PR・A）。
+ *
+ * 本体ページ（モニタの壁）は Server Component のまま、開閉 state を持つドロワーだけが client island
+ * （`MonitorDrawer.tsx`）。承認済みプレビュー準拠で、ドロワー内は上に「前回のモニタを再開」「全クラスに
+ * 一斉表示」、続いて学科ごとのモニタ一覧（学年＋状態ドット、各 → `/app/editor/[classId]`）を縦に並べる。
+ * 色は globals.css の --brand-* を単一ソースに束ねる（ハードコード 16 進を増やさない）。
+ */
+
+.drawerScope {
+  --md-border: var(--brand-border, #e5e7eb);
+  --md-ink: var(--brand-ink, #1f2937);
+  --md-muted: var(--brand-muted, #6b7280);
+  --md-blue: var(--brand-blue-strong, #2b4acb);
+  --md-orange: var(--brand-primary, #ea580c);
+  --md-info-bg: #eff6ff;
+  --md-green: #16a34a;
+  --md-amber-ring: #d97706;
+}
+
+/* ハンバーガーボタン: スマホでメニュー（横リスト）を開く。最小タップ 44px。 */
+.hamburger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--md-border);
+  border-radius: 0.6rem;
+  background: #fff;
+  color: var(--md-ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hamburgerGlyph {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* オーバーレイ（ドロワーの外側の暗幕）。タップで閉じる。 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  z-index: 60;
+}
+
+/* ドロワー本体（右から滑り込む縦パネル）。 */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(86vw, 360px);
+  background: #fff;
+  z-index: 61;
+  box-shadow: -4px 0 16px rgba(17, 24, 39, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--md-border);
+}
+.panelTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--md-ink);
+}
+.closeBtn {
+  min-height: 40px;
+  min-width: 40px;
+  border: none;
+  background: transparent;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: var(--md-muted);
+  cursor: pointer;
+}
+
+.panelBody {
+  padding: 0.75rem 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* 上部のクイックアクション（前回再開 / 全クラス一斉）。 */
+.quickResume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.6rem;
+  background: var(--md-orange);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+.quickBroadcast {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.6rem;
+  background: var(--md-blue);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.divider {
+  height: 1px;
+  background: var(--md-border);
+  margin: 0.6rem 0 0.2rem;
+}
+
+.deptName {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0.6rem 0 0.1rem;
+  color: var(--md-ink);
+}
+.deptBroadcast {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.3rem 0.7rem;
+  margin: 0.2rem 0 0.3rem;
+  border-radius: 0.5rem;
+  background: var(--md-info-bg);
+  color: var(--md-blue);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* クラス行: 学年＋状態ドット、各 → /app/editor/[classId]。最小タップ 48px。 */
+.classRow {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 48px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--md-border);
+  border-radius: 0.5rem;
+  text-decoration: none;
+  color: var(--md-ink);
+}
+.classRow:hover {
+  border-color: var(--md-blue);
+}
+.classRowLabel {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.classRowDot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.dotActive {
+  background: var(--md-green);
+}
+.dotEmpty {
+  background: transparent;
+  border: 2px solid var(--md-amber-ring);
+}
+.muted {
+  color: var(--md-muted);
+  font-size: 0.85rem;
+}

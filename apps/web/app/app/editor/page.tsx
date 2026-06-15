@@ -1,29 +1,44 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
-import { getSchoolHierarchy } from "@/lib/school-admin/hub-queries";
-import type { GradeView } from "@/lib/school-admin/hub-queries";
-import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
-import { getSignageDesignPattern } from "@/lib/signage/signage-design";
+import {
+  type GradeView,
+  type SchoolHierarchy,
+  computeTodayActiveClasses,
+  getSchoolHierarchy,
+  getTodayDailyDataScopes,
+} from "@/lib/school-admin/hub-queries";
+import { jstDateString } from "@/lib/signage/rotation";
+import { type SignagePayload, buildSignagePayloadForClass } from "@/lib/signage/signage-display";
+import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LAST_CLASS_COOKIE } from "./[classId]/_components/RememberLastClass";
+import { type DrawerClass, type DrawerDept, MonitorDrawer } from "./_components/MonitorDrawer";
+import styles from "./_components/MonitorWall.module.css";
 
-const { color, fontSize, radius } = tokens;
+const { color, radius } = tokens;
 
 /**
- * エディタ着地 (#48-H)。編集する **クラス** または **共通範囲**（学校全体 / 学科 / 学年）を選ぶ。
+ * エディタ着地「**実画面モニタの壁**」(PR・A、#953 `ScaledSignageBoard` に依存・stacked)。
  *
- * **見やすさ刷新 (UI レーン 2026-06-13、ユーザー指摘「見にくい」)**: クラス選択（最頻アクション）を
- * **大きなタイルで主役**にし、頻用の「全クラス共通で出す」は**上部のクイック操作に常設**してクラスが
- * 増えてもスクロールせず押せるようにする。学年共通は各学年見出しの右に置き、その場で押せる。重かった
- * 概念説明ボックスは 1 行に圧縮する（白＝クラス / 共通＝青、という区別はレイアウトで表現）。
+ * 編集する **クラス** を、その端末に実際に映るサイネージ画面（16:9 縮小サムネ）で選ばせる。各モニタは実機
+ * サイネージと**同一の payload ビルダー**（`buildSignagePayloadForClass`、`signage-display.ts` 単一ソース）で
+ * 組み立てた `SignagePayload` を `ScaledSignageBoard`（read-only・静的）で縮小描画する＝見た目が実画面と一致
+ * する。タイトル・説明見出しは出さない／年度（academic_year）表記は一切出さない（承認済みプレビュー準拠）。
  *
- * **scope まとめ編集（段A-2）**: 「学校全体」「学科の共通」「学年の共通」で保存した内容は、より具体的な
- * クラス個別入力が無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、
- * `effective-daily-data.ts`）。
+ * **レイアウト（1 ページで PC=複数列 / スマホ=3 列＋ドロワー、CSS メディアクエリで切替）**:
+ *   - PC: モニタを小さめに複数列（`auto-fill, minmax(200px,1fr)` ≒ 3 列前後）で学科ごとにグルーピング。
+ *     学科見出しの右に青い放送チップ「この学科にまとめて出す」。上部にクイック行（前回再開=オレンジ /
+ *     全クラス一斉=青）。
+ *   - スマホ: 本体はモニタのみ（1 行 3 列・小さめ）。クイック行/サマリは出さず、ハンバーガー → 横リスト
+ *     （ドロワー `MonitorDrawer`・client island）に操作を集約する。本体ページは Server のまま。
+ *
+ * **scope まとめ編集（段A-2）**: 「学校全体」「学科の共通」で保存した内容は、より具体的なクラス個別入力が
+ * 無いクラスのサイネージに共通表示される（精度優先 class > grade > department > school、`effective-daily-data.ts`）。
+ * 承認済みプレビュー準拠で**学年共通チップは出さない**が、scope/grade ルート自体は存続する（直接 URL で到達可）。
  */
 export default async function EditorIndexPage({
   searchParams,
@@ -31,12 +46,30 @@ export default async function EditorIndexPage({
   searchParams: Promise<{ stay?: string }>;
 }) {
   const user = await requireRole(EDITOR_ROLES);
-  const { hierarchy, schoolPattern } = await withSession(async (tx) => {
+  const date = jstDateString();
+  // EDITOR_ROLES（school_admin / teacher）はテナント claim を持つので schoolId は実運用では非 null。
+  // 万一 null（claim 欠落）でも weather の prefecture 解決対象が空になるだけで RLS が越境を止める（fail-soft、
+  // 盤面は壊さない）。weather 取得対象特定にのみ使い、テナント分離は withSession の RLS 文脈が担保する（ルール2）。
+  const schoolId = user.schoolId ?? "";
+  const { hierarchy, statusByClass, payloadByClass } = await withSession(async (tx) => {
     const hierarchy = await getSchoolHierarchy(tx);
-    // クラスタイルの「何を編集する画面か」を示すパターンバッジ用（学校レベル既定）。
-    const schoolPattern = await getSignageDesignPattern(tx);
-    return { hierarchy, schoolPattern };
+    const scopes = await getTodayDailyDataScopes(tx);
+    const statusByClass = computeTodayActiveClasses(scopes, hierarchy.grades);
+    // 各クラスの実画面 payload を実機と同一ビルダーで組み立てる（単一ソース）。空クラスは空 payload
+    // （盤面は placeholder を自然に描く）。N が増えても 1 tx 内で読むので追加コネクションは増えない。
+    // この学校はクラス少で問題なし（将来 N 多数時は lazy 化できるよう「事前構築 payload を素材に渡す」
+    // 形に保つ）。
+    const allClassIds = hierarchy.grades.flatMap((g) => g.classes.map((c) => c.id));
+    const payloadByClass: Record<string, SignagePayload> = {};
+    for (const classId of allClassIds) {
+      const payload = await buildSignagePayloadForClass(tx, schoolId, classId, date);
+      if (payload) {
+        payloadByClass[classId] = payload;
+      }
+    }
+    return { hierarchy, statusByClass, payloadByClass };
   });
+
   const { departments, grades } = hierarchy;
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
@@ -53,65 +86,89 @@ export default async function EditorIndexPage({
   }
 
   // UIUX-02 ホップ削減②: 最後に開いたクラス（cookie）を RLS スコープ済みの自校階層と突合し、
-  // 実在するときだけ「前回のクラスを再開」を最上位に出す（失効/他校の値は無視）。
+  // 実在するときだけ「前回のモニタを再開」を出す（失効/他校の値は無視＝IDOR 防止）。
   const lastClassId = (await cookies()).get(LAST_CLASS_COOKIE)?.value;
   const lastClass = lastClassId ? (allClasses.find((c) => c.id === lastClassId) ?? null) : null;
+  const resumeHref = lastClass ? `/app/editor/${lastClass.id}` : null;
+  const resumeLabel = lastClass ? `${lastClass.gradeName} ${lastClass.name}` : null;
+  const broadcastAllHref = "/app/editor/scope/school";
+
+  // ドロワー（スマホ横リスト）用の serializable な学科グループを Server 側で組み立てる。
+  const drawerDepts = buildDrawerDepts(hierarchy, statusByClass);
 
   return (
-    <div style={{ maxWidth: "780px", marginInline: "auto" }}>
-      <h1 style={{ fontSize: "1.15rem", marginBottom: "0.15rem" }}>編集するクラスを選ぶ</h1>
-      <p style={{ margin: "0 0 0.75rem", color: color.muted, fontSize: fontSize.xs }}>
-        クラスを選ぶとそのクラスだけに表示。共通は全クラスへ（個別入力が優先）。
-      </p>
+    <div className={styles.root}>
+      {/* スマホのみ: ハンバーガー → 横リスト（ドロワー）。操作はここに集約（本体はモニタのみ）。 */}
+      <div className={styles.hamburgerBar}>
+        <MonitorDrawer
+          depts={drawerDepts}
+          resumeHref={resumeHref}
+          resumeLabel={resumeLabel}
+          broadcastAllHref={broadcastAllHref}
+        />
+      </div>
 
-      {/* クイック操作: 「前回のクラス」と「全クラス共通」は頻用なので常に上部（クラスが増えてもスクロール不要）。 */}
-      <div style={quickRowStyle}>
-        {lastClass ? (
-          <Link href={`/app/editor/${lastClass.id}`} style={resumeBtnStyle}>
-            <span aria-hidden="true">▶</span> 前回のクラスを再開 — {lastClass.gradeName}{" "}
-            {lastClass.name}
+      {/* PC のみ: クイック行（前回再開 / 全クラス一斉）。スマホは display:none（ドロワーに集約）。 */}
+      <div className={styles.quickRow}>
+        {resumeHref ? (
+          <Link href={resumeHref} style={resumeBtnStyle}>
+            <span aria-hidden="true">▶</span> 前回のモニタを再開 — {resumeLabel}
           </Link>
         ) : null}
-        <Link href="/app/editor/scope/school" style={commonBtnStyle}>
-          <span aria-hidden="true">▦</span> 全クラス共通で出す
+        <Link href={broadcastAllHref} style={commonBtnStyle}>
+          <span aria-hidden="true">▦</span> 全クラスに一斉表示
         </Link>
       </div>
 
       {totalClasses === 0 ? (
         user.role === "school_admin" ? (
-          <p style={mutedStyle}>
+          <p className={styles.empty}>
             編集できるクラスがまだありません。<Link href="/app/school">学校管理</Link>
             で学科・学年・クラスを追加してください。
           </p>
         ) : (
-          <p style={mutedStyle}>
+          <p className={styles.empty}>
             まだクラスがありません。学校管理者がクラスを追加すると、ここに表示されます。
           </p>
         )
       ) : (
-        <div style={{ display: "grid", gap: "1.25rem" }}>
+        <div>
           {departments.length > 0 ? (
             <>
               {departments.map((d) => (
-                <section key={d.id}>
-                  <div style={sectionHeadStyle}>
+                <section key={d.id} className={styles.deptSection}>
+                  <div className={styles.sectionHead}>
                     <h2 style={deptTitleStyle}>{d.name}</h2>
-                    <Link href={`/app/editor/scope/department/${d.id}`} style={scopeChipStyle}>
-                      この学科の共通 →
+                    <Link href={`/app/editor/scope/department/${d.id}`} style={broadcastChipStyle}>
+                      この学科にまとめて出す →
                     </Link>
                   </div>
-                  <GradeGroups grades={gradesOf(d.id)} schoolPattern={schoolPattern} />
+                  <GradeMonitors
+                    grades={gradesOf(d.id)}
+                    statusByClass={statusByClass}
+                    payloadByClass={payloadByClass}
+                  />
                 </section>
               ))}
               {orphanGrades.length > 0 ? (
-                <section>
-                  <h2 style={deptTitleStyle}>学科未割当</h2>
-                  <GradeGroups grades={orphanGrades} schoolPattern={schoolPattern} />
+                <section className={styles.deptSection}>
+                  <div className={styles.sectionHead}>
+                    <h2 style={deptTitleStyle}>学科未割当</h2>
+                  </div>
+                  <GradeMonitors
+                    grades={orphanGrades}
+                    statusByClass={statusByClass}
+                    payloadByClass={payloadByClass}
+                  />
                 </section>
               ) : null}
             </>
           ) : (
-            <GradeGroups grades={grades} schoolPattern={schoolPattern} />
+            <GradeMonitors
+              grades={grades}
+              statusByClass={statusByClass}
+              payloadByClass={payloadByClass}
+            />
           )}
         </div>
       )}
@@ -119,80 +176,94 @@ export default async function EditorIndexPage({
   );
 }
 
-/** 学年ごとに見出し + 「学年の共通」ボタン + 配下クラスの大きなタイル（パターンバッジ付き）を出す。 */
-function GradeGroups({
+/** 学年ごとにモニタ（実画面サムネ）のグリッドを出す。年度は出さない（承認済みプレビュー準拠）。 */
+function GradeMonitors({
   grades,
-  schoolPattern,
+  statusByClass,
+  payloadByClass,
 }: {
   grades: GradeView[];
-  schoolPattern: SignageDesignPattern;
+  statusByClass: Record<string, boolean>;
+  payloadByClass: Record<string, SignagePayload>;
 }) {
-  if (grades.length === 0) {
-    return <p style={mutedSmallStyle}>学年がありません。</p>;
+  const withClasses = grades.filter((g) => g.classes.length > 0);
+  if (withClasses.length === 0) {
+    return null;
   }
   return (
-    <div style={{ display: "grid", gap: "1rem" }}>
-      {grades.map((g) => (
-        <div key={g.id}>
-          <div style={sectionHeadStyle}>
-            <h3 style={gradeTitleStyle}>{g.name}</h3>
-            <Link href={`/app/editor/scope/grade/${g.id}`} style={scopeChipStyle}>
-              この学年の共通 →
-            </Link>
-          </div>
-          {g.classes.length === 0 ? (
-            <p style={mutedSmallStyle}>クラスがありません（学校管理で追加）。</p>
-          ) : (
-            <div style={classGridStyle}>
-              {g.classes.map((c) => (
-                <Link key={c.id} href={`/app/editor/${c.id}`} style={classTileStyle}>
-                  <span style={classTileNameStyle}>{c.name}</span>
-                  <span style={classTileMetaRowStyle}>
-                    <span style={classTileYearStyle}>{c.academicYear}年度</span>
-                    <PatternBadge pattern={schoolPattern} />
-                  </span>
+    <div>
+      {withClasses.map((g) => (
+        <div key={g.id} className={styles.gradeGroup}>
+          <div className={styles.monitorGrid}>
+            {g.classes.map((c) => {
+              const active = statusByClass[c.id] ?? false;
+              const payload = payloadByClass[c.id] ?? null;
+              return (
+                <Link
+                  key={c.id}
+                  href={`/app/editor/${c.id}`}
+                  className={`${styles.monitorTile} ${active ? "" : styles.monitorTileEmpty}`}
+                  aria-label={`${g.name} ${c.name} を編集`}
+                >
+                  <div className={styles.thumb}>
+                    {payload ? <ScaledSignageBoard payload={payload} /> : null}
+                  </div>
+                  <div className={styles.tileFoot}>
+                    <span
+                      className={`${styles.statusDot} ${active ? styles.statusActive : styles.statusEmpty}`}
+                      aria-label={active ? "本日表示中" : "未入力"}
+                    />
+                    <span className={styles.tileLabel}>
+                      {g.name} {c.name}
+                    </span>
+                  </div>
                 </Link>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-/**
- * クラスが「何を編集する画面か（サイネージパターン）」を一目で示すバッジ。
- *
- * TODO(その他レーン / pattern 単一ソース): 現状は **学校レベル既定**（`getSignageDesignPattern`）を全クラス
- * 共通で表示している。端末別 `?design` 上書きを含む **per-class 解決**は、pattern→ブロックの宣言的単一
- * ソース（finding①）確定後にそこから取得して差し替える（バッジ位置・見た目は本実装を流用）。
- */
-function PatternBadge({ pattern }: { pattern: SignageDesignPattern }) {
-  const isP2 = pattern === "pattern2";
-  return (
-    <span
-      style={{
-        fontSize: fontSize.xs,
-        padding: "0.05rem 0.45rem",
-        borderRadius: radius.sm,
-        background: isP2 ? color.warningBg : color.infoBg,
-        color: isP2 ? color.warningFg : color.infoFg,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {isP2 ? "パターン2" : "パターン1"}
-    </span>
-  );
+/** ドロワー（スマホ横リスト）用に serializable な学科グループを組み立てる。年度は出さない。 */
+function buildDrawerDepts(
+  hierarchy: SchoolHierarchy,
+  statusByClass: Record<string, boolean>,
+): DrawerDept[] {
+  const { departments, grades } = hierarchy;
+  const toClasses = (gradeList: GradeView[]): DrawerClass[] =>
+    gradeList.flatMap((g) =>
+      g.classes.map((c) => ({
+        id: c.id,
+        label: `${g.name} ${c.name}`,
+        active: statusByClass[c.id] ?? false,
+      })),
+    );
+  const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
+  const out: DrawerDept[] = [];
+  if (departments.length > 0) {
+    for (const d of departments) {
+      out.push({
+        id: d.id,
+        name: d.name,
+        broadcastHref: `/app/editor/scope/department/${d.id}`,
+        classes: toClasses(gradesOf(d.id)),
+      });
+    }
+    const orphan = toClasses(grades.filter((g) => !g.departmentId));
+    if (orphan.length > 0) {
+      out.push({ id: null, name: null, broadcastHref: null, classes: orphan });
+    }
+  } else {
+    // 学科が無い学校: 学科未割当の単一グループにまとめる（まとめ出し導線は学校全体側で担う）。
+    out.push({ id: null, name: null, broadcastHref: null, classes: toClasses(grades) });
+  }
+  return out;
 }
 
-const quickRowStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "0.75rem",
-  marginBottom: "1.5rem",
-};
-// 「前回のクラス」: 最頻アクションなのでブランドのアクション色（オレンジ）で最も目立たせる（タップ 52px）。
+// 「前回のモニタを再開」: 最頻アクションなのでブランドのアクション色（オレンジ）で最も目立たせる（タップ 52px）。
 const resumeBtnStyle: React.CSSProperties = {
   flex: "1 1 240px",
   display: "inline-flex",
@@ -208,7 +279,7 @@ const resumeBtnStyle: React.CSSProperties = {
   fontWeight: 700,
   textDecoration: "none",
 };
-// 「全クラス共通で出す」: 頻用の副次アクション。ブランドブルーで前回クラス（オレンジ）と並べて常設。
+// 「全クラスに一斉表示」: 頻用の副次アクション。ブランドブルーで前回モニタ（オレンジ）と並べて常設。
 const commonBtnStyle: React.CSSProperties = {
   flex: "1 1 240px",
   display: "inline-flex",
@@ -224,23 +295,9 @@ const commonBtnStyle: React.CSSProperties = {
   fontWeight: 600,
   textDecoration: "none",
 };
-const sectionHeadStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "0.75rem",
-  marginBottom: "0.6rem",
-  flexWrap: "wrap",
-};
 const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
-const gradeTitleStyle: React.CSSProperties = {
-  fontSize: fontSize.md,
-  color: color.neutralFg,
-  margin: 0,
-  fontWeight: 600,
-};
-// 「この学年/学科の共通」: その場で押せる青チップ（タップ 36px）。クラスタイル（白）と色で区別。
-const scopeChipStyle: React.CSSProperties = {
+// 「この学科にまとめて出す」: その場で押せる青チップ（タップ 36px）。
+const broadcastChipStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   minHeight: "36px",
@@ -248,40 +305,8 @@ const scopeChipStyle: React.CSSProperties = {
   borderRadius: radius.md,
   background: color.infoBg,
   color: color.blueStrong,
-  fontSize: fontSize.sm,
+  fontSize: tokens.fontSize.sm,
   fontWeight: 600,
   textDecoration: "none",
   whiteSpace: "nowrap",
-};
-const classGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-  gap: "0.6rem",
-};
-// クラスタイル: 主役。白カードで大きくタップしやすく（最小 66px）、年度＋パターンを添える。
-const classTileStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: "0.4rem",
-  minHeight: "66px",
-  padding: "0.7rem 0.85rem",
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.md,
-  background: "#fff",
-  textDecoration: "none",
-  color: color.ink,
-};
-const classTileNameStyle: React.CSSProperties = { fontSize: "1rem", fontWeight: 600 };
-const classTileMetaRowStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.4rem",
-};
-const classTileYearStyle: React.CSSProperties = { fontSize: fontSize.xs, color: color.muted };
-const mutedStyle: React.CSSProperties = { color: color.muted };
-const mutedSmallStyle: React.CSSProperties = {
-  color: color.muted,
-  fontSize: fontSize.sm,
-  margin: 0,
 };

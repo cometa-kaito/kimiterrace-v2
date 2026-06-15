@@ -158,77 +158,106 @@ export async function getSignageDisplayData(
     return null;
   }
 
-  return await withTenantContext(getDb(), { schoolId: cls.schoolId }, async (tx: TenantTx) => {
-    const daily = await getEffectiveDailyData(tx, cls.classId, date);
-    if (!daily) {
-      // トークンは有効だがクラスが (別テナント等で) 不可視 → null。呼び出し側が無効扱いにする。
-      return null;
-    }
-    // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
-    // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
-    // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
-    // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
-    // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
-    //
-    // **パターンを先に解決する**理由: 盤面に出すブロックは `PATTERN_BLOCKS`（単一ソース）が決めるので、
-    // パターン別ブロック（来校者/呼び出し/センサ/鉄道）の取得を `patternIncludesBlock` で出し分け、含まない
-    // パターン（例 pattern1）では引かない＝無駄クエリを省く（単一ソースがデータ取得まで駆動・finding①）。
-    const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
-      ? designParam
-      : await getSignageDesignPattern(tx);
-    const ads = await getEffectiveAdsForClass(tx, cls.classId);
-    // 予定グリッド (今後 3 平日)。`date` を起点に土日を飛ばした 3 平日ぶんの schedules を 1 クエリで取得
-    // (v1 ScheduleGrid の nextThreeWeekdays 移植)。同一 tx 内なので追加コネクションは増やさない。
-    const scheduleDays = await getEffectiveScheduleDays(
-      tx,
-      cls.classId,
-      signageScheduleDates(date, 3),
-    );
-    // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
-    // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
-    // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
-    const weather = await getSignageWeather(tx, cls.schoolId, date).catch(() => null);
-    // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
-    // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
-    const classContext = await getSignageClassContext(tx, cls.classId);
-    // 以下 4 つはパターン別ブロック（`PATTERN_BLOCKS` に含まれる時だけ取得）。含まないパターンでは取得せず
-    // `null`＝盤面でも出さない（単一ソースがデータ取得を駆動）。取得する場合の失敗は従来どおり fail-soft で
-    // null に倒し、ウィジェットは不在表示にする（盤面の他要素は壊さない）。同一 tx・RLS 自校限定（ルール2）。
-    //
-    // 「人感センサカウンタ」= このクラスの本日(JST=`date`)の presence 検知件数。
-    const presenceCount = patternIncludesBlock(designPattern, "presence")
-      ? await getTodayPresenceCount(tx, cls.classId, date).catch(() => null)
-      : null;
-    // 「来校者一覧」= このクラスの当日(JST=`date`)の来校者を時刻順で取得。
-    const visitors = patternIncludesBlock(designPattern, "visitor")
-      ? await getVisitorsForClass(tx, cls.classId, date).catch(() => null)
-      : null;
-    // 「生徒呼び出し」= このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。実名表示の境界は ADR-034
-    // （Vertex 非送信＝payload 直返しのみ）。
-    const callouts = patternIncludesBlock(designPattern, "callout")
-      ? await getCalloutsForClass(tx, cls.classId, date).catch(() => null)
-      : null;
-    // 「鉄道」= 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は閉域
-    // （名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。
-    const trainStatus = patternIncludesBlock(designPattern, "train")
-      ? await getSignageRailwayStatus(tx).catch(() => null)
-      : null;
-    // 黒画面トグル（per-class・パターン非依存）。class スコープ display_settings.blackout を読む。同一 tx・
-    // RLS 自校限定（ルール2）。読み取り失敗は false に倒し盤面を出す（fail-soft、黒画面で覆い隠さない）。
-    const blackout = await getClassSignageBlackout(tx, cls.classId).catch(() => false);
-    return {
-      date,
-      designPattern,
-      daily,
-      scheduleDays,
-      ads,
-      weather,
-      classContext,
-      presenceCount,
-      visitors,
-      callouts,
-      trainStatus,
-      blackout,
-    } satisfies SignagePayload;
-  });
+  // 解決した school のみを載せた匿名テナント文脈で 1 トランザクションを開き、共通ビルダーに委譲する
+  // （実機の盤面と「実画面モニタの壁」が同一の payload ビルダーを使う＝単一ソース、見た目を一致させる）。
+  return await withTenantContext(getDb(), { schoolId: cls.schoolId }, (tx: TenantTx) =>
+    buildSignagePayloadForClass(tx, cls.schoolId, cls.classId, date, designParam),
+  );
+}
+
+/**
+ * **既に RLS テナント文脈が確立済みの `tx` 内で**、指定クラス・日付のサイネージ表示データ
+ * (`SignagePayload`) を組み立てる共通ビルダー（実画面の盤面ビルダーの単一ソース）。
+ *
+ * 実機サイネージ（匿名公開・`getSignageDisplayData` が `withTenantContext` で開く tx）と、
+ * 教員エディタの「実画面モニタの壁」（認証済み `withSession` の自校 RLS tx）の**両方が本関数を呼ぶ**ことで、
+ * モニタの壁が実機と**同一のデータ・同一の見た目**になる（盤面ロジックを二重実装しない）。
+ *
+ * tx は呼び出し側が `app.current_school_id`（= `schoolId`）を set 済みであること。本関数は手書き
+ * `WHERE school_id=?` を持たず、各 SELECT は RLS で自校に限定される（ルール2。`schoolId` は `getSignageWeather`
+ * の prefecture 解決対象を特定するためだけに使い、RLS の代替にはしない）。空クラス（その日 daily_data 無し）は
+ * 各セクションが空の payload を返す（盤面は placeholder を自然に描く）。クラスが（別テナント等で）不可視の
+ * ときだけ `null`。
+ *
+ * @param tx          RLS テナント文脈確立済みのトランザクション（`withSession` / `withTenantContext`）。
+ * @param schoolId    自校 id（tx の context と一致。`getSignageWeather` の prefecture 取得対象特定に使う）。
+ * @param classId     表示対象クラス id（自校・RLS スコープ内であること）。
+ * @param date        YYYY-MM-DD (JST)。
+ * @param designParam 端末別デザイン上書き（`?design=patternN` 相当）。未指定/未知は学校レベル既定→pattern1。
+ * @returns           クラス可視なら `SignagePayload`、不可視なら null。
+ */
+export async function buildSignagePayloadForClass(
+  tx: TenantTx,
+  schoolId: string,
+  classId: string,
+  date: string,
+  designParam?: unknown,
+): Promise<SignagePayload | null> {
+  const daily = await getEffectiveDailyData(tx, classId, date);
+  if (!daily) {
+    // クラスが (別テナント等で) 不可視 → null。呼び出し側が無効扱い / 表示スキップにする。
+    return null;
+  }
+  // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
+  // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
+  // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
+  // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
+  // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
+  //
+  // **パターンを先に解決する**理由: 盤面に出すブロックは `PATTERN_BLOCKS`（単一ソース）が決めるので、
+  // パターン別ブロック（来校者/呼び出し/センサ/鉄道）の取得を `patternIncludesBlock` で出し分け、含まない
+  // パターン（例 pattern1）では引かない＝無駄クエリを省く（単一ソースがデータ取得まで駆動・finding①）。
+  const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+    ? designParam
+    : await getSignageDesignPattern(tx);
+  const ads = await getEffectiveAdsForClass(tx, classId);
+  // 予定グリッド (今後 3 平日)。`date` を起点に土日を飛ばした 3 平日ぶんの schedules を 1 クエリで取得
+  // (v1 ScheduleGrid の nextThreeWeekdays 移植)。同一 tx 内なので追加コネクションは増やさない。
+  const scheduleDays = await getEffectiveScheduleDays(tx, classId, signageScheduleDates(date, 3));
+  // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
+  // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む
+  // (effective-daily-data と同じテナント context) ので追加コネクションは増やさない。
+  const weather = await getSignageWeather(tx, schoolId, date).catch(() => null);
+  // このサイネージのクラス文脈（学科/学年/クラス名）。識別表示用（時刻横）。同一 tx・RLS 自校限定。
+  // 取得失敗・不可視は全 null に倒れ、表示側が識別ラベルを出さないだけで盤面は壊さない（fail-soft）。
+  const classContext = await getSignageClassContext(tx, classId);
+  // 以下 4 つはパターン別ブロック（`PATTERN_BLOCKS` に含まれる時だけ取得）。含まないパターンでは取得せず
+  // `null`＝盤面でも出さない（単一ソースがデータ取得を駆動）。取得する場合の失敗は従来どおり fail-soft で
+  // null に倒し、ウィジェットは不在表示にする（盤面の他要素は壊さない）。同一 tx・RLS 自校限定（ルール2）。
+  //
+  // 「人感センサカウンタ」= このクラスの本日(JST=`date`)の presence 検知件数。
+  const presenceCount = patternIncludesBlock(designPattern, "presence")
+    ? await getTodayPresenceCount(tx, classId, date).catch(() => null)
+    : null;
+  // 「来校者一覧」= このクラスの当日(JST=`date`)の来校者を時刻順で取得。
+  const visitors = patternIncludesBlock(designPattern, "visitor")
+    ? await getVisitorsForClass(tx, classId, date).catch(() => null)
+    : null;
+  // 「生徒呼び出し」= このクラスの当日(JST=`date`)の呼び出しを時刻順で取得。実名表示の境界は ADR-034
+  // （Vertex 非送信＝payload 直返しのみ）。
+  const callouts = patternIncludesBlock(designPattern, "callout")
+    ? await getCalloutsForClass(tx, classId, date).catch(() => null)
+    : null;
+  // 「鉄道」= 対象事業者（名鉄/笠松駅）の運行情報をキャッシュ（railway_status）から読む。端末は閉域
+  // （名鉄サイト直叩きしない・ADR-035）。RLS read_all で匿名でも読める。
+  const trainStatus = patternIncludesBlock(designPattern, "train")
+    ? await getSignageRailwayStatus(tx).catch(() => null)
+    : null;
+  // 黒画面トグル（per-class・パターン非依存）。class スコープ display_settings.blackout を読む。同一 tx・
+  // RLS 自校限定（ルール2）。読み取り失敗は false に倒し盤面を出す（fail-soft、黒画面で覆い隠さない）。
+  const blackout = await getClassSignageBlackout(tx, classId).catch(() => false);
+  return {
+    date,
+    designPattern,
+    daily,
+    scheduleDays,
+    ads,
+    weather,
+    classContext,
+    presenceCount,
+    visitors,
+    callouts,
+    trainStatus,
+    blackout,
+  } satisfies SignagePayload;
 }
