@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "6618708" # 6618708: エディタ刷新（#953 盤面部品/#955 モニタの壁/#956 WYSIWYG編集）+ #954 年度(academic_year)撤去。schema変更=migrate実行済（20260615120000: academic_year列・ix_classes_school_year削除+ux_classes_school_grade_name新設）。疎通200
+  web_image_tag = "0e4620a" # 0e4620a: エディタ修正2件 — #959 対象日変更で入力中身が新日付に移る混線を修正（key=date 再マウント）+ #960 モニタの壁の盤面が原寸クリップ＋学年縦積みになる崩れを修正（明示 width160 + 学科内1グリッド集約）。schema/secret 無変更=migrate 不要・疎通200
 }
 
 module "network" {
