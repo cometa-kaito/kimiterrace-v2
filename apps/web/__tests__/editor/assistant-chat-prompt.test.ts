@@ -29,6 +29,16 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain("{ reply, schedules, notices, assignments }");
   });
 
+  it("日付・期間が不明なときは創作も省略もせず reply で聞き返す指示を出す", () => {
+    const sys = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年6月13日（土）",
+    );
+    expect(sys).toContain("特定できないとき");
+    expect(sys).toContain("聞き返す");
+    expect(sys).toContain("曖昧なまま埋めない");
+  });
+
   it("pattern2 相当（schedules のみ許可）= 予定だけを許可ラベルに出す", () => {
     const sys = buildAssistantChatSystem(["schedules"], "2026年6月13日（土）");
     expect(sys).toContain("予定（時間割）");

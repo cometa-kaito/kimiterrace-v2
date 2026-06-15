@@ -59,9 +59,9 @@ export default async function EditorIndexPage({
 
   return (
     <div style={{ maxWidth: "780px" }}>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>編集するクラスを選ぶ</h1>
-      <p style={{ margin: "0 0 1rem", color: color.muted, fontSize: fontSize.sm }}>
-        クラスを選ぶとそのクラスだけに表示。共通はすべてのクラスへ（クラス個別の入力が優先されます）。
+      <h1 style={{ fontSize: "1.15rem", marginBottom: "0.15rem" }}>編集するクラスを選ぶ</h1>
+      <p style={{ margin: "0 0 0.75rem", color: color.muted, fontSize: fontSize.xs }}>
+        クラスを選ぶとそのクラスだけに表示。共通は全クラスへ（個別入力が優先）。
       </p>
 
       {/* クイック操作: 「前回のクラス」と「全クラス共通」は頻用なので常に上部（クラスが増えてもスクロール不要）。 */}

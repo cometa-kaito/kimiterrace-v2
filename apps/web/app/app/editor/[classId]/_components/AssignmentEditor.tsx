@@ -1,25 +1,16 @@
 "use client";
 
-import {
-  EDITOR_SAVE_STATE_LABEL,
-  deriveEditorSaveState,
-  serializeForDirty,
-  useUnsavedGuard,
-} from "@/lib/editor/editor-save-state";
+import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
-import { targetId } from "@/lib/editor/schedule-core";
-import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { isValidDate, targetId } from "@/lib/editor/schedule-core";
+import { useState } from "react";
+import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
-  dirtyTextStyle,
   inputStyle,
-  primaryBtnDisabledStyle,
-  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  savedTextStyle,
   secondaryBtnStyle,
   tableStyle,
   tableWrapStyle,
@@ -30,12 +21,13 @@ import { toEditorTarget } from "./target";
 
 /**
  * 提出物 (課題) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
- * 行い、保存時に `setAssignmentsAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・
- * RLS は Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
+ * 行い、変更時に `setAssignmentsAction` を target (学校/学科/学年/クラス) 付きで**自動保存**する。検証・
+ * 認可・監査・RLS は Server Action 側が担保するので、ここは入力収集と結果表示に徹する。
  *
  * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
  *
- * #243 (②UI-UX): 未保存ガード・保存状態の明示・未変更時の保存無効化・入力 aria-label・狭幅での表横スクロール。
+ * UIUX（保存ボタン廃止）: 追加・編集・削除した時点で自動保存（{@link useAutoSaveSection}）。提出物名が
+ * 空・締切が不正な行があるうちは保存しない（入力が揃った時点で保存）。
  */
 type Row = { deadline: string; subject: string; task: string };
 
@@ -56,19 +48,22 @@ export function AssignmentEditor({
   initialItems: AssignmentItem[];
 }) {
   const target = toEditorTarget(targetProp, classId);
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i) => ({ deadline: i.deadline, subject: i.subject, task: i.task })),
   );
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [savedOnce, setSavedOnce] = useState(false);
 
-  const currentSerialized = serializeForDirty(toAssignmentItems(rows));
-  const baselineRef = useRef<string>(currentSerialized);
-  const dirty = currentSerialized !== baselineRef.current;
-  const saveState = deriveEditorSaveState({ dirty, savedOnce });
-  useUnsavedGuard(dirty);
+  const items = toAssignmentItems(rows);
+  const serialized = serializeForDirty(items);
+  // 科目名・提出物名が空 / 締切が不正な行があるうちは保存しない（サーバ必須項目が揃った時点で自動保存）。
+  const complete = rows.every(
+    (r) => r.subject.trim().length > 0 && r.task.trim().length > 0 && isValidDate(r.deadline),
+  );
+  const auto = useAutoSaveSection({
+    serialized,
+    items,
+    complete,
+    save: (toSave) => setAssignmentsAction(target.scope, targetId(target), date, toSave),
+  });
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -81,29 +76,8 @@ export function AssignmentEditor({
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function save() {
-    const items = toAssignmentItems(rows);
-    startTransition(async () => {
-      const res = await setAssignmentsAction(target.scope, targetId(target), date, items);
-      if (res.ok) {
-        baselineRef.current = serializeForDirty(items);
-        setSavedOnce(true);
-        setMsg({ ok: true, text: "保存しました。" });
-        router.refresh();
-      } else {
-        setMsg({ ok: false, text: res.error.message });
-      }
-    });
-  }
-
   return (
     <div style={{ display: "grid", gap: "0.75rem", maxWidth: "640px" }}>
-      {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
-          {msg.text}
-        </output>
-      ) : null}
-
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
           <thead>
@@ -166,20 +140,7 @@ export function AssignmentEditor({
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
           提出物を追加
         </button>
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending || !dirty}
-          style={pending || !dirty ? primaryBtnDisabledStyle : primaryBtnStyle}
-        >
-          {pending ? "保存中..." : "保存"}
-        </button>
-        {saveState !== "idle" ? (
-          <span style={saveState === "dirty" ? dirtyTextStyle : savedTextStyle} aria-live="polite">
-            {saveState === "dirty" ? "● " : "✓ "}
-            {EDITOR_SAVE_STATE_LABEL[saveState]}
-          </span>
-        ) : null}
+        <AutoSaveStatusText status={auto.status} error={auto.error} />
       </div>
     </div>
   );

@@ -93,7 +93,7 @@ describe("EditorIndexPage scope 対象リンク", () => {
 
     // 見やすさ刷新: 範囲の概念（共通は全クラスに表示・クラス個別が優先）を 1 行で説明する。
     expect(screen.getByText(/クラスを選ぶとそのクラスだけに表示/)).toBeInTheDocument();
-    expect(screen.getByText(/クラス個別の入力が優先されます/)).toBeInTheDocument();
+    expect(screen.getByText(/個別入力が優先/)).toBeInTheDocument();
   });
 
   it("クラス 0 件でも学校全体リンクは出る (学校全体は常に編集可能)", async () => {
