@@ -1,0 +1,163 @@
+/**
+ * MonitorWall.module.css — 教員エディタ着地「実画面モニタの壁」のレイアウト（PR・A、#953 ScaledSignageBoard 依存）。
+ *
+ * 1 枚のページで PC=複数列 / スマホ=3 列＋ハンバーガー横リスト（ドロワー）を **CSS（メディアクエリ）だけ**で
+ * 切り替える（本体ページは Server Component のまま・JS 不要。開閉 state を持つドロワーのみ client island）。
+ * 承認済みプレビュー準拠: タイトル/説明見出しは出さない・年度（academic_year）表記は出さない・各モニタは実画面の
+ * 16:9 縮小サムネ（ScaledSignageBoard）＋下に「学年ラベル＋状態ドット」。
+ */
+
+/* ルート: 中央寄せ。PC は広め（複数列のモニタを並べる）。色は globals.css の --brand-* を単一ソースに束ねる
+ * （ハードコード 16 進を増やさない。緑/琥珀リングは状態ドット専用にここで定義）。 */
+.root {
+  max-width: 1100px;
+  margin-inline: auto;
+  --mw-border: var(--brand-border, #e5e7eb);
+  --mw-ink: var(--brand-ink, #1f2937);
+  --mw-muted: var(--brand-muted, #6b7280);
+  --mw-blue: var(--brand-blue-strong, #2b4acb);
+  /* 状態色: 緑=本日表示中（success 系）/ 琥珀=未入力リング（warning 系）。 */
+  --mw-green: #16a34a;
+  --mw-amber-ring: #d97706;
+}
+
+/* ------------------------------------------------------------------ *
+ *  クイック行（前回再開 / 全クラス一斉）— PC のみ。スマホはドロワーに集約する。
+ * ------------------------------------------------------------------ */
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+/* スマホ（<=640px）はクイック行を出さない（本体はモニタのみ・操作はハンバーガー → ドロワー）。 */
+@media (max-width: 640px) {
+  .quickRow {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  学科 / 学年セクション見出し
+ * ------------------------------------------------------------------ */
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ *
+ *  モニタのグリッド: PC は auto-fill / minmax(200px, 1fr)（3 列前後）、スマホは固定 3 列で小さめ。
+ * ------------------------------------------------------------------ */
+.monitorGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.9rem;
+}
+@media (max-width: 640px) {
+  .monitorGrid {
+    /* スマホは 1 行 3 列の小さめサムネ（承認済みプレビュー準拠）。 */
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  モニタタイル: 16:9 サムネ（ScaledSignageBoard）＋下に「学年ラベル＋状態ドット」。タイル全体がリンク。
+ * ------------------------------------------------------------------ */
+.monitorTile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0;
+  border: 1px solid var(--mw-border);
+  border-radius: 0.6rem;
+  background: #fff;
+  text-decoration: none;
+  color: var(--mw-ink);
+  overflow: hidden;
+}
+.monitorTile:hover {
+  border-color: var(--mw-blue);
+  box-shadow: 0 1px 6px rgba(31, 41, 55, 0.12);
+}
+/* 未入力（本日掲示なし）のモニタは琥珀リングで縁取り、入力を促す。 */
+.monitorTileEmpty {
+  box-shadow: inset 0 0 0 2px var(--mw-amber-ring);
+}
+/* サムネ枠（16:9 は ScaledSignageBoard 自身が確保する）。 */
+.thumb {
+  width: 100%;
+  /* 縮小サムネのちらつき防止に下地を白く。 */
+  background: #fff;
+  border-bottom: 1px solid var(--mw-border);
+}
+
+/* 下段: 学年ラベル + 状態ドット。スマホは小さめに詰める。 */
+.tileFoot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.55rem 0.5rem;
+  flex-wrap: wrap;
+}
+.tileLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+@media (max-width: 640px) {
+  .tileLabel {
+    font-size: 0.72rem;
+  }
+  .tileFoot {
+    padding: 0.3rem 0.35rem 0.4rem;
+    gap: 0.25rem;
+  }
+}
+
+/* 状態ドット（緑=本日表示中 / 琥珀リング=未入力）。色のみに依存せず aria-label をテキストで補う（NFR05）。 */
+.statusDot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+.statusActive {
+  background: var(--mw-green);
+}
+.statusEmpty {
+  background: transparent;
+  border: 2px solid var(--mw-amber-ring);
+}
+
+.deptSection {
+  display: block;
+}
+.deptSection + .deptSection {
+  margin-top: 1.4rem;
+}
+.gradeGroup + .gradeGroup {
+  margin-top: 1rem;
+}
+.empty {
+  color: var(--mw-muted);
+}
+
+/* ------------------------------------------------------------------ *
+ *  ハンバーガー（スマホのみ表示）— ドロワーを開く client island のボタンが使う。
+ * ------------------------------------------------------------------ */
+.hamburgerBar {
+  display: none;
+}
+@media (max-width: 640px) {
+  .hamburgerBar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.6rem;
+  }
+}
