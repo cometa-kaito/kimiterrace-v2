@@ -154,6 +154,9 @@ export function useAutoSaveSection<I>({
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は debounce 再起動の意図的トリガ
   useEffect(() => {
     if (!dirty) {
+      // baseline に戻った（未保存分が消えた）ら未入力ステータスを解除する（保存済/保存中/エラーは保持）。
+      // 例: 未入力の行を追加→削除して元に戻したとき「未入力の項目があります」を残さない。
+      setStatus((s) => (s === "incomplete" ? "idle" : s));
       return;
     }
     if (!complete) {

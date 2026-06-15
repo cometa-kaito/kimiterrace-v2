@@ -99,4 +99,19 @@ describe("useAutoSaveSection", () => {
     expect(result.current.status).toBe("error");
     expect(result.current.error).toBe("失敗理由");
   });
+
+  it("未入力行を消して baseline に戻ると incomplete を解除し idle にする", async () => {
+    const { result, rerender } = setup({ serialized: "A", items: [{ a: 1 }], complete: true });
+    rerender({ serialized: "B", items: [{ a: 2 }], complete: false });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(result.current.status).toBe("incomplete");
+    // baseline("A") に戻す = dirty 解消 → 残った incomplete を idle に戻す。
+    rerender({ serialized: "A", items: [{ a: 1 }], complete: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(result.current.status).toBe("idle");
+  });
 });
