@@ -34,8 +34,9 @@ test.describe("認証済み教員の管理エリア到達 /admin", () => {
       // 認証済みでないと出ない要素:
       // 1. AppShell ヘッダの role バッジ「教員」(claims.role=teacher が解決できた証)。
       await expect(page.getByText("教員", { exact: true })).toBeVisible();
-      // 2. エディタ着地の見出し (requireRole(EDITOR_ROLES) を通過した証)。
-      await expect(page.getByRole("heading", { name: "編集するクラスを選ぶ" })).toBeVisible();
+      // 2. 「モニタの壁」着地の証 (requireRole(EDITOR_ROLES) 通過): クラスのモニタ（編集リンク）が出る。
+      //    刷新で見出し/説明文は撤去したため、着地証明を盤面サムネ＝クラス編集リンクの存在に切替えた。
+      await expect(page.locator('a[href^="/app/editor/"]').first()).toBeVisible();
       // 3. 教員はナビが「エディタ」1 項目のみのため、AppShell がサイドバー（メインナビゲーション）を
       //    撤去して全幅にする（ユーザー指摘 2026-06-13）。サイドバーが存在しないことを pin する。
       await expect(page.getByRole("navigation", { name: "メインナビゲーション" })).toHaveCount(0);
