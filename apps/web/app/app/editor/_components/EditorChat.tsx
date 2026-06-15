@@ -12,8 +12,8 @@ import {
   type AssistantDraft,
   draftHasItems,
 } from "@/lib/editor/assistant-chat-core";
-import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
+import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import { formatSignageItem } from "@/lib/signage/section-format";
 import { sttErrorHint } from "@/lib/teacher-input/stt-error-hint";
@@ -25,19 +25,19 @@ import styles from "./EditorChat.module.css";
 const { color, radius, fontSize } = tokens;
 
 /**
- * 会話型 AI アシスタント UI shell（finding 2b・モック `teacher_ai_fullscreen_first` 準拠）。
+ * 会話型 AI アシスタント UI（**全画面チャット**・finding 2b / モック teacher_ai_fullscreen_first）。
  *
- * 「話す/書く → AI が下書き → 確認 → 反映」を**多ターン会話**で行う client 殻。状態遷移と SSE パースは
- * 純ロジック {@link "@/lib/editor/assistant-chat-client"} に委譲し（テスト済）、本体は描画と I/O に専念する。
- * バックエンドは AI レーンの `POST /api/editor/assistant/chat`（契約 = `assistant-chat-core` /
- * `docs/architecture/conversational-assistant-api.md`）。route 未着地の間は送信が `error` に倒れる
- * （入力・下書きは保持）。
+ * 「話す/書く → AI が下書き → **会話の中で確認** → 反映」を多ターン会話で行う client。状態遷移と SSE
+ * パースは純ロジック {@link "@/lib/editor/assistant-chat-client"} に委譲（テスト済）。本体は描画と I/O。
+ * バックエンドは `POST /api/editor/assistant/chat`。route 未着地時は送信が error に倒れる（入力・下書き保持）。
  *
- * - **反映（保存）はこの API ではなく既存の per-section Server Action**（`setScheduleAction` /
- *   `setNoticesAction` / `setAssignmentsAction`）で行う（API は下書きのみ）。
- * - **パターン準拠（finding①）**: 許可セクションは `meta` でサーバが解決。pattern2 は `schedules` のみ
- *   提案し、来校者/呼び出しは「下の手入力フォームで追加」と促す（ADR-034: 氏名を AI に送らない）。
- * - 音声入力・ファイル取り込みは次増分（teacher-input の STT / 既存ファイル action を流用予定）。
+ * - **反映（保存）は per-section Server Action**（setScheduleAction / setNoticesAction /
+ *   setAssignmentsAction）。API は下書きのみ。
+ * - **下書きの確認は会話インライン**（ユーザー要望 2026-06-15）。右ペイン常設をやめ、AI が下書きを
+ *   まとめ終えたら（status==="done"）会話内に確認カード（反映する / 直す）を出す。会話と並行に動かさない
+ *   ことで「会話しながら別所を確認する」負荷を無くす。「直す」or 反映成功でカードを閉じ、次の送信で再表示。
+ * - レイアウトは全画面（{@link file://./EditorChat.module.css} `.chat` = ビューポート高・会話は内部
+ *   スクロール・入力欄は最下部に常時表示 = LINE 風）。
  */
 const GREETING =
   "今日の連絡、話しかけてください。話す・書く・ファイルでOK。予定・連絡・提出物にまとめて下書きします。";
@@ -57,6 +57,8 @@ export function EditorChat({
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  // 会話インラインの確認カードを閉じたか（「直す」or 反映成功で閉じ、次の送信/取込で再表示）。
+  const [confirmHidden, setConfirmHidden] = useState(false);
   const streamingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
@@ -124,12 +126,13 @@ export function EditorChat({
     [scope, targetId],
   );
 
-  /** 新規送信: user ターンを積んで stream。 */
+  /** 新規送信: user ターンを積んで stream。新しいターンなので前の確認カードは再表示可に戻す。 */
   const onSend = useCallback(() => {
     const content = input.trim();
     if (streamingRef.current || !content) return;
     streamingRef.current = true;
     setSaveMsg(null);
+    setConfirmHidden(false);
     const base = beginUserTurn(state, content);
     setInput("");
     void stream(base, false);
@@ -142,7 +145,7 @@ export function EditorChat({
     void stream(state, true);
   }, [state, stream]);
 
-  /** 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。 */
+  /** 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。成功で確認カードを閉じる。 */
   const onApply = useCallback(async () => {
     if (saving) return;
     setSaving(true);
@@ -158,6 +161,9 @@ export function EditorChat({
       setSaveMsg(
         failed ? "一部の反映に失敗しました。もう一度お試しください。" : "盤面に反映しました。",
       );
+      if (!failed) {
+        setConfirmHidden(true);
+      }
     } catch {
       setSaveMsg("反映に失敗しました。もう一度お試しください。");
     } finally {
@@ -171,6 +177,7 @@ export function EditorChat({
       if (streamingRef.current || fileBusy) return;
       setFileBusy(true);
       setSaveMsg(null);
+      setConfirmHidden(false);
       try {
         const fd = new FormData();
         fd.append("file", file);
@@ -213,137 +220,155 @@ export function EditorChat({
     state.allowedSections.length > 0 &&
     !state.allowedSections.includes("notices") &&
     !state.allowedSections.includes("assignments");
+  // 会話インラインの確認カード: AI が下書きをまとめ終え（done）、内容があり、未確定（閉じてない）とき。
+  const showConfirm = state.status === "done" && draftHasItems(state.draft) && !confirmHidden;
 
   return (
-    <div className={styles.pane}>
-      <section aria-label="AIアシスタント" style={rootStyle}>
-        <div style={threadStyle}>
-          <Bubble from="assistant">{GREETING}</Bubble>
-          {state.messages.map((m, i) => (
-            // 会話は追記のみで並び替えしないため index key で十分。
-            // biome-ignore lint/suspicious/noArrayIndexKey: 追記専用の会話ログ
-            <Bubble key={i} from={m.role}>
-              {m.content}
-            </Bubble>
-          ))}
-          {streaming && state.streamingText ? (
-            <Bubble from="assistant">{state.streamingText}</Bubble>
-          ) : null}
-          {streaming && !state.streamingText ? <p style={hintStyle}>AI が考えています…</p> : null}
+    <section aria-label="AIアシスタント" className={styles.chat}>
+      <div className={styles.thread}>
+        <Bubble from="assistant">{GREETING}</Bubble>
+        {state.messages.map((m, i) => (
+          // 会話は追記のみで並び替えしないため index key で十分。
+          // biome-ignore lint/suspicious/noArrayIndexKey: 追記専用の会話ログ
+          <Bubble key={i} from={m.role}>
+            {m.content}
+          </Bubble>
+        ))}
+        {streaming && state.streamingText ? (
+          <Bubble from="assistant">{state.streamingText}</Bubble>
+        ) : null}
+        {streaming && !state.streamingText ? <p style={hintStyle}>AI が考えています…</p> : null}
 
-          {restrictedToSchedules ? (
-            <p style={hintStyle}>
-              来校者・呼び出しは AI
-              では追加できません。下の「盤面を編集」から手入力で追加してください。
-            </p>
-          ) : null}
-
-          {pii ? (
-            <div style={warnBoxStyle}>
-              <p style={{ margin: "0 0 0.4rem", fontWeight: 600, color: color.warningFg }}>
-                氏名らしき語が含まれています
-                {pii.suspectedSurfaces?.length ? `（${pii.suspectedSurfaces.join("・")}）` : ""}。
-              </p>
-              <p style={{ margin: "0 0 0.6rem", fontSize: fontSize.sm, color: color.ink }}>
-                個人名はサイネージ・AI に残らないようご注意ください。承知のうえ送信しますか？
-              </p>
+        {/* 下書きの確認は会話の中で（並行表示しない）。AI が「この内容で反映してよいか」を尋ね、押すと反映。 */}
+        {showConfirm ? (
+          <div className={styles.itemIn} style={confirmCardStyle}>
+            <div style={{ fontSize: fontSize.sm, marginBottom: "0.5rem" }}>
+              下書きにまとめました。
+              <span style={{ fontWeight: 700 }}>この内容で反映してよいですか？</span>
+            </div>
+            <DraftSection title="予定" kind="schedules" items={state.draft.schedules} />
+            <DraftSection title="連絡" kind="notices" items={state.draft.notices} />
+            <DraftSection title="提出物" kind="assignments" items={state.draft.assignments} />
+            <div style={confirmActionsStyle}>
               <button
                 type="button"
-                style={warnBtnStyle}
-                onClick={onAcknowledge}
-                disabled={streaming}
+                className={`${styles.btn} ${styles.apply}`}
+                onClick={onApply}
+                disabled={saving}
               >
-                承知して送信
+                {saving ? "反映中…" : "反映する"}
+              </button>
+              <button
+                type="button"
+                className={`${styles.btn} ${styles.ghost}`}
+                onClick={() => setConfirmHidden(true)}
+                disabled={saving}
+              >
+                直す
               </button>
             </div>
-          ) : null}
+          </div>
+        ) : null}
 
-          {otherError ? (
-            <p style={errorStyle}>{otherError.message ?? errorText(otherError.reason)}</p>
-          ) : null}
-        </div>
+        {saveMsg ? <p style={savedNoteStyle}>{saveMsg}</p> : null}
 
-        <div style={composerStyle}>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void onFile(f);
-              e.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.iconBtn}`}
-            onClick={() => fileRef.current?.click()}
-            disabled={streaming || fileBusy}
-            title="ファイルから取り込む（PDF / Word / Excel / 画像）"
-            aria-label="ファイルから取り込む"
-          >
-            ＋
-          </button>
-          <textarea
-            style={inputStyle}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            placeholder="話す・書く・ファイルで…（⌘/Ctrl+Enter で送信）"
-            rows={1}
-            disabled={streaming}
-          />
-          {stt.supported ? (
-            <button
-              type="button"
-              className={`${styles.btn} ${stt.listening ? styles.micActive : styles.mic}`}
-              onClick={() => {
-                if (streaming) return;
-                if (stt.listening) stt.stop();
-                else stt.start();
-              }}
-              aria-label={stt.listening ? "音声入力を止める" : "音声入力"}
-              aria-pressed={stt.listening}
-              title="音声入力"
-            >
-              🎤
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.send}`}
-            onClick={onSend}
-            disabled={streaming || fileBusy || !input.trim()}
-            aria-label="送信"
-          >
-            {fileBusy ? "読込中…" : "送信"}
-          </button>
-        </div>
-
-        {/* 音声入力が実際に失敗したときだけ、マイク直下に短いヒントを出す（role=status で読み上げ）。 */}
-        {micHint ? (
-          <p role="status" style={micHintStyle}>
-            {micHint}
+        {restrictedToSchedules ? (
+          <p style={hintStyle}>
+            来校者・呼び出しは AI
+            では追加できません。下の「盤面を編集」から手入力で追加してください。
           </p>
         ) : null}
-      </section>
-      {/* 下書きプレビュー: PC では会話の右に常設＆追従、モバイルは会話の下に積む（"見ながら作る"）。 */}
-      <aside className={styles.side} aria-label="下書きプレビュー">
-        <DraftPreview
-          draft={state.draft}
-          done={state.status === "done"}
-          saving={saving}
-          saveMsg={saveMsg}
-          onApply={onApply}
+
+        {pii ? (
+          <div style={warnBoxStyle}>
+            <p style={{ margin: "0 0 0.4rem", fontWeight: 600, color: color.warningFg }}>
+              氏名らしき語が含まれています
+              {pii.suspectedSurfaces?.length ? `（${pii.suspectedSurfaces.join("・")}）` : ""}。
+            </p>
+            <p style={{ margin: "0 0 0.6rem", fontSize: fontSize.sm, color: color.ink }}>
+              個人名はサイネージ・AI に残らないようご注意ください。承知のうえ送信しますか？
+            </p>
+            <button type="button" style={warnBtnStyle} onClick={onAcknowledge} disabled={streaming}>
+              承知して送信
+            </button>
+          </div>
+        ) : null}
+
+        {otherError ? (
+          <p style={errorStyle}>{otherError.message ?? errorText(otherError.reason)}</p>
+        ) : null}
+      </div>
+
+      <div className={styles.composer}>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onFile(f);
+            e.target.value = "";
+          }}
         />
-      </aside>
-    </div>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.iconBtn}`}
+          onClick={() => fileRef.current?.click()}
+          disabled={streaming || fileBusy}
+          title="ファイルから取り込む（PDF / Word / Excel / 画像）"
+          aria-label="ファイルから取り込む"
+        >
+          ＋
+        </button>
+        <textarea
+          style={inputStyle}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder="話す・書く・ファイルで…（⌘/Ctrl+Enter で送信）"
+          rows={1}
+          disabled={streaming}
+        />
+        {stt.supported ? (
+          <button
+            type="button"
+            className={`${styles.btn} ${stt.listening ? styles.micActive : styles.mic}`}
+            onClick={() => {
+              if (streaming) return;
+              if (stt.listening) stt.stop();
+              else stt.start();
+            }}
+            aria-label={stt.listening ? "音声入力を止める" : "音声入力"}
+            aria-pressed={stt.listening}
+            title="音声入力"
+          >
+            🎤
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.send}`}
+          onClick={onSend}
+          disabled={streaming || fileBusy || !input.trim()}
+          aria-label="送信"
+        >
+          {fileBusy ? "読込中…" : "送信"}
+        </button>
+      </div>
+
+      {/* 音声入力が実際に失敗したときだけ、マイク直下に短いヒントを出す（role=status で読み上げ）。 */}
+      {micHint ? (
+        <p role="status" style={micHintStyle}>
+          {micHint}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -352,50 +377,6 @@ function Bubble({ from, children }: { from: "user" | "assistant"; children: Reac
   return (
     <div style={isUser ? userBubbleStyle : assistantBubbleStyle}>
       <span>{children}</span>
-    </div>
-  );
-}
-
-function DraftPreview({
-  draft,
-  done,
-  saving,
-  saveMsg,
-  onApply,
-}: {
-  draft: AssistantDraft;
-  done: boolean;
-  saving: boolean;
-  saveMsg: string | null;
-  onApply: () => void;
-}) {
-  const hasItems = draftHasItems(draft);
-  return (
-    <div style={draftCardStyle}>
-      <div style={draftHeadStyle}>下書き（確認して反映）</div>
-      {hasItems ? (
-        <>
-          <DraftSection title="予定" kind="schedules" items={draft.schedules} />
-          <DraftSection title="連絡" kind="notices" items={draft.notices} />
-          <DraftSection title="提出物" kind="assignments" items={draft.assignments} />
-        </>
-      ) : (
-        <p style={hintStyle}>
-          AI が作った下書きがここに出ます。話しかけると、予定・連絡・提出物にまとめます。
-        </p>
-      )}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.6rem" }}>
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.apply}`}
-          onClick={onApply}
-          disabled={!done || saving}
-        >
-          {saving ? "反映中…" : "反映する"}
-        </button>
-        <span style={hintStyle}>直したい所は、そのまま話しかけてください。</span>
-      </div>
-      {saveMsg ? <p style={{ margin: "0.5rem 0 0", fontSize: fontSize.sm }}>{saveMsg}</p> : null}
     </div>
   );
 }
@@ -413,10 +394,7 @@ function DraftSection({
     return null;
   }
   return (
-    <div
-      className={styles.itemIn}
-      style={{ padding: "0.4rem 0", borderTop: `1px solid ${color.border}` }}
-    >
+    <div style={{ padding: "0.3rem 0", borderTop: `1px solid ${color.border}` }}>
       <div style={{ fontSize: fontSize.xs, color: color.muted }}>{title}</div>
       <ul style={{ margin: "0.2rem 0 0", paddingLeft: "1.1rem", display: "grid", gap: "0.15rem" }}>
         {items.map((item, i) => (
@@ -446,23 +424,6 @@ function errorText(reason: string): string {
   }
 }
 
-const rootStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.lg,
-  background: "#fff",
-  overflow: "hidden",
-  minHeight: "320px",
-};
-const threadStyle: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  padding: "0.9rem",
-  background: color.bgSoft,
-};
 const userBubbleStyle: React.CSSProperties = {
   alignSelf: "flex-end",
   maxWidth: "88%",
@@ -487,6 +448,12 @@ const assistantBubbleStyle: React.CSSProperties = {
   color: color.ink,
 };
 const hintStyle: React.CSSProperties = { margin: 0, fontSize: fontSize.sm, color: color.muted };
+const savedNoteStyle: React.CSSProperties = {
+  alignSelf: "flex-start",
+  margin: 0,
+  fontSize: fontSize.sm,
+  color: color.ink,
+};
 const errorStyle: React.CSSProperties = {
   margin: 0,
   fontSize: fontSize.sm,
@@ -496,17 +463,20 @@ const errorStyle: React.CSSProperties = {
   borderRadius: radius.md,
   padding: "0.5rem 0.7rem",
 };
-const draftCardStyle: React.CSSProperties = {
-  alignSelf: "stretch",
+// 会話インラインの確認カード（assistant 寄せ・下書き要約 + 反映/直す）。
+const confirmCardStyle: React.CSSProperties = {
+  alignSelf: "flex-start",
+  maxWidth: "92%",
   background: "#fff",
   border: `1px solid ${color.border}`,
   borderRadius: radius.md,
   padding: "0.7rem 0.85rem",
 };
-const draftHeadStyle: React.CSSProperties = {
-  fontSize: fontSize.sm,
-  fontWeight: 600,
-  marginBottom: "0.3rem",
+const confirmActionsStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.6rem",
+  marginTop: "0.7rem",
 };
 const warnBoxStyle: React.CSSProperties = {
   alignSelf: "stretch",
@@ -525,14 +495,6 @@ const warnBtnStyle: React.CSSProperties = {
   fontSize: "0.95rem",
   fontWeight: 600,
   cursor: "pointer",
-};
-const composerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-end",
-  gap: "0.5rem",
-  padding: "0.6rem 0.7rem",
-  borderTop: `1px solid ${color.border}`,
-  background: "#fff",
 };
 const micHintStyle: React.CSSProperties = {
   margin: 0,

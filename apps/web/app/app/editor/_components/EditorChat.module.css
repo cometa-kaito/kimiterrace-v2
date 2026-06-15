@@ -1,32 +1,69 @@
 /*
- * AIで作るタブの 2 ペイン配置 + 微インタラクション（配置最適化 PR2）。
- * - PC(>=900px): 左=会話(thread+composer) / 右=下書きプレビュー(追従 sticky)。"見ながら作る"。
- * - モバイル(<900px): 縦 1 カラム(会話 → 下書き)。
- * インライン style では media query / :hover / :focus-visible / keyframes が書けないため module 化。
+ * AIで作るタブ = 全画面チャット（LINE風）。
+ * - PC: `.chat` がビューポート高を占有し、会話(.thread)は内部スクロール、入力欄(.composer)は最下部に常時表示。
+ * - モバイル(≤640px): タブは画面下の固定ナビ(ClassEditorShell)になるため、`.chat` は自然フロー（ページ
+ *   スクロール）にし、入力欄(.composer)は **下部固定タブの上** に sticky 固定する（フッターと入力欄が
+ *   被らないように・ユーザー要望 2026-06-15）。
+ * 下書きの確認は「右ペイン常設」をやめ、会話の中に確認カード（反映/直す）として出す。
+ * インライン style では height calc / media query / :hover / keyframes が書けないため module 化。
  * 色は tokens.ts と同値（border #e5e7eb / bgSoft #f7f8fa / ink #1f2937 / muted #6b7280 /
  * primary #ea580c / primaryHover #c2410c / blue #6fa8c7）。
  */
 
-.pane {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.9rem;
-  align-items: start;
+.chat {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  overflow: hidden;
+  /* タブ下〜画面下を占有（全画面チャット）。offset = ヘッダ+パンくず+タブバー+余白の概算。 */
+  height: calc(100dvh - 11.5rem);
+  min-height: 360px;
 }
-.side {
-  min-width: 0;
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  background: #f7f8fa;
 }
-@media (min-width: 900px) {
-  .pane {
-    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  /* モバイル: 下部固定タブと共存。chat は自然フローにし、入力欄をタブの上に固定して被りを防ぐ。 */
+  .chat {
+    height: auto;
+    min-height: calc(100dvh - 12rem);
+    overflow: visible;
+    border-radius: 0.6rem;
   }
-  .side {
+  .thread {
+    flex: 0 1 auto;
+    overflow-y: visible;
+  }
+  .composer {
     position: sticky;
-    top: 0.5rem;
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    z-index: 20;
+    border-radius: 0.6rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
   }
 }
 
-/* 押せる場所を分かりやすく: 共通のホバー/フォーカス/押下フィードバック。 */
+/* 押せる場所を分かりやすく: 共通のホバー/フォーカス/押下フィードバック（PR2 から継続）。 */
 .btn {
   cursor: pointer;
   transition:
@@ -84,7 +121,7 @@
 
 .send {
   min-height: 44px;
-  padding: 0.5rem 1.1rem;
+  padding: 0.5rem 1.2rem;
   border: none;
   border-radius: 0.6rem;
   background: #ea580c;
@@ -101,9 +138,10 @@
   cursor: not-allowed;
 }
 
+/* 会話インラインの確認カードの「反映する」（主アクション）。 */
 .apply {
-  min-height: 44px;
-  padding: 0.5rem 1.2rem;
+  min-height: 42px;
+  padding: 0.5rem 1.3rem;
   border: none;
   border-radius: 0.6rem;
   background: #ea580c;
@@ -118,8 +156,21 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* 「直す」（副アクション・カードを閉じて会話を続ける）。 */
+.ghost {
+  min-height: 42px;
+  padding: 0.5rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+.ghost:hover {
+  background: #f7f8fa;
+}
 
-/* 下書きが「ビュン」と現れる（追加コンテンツの気づき）。 */
+/* 確認カード/下書き行が「ビュン」と現れる。 */
 .itemIn {
   animation: ktSlideIn 0.34s cubic-bezier(0.2, 0.85, 0.25, 1.05) both;
 }
