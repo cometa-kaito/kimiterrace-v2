@@ -225,6 +225,13 @@
       "when": 1781913600000,
       "tag": "20260615120000_remove_academic_year",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781542158387,
+      "tag": "20260615164918_audit_log_clock_timestamp",
+      "breakpoints": true
     }
   ]
 }

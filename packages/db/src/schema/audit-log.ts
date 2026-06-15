@@ -36,9 +36,14 @@ export const auditLog = pgTable(
   "audit_log",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    // hash chain は (occurred_at, id) 昇順で連鎖する (0003_audit_trigger.sql)。`now()`(=transaction_timestamp)
+    // だと **同一 tx 内の複数監査行が同一 occurred_at** になり、id は random uuid のため挿入順と一致せず、検証
+    // 関数 audit_log_verify_chain が健全な連鎖を「改竄」と誤検知する (NFR04)。`clock_timestamp()` は文ごとに
+    // 進むため同一 tx 内でも行ごとに distinct となり、(occurred_at, id) 昇順 == 挿入順が保たれる
+    // (drizzle 20260615164918_audit_log_clock_timestamp)。
     occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" })
       .notNull()
-      .default(sql`now()`),
+      .default(sql`clock_timestamp()`),
     actorUserId: uuid("actor_user_id"),
     actorIdentityUid: varchar("actor_identity_uid", { length: 128 }),
     // cross-tenant 操作（system_admin など）は null
