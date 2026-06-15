@@ -139,7 +139,17 @@ gcloud builds submit . --project=signage-v2-<env> \
   --config=infrastructure/docker/cloudbuild-migrate.yaml \
   --service-account=projects/signage-v2-<env>/serviceAccounts/<projnum>-compute@developer.gserviceaccount.com \
   --substitutions=_SHA=<sha>
+```
 
+> ⚠️ **prod は `_REPO` 上書きが必須**。`cloudbuild-migrate.yaml` の既定 `_REPO` は **staging 固定**（`…/signage-v2-staging/kimiterrace`）なので、prod ビルドで `_REPO` を渡さないと image が **staging AR に push** され、prod の migrate Job が `Image …/migrate:<sha> not found` で **error state**（`gcloud run jobs execute` が FAILED_PRECONDITION）になる。prod は必ず:
+>
+> ```bash
+> --substitutions=_SHA=<sha>,_REPO=asia-northeast1-docker.pkg.dev/signage-v2-prod/kimiterrace
+> ```
+>
+> （web build §① が `_REPO`/`_PROJECT_ID` 等を prod 値で override するのと同じ理由。2026-06-16 の #954 デプロイで踏んだ）。
+
+```bash
 # 2. main.tf の local.migrate_image_tag を <sha> に bump → apply（migrate module）
 terraform -chdir=infrastructure/terraform/envs/<env> apply -target=module.cloud_run_job_migrate -input=false
 

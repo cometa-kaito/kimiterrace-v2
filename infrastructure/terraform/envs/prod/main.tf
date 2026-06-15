@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "6439ca0" # 2026-06-14 migration 20260614024542(新年度へ複製の重複封鎖=classes 部分unique index ux_classes_school_year_grade_name) 適用のため bump（#878）
+  migrate_image_tag = "6618708" # migration 20260615120000（年度 academic_year 列・ix_classes_school_year 削除 + ux_classes_school_grade_name 新設）適用のため bump（#954）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "580188f" # 2026-06-15 エディタUX Phase2 #942-#950（AIタブ全画面チャット/タブ固定+着色/会話インライン確認/pattern1で来校者・呼出非表示/静粛時間削除→黒画面トグル/予定の時限に朝昼休み放課後/再開cookie/#947モバイルフッター&PC入力欄固定/#949モバイルヘッダ崩れ修正/#950モバイル入力欄をフッター直上に固定）。schema/secret無変更=migrate不要・疎通200
+  web_image_tag = "6618708" # 6618708: エディタ刷新（#953 盤面部品/#955 モニタの壁/#956 WYSIWYG編集）+ #954 年度(academic_year)撤去。schema変更=migrate実行済（20260615120000: academic_year列・ix_classes_school_year削除+ux_classes_school_grade_name新設）。疎通200
 }
 
 module "network" {

@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "25587e3"
+  migrate_image_tag = "6618708" # 年度(academic_year)列・ix_classes_school_year 削除 + ux_classes_school_grade_name 新設 (#954)
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "ffaeff3" # staging deploy ffaeff3（内容は PR/commit に記述）
+  web_image_tag = "6618708" # 6618708: エディタ刷新（#953 盤面部品/#955 モニタの壁/#956 WYSIWYG編集）+ #954 年度(academic_year)撤去。schema変更=migrate実行済（20260615120000: academic_year列・ix_classes_school_year削除+ux_classes_school_grade_name新設）。疎通200
 }
 
 module "network" {
