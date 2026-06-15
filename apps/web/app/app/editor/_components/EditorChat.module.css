@@ -52,26 +52,29 @@
 }
 
 @media (max-width: 640px) {
-  /* モバイル: 下部固定タブと共存。chat は自然フローにし、入力欄をタブの上に固定して被りを防ぐ。 */
+  /*
+   * モバイルも PC と同じ「全画面チャット」: パンくず下〜画面下の固定フッター(下部タブ)上端までを .chat が占有し、
+   * 会話(.thread)が伸びて入力欄(.composer)を **最下部=フッター直上** に固定する（LINE 風）。
+   * 旧実装は height:auto + min-height + sticky composer だったため、会話が短いと入力欄が画面中段に居座り、
+   * その下に空白の谷ができてフッターが遠くに離れて見えた（2026-06-15 報告「フッターはどこへ」）。
+   * 10rem ≒ ヘッダ(48px) + パンくず + 余白 + フッター(57px)。chat 下端がフッター上端の少し上で終わる。
+   */
   .chat {
-    height: auto;
-    min-height: calc(100dvh - 12rem);
-    overflow: visible;
+    height: calc(100dvh - 10rem);
+    min-height: 320px;
+    overflow: hidden;
     border-radius: 0.6rem;
-    /* モバイルは自然フロー＋composer を下部固定タブの上に sticky 配置するので、PC 用の負 margin は不要。 */
+    /* モバイルは固定フッターを別途持つので PC 用の負 margin は不要。 */
     margin-bottom: 0;
   }
   .thread {
-    flex: 0 1 auto;
-    overflow-y: visible;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
   .composer {
-    position: sticky;
-    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-    z-index: 20;
+    /* flex 末尾＝chat 最下部（フッター直上）に固定。chat がフッター上端で終わるので被らない（sticky 不要）。 */
     border-radius: 0.6rem;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
     /* 狭幅では余白を詰めて入力欄(textarea)に幅を回す（+/マイク/送信に挟まれて潰れるのを防ぐ）。 */
     gap: 0.4rem;
     padding: 0.5rem 0.55rem;
