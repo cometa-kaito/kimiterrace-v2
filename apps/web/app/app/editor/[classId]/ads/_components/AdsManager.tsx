@@ -8,6 +8,7 @@ import {
 } from "@/lib/school-admin/ads-core";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useRef, useState, useTransition } from "react";
+import { AdThumbnail } from "@/app/_components/AdThumbnail";
 import { AdMediaUpload } from "./AdMediaUpload";
 
 /**
@@ -165,6 +166,7 @@ export function AdsManager({
               ) : (
                 <li key={ad.id} style={adItemStyle}>
                   <AdSummary
+                    mediaUrl={ad.mediaUrl}
                     mediaType={ad.mediaType}
                     durationSec={ad.durationSec}
                     caption={ad.caption}
@@ -220,6 +222,7 @@ export function AdsManager({
               {inherited.map((ad) => (
                 <li key={ad.adId} style={adItemStyle}>
                   <AdSummary
+                    mediaUrl={ad.mediaUrl}
                     mediaType={ad.mediaType}
                     durationSec={ad.durationSec}
                     caption={ad.caption}
@@ -238,12 +241,14 @@ export function AdsManager({
 
 /** 広告 1 件の概要表示 (一覧の行)。継承分は scopeBadge を渡す。 */
 function AdSummary({
+  mediaUrl,
   mediaType,
   durationSec,
   caption,
   displayOrder,
   scopeBadge,
 }: {
+  mediaUrl: string;
   mediaType: AdMediaType;
   durationSec: number;
   caption: string | null;
@@ -251,12 +256,15 @@ function AdSummary({
   scopeBadge?: string;
 }) {
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-      {scopeBadge ? <span style={badgeStyle}>{scopeBadge}継承</span> : null}
-      <span style={{ fontWeight: 600 }}>{mediaType === "video" ? "動画" : "画像"}</span>
-      <span style={{ color: "#6b7280" }}>表示順 {displayOrder}</span>
-      <span style={{ color: "#6b7280" }}>{durationSec}秒</span>
-      {caption ? <span style={{ color: "#374151" }}>「{caption}」</span> : null}
+    <span style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+      <AdThumbnail mediaUrl={mediaUrl} mediaType={mediaType} caption={caption} size={56} />
+      <span style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+        {scopeBadge ? <span style={badgeStyle}>{scopeBadge}継承</span> : null}
+        <span style={{ fontWeight: 600 }}>{mediaType === "video" ? "動画" : "画像"}</span>
+        <span style={{ color: "#6b7280" }}>表示順 {displayOrder}</span>
+        <span style={{ color: "#6b7280" }}>{durationSec}秒</span>
+        {caption ? <span style={{ color: "#374151" }}>「{caption}」</span> : null}
+      </span>
     </span>
   );
 }
@@ -277,8 +285,20 @@ function AdForm({
   // 既存の FormData 送信・form.reset() 挙動と整合させる）。
   const mediaUrlRef = useRef<HTMLInputElement>(null);
   const mediaTypeRef = useRef<HTMLSelectElement>(null);
+  // 現在の素材を**実物（画像/動画）で見せる**プレビュー。編集時は initial、以降はアップロード / URL 入力 /
+  // 種別変更に追従する。入力欄は uncontrolled のまま（FormData 送信・reset 挙動は不変）で、表示用にだけ state を持つ。
+  const [previewUrl, setPreviewUrl] = useState(initial?.mediaUrl ?? "");
+  const [previewType, setPreviewType] = useState<AdMediaType>(initial?.mediaType ?? "image");
   return (
-    <form onSubmit={onSubmit} style={formStyle}>
+    <form
+      onSubmit={onSubmit}
+      // form.reset()（新規追加の成功時に呼ばれる）でプレビューも消す。編集フォームは閉じる際に unmount される。
+      onReset={() => {
+        setPreviewUrl("");
+        setPreviewType("image");
+      }}
+      style={formStyle}
+    >
       <AdMediaUpload
         onUploaded={(url, mediaType) => {
           if (mediaUrlRef.current) {
@@ -287,8 +307,22 @@ function AdForm({
           if (mediaTypeRef.current) {
             mediaTypeRef.current.value = mediaType;
           }
+          setPreviewUrl(url);
+          setPreviewType(mediaType);
         }}
       />
+      {/* 現在の素材プレビュー（URL だけでなく実物で確認できるように）。未入力時は出さない。 */}
+      {previewUrl ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: "1 1 100%" }}>
+          <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>プレビュー</span>
+          <AdThumbnail
+            mediaUrl={previewUrl}
+            mediaType={previewType}
+            caption={initial?.caption ?? null}
+            size={72}
+          />
+        </div>
+      ) : null}
       {/* アップロードした相対パス（/ad-media/…）も受けるため type="url" にしない（type="url" は絶対 URL のみ許容で
           相対値を constraint validation で弾く・#828 Reviewer C1）。最終検証は Server Action 側 validateAdInput
           （同一オリジン相対 or http(s) 絶対）が担う。 */}
@@ -300,6 +334,7 @@ function AdForm({
         placeholder="メディア URL（上のアップロード or https://… を直接入力）"
         required
         defaultValue={initial?.mediaUrl}
+        onChange={(e) => setPreviewUrl(e.target.value)}
         style={wideInputStyle}
         disabled={pending}
       />
@@ -307,6 +342,7 @@ function AdForm({
         name="mediaType"
         ref={mediaTypeRef}
         defaultValue={initial?.mediaType ?? "image"}
+        onChange={(e) => setPreviewType(e.target.value as AdMediaType)}
         style={inputStyle}
         disabled={pending}
       >
