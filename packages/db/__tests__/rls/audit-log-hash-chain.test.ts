@@ -75,6 +75,37 @@ describeOrSkip("audit_log: hash chain integrity", () => {
     expect(broken.length).toBe(0);
   });
 
+  it("同一トランザクション内で複数行を書いても occurred_at は行ごとに distinct で chain が健全 (clock_timestamp 化の回帰)", async () => {
+    // 旧既定 now()(=transaction_timestamp) では **同一 tx 内の全行が同一 occurred_at** を持ち、(occurred_at,
+    // id) 連鎖が挿入順とずれて verify が健全な連鎖を「改竄」と誤検知していた。clock_timestamp() 既定で行ごとに
+    // distinct な occurred_at となり、3 行を 1 tx で書いても (1) occurred_at が 3 つとも異なり (2) verify が
+    // 空 (整合) を返すことを pin する。本テストは tamper テストより前に置く (tamper は chain を汚すため)。
+    const ids = await sql.begin(async (tx) => {
+      const out: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const [row] = await tx<{ id: string }[]>`
+          INSERT INTO audit_log (school_id, actor_user_id, table_name, record_id, operation, diff)
+          VALUES (${fx.schoolA}, ${fx.userA}, 'contents', ${fx.schoolA}, 'insert', ${tx.json({ txseq: i })})
+          RETURNING id
+        `;
+        out.push(row.id);
+      }
+      return out;
+    });
+
+    // (1) 決定的回帰シグナル: 同一 tx の 3 行が distinct な occurred_at を持つ (旧 now() では 1 つに潰れる)。
+    const ts = await sql<{ occurred_at: string }[]>`
+      SELECT occurred_at FROM audit_log WHERE id = ANY(${sql.array(ids)}::uuid[])
+    `;
+    expect(new Set(ts.map((r) => r.occurred_at)).size).toBe(3);
+
+    // (2) チェーン全体が健全 (旧既定では同一 tx の行が verify で broken になりえた)。
+    const broken = await sql<{ broken_id: string }[]>`
+      SELECT broken_id FROM audit_log_verify_chain()
+    `;
+    expect(broken.length).toBe(0);
+  });
+
   it("trigger 一時 DISABLE + 改竄 + 再 ENABLE すると verify が不整合を検出する", async () => {
     const [target, ...rest] = await insertN(2);
     expect(rest.length).toBe(1);
