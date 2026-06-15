@@ -72,6 +72,13 @@
     border-radius: 0.6rem;
     border: 1px solid #e5e7eb;
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+    /* 狭幅では余白を詰めて入力欄(textarea)に幅を回す（+/マイク/送信に挟まれて潰れるのを防ぐ）。 */
+    gap: 0.4rem;
+    padding: 0.5rem 0.55rem;
+  }
+  /* 送信ボタンの横余白を詰める（文言は維持・タップ高 44px は保つ）。 */
+  .send {
+    padding: 0.5rem 0.85rem;
   }
 }
 
