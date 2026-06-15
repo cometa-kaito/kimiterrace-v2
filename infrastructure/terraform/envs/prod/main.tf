@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "0d0b399" # prod deploy 0d0b399（内容は PR/commit に記述）
+  web_image_tag = "695aeea" # prod deploy 695aeea（内容は PR/commit に記述）
 }
 
 module "network" {
