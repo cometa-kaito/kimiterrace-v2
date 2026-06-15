@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "7dc434a" # 2026-06-15 エディタ配置最適化 #937-#940（中央寄せキャンバス/AIタブ2ペイン/盤面2カラム/プレビュー埋込）。schema/secret 無変更=migrate不要・疎通200
+  web_image_tag = "98d3816" # 2026-06-15 エディタUX Phase2 #942-#947（AIタブ全画面チャット/タブ上部固定+着色/会話インライン確認/pattern1で来校者・呼出非表示/静粛時間削除→黒画面トグル/予定の時限に朝・昼休み・放課後/再開cookie path修正/#947=モバイルフッター全画面化&PC入力欄固定の退行修正）。schema/secret無変更=migrate不要・疎通200
 }
 
 module "network" {
