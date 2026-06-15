@@ -22,6 +22,13 @@ import styles from "./_components/MonitorWall.module.css";
 const { color, radius } = tokens;
 
 /**
+ * 壁の各モニタ（実画面サムネ）の描画幅(px)。`ScaledSignageBoard` に**明示 width** を渡し、cqw（container
+ * query）非依存で確実に縮小する。grid の `1fr` トラックだと `.frame` の幅が定まらず container-query が
+ * 破綻して盤面が原寸のままクリップされる不具合があったため、固定幅 + 明示 width で決定的に縮小する。
+ */
+const MONITOR_THUMB_W = 160;
+
+/**
  * エディタ着地「**実画面モニタの壁**」(PR・A、#953 `ScaledSignageBoard` に依存・stacked)。
  *
  * 編集する **クラス** を、その端末に実際に映るサイネージ画面（16:9 縮小サムネ）で選ばせる。各モニタは実機
@@ -186,43 +193,40 @@ function GradeMonitors({
   statusByClass: Record<string, boolean>;
   payloadByClass: Record<string, SignagePayload>;
 }) {
-  const withClasses = grades.filter((g) => g.classes.length > 0);
-  if (withClasses.length === 0) {
+  // 学科内の全クラスを **1 グリッドに集約**（学年順）。学年ごとに別グリッドにすると 1 学年 1 クラスの学校で
+  // モニタが縦に細く積まれてしまう（実機の壁＝横並びにならない）ため。学年の文脈はラベル（学年 + クラス名）で示す。
+  const classes = grades.flatMap((g) => g.classes.map((c) => ({ ...c, gradeName: g.name })));
+  if (classes.length === 0) {
     return null;
   }
   return (
-    <div>
-      {withClasses.map((g) => (
-        <div key={g.id} className={styles.gradeGroup}>
-          <div className={styles.monitorGrid}>
-            {g.classes.map((c) => {
-              const active = statusByClass[c.id] ?? false;
-              const payload = payloadByClass[c.id] ?? null;
-              return (
-                <Link
-                  key={c.id}
-                  href={`/app/editor/${c.id}`}
-                  className={`${styles.monitorTile} ${active ? "" : styles.monitorTileEmpty}`}
-                  aria-label={`${g.name} ${c.name} を編集`}
-                >
-                  <div className={styles.thumb}>
-                    {payload ? <ScaledSignageBoard payload={payload} /> : null}
-                  </div>
-                  <div className={styles.tileFoot}>
-                    <span
-                      className={`${styles.statusDot} ${active ? styles.statusActive : styles.statusEmpty}`}
-                      aria-label={active ? "本日表示中" : "未入力"}
-                    />
-                    <span className={styles.tileLabel}>
-                      {g.name} {c.name}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+    <div className={styles.monitorGrid}>
+      {classes.map((c) => {
+        const active = statusByClass[c.id] ?? false;
+        const payload = payloadByClass[c.id] ?? null;
+        return (
+          <Link
+            key={c.id}
+            href={`/app/editor/${c.id}`}
+            className={`${styles.monitorTile} ${active ? "" : styles.monitorTileEmpty}`}
+            aria-label={`${c.gradeName} ${c.name} を編集`}
+          >
+            <div className={styles.thumb}>
+              {/* 明示 width で確実に縮小（cqw 非依存・原寸クリップ不具合の対策）。 */}
+              {payload ? <ScaledSignageBoard payload={payload} width={MONITOR_THUMB_W} /> : null}
+            </div>
+            <div className={styles.tileFoot}>
+              <span
+                className={`${styles.statusDot} ${active ? styles.statusActive : styles.statusEmpty}`}
+                aria-label={active ? "本日表示中" : "未入力"}
+              />
+              <span className={styles.tileLabel}>
+                {c.gradeName} {c.name}
+              </span>
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

@@ -53,15 +53,16 @@
  *  モニタのグリッド: PC は auto-fill / minmax(200px, 1fr)（3 列前後）、スマホは固定 3 列で小さめ。
  * ------------------------------------------------------------------ */
 .monitorGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  /* 固定幅タイルの flex-wrap。各モニタは ScaledSignageBoard に明示 width(= page.tsx の MONITOR_THUMB_W=160px)
+   * を渡して cqw 非依存で確実に縮小するため、タイル幅も同じ 160px に固定する（grid の 1fr では .frame の幅が
+   * 定まらず container-query が破綻し盤面が原寸のままクリップされた不具合の対策）。幅に応じて自動で複数列へ折り返す。 */
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.9rem;
 }
 @media (max-width: 640px) {
   .monitorGrid {
-    /* スマホは 1 行 3 列の小さめサムネ（承認済みプレビュー準拠）。 */
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.4rem;
+    gap: 0.5rem;
   }
 }
 
@@ -69,6 +70,10 @@
  *  モニタタイル: 16:9 サムネ（ScaledSignageBoard）＋下に「学年ラベル＋状態ドット」。タイル全体がリンク。
  * ------------------------------------------------------------------ */
 .monitorTile {
+  /* 幅は ScaledSignageBoard の明示 width(MONITOR_THUMB_W=160px)と一致させる（content-box で内容領域=160px、
+   * サムネ .thumb=100%=160px、盤面 .frame も 160px で原寸クリップせず収まる）。 */
+  box-sizing: content-box;
+  width: 160px;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
