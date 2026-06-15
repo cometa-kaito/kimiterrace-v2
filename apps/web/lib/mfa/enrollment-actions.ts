@@ -75,6 +75,12 @@ function homeTableForActor(actor: AuthUser): "users" | "system_admins" {
  * BEFORE INSERT トリガが計算。actor = 自分、`record_id` = **自分の所属表 (users / system_admins) の行**
  * (factor 識別子は出さない)。所属表は `actor.role` で解決する (#544 Reviewer Low-1)。
  *
+ * **system_admin の FK 違反を回避する (view-audit.ts と同方針)**: `audit_log.actor_user_id` / `created_by` /
+ * `updated_by` は `users(id)` への FK (migration 0004)。system_admin は `users` に居ない (`system_admins` で
+ * 別管理) ため、これらに uid を入れると **FK 違反 (23503) で insert が throw** し、最高権限アカウントの MFA
+ * 変更の監査が恒久的に失われる (NFR04 違反)。よって FK カラムは system_admin なら null にし、追跡用の
+ * **`actor_identity_uid` に IdP uid を必ず載せる** (FK 無し varchar・`users` 行の有無に依らず特定可能)。
+ *
  * **PII を残さない (ルール4)**: `diff` は **件数と操作種別のみ**。電話番号・factor uid・QR/secret は
  * 一切含めない (件数縮約は `getEnrolledMfaFactorCount` 側で済んでいる)。
  */
@@ -84,8 +90,13 @@ async function writeMfaEnrollmentAudit(
   op: "enroll" | "unenroll",
   enrolledFactorCount: number,
 ): Promise<void> {
+  // system_admin は users 行ではない → FK カラム (actor_user_id/created_by/updated_by) は null。
+  const isSystemAdmin = actor.role === "system_admin";
+  const actorRef = isSystemAdmin ? null : actor.uid;
   await tx.insert(auditLog).values({
-    actorUserId: actor.uid,
+    actorUserId: actorRef,
+    // FK 無しの追跡カラム。users 行の有無に依らず「誰が」を特定可能にする (system_admin でも必ず載せる)。
+    actorIdentityUid: actor.uid,
     // 自テナント操作。system_admin は school を持たない (null) ので user.schoolId をそのまま使う。
     schoolId: actor.schoolId,
     // actor の所属表 (system_admin→system_admins / それ以外→users) を指す。users 固定だと
@@ -97,7 +108,7 @@ async function writeMfaEnrollmentAudit(
     // PII を残さない: 操作種別と件数のみ (電話番号・factor 識別子は含めない)。
     diff: { mfa: { op, enrolledFactorCount } },
     rowHash: "",
-    createdBy: actor.uid,
-    updatedBy: actor.uid,
+    createdBy: actorRef,
+    updatedBy: actorRef,
   });
 }
