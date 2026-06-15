@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_SAVE_STATUS_LABEL,
   EDITOR_SAVE_STATE_LABEL,
   deriveEditorSaveState,
   serializeForDirty,
@@ -49,5 +50,15 @@ describe("EDITOR_SAVE_STATE_LABEL", () => {
     expect(EDITOR_SAVE_STATE_LABEL.idle).toBe("");
     expect(EDITOR_SAVE_STATE_LABEL.dirty).toBe("未保存の変更があります");
     expect(EDITOR_SAVE_STATE_LABEL.saved).toBe("保存済み");
+  });
+});
+
+describe("AUTO_SAVE_STATUS_LABEL", () => {
+  it("idle は空・他は日本語ラベル（色だけに依存しない）", () => {
+    expect(AUTO_SAVE_STATUS_LABEL.idle).toBe("");
+    expect(AUTO_SAVE_STATUS_LABEL.saving).toBe("保存中…");
+    expect(AUTO_SAVE_STATUS_LABEL.saved).toBe("自動保存しました");
+    expect(AUTO_SAVE_STATUS_LABEL.error).toBe("保存に失敗しました");
+    expect(AUTO_SAVE_STATUS_LABEL.incomplete).toContain("入力すると自動保存");
   });
 });

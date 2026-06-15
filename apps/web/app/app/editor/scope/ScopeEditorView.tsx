@@ -75,15 +75,15 @@ export async function ScopeEditorView({
 
   return (
     <>
-      <header style={{ marginBottom: "1rem" }}>
-        <Link href="/app/editor" style={{ fontSize: "0.85rem", color: tokens.color.blueStrong }}>
+      <header style={{ marginBottom: "0.75rem" }}>
+        <Link
+          href="/app/editor"
+          style={{ fontSize: tokens.fontSize.xs, color: tokens.color.blueStrong }}
+        >
           ← 編集対象の選択へ戻る
         </Link>
-        <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.label}</h1>
-        <p style={mutedStyle}>
-          この内容は配下の全クラスのサイネージに共通で表示されます
-          (クラス個別の入力があればそちらが優先)。
-        </p>
+        <h1 style={{ fontSize: "1.15rem", margin: "0.15rem 0 0.1rem" }}>{data.label}</h1>
+        <p style={mutedStyle}>配下の全クラスに共通表示（クラス個別の入力が優先）。</p>
       </header>
 
       <ClassEditorShell
@@ -149,8 +149,8 @@ export async function ScopeEditorView({
 
 const mutedStyle: React.CSSProperties = {
   color: tokens.color.muted,
-  fontSize: "0.85rem",
-  margin: "0 0 0.5rem",
+  fontSize: tokens.fontSize.xs,
+  margin: 0,
 };
 const boardCardStyle: React.CSSProperties = {
   border: `1px solid ${tokens.color.border}`,

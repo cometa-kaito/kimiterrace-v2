@@ -49,6 +49,8 @@ export const removeBtnStyle: React.CSSProperties = {
   borderRadius: radius.sm,
   cursor: "pointer",
   fontSize: fontSize.sm,
+  // 「削除」が幅不足で 2 行に折返すのを防ぐ（狭い列でも 1 行表示）。
+  whiteSpace: "nowrap",
 };
 
 /**
@@ -82,6 +84,17 @@ export const dirtyTextStyle: React.CSSProperties = {
 export const savedTextStyle: React.CSSProperties = {
   fontSize: fontSize.xs,
   color: color.successFg,
+};
+/** 「保存中…」（控えめ）。 */
+export const savingTextStyle: React.CSSProperties = {
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+/** 「保存に失敗」（危険色）。 */
+export const errorTextStyle: React.CSSProperties = {
+  fontSize: fontSize.xs,
+  fontWeight: 600,
+  color: color.dangerFg,
 };
 /** 無効化された保存ボタン（未変更時）。 */
 export const primaryBtnDisabledStyle: React.CSSProperties = {

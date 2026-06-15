@@ -1,24 +1,16 @@
 "use client";
 
-import {
-  EDITOR_SAVE_STATE_LABEL,
-  deriveEditorSaveState,
-  serializeForDirty,
-  useUnsavedGuard,
-} from "@/lib/editor/editor-save-state";
+import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import type { EditorTarget, ScheduleItem } from "@/lib/editor/schedule-core";
 import { editorBasePath, targetId } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useState } from "react";
+import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
-  dirtyTextStyle,
   inputStyle,
-  primaryBtnDisabledStyle,
-  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  savedTextStyle,
   secondaryBtnStyle,
   tableStyle,
   tableWrapStyle,
@@ -29,13 +21,14 @@ import { toEditorTarget } from "./target";
 
 /**
  * 予定エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
- * 保存時に `setScheduleAction` を target (学校/学科/学年/クラス) 付きで呼ぶ。検証・認可・監査・RLS は
- * Server Action 側が担保するので、ここは入力収集と結果表示に徹する (保存後は `router.refresh()`)。
+ * 変更時に `setScheduleAction` を target (学校/学科/学年/クラス) 付きで**自動保存**する。検証・認可・監査・
+ * RLS は Server Action 側が担保するので、ここは入力収集と結果表示に徹する。
  *
  * `target` を渡すと任意 scope を編集できる。後方互換のため `classId` だけ渡されたらクラス編集になる。
  *
- * #243 (②UI-UX): 未保存ガード（離脱時のブラウザ確認 + 対象日切替時の confirm）・保存状態の明示
- * （未保存/保存済み）・未変更時の保存ボタン無効化・入力 aria-label・狭幅での表横スクロールを備える。
+ * UIUX（保存ボタン廃止）: 明示的な「保存」操作を不要にし、追加・編集・削除した時点で自動保存する
+ * （{@link useAutoSaveSection}）。未入力の行があるうちは保存しない（入力が揃った時点で保存）。対象日の
+ * 切替時は debounce 取りこぼしを防ぐため確実に保存してから遷移する（flush）。
  */
 type Row = {
   period: number;
@@ -69,7 +62,6 @@ export function ScheduleEditor({
 }) {
   const target = toEditorTarget(targetProp, classId);
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i) => ({
       period: i.period,
@@ -79,15 +71,20 @@ export function ScheduleEditor({
       targetAudience: i.targetAudience ?? "",
     })),
   );
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [savedOnce, setSavedOnce] = useState(false);
 
-  // dirty は「保存される items」基準で判定する（行 state の cosmetic 差で誤検出しない）。
-  const currentSerialized = serializeForDirty(toScheduleItems(rows));
-  const baselineRef = useRef<string>(currentSerialized);
-  const dirty = currentSerialized !== baselineRef.current;
-  const saveState = deriveEditorSaveState({ dirty, savedOnce });
-  useUnsavedGuard(dirty);
+  const items = toScheduleItems(rows);
+  const serialized = serializeForDirty(items);
+  // 全行が有効（科目あり・時限 1..12）なら自動保存。未入力の行があるうちは保存しない（誤検証を避ける）。
+  const complete = rows.every(
+    (r) =>
+      r.subject.trim().length > 0 && Number.isInteger(r.period) && r.period >= 1 && r.period <= 12,
+  );
+  const auto = useAutoSaveSection({
+    serialized,
+    items,
+    complete,
+    save: (toSave) => setScheduleAction(target.scope, targetId(target), date, toSave),
+  });
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -103,28 +100,12 @@ export function ScheduleEditor({
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function changeDate(next: string) {
-    // 未保存の変更があるまま対象日を切り替えると編集が破棄されるため確認する（データ消失防止）。
-    if (dirty && !window.confirm("未保存の変更があります。破棄して対象日を切り替えますか？")) {
-      return;
+  async function changeDate(next: string) {
+    // 未保存分があれば確実に保存してから対象日を切り替える（自動保存 debounce の取りこぼし防止）。
+    if (auto.dirty) {
+      await auto.flush();
     }
     router.push(`${editorBasePath(target)}?date=${next}`);
-  }
-
-  function save() {
-    const items = toScheduleItems(rows);
-    startTransition(async () => {
-      const res = await setScheduleAction(target.scope, targetId(target), date, items);
-      if (res.ok) {
-        // 保存成功で baseline を現在値に更新（dirty 解消）。
-        baselineRef.current = serializeForDirty(items);
-        setSavedOnce(true);
-        setMsg({ ok: true, text: "保存しました。" });
-        router.refresh();
-      } else {
-        setMsg({ ok: false, text: res.error.message });
-      }
-    });
   }
 
   return (
@@ -138,12 +119,6 @@ export function ScheduleEditor({
           style={inputStyle}
         />
       </label>
-
-      {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
-          {msg.text}
-        </output>
-      ) : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
@@ -229,20 +204,7 @@ export function ScheduleEditor({
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
           コマを追加
         </button>
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending || !dirty}
-          style={pending || !dirty ? primaryBtnDisabledStyle : primaryBtnStyle}
-        >
-          {pending ? "保存中..." : "保存"}
-        </button>
-        {saveState !== "idle" ? (
-          <span style={saveState === "dirty" ? dirtyTextStyle : savedTextStyle} aria-live="polite">
-            {saveState === "dirty" ? "● " : "✓ "}
-            {EDITOR_SAVE_STATE_LABEL[saveState]}
-          </span>
-        ) : null}
+        <AutoSaveStatusText status={auto.status} error={auto.error} />
       </div>
     </div>
   );
