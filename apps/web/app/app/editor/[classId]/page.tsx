@@ -1,6 +1,7 @@
 import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
+import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
@@ -8,21 +9,29 @@ import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { SignageBoard } from "@/app/app/signage-preview/[classId]/_components/SignageBoard";
 import { getClassSignageBlackout } from "@/lib/signage/blackout";
-import { getEffectiveDailyData } from "@/lib/signage/effective-daily-data";
+import {
+  getEffectiveDailyData,
+  getEffectiveScheduleDays,
+} from "@/lib/signage/effective-daily-data";
 import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import { signageScheduleDates } from "@/lib/signage/rotation";
 import { getSignageDesignPattern } from "@/lib/signage/signage-design";
-import { getCalloutsForClass, getEffectiveAdsForClass, getVisitorsForClass } from "@kimiterrace/db";
+import { getSignageWeather } from "@/lib/signage/weather";
+import {
+  getCalloutsForClass,
+  getEffectiveAdsForClass,
+  getSignageClassContext,
+  getVisitorsForClass,
+} from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AssignmentEditor } from "./_components/AssignmentEditor";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { ClassEditorShell } from "./_components/ClassEditorShell";
-import { NoticeEditor } from "./_components/NoticeEditor";
 import { RememberLastClass } from "./_components/RememberLastClass";
-import { ScheduleEditor } from "./_components/ScheduleEditor";
 import { VisitorsEditor } from "./_components/VisitorsEditor";
+import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
 import boardLayout from "./_components/board-layout.module.css";
 
 /**
@@ -78,11 +87,24 @@ export default async function ClassEditorPage({
     const showCallouts = patternIncludesBlock(pattern, "callout");
     const visitors = showVisitors ? await getVisitorsForClass(tx, classId, date) : null;
     const callouts = showCallouts ? await getCalloutsForClass(tx, classId, date) : null;
-    // プレビュータブ用: 教室のサイネージに実際どう出るか（class>grade>dept>school のマージ結果 + 実効広告）。
+    // プレビュー / WYSIWYG 用: 教室のサイネージに実際どう出るか（class>grade>dept>school のマージ結果 + 実効広告）。
     const previewDaily = await getEffectiveDailyData(tx, classId, date);
     const previewAds = await getEffectiveAdsForClass(tx, classId);
     // プレビュータブの黒画面トグル初期値（class スコープ display_settings.blackout）。同一 tx・RLS 自校限定。
     const blackout = await getClassSignageBlackout(tx, classId);
+    // WYSIWYG（盤面を編集タブ）の実機ライブプレビュー用に、実機 `getSignageDisplayData` と同じ基底データを
+    // **同一 tx・RLS 自校限定**で取得する（盤面 `SignageBoardView` を実機と一致させるため・重複実装しない）。
+    // 予定は今後 3 平日の 3 列（実機と同じ），クラス文脈（ヘッダー識別ラベル），天気は予定列ヘッダーのアイコン。
+    const previewScheduleDays = await getEffectiveScheduleDays(
+      tx,
+      classId,
+      signageScheduleDates(date, 3),
+    );
+    const previewClassContext = await getSignageClassContext(tx, classId);
+    // 天気は fail-soft（取得失敗・地域未解決でも盤面の他要素は壊さない）。実機経路と同思想で null に倒す。
+    const previewWeather = user.schoolId
+      ? await getSignageWeather(tx, user.schoolId, date).catch(() => null)
+      : null;
     return {
       schedule,
       notices,
@@ -94,6 +116,10 @@ export default async function ClassEditorPage({
       previewDaily,
       previewAds,
       blackout,
+      pattern,
+      previewScheduleDays,
+      previewClassContext,
+      previewWeather,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -111,7 +137,32 @@ export default async function ClassEditorPage({
     previewDaily,
     previewAds,
     blackout,
+    pattern,
+    previewScheduleDays,
+    previewClassContext,
+    previewWeather,
   } = data;
+
+  // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`previewDaily` が取れた時だけ盤面を出す
+  // （取れない時は WysiwygBoardEditor 側がプレビューを畳んで従来フォームのみにフォールバック＝盤面を壊さない）。
+  // pattern2 専用ブロック（来校者/呼び出し/センサ/鉄道）は編集タブのプレビューでは出さない（盤面は実機の
+  // pattern2 でも右の広告と予定主体で、ここでは予定/連絡/提出物の編集連動に集中する）。null 渡しで fail-soft。
+  const boardBase: EditorBoardBase | null = previewDaily
+    ? {
+        date,
+        designPattern: pattern,
+        daily: previewDaily,
+        scheduleDays: previewScheduleDays,
+        ads: previewAds,
+        weather: previewWeather,
+        classContext: previewClassContext,
+        presenceCount: null,
+        visitors: showVisitors ? visitors : null,
+        callouts: showCallouts ? callouts : null,
+        trainStatus: null,
+        blackout,
+      }
+    : null;
 
   return (
     <>
@@ -157,27 +208,20 @@ export default async function ClassEditorPage({
                 ) : null}
               </p>
             ) : null}
-            {/* 盤面を編集タブ: 予定（時限×科目…と横に広い表）は全幅、連絡/提出物は広い画面でのみ 2 カラム
-                （board-layout.module.css。十分広い時だけ＝提出物の表が窮屈にならない・#673 の知見）。
-                広告/天気の read-only プレビューは「プレビュー」タブに集約したのでここには出さない。 */}
-            <div className={boardLayout.grid}>
-              <section className={boardLayout.full} style={boardCardStyle}>
-                <h2 style={boardCardTitleStyle}>予定</h2>
-                <ScheduleEditor
-                  classId={schedule.classId}
-                  date={schedule.date}
-                  initialItems={schedule.items}
-                />
-              </section>
-              <section style={boardCardStyle}>
-                <h2 style={boardCardTitleStyle}>連絡</h2>
-                <NoticeEditor classId={classId} date={date} initialItems={notices.items} />
-              </section>
-              <section style={boardCardStyle}>
-                <h2 style={boardCardTitleStyle}>提出物</h2>
-                <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
-              </section>
-            </div>
+            {/* 盤面を編集タブ: 実サイネージ配置（50 インチ TV と同一の `SignageBoardView`）の上で見ながら編集する
+                WYSIWYG（PR・B）。上段に実機と同一レイアウトの大きなライブプレビューを出し、領域クリックで該当
+                セクションの編集欄へ移動・フォーカスする（連動プレビュー）。各セクションの保存・検証・自動保存・
+                scope・RLS/監査は従来の ScheduleEditor / NoticeEditor / AssignmentEditor が温存して担う（UI 導線
+                だけを実配置上の編集に載せ替え）。見出し「予定」「連絡」「提出物」と placeholder は維持（e2e 温存）。
+                スマホ（≤899px）はプレビューを畳み従来の縦積みフォームに倒す。 */}
+            <WysiwygBoardEditor
+              classId={classId}
+              date={date}
+              base={boardBase}
+              initialSchedules={schedule.items}
+              initialNotices={notices.items}
+              initialAssignments={assignments.items}
+            />
             {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで
                 出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
                 各エディタは自前の見出し・幅を持つのでセル内に素直に収まる。 */}
@@ -225,17 +269,6 @@ export default async function ClassEditorPage({
     </>
   );
 }
-
-// 盤面を編集タブの 1 カラムセクションカード（全幅・横スクロール解消）。
-const boardCardStyle: React.CSSProperties = {
-  border: `1px solid ${tokens.color.border}`,
-  borderRadius: tokens.radius.lg,
-  padding: "1rem 1.25rem",
-};
-const boardCardTitleStyle: React.CSSProperties = {
-  fontSize: "1.05rem",
-  margin: "0 0 0.5rem",
-};
 
 // プレビュータブ: サイネージ盤面をページ内に埋め込む枠（白背景＝教室での実表示に近い見え方）。
 const previewFrameStyle: React.CSSProperties = {

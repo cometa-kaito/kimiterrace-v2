@@ -10,7 +10,7 @@ import {
   targetId,
 } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
   inputStyle,
@@ -64,11 +64,18 @@ export function ScheduleEditor({
   target: targetProp,
   date,
   initialItems,
+  onItemsChange,
 }: {
   classId?: string;
   target?: EditorTarget;
   date: string;
   initialItems: ScheduleItem[];
+  /**
+   * WYSIWYG ライブプレビュー連動（任意・追加 prop）。行を編集するたび、現在の保存ペイロード相当
+   * （{@link toScheduleItems} 正規化後）を親へ通知する。**保存・検証・自動保存・RLS/監査の挙動には一切
+   * 影響しない**（観測専用の副作用。既定 undefined = 何もしない＝従来挙動）。
+   */
+  onItemsChange?: (items: ScheduleItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
   const router = useRouter();
@@ -84,6 +91,11 @@ export function ScheduleEditor({
 
   const items = toScheduleItems(rows);
   const serialized = serializeForDirty(items);
+  // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（レンダー後に副作用で。保存ロジックとは独立）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ（items 直接 dep だと毎回新規参照で無限ループ）
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [serialized, onItemsChange]);
   // 全行が有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ slot が重複しないなら自動保存。
   // 未入力/重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
   const periods = rows.map((r) => r.period);

@@ -5,7 +5,7 @@ import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { inputStyle, removeBtnStyle, saveBarStyle, secondaryBtnStyle } from "./editor-styles";
 import { toEditorTarget } from "./target";
@@ -62,11 +62,17 @@ export function NoticeEditor({
   target: targetProp,
   date,
   initialItems,
+  onItemsChange,
 }: {
   classId?: string;
   target?: EditorTarget;
   date: string;
   initialItems: NoticeItem[];
+  /**
+   * WYSIWYG ライブプレビュー連動（任意・追加 prop）。編集のたび現在の保存ペイロード相当（{@link toNoticeItems}
+   * 正規化後）を親へ通知する。**保存・検証・自動保存・RLS/監査の挙動には一切影響しない**（観測専用）。
+   */
+  onItemsChange?: (items: NoticeItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
   const [rows, setRows] = useState<Row[]>(
@@ -86,6 +92,11 @@ export function NoticeEditor({
 
   const items = toNoticeItems(rows);
   const serialized = serializeForDirty(items);
+  // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（観測専用・保存ロジックとは独立）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ
+  useEffect(() => {
+    onItemsChange?.(items);
+  }, [serialized, onItemsChange]);
   // 本文が空の行があるうちは保存しない（入力が揃った時点で自動保存）。
   const complete = rows.every((r) => r.text.trim().length > 0);
   const auto = useAutoSaveSection({
