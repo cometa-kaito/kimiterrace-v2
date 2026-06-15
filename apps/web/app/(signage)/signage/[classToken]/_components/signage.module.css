@@ -928,3 +928,13 @@
     overflow: visible;
   }
 }
+
+/* ===================== 13. 黒画面（per-class 運用トグル） ===================== */
+/* payload.blackout が true のとき盤面の代わりに描く全画面の黒画面。signageRoot と同じく absolute inset:0 で
+   画面全体を覆い、純黒で実機のバックライトを最小化する。盤面は描かず（DOM ごと差し替え）、ポーリングは
+   SignageClient 側で継続するため false 復帰で自動的に盤面へ戻る。識別のため aria-label を持たせる。 */
+.blackoutScreen {
+  position: absolute;
+  inset: 0;
+  background-color: #000000;
+}

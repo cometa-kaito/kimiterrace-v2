@@ -98,6 +98,7 @@ function payload(
     visitors: null,
     callouts: null,
     trainStatus: null,
+    blackout: false,
   };
 }
 

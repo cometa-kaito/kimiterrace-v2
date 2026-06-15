@@ -14,6 +14,7 @@ import {
   withTenantContext,
 } from "@kimiterrace/db";
 import { getDb } from "../db";
+import { getClassSignageBlackout } from "./blackout";
 import {
   type EffectiveDailyData,
   type ScheduleDay,
@@ -120,6 +121,13 @@ export type SignagePayload = {
    * キャッシュ無し・取得失敗は `null`（ウィジェットは「運行情報は取得できていません」表示＝fail-soft）。
    */
   trainStatus: SignageRailwayStatus | null;
+  /**
+   * このクラスのサイネージ「黒画面」状態（per-class 運用トグル・web のみ・パターン非依存）。`true` のとき
+   * `SignageClient` が盤面の代わりに全画面の黒画面を描く（夜間/イベント等で一時的に画面を消す用途）。保存先は
+   * `school_configs`（scope='class', kind='display_settings'）の `value.blackout`。未設定・取得失敗は `false`
+   * （＝通常の盤面を出す。fail-soft、盤面を壊さない）。ポーリングで `false` 復帰すると盤面に戻る。
+   */
+  blackout: boolean;
 };
 
 /** トークンを {schoolId, classId} に解決。無効 (失効/期限切れ/不明) なら null。 */
@@ -205,6 +213,9 @@ export async function getSignageDisplayData(
     const trainStatus = patternIncludesBlock(designPattern, "train")
       ? await getSignageRailwayStatus(tx).catch(() => null)
       : null;
+    // 黒画面トグル（per-class・パターン非依存）。class スコープ display_settings.blackout を読む。同一 tx・
+    // RLS 自校限定（ルール2）。読み取り失敗は false に倒し盤面を出す（fail-soft、黒画面で覆い隠さない）。
+    const blackout = await getClassSignageBlackout(tx, cls.classId).catch(() => false);
     return {
       date,
       designPattern,
@@ -217,6 +228,7 @@ export async function getSignageDisplayData(
       visitors,
       callouts,
       trainStatus,
+      blackout,
     } satisfies SignagePayload;
   });
 }

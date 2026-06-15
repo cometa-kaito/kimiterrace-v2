@@ -7,12 +7,16 @@ import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { SignageBoard } from "@/app/app/signage-preview/[classId]/_components/SignageBoard";
+import { getClassSignageBlackout } from "@/lib/signage/blackout";
 import { getEffectiveDailyData } from "@/lib/signage/effective-daily-data";
+import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import { getSignageDesignPattern } from "@/lib/signage/signage-design";
 import { getCalloutsForClass, getEffectiveAdsForClass, getVisitorsForClass } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AssignmentEditor } from "./_components/AssignmentEditor";
+import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { ClassEditorShell } from "./_components/ClassEditorShell";
 import { NoticeEditor } from "./_components/NoticeEditor";
@@ -65,18 +69,49 @@ export default async function ClassEditorPage({
     }
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
-    const visitors = await getVisitorsForClass(tx, classId, date);
-    const callouts = await getCalloutsForClass(tx, classId, date);
+    // サイネージデザインパターンを解決（学校レベル既定）。来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS`
+    // 上 pattern2 専用ブロックなので、パターンに含まれる時だけ取得・描画する（pattern1 では取得もしない＝
+    // 不要セクションの無条件描画を解消・指摘ログ finding①。単一ソース `patternIncludesBlock` で駆動し
+    // `=== "pattern2"` のハードコード分岐を作らない＝将来パターン追加に自動追従）。
+    const pattern = await getSignageDesignPattern(tx);
+    const showVisitors = patternIncludesBlock(pattern, "visitor");
+    const showCallouts = patternIncludesBlock(pattern, "callout");
+    const visitors = showVisitors ? await getVisitorsForClass(tx, classId, date) : null;
+    const callouts = showCallouts ? await getCalloutsForClass(tx, classId, date) : null;
     // プレビュータブ用: 教室のサイネージに実際どう出るか（class>grade>dept>school のマージ結果 + 実効広告）。
     const previewDaily = await getEffectiveDailyData(tx, classId, date);
     const previewAds = await getEffectiveAdsForClass(tx, classId);
-    return { schedule, notices, assignments, visitors, callouts, previewDaily, previewAds };
+    // プレビュータブの黒画面トグル初期値（class スコープ display_settings.blackout）。同一 tx・RLS 自校限定。
+    const blackout = await getClassSignageBlackout(tx, classId);
+    return {
+      schedule,
+      notices,
+      assignments,
+      showVisitors,
+      showCallouts,
+      visitors,
+      callouts,
+      previewDaily,
+      previewAds,
+      blackout,
+    };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
   if (!data || !data.notices || !data.assignments) {
     notFound();
   }
-  const { schedule, notices, assignments, visitors, callouts, previewDaily, previewAds } = data;
+  const {
+    schedule,
+    notices,
+    assignments,
+    showVisitors,
+    showCallouts,
+    visitors,
+    callouts,
+    previewDaily,
+    previewAds,
+    blackout,
+  } = data;
 
   return (
     <>
@@ -143,15 +178,27 @@ export default async function ClassEditorPage({
                 <AssignmentEditor classId={classId} date={date} initialItems={assignments.items} />
               </section>
             </div>
-            {/* 来校者 / 呼び出しも広い画面では 2 カラム（各エディタは自前の見出し・幅を持つのでセル内に素直に収まる）。 */}
-            <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-              <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
-              <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
-            </div>
+            {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで
+                出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
+                各エディタは自前の見出し・幅を持つのでセル内に素直に収まる。 */}
+            {showVisitors || showCallouts ? (
+              <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
+                {showVisitors && visitors ? (
+                  <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+                ) : null}
+                {showCallouts && callouts ? (
+                  <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+                ) : null}
+              </div>
+            ) : null}
           </>
         }
         preview={
           <div>
+            {/* 黒画面トグル（per-class 運用）。実教室のサイネージを一時的に真っ黒にする / 解除する。実画面に
+                即時影響するので押下時に確認を挟む（BlackoutToggle 側）。既存の全画面導線 + 埋め込みプレビューの
+                上に置く。 */}
+            <BlackoutToggle classId={classId} initialBlackout={blackout} />
             {/* 教室のサイネージに「今どう出るか」をページ内に埋め込む（SignageBoard を直接描画＝iframe/
                 シェル二重化なし）。別タブの全画面表示は補助導線として残す。 */}
             <p style={{ margin: "0 0 0.75rem" }}>
