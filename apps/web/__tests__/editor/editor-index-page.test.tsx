@@ -1,21 +1,52 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * エディタ index ツリー (段A-2) に scope 編集対象が出ることを pin する。
+ * エディタ着地「実画面モニタの壁」(PR・A、#953 `ScaledSignageBoard` 依存) の構造を pin する。
  *
- * 先頭に「学校全体」、各学科見出しに「学科全体」、各学年見出しに「学年全体」の編集リンクが
- * 正しい `/app/editor/scope/...` href で出ること、既存クラスリンクが維持されることを検証する。
- * guard / db / hub-queries を mock し、`getSchoolHierarchy` の戻りを固定して描画だけ確認する
- * (認可と RLS は requireRole + 各ページ + DB が担保、ここは UX 層)。
+ * 各クラスが実機と同一の payload ビルダー (`buildSignagePayloadForClass`) で組み立てた `SignagePayload` を
+ * `ScaledSignageBoard` で縮小描画し、その下に学年ラベル＋状態ドット (緑=本日表示中 / 琥珀=未入力) を出す
+ * こと、PC クイック行 (前回再開 / 全クラス一斉)・学科のまとめ出しチップ・各クラスリンク href・前回再開の
+ * cookie 突合 (IDOR)・teacher 単一クラス自動直行を検証する。重い盤面 / CSS は `ScaledSignageBoard` を
+ * mock して payload の受け渡しだけ確認する (盤面描画自体は signage 側テストの担保領域)。
+ *
+ * guard / db / hub-queries / signage-display / rotation を mock し、認可と RLS は requireRole + 各ページ +
+ * DB が担保するので、ここは UX 層の構造のみ検証する。
  */
 
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
-vi.mock("../../lib/school-admin/hub-queries", () => ({ getSchoolHierarchy: vi.fn() }));
-// クラスタイルのパターンバッジ用（学校レベル既定）。本ページは withSession 内で読むため mock 必須。
-vi.mock("../../lib/signage/signage-design", () => ({ getSignageDesignPattern: vi.fn() }));
-// 「前回のクラスを再開」(UIUX-02) が読む cookie をテストから制御する（既定は未設定）。
+// hub-queries は `@kimiterrace/db`（postgres barrel）を transitively import するため、apps/web の vitest
+// 環境では丸ごと mock する（本物の解決は不可。純関数 computeTodayActiveClasses も含め stub 化）。
+// computeTodayActiveClasses は scope 集合 → クラス別 active の継承伝搬を行うので、テストでは
+// school / classId のみを反映する忠実な簡易版で代用する（学科/学年継承は別 .test.ts の担保領域）。
+vi.mock("../../lib/school-admin/hub-queries", () => ({
+  getSchoolHierarchy: vi.fn(),
+  getTodayDailyDataScopes: vi.fn(),
+  computeTodayActiveClasses: vi.fn(
+    (scopes: { school: boolean; classIds: string[] }, grades: { classes: { id: string }[] }[]) => {
+      const classSet = new Set(scopes.classIds);
+      const out: Record<string, boolean> = {};
+      for (const g of grades) {
+        for (const c of g.classes) {
+          out[c.id] = scopes.school || classSet.has(c.id);
+        }
+      }
+      return out;
+    },
+  ),
+}));
+// 実画面 payload ビルダー: クラスごとに呼ばれる。中身は ScaledSignageBoard mock に渡るだけ。
+vi.mock("../../lib/signage/signage-display", () => ({ buildSignagePayloadForClass: vi.fn() }));
+// 着地日付は JST 今日。テストでは固定値に。
+vi.mock("../../lib/signage/rotation", () => ({ jstDateString: vi.fn(() => "2026-06-15") }));
+// 盤面サムネは payload の受け渡しだけ確認する軽量スタブに差し替える（CSS module / 実描画を避ける）。
+vi.mock("../../app/(signage)/signage/[classToken]/_components/ScaledSignageBoard", () => ({
+  ScaledSignageBoard: ({ payload }: { payload: { __classId?: string } }) => (
+    <div data-testid="scaled-board" data-class={payload.__classId ?? ""} />
+  ),
+}));
+// 「前回のモニタを再開」(UIUX-02) が読む cookie をテストから制御する（既定は未設定）。
 const cookieState = vi.hoisted(() => ({ lastClass: undefined as string | undefined }));
 vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => ({
@@ -35,14 +66,15 @@ vi.mock("next/navigation", () => ({
 import EditorIndexPage from "../../app/app/editor/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
-import { getSchoolHierarchy } from "../../lib/school-admin/hub-queries";
-import { getSignageDesignPattern } from "../../lib/signage/signage-design";
+import { getSchoolHierarchy, getTodayDailyDataScopes } from "../../lib/school-admin/hub-queries";
+import { buildSignagePayloadForClass } from "../../lib/signage/signage-display";
 import { redirect } from "next/navigation";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
 const getSchoolHierarchyMock = vi.mocked(getSchoolHierarchy);
-const getSignageDesignPatternMock = vi.mocked(getSignageDesignPattern);
+const getTodayDailyDataScopesMock = vi.mocked(getTodayDailyDataScopes);
+const buildSignagePayloadMock = vi.mocked(buildSignagePayloadForClass);
 const redirectMock = vi.mocked(redirect);
 
 const DEPT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -64,6 +96,8 @@ const hierarchy = {
   ],
 };
 
+const emptyScopes = { school: false, departmentIds: [], gradeIds: [], classIds: [] };
+
 beforeEach(() => {
   vi.clearAllMocks();
   cookieState.lastClass = undefined;
@@ -71,35 +105,49 @@ beforeEach(() => {
   withSessionMock.mockImplementation(((fn: (tx: unknown) => unknown) =>
     Promise.resolve(fn({}))) as typeof withSession);
   getSchoolHierarchyMock.mockResolvedValue(hierarchy as never);
-  getSignageDesignPatternMock.mockResolvedValue("pattern1" as never);
+  getTodayDailyDataScopesMock.mockResolvedValue(emptyScopes as never);
+  // payload は classId をタグ付けして返す（ScaledSignageBoard mock がどのクラスのものか判別できるように）。
+  buildSignagePayloadMock.mockImplementation(
+    (_tx, _schoolId, classId) => Promise.resolve({ __classId: classId }) as never,
+  );
 });
 
-describe("EditorIndexPage scope 対象リンク", () => {
-  it("学校全体 / 学科全体 / 学年全体 / クラスのリンクを正しい href で出す", async () => {
+describe("EditorIndexPage モニタの壁・scope 対象リンク", () => {
+  it("全クラス一斉 / 学科まとめ出し / クラスのリンクを正しい href で出し、年度・タイトル見出しは出さない", async () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
 
-    const school = screen.getByRole("link", { name: "全クラス共通で出す" });
-    expect(school).toHaveAttribute("href", "/app/editor/scope/school");
+    // 「全クラスに一斉表示」(学校 scope) — PC クイック行 + ドロワーの両方に存在しうるので最初の 1 件を見る。
+    const broadcastAll = screen.getAllByRole("link", { name: /全クラスに一斉表示/ })[0];
+    expect(broadcastAll).toHaveAttribute("href", "/app/editor/scope/school");
 
-    const dept = screen.getByRole("link", { name: /この学科の共通/ });
+    // 学科まとめ出しチップ (department scope)。
+    const dept = screen.getByRole("link", { name: /この学科にまとめて出す/ });
     expect(dept).toHaveAttribute("href", `/app/editor/scope/department/${DEPT_ID}`);
 
-    const grade = screen.getByRole("link", { name: /この学年の共通/ });
-    expect(grade).toHaveAttribute("href", `/app/editor/scope/grade/${GRADE_ID}`);
-
-    // 既存クラスリンクは維持される。
-    const cls = screen.getByRole("link", { name: /1年A組/ });
+    // クラスリンク (本体グリッド)。aria-label でモニタタイル全体がリンクであることを確認。
+    const cls = screen.getByRole("link", { name: /1年A組 を編集/ });
     expect(cls).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
 
-    // 見やすさ刷新: 範囲の概念（共通は全クラスに表示・クラス個別が優先）を 1 行で説明する。
-    expect(screen.getByText(/クラスを選ぶとそのクラスだけに表示/)).toBeInTheDocument();
-    expect(screen.getByText(/個別入力が優先/)).toBeInTheDocument();
+    // タイトル・説明見出しは出さない（承認済みプレビュー準拠）。
+    expect(screen.queryByText(/編集するクラスを選ぶ/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/編集するモニタを選ぶ/)).not.toBeInTheDocument();
+    // 年度（academic_year）表記は一切出さない。
+    expect(screen.queryByText(/年度/)).not.toBeInTheDocument();
   });
 
-  it("クラス 0 件でも学校全体リンクは出る (学校全体は常に編集可能)", async () => {
+  it("各クラスの実画面サムネ (ScaledSignageBoard) を実機と同一ビルダーの payload で描く", async () => {
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    // クラス数ぶん payload ビルダーが呼ばれ、各クラスの classId で呼ばれる（単一ソース・実機一致）。
+    expect(buildSignagePayloadMock).toHaveBeenCalledWith({}, "s1", CLASS_ID, "2026-06-15");
+    // 盤面サムネが当該クラスの payload を受け取って描画される。
+    const boards = screen.getAllByTestId("scaled-board");
+    expect(boards.some((b) => b.getAttribute("data-class") === CLASS_ID)).toBe(true);
+  });
+
+  it("クラス 0 件でも全クラス一斉リンクは出る (学校全体は常に編集可能)", async () => {
     getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.getByRole("link", { name: "全クラス共通で出す" })).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: /全クラスに一斉表示/ })[0]).toHaveAttribute(
       "href",
       "/app/editor/scope/school",
     );
@@ -107,27 +155,47 @@ describe("EditorIndexPage scope 対象リンク", () => {
 });
 
 /**
- * UIUX-02 ②: 「前回のクラスを再開」cookie 突合の IDOR 検証（許可 + 拒否）。
+ * 状態ドット (緑=本日表示中 / 琥珀=未入力)。computeTodayActiveClasses は純関数の本物を使い、
+ * getTodayDailyDataScopes の戻りで active/inactive を切り替える。
+ */
+describe("EditorIndexPage 本日掲示状態ドット", () => {
+  it("本日掲示中のクラスは『本日表示中』ラベルを持つ", async () => {
+    getTodayDailyDataScopesMock.mockResolvedValue({
+      ...emptyScopes,
+      classIds: [CLASS_ID],
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    // 本体タイルの状態ドット（aria-label）。
+    expect(screen.getAllByLabelText("本日表示中").length).toBeGreaterThan(0);
+  });
+
+  it("未入力のクラスは『未入力』ラベルを持つ", async () => {
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getAllByLabelText("未入力").length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * UIUX-02 ②: 「前回のモニタを再開」cookie 突合の IDOR 検証（許可 + 拒否）。
  *
  * `getSchoolHierarchy` は RLS スコープ済みの自校階層を返す（DB レベルで他校行は不可視）。本ページは
  * cookie の classId を**その自校集合と `===` 突合してから**しかリンク化しない。よって改竄した cookie
- * （他校 ID・非 UUID・インジェクション風）は突合で弾かれ、再開リンクに化けない。さらに遷移先
- * `[classId]/page.tsx` も独立に RLS で 404 化する（多層防御・別テストの担保領域）。
+ * （他校 ID・非 UUID・インジェクション風）は突合で弾かれ、再開リンクに化けない。
  */
-describe("EditorIndexPage 前回クラス再開（cookie 突合 / IDOR）", () => {
-  it("許可: cookie が自校階層内のクラスを指すとき「前回のクラスを再開」を自校 href で出す", async () => {
+describe("EditorIndexPage 前回モニタ再開（cookie 突合 / IDOR）", () => {
+  it("許可: cookie が自校階層内のクラスを指すとき「前回のモニタを再開」を自校 href で出す", async () => {
     cookieState.lastClass = CLASS_ID;
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    const resume = screen.getByRole("link", { name: /前回のクラスを再開/ });
+    const resume = screen.getAllByRole("link", { name: /前回のモニタを再開/ })[0];
     expect(resume).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
   });
 
   it("拒否: cookie が他校/スコープ外のクラス ID でも突合で弾かれ再開リンクを出さない", async () => {
     cookieState.lastClass = OTHER_SCHOOL_CLASS_ID; // 自校 hierarchy に含まれない = RLS スコープ外相当
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.queryByText(/前回のクラスを再開/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/前回のモニタを再開/)).not.toBeInTheDocument();
     // 自校のクラスリンクだけは従来どおり出る（再開導線だけが抑止される）。
-    expect(screen.getByRole("link", { name: /1年A組/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /1年A組 を編集/ })).toHaveAttribute(
       "href",
       `/app/editor/${CLASS_ID}`,
     );
@@ -136,7 +204,7 @@ describe("EditorIndexPage 前回クラス再開（cookie 突合 / IDOR）", () =
   it("拒否: 改竄された非 UUID/インジェクション風 cookie でも例外を出さず無視する", async () => {
     cookieState.lastClass = "'; DROP TABLE classes;--";
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.queryByText(/前回のクラスを再開/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/前回のモニタを再開/)).not.toBeInTheDocument();
   });
 });
 
@@ -158,7 +226,7 @@ describe("EditorIndexPage 単一クラス teacher の自動直行（?stay ルー
   it("?stay=1 なら自動 redirect せず選択画面に留まる（無限ループ防止）", async () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({ stay: "1" }) }));
     expect(redirectMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "全クラス共通で出す" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /全クラスに一斉表示/ })[0]).toBeInTheDocument();
   });
 
   it("複数クラスなら（stay 無しでも）自動 redirect しない", async () => {
@@ -191,5 +259,34 @@ describe("EditorIndexPage 単一クラス teacher の自動直行（?stay ルー
     requireRoleMock.mockResolvedValue({ uid: "u1", role: "school_admin", schoolId: "s1" } as never);
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ドロワー (スマホ横リスト) の最低限の検証。本体ページは Server のまま、ドロワーは client island。
+ * 既定は閉じており、ハンバーガーを押すと開いてクイックアクション + 学科ごとのクラス一覧が出る。
+ */
+describe("EditorIndexPage ハンバーガー → ドロワー（client island）", () => {
+  it("既定は閉じており、ハンバーガーを押すとクイックアクションとクラス一覧が開く", async () => {
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+
+    // 既定: ドロワー (dialog) は閉じている。
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /メニュー/ }));
+
+    const dialog = screen.getByRole("dialog", { name: /モニタ一覧/ });
+    // ドロワー内に全クラス一斉と学科まとめ出しとクラス行が出る。
+    expect(within(dialog).getByRole("link", { name: /全クラスに一斉表示/ })).toHaveAttribute(
+      "href",
+      "/app/editor/scope/school",
+    );
+    expect(within(dialog).getByRole("link", { name: /この学科にまとめて出す/ })).toHaveAttribute(
+      "href",
+      `/app/editor/scope/department/${DEPT_ID}`,
+    );
+    // 学年込みラベルでクラス行が出る (年度は出さない)。
+    const clsRow = within(dialog).getByRole("link", { name: /1年A組/ });
+    expect(clsRow).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
   });
 });
