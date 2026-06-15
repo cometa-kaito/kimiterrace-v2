@@ -96,10 +96,15 @@ describe("recordMfaEnrollmentAudit (#47 ADR-031)", () => {
     await recordMfaEnrollmentAudit({ op: "enroll" });
     expect(auditValues).toMatchObject({
       actorUserId: TEACHER_UID,
+      // FK 無しの追跡カラムにも必ず uid を載せる。
+      actorIdentityUid: TEACHER_UID,
       schoolId: SCHOOL_ID,
       tableName: "users",
       recordId: TEACHER_UID,
       operation: "update",
+      // teacher は users 行ゆえ FK カラムにも uid を入れてよい。
+      createdBy: TEACHER_UID,
+      updatedBy: TEACHER_UID,
     });
   });
 
@@ -119,12 +124,17 @@ describe("recordMfaEnrollmentAudit (#47 ADR-031)", () => {
     expect(auditValues?.diff).toEqual({ mfa: { op: "unenroll", enrolledFactorCount: 0 } });
   });
 
-  it("system_admin (school_id=null) でも監査できる (cross-tenant、audit_log は null school_id 許容)", async () => {
+  it("system_admin の監査は FK カラム (actor_user_id/created_by/updated_by) を null にし actor_identity_uid に uid を載せる (FK 違反 23503 回避・view-audit と同方針)", async () => {
     requireRoleMock.mockResolvedValue(systemAdmin);
     factorCountMock.mockResolvedValue(1);
     await recordMfaEnrollmentAudit({ op: "enroll" });
     expect(factorCountMock).toHaveBeenCalledWith(SA_UID);
-    expect(auditValues).toMatchObject({ actorUserId: SA_UID, schoolId: null });
+    // system_admin は users 行ではない → users(id) への FK カラムに uid を入れると 23503 で insert が throw し
+    // 最高権限の MFA 変更監査が失われる。FK カラムは null、追跡は FK 無しの actor_identity_uid で行う。
+    expect(auditValues?.actorUserId).toBeNull();
+    expect(auditValues?.createdBy).toBeNull();
+    expect(auditValues?.updatedBy).toBeNull();
+    expect(auditValues).toMatchObject({ actorIdentityUid: SA_UID, schoolId: null });
   });
 
   it("監査 table_name は actor の所属表で解決 — system_admin は system_admins / record_id=自分 (#544 Reviewer Low-1)", async () => {
