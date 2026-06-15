@@ -129,8 +129,10 @@ export function SignageClient({
 
   // --- 広告 impression テレメトリ (#43 / F07) + 分粒度ハートビート (#322 / ADR-025)。表示中広告の view を
   //     表示開始時 + `VIEW_HEARTBEAT_MS` ごとに送る。到達は (client_id, ad_id, JST分) で dedup されるので
-  //     単一広告クラスの過少計上を解消しつつ水増ししない。tab 非表示中は送らない。送信失敗は表示を妨げない。 ---
-  const currentAdId = adCount > 0 ? (ads[safeIndex]?.adId ?? null) : null;
+  //     単一広告クラスの過少計上を解消しつつ水増ししない。tab 非表示中は送らない。送信失敗は表示を妨げない。
+  //     黒画面中 (`data.blackout`) は広告 media を出さない＝実際には誰も見ていないので view を計上しない
+  //     （黒画面で覆った広告のインプレッション水増しを防ぐ・課金健全性）。null にして本 effect を停止する。 ---
+  const currentAdId = !data.blackout && adCount > 0 ? (ads[safeIndex]?.adId ?? null) : null;
   useEffect(() => {
     if (!currentAdId) {
       return;
@@ -181,6 +183,14 @@ export function SignageClient({
 
   if (invalid) {
     return <SignageInvalid />;
+  }
+
+  // 黒画面トグル（per-class 運用・パターン非依存）。`data.blackout` が true の間は盤面の代わりに全画面の
+  // 黒画面を出す（夜間/イベント等で一時的に画面を消す）。**ポーリングは止めない**: ポーリング/時計等の
+  // effect は上で既に登録済みで本 return より後に解除されないため、`false` 復帰を拾って盤面へ自動的に戻る。
+  // `false`/`undefined`（旧 payload・取得失敗）は通常描画のままで既存挙動を壊さない（fail-soft）。
+  if (data.blackout) {
+    return <div className={styles.blackoutScreen} aria-label="サイネージ休止中（黒画面）" />;
   }
 
   // 配列 index アクセスは T|undefined。盤面コンポーネントへ T|null で渡すため undefined を null に丸める。

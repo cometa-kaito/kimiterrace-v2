@@ -31,7 +31,8 @@ export function SignageBoard({
         <Section title="予定" kind="schedules" section={daily.schedules} />
         <Section title="連絡" kind="notices" section={daily.notices} />
         <Section title="提出物" kind="assignments" section={daily.assignments} />
-        <Section title="静粛時間" kind="quietHours" section={daily.quietHours} />
+        {/* 静粛時間は盤面に出さない (2026-06-06 ユーザー確定。実機 SignageClient も非表示)。プレビューを
+            実機に一致させるため、ここでも描かない (#48-E1 SignageBoard はプレビュー専用)。 */}
       </div>
 
       <section aria-label="広告" style={adsWrapStyle}>
