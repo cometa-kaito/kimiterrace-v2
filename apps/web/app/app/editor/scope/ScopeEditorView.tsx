@@ -89,6 +89,8 @@ export async function ScopeEditorView({
       <ClassEditorShell
         ai={
           <EditorChat
+            // 対象日変更で再マウントし新日付の下書きで初期化（key 無しだと旧日付の入力が残り保存で混線する）。
+            key={data.date}
             scope={target.scope}
             targetId={assistantTargetId}
             date={data.date}
@@ -116,17 +118,31 @@ export async function ScopeEditorView({
               </p>
             ) : null}
             <div style={{ display: "grid", gap: "1rem" }}>
+              {/* key={data.date}: 対象日変更で各エディタを再マウントし、新日付のデータで state を初期化する。
+                  これが無いと useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され
+                  「中身が変更先の日付に移る」混線バグになる（class エディタと同根・ユーザー報告 2026-06-16）。 */}
               <section style={boardCardStyle}>
                 <h2 style={boardCardTitleStyle}>予定</h2>
-                <ScheduleEditor target={target} date={data.date} initialItems={data.schedule} />
+                <ScheduleEditor
+                  key={data.date}
+                  target={target}
+                  date={data.date}
+                  initialItems={data.schedule}
+                />
               </section>
               <section style={boardCardStyle}>
                 <h2 style={boardCardTitleStyle}>連絡</h2>
-                <NoticeEditor target={target} date={data.date} initialItems={data.notices} />
+                <NoticeEditor
+                  key={data.date}
+                  target={target}
+                  date={data.date}
+                  initialItems={data.notices}
+                />
               </section>
               <section style={boardCardStyle}>
                 <h2 style={boardCardTitleStyle}>提出物</h2>
                 <AssignmentEditor
+                  key={data.date}
                   target={target}
                   date={data.date}
                   initialItems={data.assignments}
