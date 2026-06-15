@@ -54,8 +54,10 @@ export function AssignmentEditor({
 
   const items = toAssignmentItems(rows);
   const serialized = serializeForDirty(items);
-  // 提出物名が空・締切が不正な行があるうちは保存しない（入力が揃った時点で自動保存）。
-  const complete = rows.every((r) => r.task.trim().length > 0 && isValidDate(r.deadline));
+  // 科目名・提出物名が空 / 締切が不正な行があるうちは保存しない（サーバ必須項目が揃った時点で自動保存）。
+  const complete = rows.every(
+    (r) => r.subject.trim().length > 0 && r.task.trim().length > 0 && isValidDate(r.deadline),
+  );
   const auto = useAutoSaveSection({
     serialized,
     items,

@@ -14,7 +14,12 @@ type Props = {
   complete: boolean;
 };
 
-function setup(initial: Props, save = vi.fn(async () => ({ ok: true as const }))) {
+type SaveResult = { ok: true } | { ok: false; error: { message: string } };
+
+function setup(
+  initial: Props,
+  save: (items: unknown[]) => Promise<SaveResult> = vi.fn(async () => ({ ok: true as const })),
+) {
   const { result, rerender } = renderHook(
     (props: Props) => useAutoSaveSection({ ...props, save, debounceMs: 800 }),
     { initialProps: initial },

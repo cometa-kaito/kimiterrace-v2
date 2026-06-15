@@ -74,11 +74,17 @@ export function ScheduleEditor({
 
   const items = toScheduleItems(rows);
   const serialized = serializeForDirty(items);
-  // 全行が有効（科目あり・時限 1..12）なら自動保存。未入力の行があるうちは保存しない（誤検証を避ける）。
-  const complete = rows.every(
-    (r) =>
-      r.subject.trim().length > 0 && Number.isInteger(r.period) && r.period >= 1 && r.period <= 12,
-  );
+  // 全行が有効（科目あり・時限 1..12）かつ時限が重複しないなら自動保存。未入力/重複があるうちは保存しない
+  // （サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
+  const periods = rows.map((r) => r.period);
+  const complete =
+    rows.every(
+      (r) =>
+        r.subject.trim().length > 0 &&
+        Number.isInteger(r.period) &&
+        r.period >= 1 &&
+        r.period <= 12,
+    ) && new Set(periods).size === periods.length;
   const auto = useAutoSaveSection({
     serialized,
     items,
