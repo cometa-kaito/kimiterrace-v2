@@ -148,6 +148,10 @@ export function createVertexAssistantChatClient(
           tokenCount: usage?.outputTokens ?? 0,
         };
       })();
+      // 中断（abortSignal）や mid-stream 障害では `result.usage` が reject する。handler が partialStream の
+      // throw で先に catch へ抜け `done` を await しない経路（ストール中断等）でも unhandledRejection を出さない
+      // よう、no-op handler を 1 つ付けておく（戻り値の `done` は引き続き呼び出し側が await して値を取れる）。
+      done.catch(() => {});
 
       return { partialStream: result.partialObjectStream, done };
     },
