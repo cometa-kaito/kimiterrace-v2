@@ -63,6 +63,30 @@ describe("createVertexNoticeStreamClient", () => {
     expect(arg.output).toBe("array");
     // 要素スキーマが渡っている（構造のみ規定）。
     expect(arg.schema).toBeDefined();
+    // 既定生成パラメータ: 忠実寄り温度 + 短文連絡向け出力上限（thinking は未指定＝SDK 既定）。
+    expect(arg.temperature).toBe(0.3);
+    expect(arg.maxOutputTokens).toBe(1024);
+    expect(arg.providerOptions).toBeUndefined();
+  });
+
+  it("config.tuning が既定を上書きし、thinkingBudget は providerOptions へ写る", async () => {
+    streamObjectMock.mockReturnValue(
+      fakeStreamResult({ elements: [{ text: "連絡", isHighlight: false }] }),
+    );
+    const client = createVertexNoticeStreamClient({
+      project: "p",
+      location: "l",
+      tuning: { maxOutputTokens: 512, thinkingBudget: 128 },
+    });
+
+    await collect(client.stream({ system: "s", user: "u" }).elementStream);
+    const arg = streamObjectMock.mock.calls[0]?.[0];
+    // maxOutputTokens は上書き、temperature は既定維持、thinkingBudget は providerOptions に載る。
+    expect(arg.temperature).toBe(0.3);
+    expect(arg.maxOutputTokens).toBe(512);
+    expect(arg.providerOptions).toEqual({
+      google: { thinkingConfig: { thinkingBudget: 128, includeThoughts: false } },
+    });
   });
 
   it("done は指定 modelVersion・応答（output）トークン数を返す", async () => {

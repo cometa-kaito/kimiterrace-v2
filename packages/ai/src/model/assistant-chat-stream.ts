@@ -1,6 +1,12 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { streamObject } from "ai";
 import { z } from "zod";
+import {
+  DRAFT_TEMPERATURE,
+  type GenerationTuning,
+  mergeTuning,
+  toGenerationOptions,
+} from "./generation-tuning.js";
 
 /**
  * 会話型 AI アシスタント（学校エディタ・finding 2b, ADR-033/036 の発展）の **構造化オブジェクト・
@@ -30,10 +36,25 @@ export interface VertexAssistantChatConfig {
   location: string;
   /** バージョンピンしたモデル ID。既定は {@link DEFAULT_MODEL_ID}。 */
   modelId?: string;
+  /**
+   * 生成パラメータの上書き（任意）。未指定フィールドはクライアント既定（{@link DEFAULT_TUNING}）に従う。
+   * 配線層が env から thinking budget 等を注入できるよう外出しする（#593）。
+   */
+  tuning?: GenerationTuning;
 }
 
 /** 既定モデル。F03/F06/F08 と揃える（ADR-017 / #289 ④）。 */
 const DEFAULT_MODEL_ID = "gemini-2.5-flash";
+
+/**
+ * 会話アシスタントの既定生成パラメータ。温度は忠実寄り（{@link DRAFT_TEMPERATURE}）、出力上限は
+ * 「会話応答 + 1 ターン分の構造化下書き」を十分賄える 2048。thinking budget は既定 SDK dynamic
+ * （配線層が env で絞れる）。
+ */
+const DEFAULT_TUNING: GenerationTuning = {
+  temperature: DRAFT_TEMPERATURE,
+  maxOutputTokens: 2048,
+};
 
 /**
  * 1 ターンの構造化出力スキーマ（**構造のみ**）。`reply` を先頭に置き、配列より先に流れる（会話の体感速度）。
@@ -95,6 +116,8 @@ export function createVertexAssistantChatClient(
 ): VertexAssistantChatClient {
   const vertex = createVertex({ project: config.project, location: config.location });
   const modelId = config.modelId ?? DEFAULT_MODEL_ID;
+  // 既定（忠実寄り温度 + 出力上限）に呼び出し側 tuning をフィールド単位で重ねる（env 由来の thinking 等）。
+  const genOptions = toGenerationOptions(mergeTuning(DEFAULT_TUNING, config.tuning));
 
   return {
     stream(req: { system: string; user: string }): AssistantChatStreamResult {
@@ -105,6 +128,9 @@ export function createVertexAssistantChatClient(
         schema: assistantTurnSchema,
         system: req.system,
         prompt: req.user,
+        // 生成パラメータ（temperature / maxOutputTokens / providerOptions.thinkingConfig）。創作抑制・
+        // 暴走防止・レイテンシ調整（generation-tuning）。未指定キーは生やさず SDK 既定を尊重。
+        ...genOptions,
       });
 
       const done = (async () => {
