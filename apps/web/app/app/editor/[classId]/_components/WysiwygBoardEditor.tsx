@@ -110,8 +110,16 @@ export function WysiwygBoardEditor({
     if (!card) {
       return;
     }
-    card.scrollIntoView({ behavior: "smooth", block: "center" });
-    // カード内の最初のフォーカス可能要素（入力欄）へフォーカス（無ければカード自体は素通り）。
+    // クリック後に「画面がバッと変わる」驚きを抑える: 移動距離を最小化（block:"nearest" で必要分だけ寄せる）し、
+    // 視覚過敏設定（prefers-reduced-motion: reduce）の利用者にはアニメーションを切って瞬間移動にする（NFR05）。
+    // scrollIntoView は jsdom 未実装なので任意呼び出し（テスト環境で throw しない）。
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    card.scrollIntoView?.({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+    // カード内の最初のフォーカス可能要素（入力欄）へフォーカス。フォーカス自体はスクロールを誘発させない
+    //（preventScroll: true）= 上の滑らかな最小寄せだけが効く。無ければカード自体は素通り。
     const focusable = card.querySelector<HTMLElement>(
       "input, select, textarea, button:not([disabled])",
     );

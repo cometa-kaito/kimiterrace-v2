@@ -10,7 +10,7 @@ import {
   targetId,
 } from "@/lib/editor/schedule-core";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
   inputStyle,
@@ -116,25 +116,95 @@ export function ScheduleEditor({
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
-  function addRow() {
-    // 既定は従来通り次の空き番号（数値時限のみ対象。特殊スロットは max 計算に含めない）。
-    const numericPeriods = rows.map((r) => r.period).filter((p): p is number => !isSpecialSlot(p));
-    const nextPeriod = numericPeriods.length > 0 ? Math.max(...numericPeriods) + 1 : 1;
-    setRows((prev) => [
-      ...prev,
-      { period: nextPeriod, subject: "", note: "", location: "", targetAudience: "" },
-    ]);
-  }
+  // 安定参照（onCellKeyDown の依存・JSX 双方から使う）。次の空き番号は updater 内で prev から計算するので
+  // rows に依存せず、Tab 縦移動の最終行追加でも常に最新行を基準にできる。挙動は従来と同一（数値時限のみ対象・
+  // 特殊スロットは max 計算に含めない）。
+  const addRow = useCallback(() => {
+    setRows((prev) => {
+      const numericPeriods = prev
+        .map((r) => r.period)
+        .filter((p): p is number => !isSpecialSlot(p));
+      const nextPeriod = numericPeriods.length > 0 ? Math.max(...numericPeriods) + 1 : 1;
+      return [
+        ...prev,
+        { period: nextPeriod, subject: "", note: "", location: "", targetAudience: "" },
+      ];
+    });
+  }, []);
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // --- Tab 縦移動（スプレッドシート風の連続入力） ---
+  // 入力セルを `row:col` でキー登録した ref マップ。Tab で同じ列の次の行へ（縦移動）フォーカスを移す。
+  // col: 0=時限 / 1=科目 / 2=補足 / 3=場所 / 4=対象者。保存/検証/RLS/監査の挙動には一切触れない（フォーカス制御のみ）。
+  const cellRefs = useRef(new Map<string, HTMLElement>());
+  // 新規行追加直後にフォーカスしたいセル（addRow は非同期に行が増えるため、描画後 effect で当てる）。
+  const pendingFocusRef = useRef<{ row: number; col: number } | null>(null);
+
+  const registerCell = useCallback((row: number, col: number, el: HTMLElement | null) => {
+    const key = `${row}:${col}`;
+    if (el) {
+      cellRefs.current.set(key, el);
+    } else {
+      cellRefs.current.delete(key);
+    }
+  }, []);
+
+  const focusCell = useCallback((row: number, col: number): boolean => {
+    const el = cellRefs.current.get(`${row}:${col}`);
+    if (el) {
+      el.focus();
+      return true;
+    }
+    return false;
+  }, []);
+
+  // 行数が変わった後（addRow で増えた直後）に保留中のフォーカスを当てる。当たらなければ何もしない。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 行数(rows.length)変化を effect の起動条件にする
+  useEffect(() => {
+    const pending = pendingFocusRef.current;
+    if (pending && focusCell(pending.row, pending.col)) {
+      pendingFocusRef.current = null;
+    }
+  }, [rows.length, focusCell]);
+
+  // 予定テーブルの Tab を縦移動にする。Tab=同 col の次行 / Shift+Tab=同 col の前行。最終行で Tab を押したら
+  // 新規行を追加して同 col にフォーカス（連続入力を速く）。先頭行で Shift+Tab・端の列は既定動作に委ねる
+  //（フォーカストラップを作らない＝削除ボタンや画面外への離脱を妨げない）。
+  const onCellKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLElement>, row: number, col: number) => {
+      if (e.key !== "Tab") {
+        return;
+      }
+      if (e.shiftKey) {
+        // 前の行の同じ列へ。先頭行なら既定動作（前の列/前要素へ）に委ねる。
+        if (row > 0) {
+          e.preventDefault();
+          focusCell(row - 1, col);
+        }
+        return;
+      }
+      // 下の行の同じ列へ。最終行なら新規行を追加して同 col にフォーカスする。
+      e.preventDefault();
+      if (row < rows.length - 1) {
+        focusCell(row + 1, col);
+      } else {
+        pendingFocusRef.current = { row: row + 1, col };
+        addRow();
+      }
+    },
+    [rows.length, focusCell, addRow],
+  );
+
   async function changeDate(next: string) {
-    // 未保存分があれば確実に保存してから対象日を切り替える（自動保存 debounce の取りこぼし防止）。
+    // 未保存分があれば確実に保存してから対象日を切り替える（自動保存 debounce の取りこぼし防止・順序維持）。
     if (auto.dirty) {
       await auto.flush();
     }
-    router.push(`${editorBasePath(target)}?date=${next}`);
+    // scroll: false で App Router 既定のページ先頭スクロールリセットを抑止し、対象日変更後も予定エディタの
+    // 位置に留まる（key={date} 再マウントは維持）。保存/RLS/監査の挙動には触れない。
+    router.push(`${editorBasePath(target)}?date=${next}`, { scroll: false });
   }
 
   return (
@@ -168,8 +238,10 @@ export function ScheduleEditor({
               <tr key={i}>
                 <td style={tdStyle}>
                   <select
+                    ref={(el) => registerCell(i, 0, el)}
                     value={String(r.period)}
                     onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                     style={{ ...inputStyle, width: "6rem" }}
                     aria-label={`${i + 1} 行目の時限`}
                   >
@@ -182,8 +254,10 @@ export function ScheduleEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 1, el)}
                     value={r.subject}
                     onChange={(e) => update(i, { subject: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 1)}
                     placeholder="科目名"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の科目名`}
@@ -191,8 +265,10 @@ export function ScheduleEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 2, el)}
                     value={r.note}
                     onChange={(e) => update(i, { note: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 2)}
                     placeholder="(任意)"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の補足`}
@@ -200,8 +276,10 @@ export function ScheduleEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 3, el)}
                     value={r.location}
                     onChange={(e) => update(i, { location: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 3)}
                     placeholder="(任意) 体育館 等"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の場所`}
@@ -209,8 +287,10 @@ export function ScheduleEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 4, el)}
                     value={r.targetAudience}
                     onChange={(e) => update(i, { targetAudience: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 4)}
                     placeholder="(任意) 3年生 等"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の対象者`}

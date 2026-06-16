@@ -71,6 +71,9 @@ function base(): EditorBoardBase {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  // 一部テストで window.matchMedia を上書きするので毎回未定義へ戻す（他テストへの漏れ防止。jsdom 既定は未実装）。
+  // focusRegion は typeof window.matchMedia === "function" でガードしているので undefined でも安全。
+  (window as { matchMedia?: unknown }).matchMedia = undefined;
 });
 
 describe("WysiwygBoardEditor", () => {
@@ -139,6 +142,53 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByRole("button", { name: "連絡を編集" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
+  });
+
+  it("領域クリックの遷移は smooth + block:nearest で最小移動・フォーカスは preventScroll（改善2: 急な飛びを減らす）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[{ text: "既存連絡" }]}
+        initialAssignments={[]}
+      />,
+    );
+    // scrollIntoView は jsdom 未実装。スパイを当てて引数（behavior/block）を観測する。
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    // prefers-reduced-motion: reduce ではない既定（matchMedia.matches=false）→ smooth。
+    window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as unknown as typeof matchMedia;
+    // フォーカス対象（連絡入力）の focus 呼び出し引数（preventScroll）を観測。
+    const noticeInput = screen.getByPlaceholderText("連絡事項") as HTMLInputElement;
+    const focusSpy = vi.spyOn(noticeInput, "focus");
+
+    fireEvent.click(screen.getByRole("button", { name: "連絡を編集" }));
+
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it("prefers-reduced-motion: reduce では smooth を無効化して瞬間移動する（改善2: NFR05）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[{ text: "既存連絡" }]}
+        initialAssignments={[]}
+      />,
+    );
+    const scrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    // reduce 設定の利用者: matches=true → behavior:auto（瞬間移動）。
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as unknown as typeof matchMedia;
+
+    fireEvent.click(screen.getByRole("button", { name: "連絡を編集" }));
+
+    expect(scrollSpy).toHaveBeenCalledWith({ behavior: "auto", block: "nearest" });
   });
 
   it("連絡を編集するとライブプレビュー盤面に反映される（プレビュー連動）", () => {
