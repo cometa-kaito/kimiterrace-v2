@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "0a01b5c" # 0a01b5c: #967 WYSIWYG編集の領域クリックを実エリア直接方式(A)に作り替え（盤面の予定/連絡/提出物の実セクションを inset:0 で押せる/光る化＝編集枠のズレ解消。editRegions 任意で live TV/壁は不変）。schema/secret 無変更=migrate 不要・疎通200
+  web_image_tag = "8aefde1" # 8aefde1: #970 WYSIWYG盤面プレビューの縮小率をコンテナ幅に自動調整（ResizeObserver計測→明示width＝cqw非依存。右・下のクリップ解消。editor専用でlive TV/壁は無改変）。schema/secret 無変更=migrate 不要・疎通200
 }
 
 module "network" {
