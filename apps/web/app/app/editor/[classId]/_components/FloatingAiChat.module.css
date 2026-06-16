@@ -1,0 +1,174 @@
+/*
+ * 右下に浮く AI 支援チャット（FAB + パネル）。
+ *
+ * 盤面編集（本画面）を主役に保ったまま、AI 会話を「必要なときに呼び出す支援」に格下げするための
+ * 汎用ラッパ（children に EditorChat を渡す）。
+ * - FAB: `position: fixed` の右下ボタン（親指で届く・常時表示）。開閉で aria-expanded を切り替える。
+ * - パネル: デスクトップは右下に浮くカード、モバイル(≤640px)は下からのボトムシート（ほぼ全画面）。
+ *   背面（盤面）はスクロール可のまま＝重い modal にしない（背景オーバーレイで全操作をブロックしない）。
+ * インライン style では media query / fixed / safe-area / keyframes が書けないため module 化した。
+ * 色・角丸は tokens.ts と同値（primary #ea580c / primaryHover #c2410c / border #e5e7eb /
+ * ink #1f2937 / muted #6b7280 / bgSoft #f7f8fa / radius.lg 1rem / radius.md 0.6rem）。
+ */
+
+/* 右下に浮く起動ボタン（FAB）。パネルが開いているときは隠す（× で閉じる導線に一本化）。 */
+.fab {
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 52px;
+  padding: 0.7rem 1.15rem;
+  border: none;
+  border-radius: 999px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(234, 88, 12, 0.35);
+  transition:
+    background 0.15s ease,
+    transform 0.08s ease,
+    box-shadow 0.15s ease;
+}
+.fab:hover {
+  background: #c2410c;
+}
+.fab:active {
+  transform: scale(0.96);
+}
+.fab:focus-visible {
+  outline: 2px solid #2b4acb;
+  outline-offset: 2px;
+}
+.fabIcon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* モバイルでは下部固定ナビ的に被らないよう少し控えめに（ラベルは維持・タップ高は確保）。 */
+@media (max-width: 640px) {
+  .fab {
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.65rem 1rem;
+  }
+}
+
+/* パネル本体: デスクトップは右下に浮くカード。盤面を隠しすぎない幅 × 適度な高さ + 内部スクロール。 */
+.panel {
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 2.5rem));
+  height: min(70vh, 640px);
+  max-height: calc(100dvh - 2.5rem);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: ktPanelIn 0.22s cubic-bezier(0.2, 0.85, 0.25, 1.05) both;
+}
+
+/* モバイル: 下からのボトムシート（ほぼ全画面）。親指で届く × を上部に。 */
+@media (max-width: 640px) {
+  .panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 92dvh;
+    max-height: 92dvh;
+    border-radius: 1rem 1rem 0 0;
+    border-bottom: none;
+    animation: ktSheetIn 0.24s cubic-bezier(0.2, 0.85, 0.25, 1.05) both;
+  }
+}
+
+/* パネル上部のヘッダ（タイトル + 閉じる）。 */
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 0.5rem 0.7rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f7f8fa;
+  flex: none;
+}
+.panelTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1f2937;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.close {
+  width: 40px;
+  min-height: 40px;
+  border: none;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: #6b7280;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.close:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+.close:focus-visible {
+  outline: 2px solid #2b4acb;
+  outline-offset: 1px;
+}
+
+/* パネル本体（children = EditorChat が高さ 100% で満たす）。内部スクロールは EditorChat の .thread が担う。 */
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes ktPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ktSheetIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* 視覚過敏設定では動きを止める（NFR05・出現の意味は配置/文言で伝わる）。 */
+@media (prefers-reduced-motion: reduce) {
+  .fab,
+  .fab:active {
+    transition: none;
+    transform: none;
+  }
+  .panel {
+    animation: none;
+  }
+}

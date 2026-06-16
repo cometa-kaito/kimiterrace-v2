@@ -7,7 +7,6 @@ import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
-import { SignageBoard } from "@/app/app/signage-preview/[classId]/_components/SignageBoard";
 import { getClassSignageBlackout } from "@/lib/signage/blackout";
 import {
   getEffectiveDailyData,
@@ -28,28 +27,27 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { CalloutsEditor } from "./_components/CalloutsEditor";
-import { ClassEditorShell } from "./_components/ClassEditorShell";
+import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { VisitorsEditor } from "./_components/VisitorsEditor";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
 import boardLayout from "./_components/board-layout.module.css";
 
 /**
- * クラス別エディタ — 会話型 AI への作り直し（finding 2b・学校体験リニューアル 2026-06-13）。
+ * クラス別エディタ — **盤面エディタを本画面・AI は浮遊チャット**（ユーザー判断 2026-06-16）。
  *
  * `/app` 配下 (#48-C layout で認証) + 本ページで `EDITOR_ROLES` (teacher / school_admin) に限定。
  * `?date=YYYY-MM-DD` で対象日（既定は JST 今日）。別テナントのクラスは RLS 不可視 → 404。
  *
- * **タブ shell（{@link ClassEditorShell}）**: 「AIで作る（会話型 {@link EditorChat}）/ 盤面を編集 /
- * プレビュー」。開いた瞬間は **AI タブが既定**（話して作るを主役に）。旧ポップオーバー Assistant と
- * 表紙の 4 リンク（サイネージ確認 / 生徒リンク / 掲示物Q&A / 音声入力）は撤去（ユーザー判断 2026-06-13）:
- * サイネージ確認は**プレビュータブ**へ、生徒リンク発行は**管理者面へ移管**、掲示物Q&A・音声入力は
- * **会話型 AI に内包**。`広告管理` / `静粛時間` は school_admin の per-class 管理導線として「盤面を編集」
- * タブに残す（teacher には出さない＝死リンク防止）。
+ * **構成（タブ shell 廃止）**: WYSIWYG 盤面エディタ（{@link WysiwygBoardEditor}）を直接の本画面にし
+ * （ライブ盤面が旧「プレビュー」タブを兼ねるので preview タブは廃止）、会話型 AI（{@link EditorChat}）は
+ * 右下に浮く支援チャット（{@link FloatingAiChat} の FAB → パネル）に格下げする。`広告管理` / `静粛時間` は
+ * school_admin の per-class 管理導線として盤面の上に残す（teacher には出さない＝死リンク防止）。
+ * 黒画面トグル（{@link BlackoutToggle}）は実教室へ即時影響する強い操作なので最下部にまとめる。
  *
  * 反映の取りこぼし防止: 会話の下書きを**現在の盤面でシード**する（per-section save は置換のため、AI が
- * 触れなかったセクションも全体像として保持してから反映する）。許可セクション（pattern 準拠）の解決と
- * 盤面プレビュー内蔵は AI レーン meta + その他レーン pattern 単一ソースで段階的に効く。
+ * 触れなかったセクションも全体像として保持してから反映する）。`key={date}`（対象日変更で各エディタ・AI を
+ * 再マウントし新日付で初期化）と Approach A（盤面実セクションを覆う編集ボタン）は維持する。
  */
 const JST = "Asia/Tokyo";
 
@@ -166,9 +164,9 @@ export default async function ClassEditorPage({
 
   return (
     <>
-      {/* 画面付随物（戻る + クラス名）は小さく薄いパンくずに格下げ＝主役（タブ以下の編集面）に視線が
-          向くようにする（ユーザー指摘 2026-06-15）。クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ
-          控えめにする。?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
+      {/* 画面付随物（戻る + クラス名）は小さく薄いパンくずに格下げ＝主役（盤面エディタ）に視線が向くように
+          する（ユーザー指摘 2026-06-15）。クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ控えめにする。
+          ?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
       <nav aria-label="パンくず" style={breadcrumbRowStyle}>
         <Link href="/app/editor?stay=1" style={breadcrumbBackStyle}>
           <span aria-hidden="true">‹</span> 戻る
@@ -179,121 +177,108 @@ export default async function ClassEditorPage({
         <h1 style={classTitleStyle}>{schedule.className}</h1>
       </nav>
 
-      <ClassEditorShell
-        ai={
-          <EditorChat
-            // 対象日変更時は再マウントして新日付の下書きで初期化する（key 無しだと useState が初期化されず
-            // 旧日付の中身が残り、保存で新日付に移ってしまうデータ混線バグになる）。
-            key={date}
-            scope="class"
-            targetId={classId}
-            date={date}
-            initialDraft={{
-              schedules: schedule.items,
-              notices: notices.items,
-              assignments: assignments.items,
-            }}
-          />
-        }
-        board={
-          <>
-            {canManageAds || canManageQuietHours ? (
-              <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 1rem" }}>
-                {canManageAds ? (
-                  <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-                    広告管理 →
-                  </Link>
-                ) : null}
-                {canManageQuietHours ? (
-                  <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
-                    静粛時間 →
-                  </Link>
-                ) : null}
-              </p>
-            ) : null}
-            {/* 盤面を編集タブ: 実サイネージ配置（50 インチ TV と同一の `SignageBoardView`）の上で見ながら編集する
-                WYSIWYG（PR・B）。上段に実機と同一レイアウトの大きなライブプレビューを出し、領域クリックで該当
-                セクションの編集欄へ移動・フォーカスする（連動プレビュー）。各セクションの保存・検証・自動保存・
-                scope・RLS/監査は従来の ScheduleEditor / NoticeEditor / AssignmentEditor が温存して担う（UI 導線
-                だけを実配置上の編集に載せ替え）。見出し「予定」「連絡」「提出物」と placeholder は維持（e2e 温存）。
-                スマホ（≤899px）はプレビューを畳み従来の縦積みフォームに倒す。 */}
-            <WysiwygBoardEditor
-              // 対象日変更時は再マウントして新日付のデータで初期化する。これが無いと WysiwygBoardEditor と
-              // 配下の Schedule/Notice/Assignment エディタの useState(initial...) が再初期化されず、旧日付の
-              // 入力が残ったまま保存され「中身が変更先の日付に移る」混線バグになる（ユーザー報告 2026-06-16）。
-              key={date}
-              classId={classId}
-              date={date}
-              base={boardBase}
-              initialSchedules={schedule.items}
-              initialNotices={notices.items}
-              initialAssignments={assignments.items}
-            />
-            {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで
-                出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
-                各エディタは自前の見出し・幅を持つのでセル内に素直に収まる。 */}
-            {showVisitors || showCallouts ? (
-              <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-                {showVisitors && visitors ? (
-                  // key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。
-                  <VisitorsEditor
-                    key={date}
-                    classId={classId}
-                    date={date}
-                    initialItems={visitors}
-                  />
-                ) : null}
-                {showCallouts && callouts ? (
-                  <CalloutsEditor
-                    key={date}
-                    classId={classId}
-                    date={date}
-                    initialItems={callouts}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        }
-        preview={
-          <div>
-            {/* 黒画面トグル（per-class 運用）。実教室のサイネージを一時的に真っ黒にする / 解除する。実画面に
-                即時影響するので押下時に確認を挟む（BlackoutToggle 側）。既存の全画面導線 + 埋め込みプレビューの
-                上に置く。 */}
-            <BlackoutToggle classId={classId} initialBlackout={blackout} />
-            {/* 教室のサイネージに「今どう出るか」をページ内に埋め込む（SignageBoard を直接描画＝iframe/
-                シェル二重化なし）。別タブの全画面表示は補助導線として残す。 */}
-            <p style={{ margin: "0 0 0.75rem" }}>
-              <Link
-                href={`/app/signage-preview/${classId}?date=${date}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
-              >
-                別タブで全画面表示 →
-              </Link>
-            </p>
-            {previewDaily ? (
-              <div style={previewFrameStyle}>
-                <SignageBoard date={date} daily={previewDaily} ads={previewAds} />
-              </div>
-            ) : (
-              <p style={{ color: tokens.color.muted }}>プレビューを表示できませんでした。</p>
-            )}
-          </div>
-        }
+      {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線。teacher には出さない（死リンク防止）。盤面の上に残す。 */}
+      {canManageAds || canManageQuietHours ? (
+        <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 1rem" }}>
+          {canManageAds ? (
+            <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+              広告管理 →
+            </Link>
+          ) : null}
+          {canManageQuietHours ? (
+            <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
+              静粛時間 →
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
+
+      {/* 本画面: 実サイネージ配置（50 インチ TV と同一の `SignageBoardView`）の上で見ながら編集する WYSIWYG。
+          ライブ盤面が旧「プレビュー」タブを兼ねるので preview タブは廃止した。領域クリックで該当セクションの
+          編集欄へ移動・フォーカスする（連動プレビュー）。各セクションの保存・検証・自動保存・scope・RLS/監査は
+          従来の ScheduleEditor / NoticeEditor / AssignmentEditor が温存して担う。見出し「予定」「連絡」「提出物」と
+          placeholder は維持（e2e 温存）。スマホ（≤899px）はプレビューを畳み従来の縦積みフォームに倒す。
+          key={date}: 対象日変更時に再マウントして新日付のデータで初期化する。これが無いと配下エディタの
+          useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
+          混線バグになる（ユーザー報告 2026-06-16）。 */}
+      <WysiwygBoardEditor
+        key={date}
+        classId={classId}
+        date={date}
+        base={boardBase}
+        initialSchedules={schedule.items}
+        initialNotices={notices.items}
+        initialAssignments={assignments.items}
       />
+
+      {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで盤面の
+          下に出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
+          key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。 */}
+      {showVisitors || showCallouts ? (
+        <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
+          {showVisitors && visitors ? (
+            <VisitorsEditor key={date} classId={classId} date={date} initialItems={visitors} />
+          ) : null}
+          {showCallouts && callouts ? (
+            <CalloutsEditor key={date} classId={classId} date={date} initialItems={callouts} />
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 全画面表示（旧プレビュータブの有用導線）は最下部付近に小さく残す。 */}
+      <p style={{ margin: "1.5rem 0 0.75rem" }}>
+        <Link
+          href={`/app/signage-preview/${classId}?date=${date}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+        >
+          別タブで全画面表示 →
+        </Link>
+      </p>
+
+      {/* 黒画面トグル（per-class 運用）= 編集画面の最下部。実教室のサイネージを一時的に真っ黒にする / 解除する。
+          実画面に即時影響するので押下時に確認を挟む（BlackoutToggle 側）。見出し・現在状態・説明文も内包する。 */}
+      <section aria-labelledby="blackout-heading" style={blackoutSectionStyle}>
+        <h2 id="blackout-heading" style={blackoutHeadingStyle}>
+          サイネージを黒画面にする
+        </h2>
+        <BlackoutToggle classId={classId} initialBlackout={blackout} />
+      </section>
+
       <RememberLastClass classId={classId} />
+
+      {/* AI は右下に浮く支援チャット（タブ shell 廃止）。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。
+          key={date}: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。 */}
+      <FloatingAiChat>
+        <EditorChat
+          key={date}
+          scope="class"
+          targetId={classId}
+          date={date}
+          initialDraft={{
+            schedules: schedule.items,
+            notices: notices.items,
+            assignments: assignments.items,
+          }}
+          variant="floating"
+        />
+      </FloatingAiChat>
     </>
   );
 }
 
-// プレビュータブ: サイネージ盤面をページ内に埋め込む枠（白背景＝教室での実表示に近い見え方）。
-const previewFrameStyle: React.CSSProperties = {
-  border: `1px solid ${tokens.color.border}`,
-  borderRadius: tokens.radius.lg,
-  padding: "1.25rem",
-  background: "#fff",
+// 黒画面トグル節（編集画面の最下部）。見出し + トグル + 説明をまとめる枠。
+const blackoutSectionStyle: React.CSSProperties = {
+  marginTop: "2rem",
+  paddingTop: "1.25rem",
+  borderTop: `1px solid ${tokens.color.border}`,
+};
+const blackoutHeadingStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.md,
+  fontWeight: 600,
+  color: tokens.color.ink,
+  margin: "0 0 0.6rem",
 };
 
 // 画面付随物（戻る/クラス名）を小さく薄く＝主役の邪魔をしないパンくず。

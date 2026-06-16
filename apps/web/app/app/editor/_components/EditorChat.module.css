@@ -1,9 +1,10 @@
 /*
- * AIで作るタブ = 全画面チャット（LINE風）。
- * - PC: `.chat` がビューポート高を占有し、会話(.thread)は内部スクロール、入力欄(.composer)は最下部に常時表示。
- * - モバイル(≤640px): タブは画面下の固定ナビ(ClassEditorShell)になるため、`.chat` は自然フロー（ページ
- *   スクロール）にし、入力欄(.composer)は **下部固定タブの上** に sticky 固定する（フッターと入力欄が
- *   被らないように・ユーザー要望 2026-06-15）。
+ * 会話型 AI = 全画面チャット（LINE風）。
+ * - PC: `.chat`（variant="page"）がビューポート高を占有し、会話(.thread)は内部スクロール、入力欄(.composer)は
+ *   最下部に常時表示。`variant="floating"`（FloatingAiChat の浮遊パネル内）では `.floating` で親パネルを
+ *   高さ 100% で満たす（dvh 計算・負 margin を打ち消す。下の `.floating` 参照）。
+ * - モバイル(≤640px): page では `.chat` がビューポート高を占有し最下部に入力欄を固定。floating はボトムシート
+ *   （FloatingAiChat 側）が高さを与えるので `.floating` が 100% で満たす。
  * 下書きの確認は「右ペイン常設」をやめ、会話の中に確認カード（反映/直す）として出す。
  * インライン style では height calc / media query / :hover / keyframes が書けないため module 化。
  * 色は tokens.ts と同値（border #e5e7eb / bgSoft #f7f8fa / ink #1f2937 / muted #6b7280 /
@@ -31,6 +32,33 @@
     margin-bottom: -1rem;
   }
 }
+/*
+ * 浮遊パネル（FloatingAiChat）内に置く形態。`.chat` の dvh ベース高さ・負 margin は「ページ最下部に
+ * 張り付く全画面チャット」前提なのでパネル内では破綻する。floating ではパネル本体（高さ確定）を 100% で
+ * 満たし、会話の内部スクロールはそのまま `.thread` が担う。会話・保存・SSE の挙動には一切触れない。
+ */
+.floating {
+  height: 100%;
+  min-height: 0;
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+}
+@media (max-width: 768px) and (min-width: 641px) {
+  .floating {
+    margin-bottom: 0;
+  }
+}
+@media (max-width: 640px) {
+  .floating {
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+    margin-bottom: 0;
+  }
+}
+
 .thread {
   flex: 1;
   min-height: 0;

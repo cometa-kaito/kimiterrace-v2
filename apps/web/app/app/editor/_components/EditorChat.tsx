@@ -47,11 +47,19 @@ export function EditorChat({
   targetId,
   date,
   initialDraft,
+  variant = "page",
 }: {
   scope: string;
   targetId: string;
   date: string;
   initialDraft?: AssistantDraft;
+  /**
+   * レイアウト形態。`"page"`（既定）は従来どおりビューポート高を占める全画面チャット。`"floating"` は
+   * {@link "../[classId]/_components/FloatingAiChat"} の浮遊パネル内に収まるよう、親（パネル本体）の高さを
+   * 100% で満たす（dvh ベースの高さ計算・負 margin を打ち消す）。**会話・保存・SSE の挙動は変えず、外枠の
+   * 高さの取り方だけを切り替える**（パネルが内部スクロールを担うため）。
+   */
+  variant?: "page" | "floating";
 }) {
   const [state, setState] = useState<ChatState>(() => initialChatState(initialDraft));
   const [input, setInput] = useState("");
@@ -224,7 +232,10 @@ export function EditorChat({
   const showConfirm = state.status === "done" && draftHasItems(state.draft) && !confirmHidden;
 
   return (
-    <section aria-label="AIアシスタント" className={styles.chat}>
+    <section
+      aria-label="AIアシスタント"
+      className={variant === "floating" ? `${styles.chat} ${styles.floating}` : styles.chat}
+    >
       <div className={styles.thread}>
         <Bubble from="assistant">{GREETING}</Bubble>
         {state.messages.map((m, i) => (
