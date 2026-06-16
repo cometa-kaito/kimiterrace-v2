@@ -1,4 +1,5 @@
 import { isAiEnabled } from "@/lib/ai/ai-enabled";
+import { resolveEditorModelConfig } from "@/lib/ai/editor-model-config";
 import { getDb } from "@/lib/db";
 import {
   type RateLimiter,
@@ -108,7 +109,9 @@ function getStreamClient(): VertexAssistantChatClient {
   if (memoStreamClient) return memoStreamClient;
   const project = process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
   const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
-  memoStreamClient = createVertexAssistantChatClient({ project, location });
+  // model ID / thinking budget は env で差し替え可能（#593）。温度・出力上限はクライアント既定（忠実寄り）。
+  const { modelId, tuning } = resolveEditorModelConfig();
+  memoStreamClient = createVertexAssistantChatClient({ project, location, modelId, tuning });
   return memoStreamClient;
 }
 

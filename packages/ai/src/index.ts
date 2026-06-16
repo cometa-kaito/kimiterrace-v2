@@ -60,6 +60,15 @@ export type { ModelClient, ModelRequest, ModelResponse, ModelUsage } from "./mod
 export { createVertexModelClient } from "./model/vertex.js";
 export type { VertexModelConfig } from "./model/vertex.js";
 
+// Editor AI 生成パラメータチューニング（temperature/maxOutputTokens/thinkingBudget・#593）。
+// 配線層（apps/web）が env から thinking budget 等を注入するための型・既定値。
+export {
+  DRAFT_TEMPERATURE,
+  toGenerationOptions,
+  mergeTuning,
+} from "./model/generation-tuning.js";
+export type { GenerationTuning, GenerationOptions } from "./model/generation-tuning.js";
+
 // F06 (#373, ADR-005/006) 生徒対話 SSE の Vertex ストリーミングクライアント（streamText 逐次）
 export { createVertexChatStreamClient } from "./model/chat-stream.js";
 export type {

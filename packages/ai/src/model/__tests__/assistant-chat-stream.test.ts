@@ -60,6 +60,28 @@ describe("createVertexAssistantChatClient", () => {
     // object mode（array 指定をしない）＋ 構造スキーマが渡っている。
     expect(arg.output).toBeUndefined();
     expect(arg.schema).toBeDefined();
+    // 既定生成パラメータ: 忠実寄り温度 + 出力上限を渡す（thinking は未指定＝SDK 既定）。
+    expect(arg.temperature).toBe(0.3);
+    expect(arg.maxOutputTokens).toBe(2048);
+    expect(arg.providerOptions).toBeUndefined();
+  });
+
+  it("config.tuning が既定を上書きし、thinkingBudget は providerOptions へ写る", async () => {
+    streamObjectMock.mockReturnValue(fakeStreamResult({ partials: [{ reply: "x" }] }));
+    const client = createVertexAssistantChatClient({
+      project: "p",
+      location: "l",
+      tuning: { temperature: 0.1, thinkingBudget: 0 },
+    });
+
+    await collect(client.stream({ system: "s", user: "u" }).partialStream);
+    const arg = streamObjectMock.mock.calls[0]?.[0];
+    // temperature は上書き、maxOutputTokens は既定維持、thinkingBudget=0 は providerOptions に載る。
+    expect(arg.temperature).toBe(0.1);
+    expect(arg.maxOutputTokens).toBe(2048);
+    expect(arg.providerOptions).toEqual({
+      google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+    });
   });
 
   it("done は指定 modelVersion・応答（output）トークン数を返す", async () => {
