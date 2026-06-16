@@ -5,6 +5,7 @@ import {
   activeNavHref,
   homePathForRole,
   isAdminRole,
+  navGroupsForRole,
   navItemsForRole,
 } from "../lib/nav";
 
@@ -111,22 +112,24 @@ describe("navItemsForRole", () => {
 
   it("system_admin は学校一覧 + 教職員管理 + 広告主 + 全校ダッシュボード + 全校センサー + モニタ設定 + 月次レポート + フィードバック + イベントログ + 監査ログ + AIチャット + 公開履歴 + 学校設定 + TVコマンド + TVダウンタイム + パスワード変更（自校エディタは出さない、メンバーシップ・ビューアは商流SoR一元化 Phase1 で撤去、MFA は意図的に nav 撤去）", () => {
     const hrefs = navItemsForRole("system_admin").map((i) => i.href);
+    // 2026-06-16: 目的別 5 グループ化に伴いフラット順を再編（学校・ユーザー → 配信・分析 → モニタ・端末
+    // → ログ・監査 → アカウント）。全 16 href の集合は不変（順序のみ変更）。
     expect(hrefs).toEqual([
       "/ops/schools",
       "/ops/users",
-      "/ops/advertisers",
-      "/ops/dashboard",
-      "/ops/sensors",
-      "/ops/tv-devices",
-      "/ops/reports",
-      "/ops/feedback",
-      "/ops/events",
-      "/ops/audit",
-      "/ops/ai-chat",
-      "/ops/publishes",
       "/ops/school-configs",
+      "/ops/dashboard",
+      "/ops/reports",
+      "/ops/advertisers",
+      "/ops/publishes",
+      "/ops/tv-devices",
+      "/ops/sensors",
       "/ops/tv-commands",
       "/ops/tv-downtime",
+      "/ops/audit",
+      "/ops/events",
+      "/ops/ai-chat",
+      "/ops/feedback",
       "/app/account/password",
     ]);
     expect(hrefs).not.toContain("/app/editor");
@@ -210,6 +213,39 @@ describe("navItemsForRole", () => {
         expect(item.href.startsWith("/")).toBe(true);
       }
     }
+  });
+});
+
+describe("navGroupsForRole (グループ化・2026-06-16 ユーザー要望)", () => {
+  it("system_admin は目的別 5 グループ（学校・ユーザー / 配信・分析 / モニタ・端末 / ログ・監査 / アカウント）", () => {
+    const groups = navGroupsForRole("system_admin");
+    expect(groups.map((g) => g.title)).toEqual([
+      "学校・ユーザー",
+      "配信・分析",
+      "モニタ・端末",
+      "ログ・監査",
+      "アカウント",
+    ]);
+  });
+
+  it("どのロールもグループ連結が navItemsForRole と一致する（順序の単一ソース）", () => {
+    for (const role of TENANT_ROLES) {
+      const flattened = navGroupsForRole(role).flatMap((g) => g.items);
+      expect(flattened).toEqual(navItemsForRole(role));
+    }
+  });
+
+  it("school_admin / teacher は見出し無しの 1 グループ（短いナビは従来どおりフラット表示）", () => {
+    for (const role of ["school_admin", "teacher"] as const) {
+      const groups = navGroupsForRole(role);
+      expect(groups).toHaveLength(1);
+      expect(groups[0]?.title).toBe("");
+    }
+  });
+
+  it("管理エリア対象外ロール (student/guardian) は空配列（グループも出さない）", () => {
+    expect(navGroupsForRole("student")).toEqual([]);
+    expect(navGroupsForRole("guardian")).toEqual([]);
   });
 });
 

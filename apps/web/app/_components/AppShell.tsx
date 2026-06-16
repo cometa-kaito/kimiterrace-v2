@@ -1,5 +1,5 @@
 import type { AuthUser } from "@/lib/auth/session";
-import { navItemsForRole } from "@/lib/nav";
+import { navGroupsForRole, navItemsForRole } from "@/lib/nav";
 import { ToastProvider } from "@kimiterrace/ui";
 import type { ReactNode } from "react";
 import { AdminMenuProvider, HamburgerButton } from "./AdminMenu";
@@ -16,6 +16,9 @@ import { SignOutButton } from "./SignOutButton";
  */
 export function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
   const items = navItemsForRole(user.role);
+  // 表示は role 別グループ（system_admin は目的別 5 グループ + 見出し、他は見出し無し 1 グループ）。
+  // showSidebar 判定は従来どおりフラット項目数で行う（1 項目＝teacher はサイドバー撤去）。
+  const groups = navGroupsForRole(user.role);
   // 教員はナビが「エディタ」1 項目のみ（[[remove-teacher-menu-sidebar]]、ユーザー指摘 2026-06-13）。
   // 1 項目だけのためにサイドバー（メニュー）を出すのは冗長なので撤去し、メイン（エディタ）を全幅に
   // する（校務DX原則: 先生を迷わせない・編集面を広く）。複数項目を持つ school_admin / system_admin は
@@ -55,7 +58,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
           {showSidebar && <HamburgerButton />}
         </header>
         <div className="admin-body" style={bodyStyle}>
-          {showSidebar ? <Sidebar items={items} menuFooter={menuFooter} /> : null}
+          {showSidebar ? <Sidebar groups={groups} menuFooter={menuFooter} /> : null}
           <main className="admin-main" style={mainStyle}>
             {/* 配下の client コンポーネントが useToast() で成功/エラー通知を出せるようにする。
                 ToastProvider は client だが server の children をそのまま透過する。 */}

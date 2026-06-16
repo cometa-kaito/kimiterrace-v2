@@ -192,6 +192,20 @@ body {
   color: #fff;
   font-weight: 600;
 }
+/* グループ見出し（system_admin の 16 項目を目的別に整理。2026-06-16 ユーザー要望）。
+   title 空のグループ（school_admin / teacher）は Sidebar 側で見出しを描かないのでこの規則は当たらない。
+   見出しは控えめ（小さめ・muted）にしてリンク列より一段下げ、走査の手がかりだけを与える。 */
+.admin-nav__section + .admin-nav__section {
+  margin-top: 0.5rem;
+}
+.admin-nav__group {
+  margin: 0;
+  padding: 0.5rem 0.75rem 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--brand-muted);
+  letter-spacing: 0.02em;
+}
 /*
  * モバイルでハンバーガー（.admin-nav ドロップダウン）内に畳む操作群（ロール/メール/ポータル/
  * ログアウト）。デスクトップでは同じ操作群がヘッダ右（.admin-header__actions）に出るため、
