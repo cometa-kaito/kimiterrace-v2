@@ -5,7 +5,7 @@ import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_compon
 import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
 import { ScheduleEditor } from "./ScheduleEditor";
@@ -76,6 +76,29 @@ export function WysiwygBoardEditor({
   const noticeRef = useRef<HTMLDivElement>(null);
   const assignmentRef = useRef<HTMLDivElement>(null);
 
+  // プレビュー盤面の縮小率をコンテナ幅に合わせて**自動調整**する。盤面は 1280×720 固定を transform:scale で縮小
+  // するが、CSS container-query（cqw）は文脈依存で効かない場合があり、原寸のまま枠に入って右・下が切れる事故が
+  // 起きた（#967 後の盤面ラッパ変更で顕在化）。そこで枠の実幅を ResizeObserver で計測し、`ScaledSignageBoard` に
+  // **明示 width** を渡して決定的に 16:9 に収める（cqw 非依存）。ウィンドウ/レイアウト変化にも追従する。
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [boardWidth, setBoardWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) {
+      return;
+    }
+    const measure = () => setBoardWidth(el.clientWidth);
+    measure();
+    // ResizeObserver 非対応環境（jsdom テスト等）では 1 回の計測のみで打ち切る（throw 回避）。本番ブラウザでは
+    // リサイズ/レイアウト変化に追従して縮小率を再調整する。
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const focusRegion = useCallback((region: Region) => {
     setActive(region);
     const card =
@@ -117,11 +140,15 @@ export function WysiwygBoardEditor({
               起きない（旧・別レイヤーの％オーバーレイを廃止）。盤面内部の装飾見出し / region 名は編集モードで AT から
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
-          <div className={styles.canvas}>
-            <ScaledSignageBoard
-              payload={previewPayload}
-              editRegions={{ active, onRegion: focusRegion }}
-            />
+          <div ref={canvasRef} className={styles.canvas}>
+            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。 */}
+            {boardWidth != null ? (
+              <ScaledSignageBoard
+                payload={previewPayload}
+                width={boardWidth}
+                editRegions={{ active, onRegion: focusRegion }}
+              />
+            ) : null}
           </div>
         </>
       ) : null}

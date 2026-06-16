@@ -20,6 +20,9 @@
   width: 100%;
   max-width: 1100px;
   margin: 0 auto;
+  /* 盤面は 16:9。枠側でも比率を確保し、幅計測 → 明示 width 描画までのレイアウトシフトを防ぐ
+   * （内側の ScaledSignageBoard も同比率・実幅で入るので枠にぴったり収まる）。 */
+  aspect-ratio: 16 / 9;
   border-radius: 12px;
   overflow: hidden;
   box-shadow:
