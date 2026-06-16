@@ -36,19 +36,22 @@ const DEFAULT_MODEL_ID = "gemini-2.5-flash";
 /** mediaType ヒント未指定時の既定（受理 allowlist は png/jpeg のみ＝既定 png で十分安全）。 */
 const DEFAULT_MEDIA_TYPE = "image/png";
 
+/** PDF の IANA メディアタイプ。これが渡されたら画像パートではなく file パートで Gemini に直送する。 */
+const PDF_MEDIA_TYPE = "application/pdf";
+
 /**
  * OCR 専用の指示（抽出に限定し、要約・推論・補完をさせない）。生成モデルゆえ「読み取り＝転写」に
- * 絞ることで、画像に無い事実の創作を防ぐ（下流の構造化/マスキングはこの素テキストに対して働く）。
+ * 絞ることで、資料に無い事実の創作を防ぐ（下流の構造化/マスキングはこの素テキストに対して働く）。
  */
 const OCR_SYSTEM = [
-  "あなたは画像から文字を書き起こす OCR エンジンです。",
-  "画像に写っている文字を、レイアウトの行・段落の順序を保ちつつ、できるだけ忠実にテキストとして書き起こします。",
-  "- 画像に無い情報を補完・要約・推測しない（読み取れない箇所は無理に埋めない）。",
+  "あなたは画像や PDF から文字を書き起こす OCR エンジンです。",
+  "資料に写っている文字を、レイアウトの行・段落・ページの順序を保ちつつ、できるだけ忠実にテキストとして書き起こします。",
+  "- 資料に無い情報を補完・要約・推測しない（読み取れない箇所は無理に埋めない）。",
   "- 表は行ごとに、セルをタブ区切りで書き起こす。",
   "- 説明文・前置き・コードフェンスは付けず、書き起こしたテキストだけを出力する。",
 ].join("\n");
 
-const OCR_USER = "次の画像の文字を書き起こしてください。";
+const OCR_USER = "次の資料の文字を書き起こしてください。";
 
 /**
  * Vertex Gemini マルチモーダルの OCR クライアントを生成する。本番は Cloud Run の Workload Identity で
@@ -60,19 +63,18 @@ export function createGeminiOcrClient(config: GeminiOcrConfig): OcrClient {
 
   return {
     async recognize(bytes: Uint8Array, mediaType?: string): Promise<OcrResult> {
+      const mt = mediaType ?? DEFAULT_MEDIA_TYPE;
+      // PDF は FilePart（data=バイト列 / mediaType=application/pdf）で直送する。Gemini がネイティブに
+      // ラスタライズ + OCR するので Node 側でのページ画像化は不要（ADR-038・スキャン PDF フォールバック）。
+      // 画像は従来どおり ImagePart（image=バイト列）。どちらも v5 では file パートに正規化されモデルへ届く。
+      const sourcePart =
+        mt === PDF_MEDIA_TYPE
+          ? ({ type: "file", data: bytes, mediaType: PDF_MEDIA_TYPE } as const)
+          : ({ type: "image", image: bytes, mediaType: mt } as const);
       const result = await generateText({
         model: vertex(modelId),
         system: OCR_SYSTEM,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: OCR_USER },
-              // ImagePart（AI SDK v5）: image=バイト列 / mediaType=IANA メディアタイプ。
-              { type: "image", image: bytes, mediaType: mediaType ?? DEFAULT_MEDIA_TYPE },
-            ],
-          },
-        ],
+        messages: [{ role: "user", content: [{ type: "text", text: OCR_USER }, sourcePart] }],
       });
       // Gemini は文書単位の confidence を返さないため confidence は省略（Vision との差分）。
       return { text: result.text ?? "" };

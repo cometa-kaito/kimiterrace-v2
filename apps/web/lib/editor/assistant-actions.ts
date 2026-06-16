@@ -122,17 +122,20 @@ function auditRecordId(target: EditorTarget, actor: EditorActor): string {
 }
 
 /**
- * OCR 外部委託（画像 → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。画像が Vertex に送られた事実を
- * who / school / 対象 / 画像 SHA-256 / 抽出文字数で記録する（**画像本体・抽出本文は残さない** = ルール4）。
- * egress は extract 時点で発生済ゆえ、no_text / 後続 draft 生成の成否に関わらず本監査を残す（fail-safe）。
+ * OCR 外部委託（画像 / スキャン PDF → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。素材が Vertex に
+ * 送られた事実を who / school / 対象 / 素材 SHA-256 / メディア種別 / 抽出文字数で記録する
+ * （**素材本体・抽出本文は残さない** = ルール4）。egress は extract 時点で発生済ゆえ、no_text / 後続 draft
+ * 生成の成否に関わらず本監査を残す（fail-safe）。`mediaType` で画像 OCR と PDF OCR を監査上区別できる。
  */
 async function writeOcrEgressAudit(
   actor: EditorActor,
   target: EditorTarget,
-  imageBytes: Uint8Array,
+  sourceBytes: Uint8Array,
+  mediaType: string,
   charCount: number,
 ): Promise<void> {
-  const imageSha256 = createHash("sha256").update(imageBytes).digest("hex");
+  // 互換のためキー名は imageSha256 を維持しつつ、PDF egress を判別できるよう mediaType を併記する。
+  const imageSha256 = createHash("sha256").update(sourceBytes).digest("hex");
   await withSession(async (tx) => {
     await tx.insert(auditLog).values({
       actorUserId: actor.userId,
@@ -140,7 +143,14 @@ async function writeOcrEgressAudit(
       tableName: "daily_data",
       recordId: auditRecordId(target, actor),
       operation: "update",
-      diff: { ocrEgress: true, backend: "gemini", imageSha256, charCount, scope: target.scope },
+      diff: {
+        ocrEgress: true,
+        backend: "gemini",
+        mediaType,
+        imageSha256,
+        charCount,
+        scope: target.scope,
+      },
       rowHash: "",
       createdBy: actor.userId,
       updatedBy: actor.userId,
@@ -386,10 +396,12 @@ async function draftSectionFromText<T>(
 
 /**
  * ファイル入力 → ドラフト候補（共通: 形式/サイズ検証 → 認証 → テキスト抽出 → {@link runSectionDraft}）。
- * 文書/表 (PDF/Word/Excel/CSV) は egress なしのローカル抽出、画像 (PNG/JPEG) は Gemini マルチモーダル
- * OCR (ADR-038)。画像は外部委託が発生するため (a) OCR の前に per-school rate を取り (NFR06)、
- * (b) egress を `audit_log` に記録し (ADR-024 決定2.2)、(c) 抽出テキストは runSectionDraft の PII マスク/
- * soft-gate を通す (ADR-024 決定2.3 / ルール4) — 三段ガード。
+ * 文書/表 (Word/Excel/CSV) と**テキストレイヤを持つ PDF** は egress なしのローカル抽出。画像 (PNG/JPEG) は
+ * 常に、**スキャン PDF（テキストレイヤ希薄）** はフォールバックで Gemini マルチモーダル OCR (ADR-038) に送る。
+ * OCR egress が発生し**うる**（画像/PDF）入力には外部委託の三段ガードを適用する: (a) egress の前に per-school
+ * rate を取り (NFR06)、(b) 実際に OCR を通したら egress を `audit_log` に記録し (ADR-024 決定2.2)、(c) 抽出
+ * テキストは runSectionDraft の PII マスク/soft-gate を通す (ADR-024 決定2.3 / ルール4)。テキスト PDF は OCR を
+ * 通らない＝egress なし・監査なし（ocrUsed=false）。
  */
 async function draftSectionFromFile<T>(
   spec: DraftSpec<T>,
@@ -418,10 +430,15 @@ async function draftSectionFromFile<T>(
   }
 
   const isImage = IMAGE_FILE_EXTS.has(uploadType.ext);
-  // 画像 OCR は Vertex への egress。コスト/越境最小化のため OCR より前に per-school rate を取る
-  // (NFR06)。取得済ゆえ runSectionDraft 側は再取得しない (skipRateLimit)。
+  // PDF はテキストレイヤがあればローカル抽出（egress なし）、スキャン PDF はテキストレイヤが希薄で Gemini 直送
+  // OCR にフォールバックする（egress が発生しうる・ADR-038）。画像は常に OCR egress。
+  const isPdf = uploadType.ext === "pdf";
+  // 画像 / PDF は OCR egress が発生し**うる**。コスト/越境最小化のため egress の前に per-school rate を取る
+  // (NFR06)。取得済ゆえ runSectionDraft 側は再取得しない (skipRateLimit)。docx/xlsx/csv は egress なしの
+  // ローカル抽出ゆえ、従来どおり runSectionDraft 側でのみ rate を取る。
+  const mightEgress = isImage || isPdf;
   const now = deps.nowMs ?? Date.now();
-  if (isImage && !(await deps.rateLimiter.tryAcquire(auth.actor.schoolId, now))) {
+  if (mightEgress && !(await deps.rateLimiter.tryAcquire(auth.actor.schoolId, now))) {
     return { ok: false, reason: "rate_limited" };
   }
 
@@ -430,13 +447,15 @@ async function draftSectionFromFile<T>(
   let ocrUsed = false;
   try {
     bytes = new Uint8Array(await file.arrayBuffer());
-    // 画像のみ OCR クライアントを注入 (ADR-038 Gemini 直送)。文書/表は egress なしのローカル抽出。
+    // 画像 / PDF は OCR クライアントを注入 (ADR-038 Gemini 直送)。PDF はテキストレイヤがあれば OCR を使わず
+    // ローカル抽出のまま（フォールバックはスキャン PDF のみ）。docx/xlsx/csv は egress なしのローカル抽出。
     // 抽出テキストは未マスク（ルール4・マスクは runSectionDraft）。
     const extracted = await extractText(
       { bytes, mimeType: file.type, filename: file.name },
-      isImage ? { ocr: deps.ocr ?? getOcrClient() } : {},
+      mightEgress ? { ocr: deps.ocr ?? getOcrClient() } : {},
     );
     text = extracted.text.trim().slice(0, ASSIST_INPUT_MAX);
+    // 実際に OCR を通したか（画像は常に true、PDF はスキャン時のみ true）。egress 監査の判定に使う。
     ocrUsed = extracted.meta?.ocrUsed === true;
   } catch (e) {
     // 形式未対応/未配線は unsupported、パース失敗（破損/暗号化）は extract_failed。
@@ -449,10 +468,11 @@ async function draftSectionFromFile<T>(
     return { ok: false, reason: "extract_failed" };
   }
 
-  // OCR egress 監査 (ADR-024 決定2.2 / ADR-038)。egress は上の extract で発生済ゆえ、no_text や後続
-  // draft の成否に関わらず残す (fail-safe・本文は残さず画像ハッシュ+文字数のみ)。
+  // OCR egress 監査 (ADR-024 決定2.2 / ADR-038)。実際に OCR を通した時だけ記録する（テキスト PDF は
+  // egress なし＝ocrUsed=false で監査しない）。egress は上の extract で発生済ゆえ、no_text や後続 draft の
+  // 成否に関わらず残す (fail-safe・本文は残さず画像/PDF ハッシュ+文字数のみ)。
   if (ocrUsed) {
-    await writeOcrEgressAudit(auth.actor, auth.target, bytes, text.length);
+    await writeOcrEgressAudit(auth.actor, auth.target, bytes, file.type, text.length);
   }
 
   if (text.length === 0) {
@@ -460,7 +480,7 @@ async function draftSectionFromFile<T>(
   }
 
   return runSectionDraft(spec, auth.target, auth.actor, text, opts, deps, "file", {
-    skipRateLimit: isImage,
+    skipRateLimit: mightEgress,
   });
 }
 
