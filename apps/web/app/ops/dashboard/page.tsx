@@ -351,7 +351,8 @@ const cardStyle: React.CSSProperties = {
   gap: "0.35rem",
   minWidth: "9rem",
   padding: "1rem 1.25rem",
-  border: `1px solid ${color.border}`,
+  // サーフェス調（枠線→淡い面）でメトリクスを軽く見せる（2026-06-17 デザインポリッシュ）。
+  background: color.bgSoft,
   borderRadius: "10px",
 };
 const cardLabelStyle: React.CSSProperties = { fontSize: "0.8rem", color: color.muted };

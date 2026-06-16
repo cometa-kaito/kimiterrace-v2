@@ -18,6 +18,11 @@ export type NavItem = {
   label: string;
   /** 遷移先パス (V2 ルート)。 */
   href: string;
+  /**
+   * 先頭アイコンのキー (Sidebar の `navIcon` が解決する依存ゼロ SVG。`app/_components/nav-icons.tsx`)。
+   * 表示の装飾のみ・任意 (未指定や未知キーはアイコン無しでフォールバック)。
+   */
+  icon?: string;
 };
 
 /**
@@ -75,50 +80,50 @@ const NAV_GROUPS_BY_ROLE: Record<AdminRole, readonly NavGroup[]> = {
     {
       title: "学校・ユーザー",
       items: [
-        { label: "学校一覧", href: "/ops/schools" },
+        { label: "学校一覧", href: "/ops/schools", icon: "building" },
         // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用、ADR-026)。
-        { label: "教職員管理", href: "/ops/users" },
-        { label: "学校設定", href: "/ops/school-configs" },
+        { label: "教職員管理", href: "/ops/users", icon: "users" },
+        { label: "学校設定", href: "/ops/school-configs", icon: "settings" },
       ],
     },
     {
       title: "配信・分析",
       items: [
         // F08 (#44): 全校横断の効果ダッシュボード (cross-tenant)。自校重複 /app/dashboard は §43 で撤去。
-        { label: "全校ダッシュボード", href: "/ops/dashboard" },
+        { label: "全校ダッシュボード", href: "/ops/dashboard", icon: "chart" },
         // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (cross-tenant)。
-        { label: "月次レポート", href: "/ops/reports" },
+        { label: "月次レポート", href: "/ops/reports", icon: "file" },
         // F10 (#46) → UIUX-03: 商流マスタは portal が SoR。v2 に残すのは「広告クリエイティブのクラス割当
         // (配信)」のためラベルを「広告配信割当」にして一覧を温存する。
-        { label: "広告配信割当", href: "/ops/advertisers" },
-        { label: "公開履歴", href: "/ops/publishes" },
+        { label: "広告配信割当", href: "/ops/advertisers", icon: "megaphone" },
+        { label: "公開履歴", href: "/ops/publishes", icon: "history" },
       ],
     },
     {
       title: "モニタ・端末",
       items: [
         // F15 (ADR-022): TV (サイネージ) 端末のリモート管理 (signage URL / 起動スケジュール / 死活)。
-        { label: "モニタ設定", href: "/ops/tv-devices" },
+        { label: "モニタ設定", href: "/ops/tv-devices", icon: "tv" },
         // F13 (#391, ADR-020): 全校横断の来場検知センサー状態 (cross-tenant)。自校 /app/sensors は §43 で統合。
-        { label: "センサー管理（全校）", href: "/ops/sensors" },
-        { label: "TVコマンド履歴", href: "/ops/tv-commands" },
-        { label: "TVダウンタイム", href: "/ops/tv-downtime" },
+        { label: "センサー管理（全校）", href: "/ops/sensors", icon: "sensor" },
+        { label: "TVコマンド履歴", href: "/ops/tv-commands", icon: "terminal" },
+        { label: "TVダウンタイム", href: "/ops/tv-downtime", icon: "alert" },
       ],
     },
     {
       title: "ログ・監査",
       items: [
         // UIUX-03 (PR2-5): 生データ閲覧ビューア群。PII 近接のため表示時マスキング + 閲覧自体の監査記録。
-        { label: "監査ログ", href: "/ops/audit" },
-        { label: "イベント生ログ", href: "/ops/events" },
-        { label: "AIチャット監査", href: "/ops/ai-chat" },
-        { label: "フィードバック", href: "/ops/feedback" },
+        { label: "監査ログ", href: "/ops/audit", icon: "shield" },
+        { label: "イベント生ログ", href: "/ops/events", icon: "list" },
+        { label: "AIチャット監査", href: "/ops/ai-chat", icon: "message" },
+        { label: "フィードバック", href: "/ops/feedback", icon: "feedback" },
       ],
     },
     {
       title: "アカウント",
       // 自分のパスワード変更 (個人 email/password アカウント)。PASSWORD_CHANGE_ROLES と整合。
-      items: [{ label: "パスワード変更", href: "/app/account/password" }],
+      items: [{ label: "パスワード変更", href: "/app/account/password", icon: "key" }],
     },
   ],
   // 学校管理者: 自校スコープ (school_id)。項目が少ないため見出し無しの 1 グループ (従来の見た目を維持)。
@@ -128,16 +133,16 @@ const NAV_GROUPS_BY_ROLE: Record<AdminRole, readonly NavGroup[]> = {
     {
       title: "",
       items: [
-        { label: "学校管理", href: "/app/school" },
-        { label: "エディタ", href: "/app/editor" },
+        { label: "学校管理", href: "/app/school", icon: "building" },
+        { label: "エディタ", href: "/app/editor", icon: "edit" },
         // teacher は学校共通PW (ADR-032) で個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES と整合)。
-        { label: "パスワード変更", href: "/app/account/password" },
+        { label: "パスワード変更", href: "/app/account/password", icon: "key" },
       ],
     },
   ],
   // 教員: エディタ 1 枚に集約 (2026-06-11)。サイネージに出るのは daily_data のみ。contents 系統・監視系・MFA は
   // 意図的に nav から撤去 (機能・認可は残置・URL 直打ち可、上のヘッダ注記参照)。
-  teacher: [{ title: "", items: [{ label: "エディタ", href: "/app/editor" }] }],
+  teacher: [{ title: "", items: [{ label: "エディタ", href: "/app/editor", icon: "edit" }] }],
 };
 
 /** 管理エリアに入れるロールか (純粋判定、guard から利用)。 */

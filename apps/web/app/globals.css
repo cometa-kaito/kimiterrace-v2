@@ -177,12 +177,19 @@ body {
   gap: 0.25rem;
 }
 .admin-nav a {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   padding: 0.55rem 0.75rem;
   border-radius: 0.5rem;
   color: #374151;
   text-decoration: none;
   font-size: 0.95rem;
+}
+/* nav 先頭アイコン（依存ゼロのインライン SVG・nav-icons.tsx）。色はリンク色を継承（active で白）。 */
+.admin-nav__icon {
+  flex: 0 0 auto;
+  opacity: 0.9;
 }
 .admin-nav a:hover {
   background: rgba(31, 41, 55, 0.05);
