@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, asc, eq, isNull, sql } from "drizzle-orm";
+import { type InferSelectModel, and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { KimiterraceDb } from "../client.js";
 import { withTenantContext } from "../client.js";
@@ -232,6 +232,38 @@ export async function getTvDeviceConfig(
     .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
     .limit(1);
   return rows[0];
+}
+
+/**
+ * クラスエディタの「このクラスのサイネージを開く」導線が読む、当該クラスに紐づく TV デバイスの
+ * **公開サイネージ URL**（`tv_devices.signage_url` = `/signage/{token}` の絶対 URL）。教員が編集中の
+ * クラスが実機 TV で実際にどう映るかを、公開ページ（旧「全画面プレビュー」の代替）で確認する read 専用導線。
+ *
+ * - **選定**: 1 クラスに複数 TV があっても表示内容は同一（同一クラスのサイネージ）なので、`signage_url` が
+ *   設定済み（非 null）で未削除のデバイスのうち**最も新しく更新された 1 件**を決定的に返す。設置 TV が無い
+ *   クラスは `undefined`（呼び出し側はリンク自体を出さない＝死リンク防止）。
+ * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は `tenant_isolation`
+ *   （teacher / school_admin = 自校）/ `system_admin_full_access` が決める。非 BYPASSRLS 接続で呼ぶこと。
+ * - **token は read 専用の表示 URL**: `signage_url` は magic link の hash で保護される匿名 read トークンを
+ *   含む（provisioning-actions の設計）。自校クラスの公開 URL を当該校の教員に見せるのは想定内。
+ */
+export async function getClassSignageUrl(
+  db: Selectable,
+  classId: string,
+): Promise<string | undefined> {
+  const rows = await db
+    .select({ signageUrl: tvDevices.signageUrl })
+    .from(tvDevices)
+    .where(
+      and(
+        eq(tvDevices.classId, classId),
+        isNull(tvDevices.deletedAt),
+        isNotNull(tvDevices.signageUrl),
+      ),
+    )
+    .orderBy(desc(tvDevices.updatedAt))
+    .limit(1);
+  return rows[0]?.signageUrl ?? undefined;
 }
 
 /**
