@@ -122,17 +122,20 @@ function auditRecordId(target: EditorTarget, actor: EditorActor): string {
 }
 
 /**
- * OCR 外部委託（画像 → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。画像が Vertex に送られた事実を
- * who / school / 対象 / 画像 SHA-256 / 抽出文字数で記録する（**画像本体・抽出本文は残さない** = ルール4）。
- * egress は extract 時点で発生済ゆえ、no_text / 後続 draft 生成の成否に関わらず本監査を残す（fail-safe）。
+ * OCR 外部委託（画像 / スキャン PDF → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。素材が Vertex に
+ * 送られた事実を who / school / 対象 / 素材 SHA-256 / メディア種別 / 抽出文字数で記録する
+ * （**素材本体・抽出本文は残さない** = ルール4）。egress は extract 時点で発生済ゆえ、no_text / 後続 draft
+ * 生成の成否に関わらず本監査を残す（fail-safe）。`mediaType` で画像 OCR と PDF OCR を監査上区別できる。
  */
 async function writeOcrEgressAudit(
   actor: EditorActor,
   target: EditorTarget,
-  imageBytes: Uint8Array,
+  sourceBytes: Uint8Array,
+  mediaType: string,
   charCount: number,
 ): Promise<void> {
-  const imageSha256 = createHash("sha256").update(imageBytes).digest("hex");
+  // 互換のためキー名は imageSha256 を維持しつつ、PDF egress を判別できるよう mediaType を併記する。
+  const imageSha256 = createHash("sha256").update(sourceBytes).digest("hex");
   await withSession(async (tx) => {
     await tx.insert(auditLog).values({
       actorUserId: actor.userId,
@@ -140,7 +143,14 @@ async function writeOcrEgressAudit(
       tableName: "daily_data",
       recordId: auditRecordId(target, actor),
       operation: "update",
-      diff: { ocrEgress: true, backend: "gemini", imageSha256, charCount, scope: target.scope },
+      diff: {
+        ocrEgress: true,
+        backend: "gemini",
+        mediaType,
+        imageSha256,
+        charCount,
+        scope: target.scope,
+      },
       rowHash: "",
       createdBy: actor.userId,
       updatedBy: actor.userId,
@@ -462,7 +472,7 @@ async function draftSectionFromFile<T>(
   // egress なし＝ocrUsed=false で監査しない）。egress は上の extract で発生済ゆえ、no_text や後続 draft の
   // 成否に関わらず残す (fail-safe・本文は残さず画像/PDF ハッシュ+文字数のみ)。
   if (ocrUsed) {
-    await writeOcrEgressAudit(auth.actor, auth.target, bytes, text.length);
+    await writeOcrEgressAudit(auth.actor, auth.target, bytes, file.type, text.length);
   }
 
   if (text.length === 0) {
