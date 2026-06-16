@@ -211,9 +211,10 @@ export function EditorChat({
   }, [state, stream]);
 
   // 新着メッセージ/ストリーム/下書き/状態変化のたびに会話の最下部へスクロールする（チャットの基本挙動）。
+  // scrollIntoView は jsdom 等で未実装のため `?.()` でガードする（テスト環境で throw させない）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: スクロールのトリガ群（内容変化を見て最下部へ寄せる）
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    bottomRef.current?.scrollIntoView?.({ block: "end" });
   }, [state.messages.length, state.streamingText, state.status]);
 
   /** 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。成功で確認カードを閉じる。 */
