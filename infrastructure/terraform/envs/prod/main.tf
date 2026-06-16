@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "7a9d5f8" # 7a9d5f8: #992 sysadminナビ目的別5グループ化+軸タブのモバイル横崩れ修正 / #993 admin一覧をモバイルでカード化(a11y: thead温存/aria-sort維持)。UI/CSSのみ・schema/secret無変更=migrate不要。pristine tree build・apply 0add/1change/0destroy・/api/health 200・/login private,no-cache(force-dynamic健全)・live rev=00057。1910cd5(#989)を supersede
+  web_image_tag = "2b64c28" # 2b64c28: #996 管理ナビにインラインSVGアイコン + ダッシュボードのメトリクスをサーフェス化(枠線→bgSoft)。UI/CSSのみ・依存追加なし・schema/secret無変更=migrate不要。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache・live rev=00058。7a9d5f8(#992/#993)を supersede
 }
 
 module "network" {
