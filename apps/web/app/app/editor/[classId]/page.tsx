@@ -18,6 +18,7 @@ import { getSignageDesignPattern } from "@/lib/signage/signage-design";
 import { getSignageWeather } from "@/lib/signage/weather";
 import {
   getCalloutsForClass,
+  getClassSignageUrl,
   getEffectiveAdsForClass,
   getSignageClassContext,
   getVisitorsForClass,
@@ -103,6 +104,9 @@ export default async function ClassEditorPage({
     const previewWeather = user.schoolId
       ? await getSignageWeather(tx, user.schoolId, date).catch(() => null)
       : null;
+    // 「このクラスのサイネージを開く」導線用に、当該クラスの TV デバイスの公開サイネージ URL を引く
+    // （同一 tx・RLS 自校限定）。未設置クラスは undefined → リンクを出さない（死リンク防止）。
+    const liveSignageUrl = await getClassSignageUrl(tx, classId);
     return {
       schedule,
       notices,
@@ -118,6 +122,7 @@ export default async function ClassEditorPage({
       previewScheduleDays,
       previewClassContext,
       previewWeather,
+      liveSignageUrl,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -139,6 +144,7 @@ export default async function ClassEditorPage({
     previewScheduleDays,
     previewClassContext,
     previewWeather,
+    liveSignageUrl,
   } = data;
 
   // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`previewDaily` が取れた時だけ盤面を出す
@@ -225,17 +231,23 @@ export default async function ClassEditorPage({
         </div>
       ) : null}
 
-      {/* 全画面表示（旧プレビュータブの有用導線）は最下部付近に小さく残す。 */}
-      <p style={{ margin: "1.5rem 0 0.75rem" }}>
-        <Link
-          href={`/app/signage-preview/${classId}?date=${date}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
-        >
-          別タブで全画面表示 →
-        </Link>
-      </p>
+      {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
+          表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断
+          2026-06-16）。これは Next アプリ内ルートだが別 host/別 origin になりうる絶対 URL なので素の <a> で開く
+          （client-side prefetch を避ける）。編集を失わないよう別タブで開く（rel=noopener）。設置 TV が無いクラスは
+          liveSignageUrl が undefined → リンク自体を出さない（死リンク防止・本ファイルの導線方針と一貫）。 */}
+      {liveSignageUrl ? (
+        <p style={{ margin: "1.5rem 0 0.75rem" }}>
+          <a
+            href={liveSignageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+          >
+            このクラスのサイネージを開く →
+          </a>
+        </p>
+      ) : null}
 
       {/* 黒画面トグル（per-class 運用）= 編集画面の最下部。実教室のサイネージを一時的に真っ黒にする / 解除する。
           実画面に即時影響するので押下時に確認を挟む（BlackoutToggle 側）。見出し・現在状態・説明文も内包する。 */}
