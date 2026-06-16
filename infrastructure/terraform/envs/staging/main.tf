@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "7a9d5f8" # 7a9d5f8: #992 ナビ目的別グループ化+軸タブ横崩れ修正 / #993 一覧モバイルカード化。staging を現行化(64ccbac→7a9d5f8、#986/#989 含む・いずれも prod 適用済)。UI/CSSのみ・schema/secret無変更。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache
+  web_image_tag = "2b64c28" # 2b64c28: #996 管理ナビにインラインSVGアイコン + ダッシュボードメトリクスをサーフェス化。UI/CSSのみ・依存追加なし・schema/secret無変更。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache
 }
 
 module "network" {
