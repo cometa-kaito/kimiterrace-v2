@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "6618708" # migration 20260615120000（年度 academic_year 列・ix_classes_school_year 削除 + ux_classes_school_grade_name 新設）適用のため bump（#954）
+  migrate_image_tag = "227a512" # migration 20260615164918: audit_log.occurred_at の DEFAULT を clock_timestamp() に変更（#965 ハッシュチェーン同一tx誤検知の是正・列DEFAULT変更のみ＝非破壊）。staging で適用済・疎通200
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "c53903e" # c53903e: 横断バグ探索の web 修正2件 — #963 MFA enrollment 監査が system_admin uid を users-FK 列に入れ 23503 で監査喪失する是正 + #964 student-qa の LLM 出力 PII 再チェック追加（多層防御）。schema/secret 無変更=migrate 不要・疎通200
+  web_image_tag = "227a512" # 227a512: #968 モバイルでヘッダ操作群をハンバーガー(右上アイコンのみ)に集約しヘッダ崩れ解消 + #967 エディタWYSIWYG実エリア直接編集 + #965 監査ハッシュチェーン誤検知是正。schema変更=migrate実行済（20260615164918 audit_log.occurred_at DEFAULT→clock_timestamp・staging先行検証）。疎通200
 }
 
 module "network" {
