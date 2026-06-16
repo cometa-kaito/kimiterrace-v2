@@ -227,6 +227,16 @@ resource "google_cloud_run_v2_service" "web" {
         value = tostring(var.ai_enabled)
       }
 
+      # Editor AI の Gemini 2.5 思考トークン上限（#593 / #982）。空なら注入せず app は SDK 既定 dynamic。
+      # "0" で思考を無効化し、構造化下書きの初回応答を最速化 + 出力トークン枯渇による無応答ハングを防ぐ。
+      dynamic "env" {
+        for_each = var.gemini_thinking_budget != "" ? [var.gemini_thinking_budget] : []
+        content {
+          name  = "GEMINI_THINKING_BUDGET"
+          value = env.value
+        }
+      }
+
       # 広告メディア配信バケット（ADR-037）。空文字なら注入しない（受口は env 欠落で 502 = fail-close）。
       dynamic "env" {
         for_each = var.ad_media_bucket != "" ? [var.ad_media_bucket] : []

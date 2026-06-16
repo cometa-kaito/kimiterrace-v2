@@ -104,7 +104,11 @@ export interface AssistantChatStreamResult {
 
 /** 会話型 AI 構造化ストリームの抽象境界。 */
 export interface VertexAssistantChatClient {
-  stream(req: { system: string; user: string }): AssistantChatStreamResult;
+  /**
+   * `signal` は無応答/ストール時に handler が Vertex 呼び出しを能動的に中断するための AbortSignal（任意）。
+   * abort されると `partialStream` / `done` が reject し、handler が `stream_failed` に畳む（本番ハング対策）。
+   */
+  stream(req: { system: string; user: string; signal?: AbortSignal }): AssistantChatStreamResult;
 }
 
 /**
@@ -120,7 +124,7 @@ export function createVertexAssistantChatClient(
   const genOptions = toGenerationOptions(mergeTuning(DEFAULT_TUNING, config.tuning));
 
   return {
-    stream(req: { system: string; user: string }): AssistantChatStreamResult {
+    stream(req: { system: string; user: string; signal?: AbortSignal }): AssistantChatStreamResult {
       // streamObject(object) は同期に StreamObjectResult を返す（partialObjectStream は逐次、usage は完了後に
       // 解決する Promise）。await しない。スキーマは構造のみ、ドメイン規則は req.system が規定。
       const result = streamObject({
@@ -128,6 +132,9 @@ export function createVertexAssistantChatClient(
         schema: assistantTurnSchema,
         system: req.system,
         prompt: req.user,
+        // 無応答/ストール時に handler が中断できるよう abort を配線（assistant-chat-sse のストール監視）。
+        // 未指定なら付与しない（既定挙動を変えない）。
+        ...(req.signal ? { abortSignal: req.signal } : {}),
         // 生成パラメータ（temperature / maxOutputTokens / providerOptions.thinkingConfig）。創作抑制・
         // 暴走防止・レイテンシ調整（generation-tuning）。未指定キーは生やさず SDK 既定を尊重。
         ...genOptions,
@@ -141,6 +148,10 @@ export function createVertexAssistantChatClient(
           tokenCount: usage?.outputTokens ?? 0,
         };
       })();
+      // 中断（abortSignal）や mid-stream 障害では `result.usage` が reject する。handler が partialStream の
+      // throw で先に catch へ抜け `done` を await しない経路（ストール中断等）でも unhandledRejection を出さない
+      // よう、no-op handler を 1 つ付けておく（戻り値の `done` は引き続き呼び出し側が await して値を取れる）。
+      done.catch(() => {});
 
       return { partialStream: result.partialObjectStream, done };
     },

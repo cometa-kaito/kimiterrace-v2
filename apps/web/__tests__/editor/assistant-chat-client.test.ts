@@ -5,6 +5,7 @@ import {
   chatErrorMessage,
   type ChatState,
   finalizeInterruptedTurn,
+  finalizeUnterminatedTurn,
   initialChatState,
   isRetryableError,
   parseSseFrames,
@@ -181,5 +182,28 @@ describe("finalizeInterruptedTurn", () => {
     const s = finalizeInterruptedTurn(base);
     expect(s.status).toBe("done");
     expect(s.messages).toEqual([{ role: "user", content: "やること" }]);
+  });
+});
+
+describe("finalizeUnterminatedTurn", () => {
+  it("終端フレーム無しでストリームが閉じたら（streaming のまま）再試行可能な stream_failed に畳む（永久ハング防止）", () => {
+    // beginUserTurn は status=streaming。meta だけ受けて done/error が来ずに切れた状況を模す。
+    const base = beginUserTurn(initialChatState(), "明日の連絡");
+    const s = finalizeUnterminatedTurn(base);
+    expect(s.status).toBe("error");
+    expect(s.error?.reason).toBe("stream_failed");
+    // stream_failed は再試行可（UI に「再試行」が出る）。
+    expect(s.error ? isRetryableError(s.error.reason) : false).toBe(true);
+  });
+
+  it("既に done/error に達していれば現状をそのまま返す（終端フレーム受信済みは上書きしない）", () => {
+    const done: ChatState = { ...initialChatState(), status: "done" };
+    expect(finalizeUnterminatedTurn(done)).toBe(done);
+    const errored: ChatState = {
+      ...initialChatState(),
+      status: "error",
+      error: { reason: "pii_warning" },
+    };
+    expect(finalizeUnterminatedTurn(errored)).toBe(errored);
   });
 });

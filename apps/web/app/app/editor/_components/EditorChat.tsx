@@ -6,6 +6,7 @@ import {
   chatErrorMessage,
   type ChatState,
   finalizeInterruptedTurn,
+  finalizeUnterminatedTurn,
   initialChatState,
   isRetryableError,
   parseSseFrames,
@@ -163,6 +164,10 @@ export function EditorChat({
           }
           setState(working);
         }
+        // 終端フレーム（done/error）を受け取らないままストリームが閉じたら、永久に「考えています」で固まらない
+        // よう再試行可能な失敗に畳む（Cloud Run リクエストタイムアウト・プロキシ切断・モデル無応答後のクローズ）。
+        working = finalizeUnterminatedTurn(working);
+        setState(working);
       } catch {
         // ユーザーが停止: 途中までの応答・下書きを残しエラーにしない。それ以外は通信/モデル障害。
         if (controller.signal.aborted) {
