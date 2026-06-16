@@ -2,10 +2,16 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * WYSIWYG（実レイアウト上のライブプレビュー連動）編集器の主要動作を固定する（PR・B）。
+ * WYSIWYG（実レイアウト上のライブプレビュー連動）編集器の主要動作を固定する（PR・B / Approach A）。
+ *
+ * Approach A: 領域クリック層は別レイヤーの％オーバーレイではなく、盤面 `SignageBoardView` の**実セクション
+ * そのもの**を覆う編集ボタン（`BoardRegionEditButton` を `editRegions` で挿入）。実描画要素を覆うので％近似の
+ * ズレが原理的に起きない。
  *
  * 検証点:
  * - 既存の見出し「予定」「連絡」「提出物」を**温存**する（golden-path e2e 依存・盤面タブの回帰ガード）。
+ *   盤面プレビューは編集モードで内部の region 名 / 装飾見出しを AT から外すので `role` 上は編集器の 1 つだけ
+ *   （二重化しない＝strict locator 温存）。操作名は編集ボタンの `aria-label="○○を編集"` が担う。
  * - 既存エディタの placeholder「連絡事項」を温存する（golden-path が NoticeEditor を駆動するセレクタ）。
  * - 実機と同一の盤面ライブプレビューを描画する（`SignageBoardView` 由来の領域「広告」が出る）。
  * - 盤面の領域ボタン（予定/連絡/提出物を編集）をクリックすると、対応エディタへフォーカスが移る（連動）。
@@ -68,7 +74,7 @@ afterEach(() => {
 });
 
 describe("WysiwygBoardEditor", () => {
-  it("見出し（予定/連絡/提出物）は編集器側に一意に出す（盤面プレビューは aria-hidden で二重化しない＝e2e 温存）", () => {
+  it("見出し（予定/連絡/提出物）は編集器側に一意に出す（盤面プレビューは編集モードで内部見出し/region 名を AT から外し二重化しない＝e2e 温存）", () => {
     render(
       <WysiwygBoardEditor
         classId={CLASS_ID}
@@ -79,11 +85,16 @@ describe("WysiwygBoardEditor", () => {
         initialAssignments={[]}
       />,
     );
-    // 盤面プレビューも内部に「連絡」「提出物」見出しを持つが aria-hidden なので role=heading は編集器の 1 つだけ。
+    // 盤面プレビューも内部に「連絡」「提出物」h2 を持つが編集モードで aria-hidden 化されるので role=heading は編集器の 1 つだけ。
     // getByRole は複数一致で投げるため、これが通る = 二重化していない（golden-path の strict locator 温存）。
     expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "提出物", level: 2 })).toBeTruthy();
+    // 盤面内部の予定/連絡/提出物 section は編集モードで aria-label を外すので named region landmark にならない
+    //（編集器側 region と衝突しない）。盤面に残る region landmark は広告（complementary）のみ。
+    expect(screen.queryByRole("region", { name: "予定" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "連絡" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "提出物" })).toBeNull();
     // golden-path が NoticeEditor を掴む placeholder（行があるときに出る）。
     expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
   });
