@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "d68465e" # d68465e: #983 クラスエディタ「別タブで全画面表示」を実機サイネージ公開URL(tv_devices.signage_url=/signage/{token})への導線に差し替え（未設置クラスはリンク非表示）+ getClassSignageUrl/RLSテスト。64ccbac-clean(#979/#981/#982)を supersede し #983 を上乗せ。pristine worktree から build（汚染なし）。schema/secret 無変更=migrate 不要・疎通200
+  web_image_tag = "53b8585" # 53b8585: #986 会話AI「考えています」ハング修正（クライアント終端+サーバstall timeout+abort+GEMINI_THINKING_BUDGET=0）。d68465e(#983)を supersede。schema/secret 無変更=migrate 不要。pristine working tree から build・apply 0add/1change/0destroy・/api/health 200・live rev=53b8585/GEMINI_THINKING_BUDGET=0 確認済
 }
 
 module "network" {
