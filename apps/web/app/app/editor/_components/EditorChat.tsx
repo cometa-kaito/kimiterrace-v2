@@ -42,6 +42,9 @@ const { color, radius, fontSize } = tokens;
 const GREETING =
   "今日の連絡、話しかけてください。話す・書く・ファイルでOK。予定・連絡・提出物にまとめて下書きします。";
 
+// 入力欄の自動伸長の上限（px）。これを超えたら内部スクロール（~5〜6 行）。CSS の inputStyle.maxHeight と同値。
+const INPUT_MAX_HEIGHT = 140;
+
 export function EditorChat({
   scope,
   targetId,
@@ -69,8 +72,32 @@ export function EditorChat({
   const [confirmHidden, setConfirmHidden] = useState(false);
   const streamingRef = useRef(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // 日本語 IME 変換中フラグ。変換確定の Enter で誤送信しないためのガード（compositionstart/end で開閉）。
+  const composingRef = useRef(false);
   const [fileBusy, setFileBusy] = useState(false);
   const stt = useSpeechToText();
+
+  /**
+   * 入力欄を内容に応じて自動で縦に伸ばす（LINE 風）。`height=auto` で一旦縮めてから `scrollHeight` を測り、
+   * `INPUT_MAX_HEIGHT` で頭打ちにする（超過分は内部スクロール）。CSS の `maxHeight` と同値で揃える。見た目の
+   * 調整専用で、会話・保存・SSE の挙動には一切触れない。
+   */
+  const autoGrow = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) {
+      return;
+    }
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, INPUT_MAX_HEIGHT)}px`;
+  }, []);
+
+  // 入力テキストが変わるたび高さを再計算（送信後リセット・音声入力の流し込みにも追従）。
+  // input は再計算のトリガ（autoGrow は inputRef 経由で現在値を読むため body には現れない）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: input は高さ再計算のトリガ（送信後リセット/STT 流し込みに追従）
+  useEffect(() => {
+    autoGrow();
+  }, [autoGrow, input]);
 
   // 音声入力: 端末内 STT の確定テキストを入力欄へ流し込む（サーバには文字だけが乗る・プライバシー）。
   useEffect(() => {
@@ -333,16 +360,35 @@ export function EditorChat({
           ＋
         </button>
         <textarea
+          ref={inputRef}
           style={inputStyle}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              onSend();
-            }
+          // IME 変換中は誤送信を避けるためフラグを立て、Enter 送信判定で見る。
+          onCompositionStart={() => {
+            composingRef.current = true;
           }}
-          placeholder="話す・書く・ファイルで…（⌘/Ctrl+Enter で送信）"
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={(e) => {
+            // Enter=送信 / Shift+Enter=改行（LINE 風）。IME 変換確定の Enter（composing 中・nativeEvent.isComposing・
+            // keyCode 229）では送信しない。⌘/Ctrl+Enter も従来どおり送信を維持。
+            if (e.key !== "Enter") {
+              return;
+            }
+            const composing =
+              composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229;
+            if (composing) {
+              return;
+            }
+            if (e.shiftKey) {
+              return; // 改行を許可
+            }
+            e.preventDefault();
+            onSend();
+          }}
+          placeholder="話す・書く・ファイルで…（Enter で送信 / Shift+Enter で改行）"
           rows={1}
           disabled={streaming}
         />
@@ -513,15 +559,18 @@ const micHintStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   color: color.dangerFg,
 };
+// 入力欄: 内容に応じて高さを自動調整（autoGrow が height を JS 制御）し、上限で内部スクロール。
+// 高さは JS が握るので手動ドラッグ resize は無効化（JS と取り合いになるのを避ける）。min/max は保険。
 const inputStyle: React.CSSProperties = {
   flex: 1,
   minHeight: "44px",
-  maxHeight: "140px",
+  maxHeight: `${INPUT_MAX_HEIGHT}px`,
   padding: "0.6rem 0.8rem",
   border: `1px solid ${color.border}`,
   borderRadius: radius.md,
   fontSize: "1rem",
   lineHeight: 1.5,
-  resize: "vertical",
+  resize: "none",
+  overflowY: "auto",
   fontFamily: "inherit",
 };
