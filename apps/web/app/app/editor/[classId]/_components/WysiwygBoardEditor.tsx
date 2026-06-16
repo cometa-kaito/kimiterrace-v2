@@ -1,5 +1,6 @@
 "use client";
 
+import type { EditRegion } from "@/app/(signage)/signage/[classToken]/_components/BoardRegionEditButton";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
 import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
@@ -35,7 +36,8 @@ import styles from "./WysiwygBoardEditor.module.css";
  * ## レスポンシブ
  * スマホ（≤899px）はプレビューを畳み、従来の縦積みフォーム編集に倒す（タスク指示: スマホは現行 UI のままで良い）。
  */
-type Region = "schedules" | "notices" | "assignments";
+// 領域識別子は盤面の編集ボタンと**単一ソース**を共有する（`EditRegion`）。ここで再定義してドリフトさせない。
+type Region = EditRegion;
 
 export function WysiwygBoardEditor({
   classId,
@@ -109,40 +111,17 @@ export function WysiwygBoardEditor({
             編集欄に移動します。広告は編集できません（広告管理で設定）。
           </p>
 
-          {/* 上段: 実機と同一レイアウトのライブプレビュー + クリック可能オーバーレイ（≤899px では非表示）。 */}
+          {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
+              そのもの**（Approach A）。`editRegions` を渡すと `SignageBoardView` が予定 / 連絡 / 提出物の実 `<section>` を
+              `position:relative` 化して `inset:0` の編集ボタンを内側に敷く＝実描画要素を覆うので％近似のズレが原理的に
+              起きない（旧・別レイヤーの％オーバーレイを廃止）。盤面内部の装飾見出し / region 名は編集モードで AT から
+              外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
+              しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
           <div className={styles.canvas}>
-            {/* プレビュー盤面は **視覚的な見え方の再現**（装飾）。盤面内部の見出し（予定/連絡/提出物）が編集器の
-                見出しや既存 e2e セレクタと**二重化しないよう** aria-hidden でアクセシビリティツリーから外す
-                （操作は下の編集器 + オーバーレイのボタンが担う）。盤面のテキストは下の編集器に等価で出るので
-                スクリーンリーダ利用者が情報を失わない。 */}
-            <div aria-hidden="true" className={styles.boardLayer}>
-              <ScaledSignageBoard payload={previewPayload} />
-            </div>
-            <div className={styles.overlay}>
-              <div className={styles.infoOverlay}>
-                <RegionButton
-                  region="schedules"
-                  label="予定"
-                  className={styles.regionSchedule}
-                  active={active === "schedules"}
-                  onClick={focusRegion}
-                />
-                <RegionButton
-                  region="notices"
-                  label="連絡"
-                  className={styles.regionNotices}
-                  active={active === "notices"}
-                  onClick={focusRegion}
-                />
-                <RegionButton
-                  region="assignments"
-                  label="提出物"
-                  className={styles.regionAssignments}
-                  active={active === "assignments"}
-                  onClick={focusRegion}
-                />
-              </div>
-            </div>
+            <ScaledSignageBoard
+              payload={previewPayload}
+              editRegions={{ active, onRegion: focusRegion }}
+            />
           </div>
         </>
       ) : null}
@@ -190,33 +169,6 @@ export function WysiwygBoardEditor({
         </EditorCard>
       </div>
     </div>
-  );
-}
-
-/** プレビュー盤面に重ねるクリック可能領域ボタン。押すと対応エディタへ移動する。 */
-function RegionButton({
-  region,
-  label,
-  className,
-  active,
-  onClick,
-}: {
-  region: Region;
-  label: string;
-  className: string | undefined;
-  active: boolean;
-  onClick: (region: Region) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`${styles.region} ${className} ${active ? styles.regionActive : ""}`}
-      aria-label={`${label}を編集`}
-      aria-pressed={active}
-      onClick={() => onClick(region)}
-    >
-      <span className={styles.regionLabel}>{label}を編集</span>
-    </button>
   );
 }
 

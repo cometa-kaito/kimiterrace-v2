@@ -1,4 +1,5 @@
 import type { SignagePayload } from "@/lib/signage/signage-display";
+import type { EditRegionsProps } from "./BoardRegionEditButton";
 import scaler from "./ScaledSignageBoard.module.css";
 import { SignageBoardView } from "./SignageBoardView";
 
@@ -25,6 +26,7 @@ import { SignageBoardView } from "./SignageBoardView";
 export function ScaledSignageBoard({
   payload,
   width,
+  editRegions,
 }: {
   /** 表示する盤面のスナップショット（Server 側で取得した確定 `SignagePayload`）。 */
   payload: SignagePayload;
@@ -33,6 +35,12 @@ export function ScaledSignageBoard({
    * 省略時はコンテナ幅 100% に広がり、container query で枠幅へ自動フィットする。
    */
   width?: number;
+  /**
+   * **WYSIWYG「盤面を編集」の実エリア直接クリック配線**（任意・素通し）。`SignageBoardView` の `editRegions` へ
+   * そのまま渡すだけ。**省略時（既定 undefined）は read-only のまま従来不変**（サムネ / モニタの壁は編集ボタンを
+   * 一切描かず出力が変わらない）。渡すのは WYSIWYG エディタ（client）だけ。
+   */
+  editRegions?: EditRegionsProps;
 }) {
   // 広告は payload.ads の先頭のみ静止表示（ローテーションしない）。空なら null（広告枠は空表示）。
   const ad = payload.ads.length > 0 ? (payload.ads[0] ?? null) : null;
@@ -56,6 +64,8 @@ export function ScaledSignageBoard({
           now={null}
           // タップ計測はしない（read-only）。
           onAdTap={NOOP_AD_TAP}
+          // WYSIWYG 編集の領域クリック配線を素通し（省略時は read-only のまま不変）。
+          editRegions={editRegions}
         />
       </div>
     </div>

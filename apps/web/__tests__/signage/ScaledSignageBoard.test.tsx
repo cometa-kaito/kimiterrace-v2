@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 /**
  * F（盤面ビューの再利用部品化）: `SignageBoardView`（純粋な盤面描画層）と `ScaledSignageBoard`（静的・縮小
@@ -109,6 +109,72 @@ describe("SignageBoardView（純粋な盤面描画層）", () => {
     expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
+  });
+
+  // Approach A の behavior-preserving 保証: editRegions を渡さない（live TV / モニタの壁の経路）と、編集ボタンは
+  // 一切描かれず region 名（予定/連絡/提出物）も従来どおり残る＝出力不変。
+  it("editRegions 無し（live / 壁）では編集ボタンを描かず region 名も従来どおり残す（出力不変）", () => {
+    render(<SignageBoardView {...boardProps(samplePayload())} />);
+    expect(screen.queryByRole("button", { name: "予定を編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "連絡を編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "提出物を編集" })).toBeNull();
+    expect(screen.getByRole("region", { name: "予定" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "連絡" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "提出物" })).toBeInTheDocument();
+  });
+});
+
+describe("SignageBoardView 編集モード（Approach A・実エリア直接クリック）", () => {
+  it("editRegions を渡すと予定/連絡/提出物の編集ボタンが実セクションを覆い、region 名/装飾見出しは AT から外れる", () => {
+    const onRegion = vi.fn();
+    render(
+      <SignageBoardView
+        {...boardProps(samplePayload())}
+        editRegions={{ active: null, onRegion }}
+      />,
+    );
+    // 各領域の編集ボタンがアクセシブルに出る（実セクションを inset:0 で覆う実描画要素）。
+    const scheduleBtn = screen.getByRole("button", { name: "予定を編集" });
+    expect(scheduleBtn).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "連絡を編集" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "提出物を編集" })).toBeInTheDocument();
+    // クリックで onRegion(region) を呼ぶ。
+    fireEvent.click(scheduleBtn);
+    expect(onRegion).toHaveBeenCalledWith("schedules");
+    // 編集モードでは盤面内部の region 名 / h2 見出しを外し、編集器側と二重化しない（広告 region は残る）。
+    expect(screen.queryByRole("region", { name: "予定" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "連絡" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "提出物" })).toBeNull();
+    expect(screen.getByRole("complementary", { name: "広告" })).toBeInTheDocument();
+  });
+
+  it("active な領域のボタンは aria-pressed=true（選択中ハイライト）", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(samplePayload())}
+        editRegions={{ active: "notices", onRegion: () => {} }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "連絡を編集" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "予定を編集" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("pattern2 では予定の編集ボタンのみ出す（連絡/提出物は pattern2 盤面に無いので対象外）", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(samplePayload({ designPattern: "pattern2" }))}
+        editRegions={{ active: null, onRegion: () => {} }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "予定を編集" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "連絡を編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "提出物を編集" })).toBeNull();
   });
 });
 

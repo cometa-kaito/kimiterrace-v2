@@ -13,6 +13,12 @@ import {
 } from "@/lib/signage/section-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
+import {
+  BoardRegionEditButton,
+  type EditRegion,
+  type EditRegionsProps,
+} from "./BoardRegionEditButton";
+import editStyles from "./BoardRegionEditButton.module.css";
 import styles from "./signage.module.css";
 
 /**
@@ -37,6 +43,50 @@ import styles from "./signage.module.css";
  */
 const MIN_ROWS = 5;
 
+/**
+ * 実セクション（予定 / 連絡 / 提出物の `<section>`）に編集モードを適用する属性を計算する純ヘルパ。
+ *
+ * - **非編集（`editRegions` 不在）**: `{ className: baseClass, "aria-label": ariaLabel }` を返す＝呼び出し側は従来
+ *   どおり region 名付きで描く＝**出力は完全に不変**（live TV / モニタの壁を 1px も変えない）。`hideHeading=false`。
+ * - **編集モード**: 実セクションを編集ボタンの配置基準にする `regionHost` を base クラスへ足し、section の
+ *   `aria-label` を**外す**（＝named region landmark を消す。`role="region"` 名「予定/連絡/提出物」が編集器側 region と
+ *   二重化しない）。**section 自体は `aria-hidden` にしない**（内側の編集ボタンを AT に残すため）。代わりに装飾見出し
+ *   （h2）は呼び出し側が `hideHeading` で個別に `aria-hidden` 化し、`role="heading"`「連絡/提出物」が編集器見出し・
+ *   既存 e2e の strict locator と二重化しないようにする。領域のアクセシブルな操作名は内側の編集ボタンの
+ *   `aria-label="○○を編集"` が一手に担う。
+ *
+ * 返す `button` は編集モード時のみ JSX（実セクションの内側に置く）。非編集時は `null`＝何も描かない。
+ */
+function regionEditProps(
+  region: EditRegion,
+  // CSS module の class 参照は `string | undefined`（noUncheckedIndexedAccess）。そのまま受けて className に通す。
+  baseClass: string | undefined,
+  ariaLabel: string,
+  editRegions: EditRegionsProps | undefined,
+): {
+  /** 実セクション `<section>` に展開する属性。非編集は region 名付き、編集モードは名前を外し host クラスを足す。 */
+  sectionProps: { className: string; "aria-label"?: string };
+  /** 編集モードでは装飾見出し（h2）を AT から隠すため `aria-hidden` を付ける。 */
+  hideHeading: boolean;
+  button: React.JSX.Element | null;
+} {
+  const base = baseClass ?? "";
+  if (!editRegions) {
+    return {
+      sectionProps: { className: base, "aria-label": ariaLabel },
+      hideHeading: false,
+      button: null,
+    };
+  }
+  return {
+    // 編集モード: region 名（aria-label）を外して named landmark を消し、配置基準 regionHost を足す。
+    // section 自体は aria-hidden にしない（内側の編集ボタンを操作可能に保つ）。可視テキスト・見た目は不変。
+    sectionProps: { className: `${base} ${editStyles.regionHost}` },
+    hideHeading: true,
+    button: <BoardRegionEditButton region={region} editRegions={editRegions} />,
+  };
+}
+
 /** 各デザインパターンの盤面が受け取る共通 props（再生制御は `SignageClient` 側、盤面は表示のみ）。 */
 export type SignageBoardProps = {
   data: SignagePayload;
@@ -46,6 +96,15 @@ export type SignageBoardProps = {
   safeIndex: number;
   now: Date | null;
   onAdTap: (adId: string, slotIndex: number) => void;
+  /**
+   * **WYSIWYG「盤面を編集」の実エリア直接クリック配線**（Approach A・任意）。`undefined`（既定）なら出力は
+   * **完全に不変**＝live TV（`SignageClient`）/ モニタの壁（`ScaledSignageBoard` 編集モード無し）は 1px も変えない。
+   * 渡るのは WYSIWYG エディタ（client）からのみ。渡された時だけ、実セクション（予定 / 連絡 / 提出物）を
+   * `position: relative` 化し `inset:0` の編集ボタンを内側に敷く（実描画要素そのものを覆う＝％近似のズレ無し）。
+   * 編集モード時は盤面内部の装飾見出し（h2）/ region 名を AT から隠し、操作名は編集ボタンの `aria-label` が担う
+   * （編集器側の見出し・既存 e2e の strict locator と二重化しない）。
+   */
+  editRegions?: EditRegionsProps;
 };
 
 /**
@@ -156,7 +215,16 @@ function AdAside({
  *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
  *   天気は予定列の日付横。`pattern1`（既定）選択時に描画される。
  */
-function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
+function Pattern1Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
   return (
     <div className={styles.signageRoot}>
       <BoardHeader data={data} now={now} />
@@ -167,9 +235,14 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
               days={data.scheduleDays}
               today={data.date}
               weather={data.weather ?? null}
+              editRegions={editRegions}
             />
-            <NoticeList section={data.daily.notices} />
-            <AssignmentTable section={data.daily.assignments} today={data.date} />
+            <NoticeList section={data.daily.notices} editRegions={editRegions} />
+            <AssignmentTable
+              section={data.daily.assignments}
+              today={data.date}
+              editRegions={editRegions}
+            />
           </div>
         </main>
         <AdAside
@@ -197,7 +270,16 @@ function Pattern1Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
  * 旧 2 列均質グリッドの「右下空きセル」を解消し、面積で素直に優先順位を表す。各ウィジェットは取得失敗・
  * 不在を fail-soft 表示にする（盤面を壊さない）。
  */
-function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: SignageBoardProps) {
+function Pattern2Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
   return (
     <div className={styles.signageRoot}>
       <BoardHeader data={data} now={now} />
@@ -208,6 +290,7 @@ function Pattern2Board({ data, ad, adLink, adCount, safeIndex, now, onAdTap }: S
               days={data.scheduleDays}
               today={data.date}
               weather={data.weather ?? null}
+              editRegions={editRegions}
             />
             <div className={styles.p2People}>
               <Pattern2Callouts callouts={data.callouts} />
@@ -244,13 +327,22 @@ function Pattern2Schedule({
   days,
   today,
   weather,
+  editRegions,
 }: {
   days: ScheduleDay[];
   today: string;
   weather: SignageWeather | null;
+  editRegions?: EditRegionsProps;
 }) {
+  const { sectionProps, button } = regionEditProps(
+    "schedules",
+    styles.p2Schedule,
+    "予定",
+    editRegions,
+  );
   return (
-    <section aria-label="予定" className={styles.p2Schedule}>
+    <section {...sectionProps}>
+      {button}
       {days.map((day) => {
         const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
         const isToday = day.date === today;
@@ -455,13 +547,22 @@ function ScheduleGrid({
   days,
   today,
   weather,
+  editRegions,
 }: {
   days: ScheduleDay[];
   today: string;
   weather: SignageWeather | null;
+  editRegions?: EditRegionsProps;
 }) {
+  const { sectionProps, button } = regionEditProps(
+    "schedules",
+    `${styles.card} ${styles.scheduleSection}`,
+    "予定",
+    editRegions,
+  );
   return (
-    <section aria-label="予定" className={`${styles.card} ${styles.scheduleSection}`}>
+    <section {...sectionProps}>
+      {button}
       {weather?.isStale ? (
         <span className={styles.scheduleStaleNotice} role="status" aria-live="polite">
           古い予報
@@ -544,12 +645,29 @@ function ScheduleRow({ row }: { row: SignageScheduleRow }) {
 }
 
 /** 連絡事項（左下・5行）。重要マーク(isHighlight)は赤強調 + 【重要】。空きはプレースホルダーで 5 行を保つ。 */
-function NoticeList({ section }: { section: MergedSection }) {
+function NoticeList({
+  section,
+  editRegions,
+}: {
+  section: MergedSection;
+  editRegions?: EditRegionsProps;
+}) {
   const lines = section.items.map((item) => formatSignageItem("notices", item));
   const placeholders = Math.max(0, MIN_ROWS - lines.length);
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "notices",
+    styles.card,
+    "連絡",
+    editRegions,
+  );
   return (
-    <section aria-label="連絡" className={styles.card}>
-      <h2 className={styles.cardTitle}>
+    <section {...sectionProps}>
+      {button}
+      {/* 編集モードでは見出しを AT から外し、編集器側の「連絡」見出し / 既存 e2e の strict locator と二重化させない
+          （可視テキストは残し、操作のアクセシブル名は編集ボタンの aria-label が担う）。非編集（live/壁）では
+          aria-hidden を一切付けず従来どおり heading として読む（出力不変）。 */}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.cardTitle} aria-hidden={hideHeading || undefined}>
         連絡
         <SourceBadge source={section.source} />
       </h2>
@@ -582,14 +700,32 @@ function NoticeList({ section }: { section: MergedSection }) {
 }
 
 /** 提出物（右下・表・5行）。期限/科目/提出物の3列。期限切れは赤行、当日/翌日締切は赤文字。空きは行プレースホルダー。 */
-function AssignmentTable({ section, today }: { section: MergedSection; today: string }) {
+function AssignmentTable({
+  section,
+  today,
+  editRegions,
+}: {
+  section: MergedSection;
+  today: string;
+  editRegions?: EditRegionsProps;
+}) {
   const rows = section.items
     .map((item) => parseAssignmentRow(item, today))
     .filter((r): r is NonNullable<typeof r> => r !== null);
   const placeholders = Math.max(0, MIN_ROWS - rows.length);
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "assignments",
+    styles.card,
+    "提出物",
+    editRegions,
+  );
   return (
-    <section aria-label="提出物" className={styles.card}>
-      <h2 className={styles.cardTitle}>
+    <section {...sectionProps}>
+      {button}
+      {/* 編集モードでは見出しを AT から外し、編集器側の「提出物」見出し / 既存 e2e の strict locator と二重化させない。
+          非編集（live/壁）では aria-hidden を一切付けず従来どおり heading として読む（出力不変）。 */}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.cardTitle} aria-hidden={hideHeading || undefined}>
         提出物
         <SourceBadge source={section.source} />
       </h2>

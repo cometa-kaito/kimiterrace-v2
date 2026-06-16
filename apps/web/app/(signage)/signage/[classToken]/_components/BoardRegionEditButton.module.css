@@ -1,0 +1,71 @@
+/**
+ * BoardRegionEditButton.module.css — 盤面の実セクションを覆う編集ボタンのアフォーダンス（Approach A）。
+ *
+ * 親の実 `<section>`（`position: relative`）の内側に `inset:0` で敷く。クリック対象＝実描画要素そのものなので
+ * ％近似のズレが原理的に起きない。普段は透明・ホバー / フォーカス / 選択中だけ枠 + ラベルを出す（盤面の見た目は
+ * 邪魔しない）。盤面は `transform: scale()` で縮小描画されるが、本ボタンは親 section に対する % 配置なので
+ * 縮小座標系でも実エリアに正しく追従する。
+ */
+
+/**
+ * 実セクション（予定 / 連絡 / 提出物の `<section>`）を編集ボタンの**配置基準**にするためのホスト指定。
+ * 編集モード時だけ実セクションへ付与し、内側の絶対配置ボタン（`inset:0`）の基準を作る。盤面の見た目（背景・
+ * 余白・罫線）は変えない（`position` だけ付ける）。非編集時はこのクラスを付けない＝出力不変。
+ */
+.regionHost {
+  position: relative;
+}
+
+/* 実セクションぴったりを覆う透明ボタン。普段は枠なし＝盤面の見た目を変えない。 */
+.regionButton {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+.regionButton:hover {
+  border-color: rgba(44, 82, 130, 0.55);
+  background-color: rgba(44, 82, 130, 0.06);
+}
+.regionButton:focus-visible {
+  outline: none;
+  border-color: #2c5282;
+  box-shadow: 0 0 0 3px rgba(44, 82, 130, 0.3);
+}
+/* 選択中の領域（対応エディタが下でアクティブ）。常時うっすら枠で「ここを編集中」を示す。 */
+.regionButtonActive {
+  border-color: #2c5282;
+  background-color: rgba(44, 82, 130, 0.08);
+}
+
+/* 領域名バッジ（ホバー / フォーカス / 選択中で浮かせる）。操作可能と分かるラベル。 */
+.regionLabel {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(44, 82, 130, 0.9);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.regionButton:hover .regionLabel,
+.regionButton:focus-visible .regionLabel,
+.regionButtonActive .regionLabel {
+  opacity: 1;
+}
