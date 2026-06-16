@@ -3,8 +3,11 @@
 import {
   applyChatFrame,
   beginUserTurn,
+  chatErrorMessage,
   type ChatState,
+  finalizeInterruptedTurn,
   initialChatState,
+  isRetryableError,
   parseSseFrames,
 } from "@/lib/editor/assistant-chat-client";
 import {
@@ -71,6 +74,10 @@ export function EditorChat({
   // 会話インラインの確認カードを閉じたか（「直す」or 反映成功で閉じ、次の送信/取込で再表示）。
   const [confirmHidden, setConfirmHidden] = useState(false);
   const streamingRef = useRef(false);
+  // 進行中の SSE を中断するための AbortController（停止ボタン）。null=非ストリーミング。
+  const abortRef = useRef<AbortController | null>(null);
+  // 会話の最下部アンカー。新着メッセージ/ストリーム/下書きで最下部へ自動スクロールする（チャットの基本挙動）。
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   // 日本語 IME 変換中フラグ。変換確定の Enter で誤送信しないためのガード（compositionstart/end で開閉）。
@@ -117,6 +124,9 @@ export function EditorChat({
         draft: working.draft,
         acknowledgePii: ackPii,
       };
+      // 停止ボタンで中断できるよう AbortController を張る（中断はユーザー操作＝エラー扱いしない）。
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const res = await fetch(
           `/api/editor/assistant/chat?scope=${encodeURIComponent(scope)}&targetId=${encodeURIComponent(targetId)}`,
@@ -124,6 +134,7 @@ export function EditorChat({
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
+            signal: controller.signal,
           },
         );
         if (!res.ok || !res.body) {
@@ -153,9 +164,15 @@ export function EditorChat({
           setState(working);
         }
       } catch {
-        setState((s) => ({ ...s, status: "error", error: { reason: "stream_failed" } }));
+        // ユーザーが停止: 途中までの応答・下書きを残しエラーにしない。それ以外は通信/モデル障害。
+        if (controller.signal.aborted) {
+          setState(finalizeInterruptedTurn(working));
+        } else {
+          setState((s) => ({ ...s, status: "error", error: { reason: "stream_failed" } }));
+        }
       } finally {
         streamingRef.current = false;
+        abortRef.current = null;
       }
     },
     [scope, targetId],
@@ -179,6 +196,26 @@ export function EditorChat({
     streamingRef.current = true;
     void stream(state, true);
   }, [state, stream]);
+
+  /** 生成の停止: 進行中の SSE を中断する（中断後の状態確定は stream の catch が finalizeInterruptedTurn で行う）。 */
+  const onStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  /** 再試行: 一時的失敗（通信/混雑）後に、直近のターンをそのまま再送する（user ターンは既に積まれている）。 */
+  const onRetry = useCallback(() => {
+    if (streamingRef.current) return;
+    streamingRef.current = true;
+    setSaveMsg(null);
+    void stream(state, false);
+  }, [state, stream]);
+
+  // 新着メッセージ/ストリーム/下書き/状態変化のたびに会話の最下部へスクロールする（チャットの基本挙動）。
+  // scrollIntoView は jsdom 等で未実装のため `?.()` でガードする（テスト環境で throw させない）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: スクロールのトリガ群（内容変化を見て最下部へ寄せる）
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView?.({ block: "end" });
+  }, [state.messages.length, state.streamingText, state.status]);
 
   /** 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。成功で確認カードを閉じる。 */
   const onApply = useCallback(async () => {
@@ -333,8 +370,25 @@ export function EditorChat({
         ) : null}
 
         {otherError ? (
-          <p style={errorStyle}>{otherError.message ?? errorText(otherError.reason)}</p>
+          <div style={errorBoxStyle}>
+            <p style={errorTextStyle}>
+              {otherError.message ?? chatErrorMessage(otherError.reason)}
+            </p>
+            {isRetryableError(otherError.reason) ? (
+              <button
+                type="button"
+                style={retryBtnStyle}
+                onClick={onRetry}
+                disabled={streaming || fileBusy}
+              >
+                再試行
+              </button>
+            ) : null}
+          </div>
         ) : null}
+
+        {/* 会話の最下部アンカー（自動スクロール先）。 */}
+        <div ref={bottomRef} />
       </div>
 
       <div className={styles.composer}>
@@ -408,15 +462,27 @@ export function EditorChat({
             🎤
           </button>
         ) : null}
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.send}`}
-          onClick={onSend}
-          disabled={streaming || fileBusy || !input.trim()}
-          aria-label="送信"
-        >
-          {fileBusy ? "読込中…" : "送信"}
-        </button>
+        {streaming ? (
+          // 生成中は「送信」を「停止」に差し替え、進行中の応答を中断できるようにする。
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.send}`}
+            onClick={onStop}
+            aria-label="生成を停止"
+          >
+            停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.send}`}
+            onClick={onSend}
+            disabled={fileBusy || !input.trim()}
+            aria-label="送信"
+          >
+            {fileBusy ? "読込中…" : "送信"}
+          </button>
+        )}
       </div>
 
       {/* 音声入力が実際に失敗したときだけ、マイク直下に短いヒントを出す（role=status で読み上げ）。 */}
@@ -465,22 +531,6 @@ function DraftSection({
   );
 }
 
-/** 拒否理由 → 教員向け文言。 */
-function errorText(reason: string): string {
-  switch (reason) {
-    case "rate_limited":
-      return "混み合っています。少し待ってからもう一度お試しください。";
-    case "no_result":
-      return "うまくまとめられませんでした。言い方を変えてもう一度お試しください。";
-    case "empty":
-      return "内容を入力してください。";
-    case "too_long":
-      return "入力が長すぎます。短く分けてお試しください。";
-    default:
-      return "送信に失敗しました。もう一度お試しください。";
-  }
-}
-
 const userBubbleStyle: React.CSSProperties = {
   alignSelf: "flex-end",
   maxWidth: "88%",
@@ -511,14 +561,34 @@ const savedNoteStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   color: color.ink,
 };
-const errorStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: fontSize.sm,
+// エラー表示（文言 + 一時的失敗なら「再試行」）。danger 配色のボックスに縦並び。
+const errorBoxStyle: React.CSSProperties = {
+  alignSelf: "stretch",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.5rem",
+  alignItems: "flex-start",
   color: color.dangerFg,
   background: color.dangerBg,
   border: `1px solid ${color.dangerBorder}`,
   borderRadius: radius.md,
   padding: "0.5rem 0.7rem",
+};
+const errorTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: fontSize.sm,
+  color: color.dangerFg,
+};
+const retryBtnStyle: React.CSSProperties = {
+  minHeight: "36px",
+  padding: "0.3rem 0.9rem",
+  background: color.primary,
+  color: "#fff",
+  border: "none",
+  borderRadius: radius.md,
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  cursor: "pointer",
 };
 // 会話インラインの確認カード（assistant 寄せ・下書き要約 + 反映/直す）。
 const confirmCardStyle: React.CSSProperties = {
