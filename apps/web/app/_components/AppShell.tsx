@@ -31,7 +31,10 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
   const menuFooter = showSidebar ? <HeaderActions user={user} variant="menu" /> : null;
 
   return (
-    <div style={rootStyle}>
+    // admin-shell: デスクトップでシェルをビューポート高に固定し、サイドメニューと本文を各列で
+    // 独立スクロールさせる（globals.css の `@media (min-width: 769px)`）。インライン style は
+    // メディアクエリで上書きできないため、高さ固定/overflow はクラス側に置く。
+    <div className="admin-shell" style={rootStyle}>
       {/* ヘッダ右上のハンバーガーと、その下に開く nav ドロップダウンは別 DOM 位置だが同じ開閉状態を
           共有する必要がある。両方を AdminMenuProvider で包んで状態を 1 箇所に持たせる。 */}
       <AdminMenuProvider>
