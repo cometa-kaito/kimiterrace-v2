@@ -365,6 +365,9 @@ const tabsStyle: React.CSSProperties = {
   gap: space.xs,
   borderBottom: `1px solid ${color.border}`,
   marginBottom: space.md,
+  // 狭幅（モバイル）で軸タブが折返して下線が崩れるのを防ぐ。横スクロールに倒して 1 行を維持する
+  // （2026-06-16 ユーザー指摘「タブのレイアウト崩れ」）。タブ自体は whiteSpace:nowrap（tabStyle）。
+  overflowX: "auto",
 };
 const tabStyle: React.CSSProperties = {
   padding: "0.4rem 0.9rem",
@@ -372,6 +375,9 @@ const tabStyle: React.CSSProperties = {
   color: color.muted,
   textDecoration: "none",
   borderBottom: "2px solid transparent",
+  // 横スクロール時に 1 タブが折返さないよう固定（tabsStyle の overflowX:auto と対）。
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };
 const tabActiveStyle: React.CSSProperties = {
   ...tabStyle,

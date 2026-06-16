@@ -21,6 +21,21 @@ export type NavItem = {
 };
 
 /**
+ * サイドナビの 1 グループ (見出し + 項目)。`title` 空文字なら Sidebar は見出しを描かない
+ * (school_admin / teacher の短いナビはグループ見出し無しで従来どおりフラット表示)。
+ *
+ * グループ化は **表示の出し分け** であり認可とは無関係 (認可は guard + RLS、deny-by-default)。
+ * フラットな項目順は {@link navItemsForRole} が各グループを連結して返す = 既存の active 判定や
+ * テストの順序契約はこの連結順で保たれる。
+ */
+export type NavGroup = {
+  /** グループ見出し (日本語)。空文字は「見出しを描かない」。 */
+  title: string;
+  /** このグループの nav 項目。 */
+  items: readonly NavItem[];
+};
+
+/**
  * `/admin` 配下 (管理エリア) にアクセスできるロール。
  * 生徒 (student) / 保護者 (guardian) は管理エリア対象外 → guard で 403 (`/forbidden`)。
  */
@@ -33,116 +48,96 @@ export const ADMIN_ROLES = [
 export type AdminRole = (typeof ADMIN_ROLES)[number];
 
 /**
- * **MFA (二要素認証) の nav 項目は意図的に外している (2026-06-07 ユーザー判断)**。MFA は現状運用しないため
- * UI の入口 (サイドナビ) からは触れさせない。ただし**機能・コードは残置**する — enrollment ページ
- * (`/app/account/mfa`) / client 登録・解除 / 監査 Server Action (`enrollment-actions`) / 強制ゲート
- * (`enforceMfaGate`、既定 OFF) / policy はすべて温存する。本番導入時 (`MFA_ENFORCEMENT=on`) は、各ロールに
- * `{ label: "二要素認証", href: MFA_ENROLLMENT_PATH }` を**再追加すれば復帰**できる (強制ゲートが未登録者を
- * 同ページへ誘導する経路は nav に依らず機能する)。
+ * role 別サイドナビ (#48-C) を **グループ化** して定義する単一ソース。
  *
- * ⚠️ 「nav 配線が漏れている」と誤認して再追加しないこと。広告主 nav の前例 (#46、配線漏れ) とは状況が異なり、
- * これは**意図的な撤去**。再表示は MFA 運用開始の判断とセットで行う。
+ * **system_admin のグループ化 (2026-06-16 ユーザー要望)**: 16 項目がフラットに並んで走査しづらい
+ * ため、目的別の 5 グループ (学校・ユーザー / 配信・分析 / モニタ・端末 / ログ・監査 / アカウント) に
+ * 見出しを付けて整理する。フラット順は {@link navItemsForRole} がグループ連結で返す (順序の単一ソース)。
+ * school_admin / teacher は項目が少ないため見出し無しの 1 グループ (見た目は従来どおり)。
+ *
+ * **意図的に nav から外している項目 (「配線漏れ」と誤認して再追加しないこと)** — 機能・ルート・認可は
+ * いずれも残置し URL 直打ちは可能。導線のみ撤去:
+ *  - **MFA (二要素認証, /app/account/mfa)**: 現状非運用ゆえ UI 入口を撤去 (2026-06-07)。enrollment /
+ *    Server Action / 強制ゲート (既定 OFF) / policy は残置。運用開始時に各ロールへ再追加すれば復帰。
+ *  - **音声/チャット入力 (/app/teacher-input) / コンテンツ (/app/contents) / 掲示物 Q&A (/app/chat)**:
+ *    ADR-040 で curated contents 系統が休眠 (embedding RAG 停止)、生徒 Q&A の知識源は daily_data 直接注入へ
+ *    再ソース化。3 導線は school_admin / teacher の nav から撤去 (2026-06-14, 2026-06-11)。認可は
+ *    PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES で system_admin を 403。
+ *  - **自校監視系 (/app/dashboard, /app/reports, /app/sensors)**: 校務DX原則で運営専用に締め、school-side
+ *    ルートは撤去。system_admin は全校版 (/ops/*) を使う。
+ *  - **メンバーシップ・ビューア (/ops/memberships)**: 商流SoR一元化 Phase1 で撤去 (テーブル/RLS は温存)。
+ *  - **教職員管理 (/app/school/members)**: 教員アカウント概念の撤去で廃止 ([[project_remove_individual_teacher_accounts]])。
+ *  - **system_admin に自校エディタ (/app/editor)**: system_admin は schoolId=null ゆえ出さない。
  */
-const NAV_BY_ROLE: Record<AdminRole, readonly NavItem[]> = {
-  // システム管理者: 全校横断の運用 (RLS bypass ではなく system_admin policy 経由、ADR-019)。
+const NAV_GROUPS_BY_ROLE: Record<AdminRole, readonly NavGroup[]> = {
+  // システム管理者: 全校横断の運用 (RLS bypass ではなく system_admin policy 経由、ADR-019)。目的別 5 グループ。
   system_admin: [
-    { label: "学校一覧", href: "/ops/schools" },
-    // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用)。自校ビュー /app/school/members
-    // (school_admin 専用) とは別ルート。ロール変更/無効化の操作系の土台 (ADR-026)。
-    { label: "教職員管理", href: "/ops/users" },
-    // F10 (#46) → UIUX-03 PR8 (商流 UI 退役・段階1): 商流 (広告主マスタ/契約/コミュニケーション) の
-    // SoR は portal に確定 (実装設計書 §26/§42.2/§43)。v2 の重複 CRM 管理面はナビから退役する。
-    // ⚠ ただし「広告クリエイティブのクラス割当 (どの画面に何を出すか) = 配信」は v2 に残すため
-    // (UIUX-03 C-3)、その入口である一覧ページはラベルを「広告配信割当」に改めて温存する (#46 の
-    // 「収益中核機能が nav から不可視」の再発防止)。商流レコードの編集ページ群はルート温存のまま
-    // 一覧バナーで portal へ誘導。物理削除は参照ゼロ実証後の別 PR (Opus/ユーザー判断)。
-    { label: "広告配信割当", href: "/ops/advertisers" },
-    // F08 第4スライス: 全校横断の効果ダッシュボード (system_admin 専用、cross-tenant)。§43 で自校重複
-    // (/app/dashboard) を撤去し /ops/dashboard に一本化したため、ダッシュボードは運営専用。
-    { label: "全校ダッシュボード", href: "/ops/dashboard" },
-    // F13 (#391, ADR-020): 全校横断の来場検知センサー状態ビュー (system_admin 専用、cross-tenant)。§43 で
-    // 自校重複の一覧 (/app/sensors) を撤去し、登録/編集/履歴の CRUD も /ops/sensors 配下へ統合したため、
-    // センサー管理は運営専用。requireRole(SYSTEM_ADMIN_ROLES) で publisher は 403 → 死リンク防止。
-    { label: "センサー管理（全校）", href: "/ops/sensors" },
-    // F15 (ADR-022): TV(サイネージ)端末のリモート管理。モニタごとに signage URL / 起動スケジュール
-    // (表示 ON/OFF 時刻・曜日) / センサー MAC 等を設定 (編集ページ #494) + 死活/設定版/履歴表示。ページ群は
-    // 実装・テスト済 (#487/#494/#496/#497/#499/#500/#628) だが **nav 配線が漏れて URL 直打ちでしか到達でき
-    // なかった** (広告主 #46 と同型の配線漏れ)。校務DX原則でセンサー管理と同じく運営 (system_admin) 専用に出す。
-    { label: "モニタ設定", href: "/ops/tv-devices" },
-    // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (system_admin 専用、cross-tenant)。§43 で自校の
-    // 月次サマリービュー (/app/reports) を撤去し /ops/reports に一本化したため、月次レポートは運営専用。
-    { label: "月次レポート", href: "/ops/reports" },
-    { label: "フィードバック", href: "/ops/feedback" },
-    // UIUX-03 (PR2-4): 不足ビューア群 (system_admin 専用、cross-tenant)。events / audit_log / ai_chat の
-    // 生データ閲覧。PII 近接のため「表示時マスキング + 閲覧自体の監査記録」を各ページが実装する
-    // (docs/compliance/admin-viewer-policy.md DRAFT)。nav 配線は 3 ビューア分をまとめて PR4 で追加
-    // (nav.ts の 3 連続編集を避ける)。
-    { label: "イベント生ログ", href: "/ops/events" },
-    { label: "監査ログ", href: "/ops/audit" },
-    { label: "AIチャット監査", href: "/ops/ai-chat" },
-    // UIUX-03 (PR5): 残ビューア群。公開履歴 / 学校設定 (quiet hours 等の編集) / TV コマンド・
-    // ダウンタイムの全校横断ログ。
-    // 商流SoR一元化 Phase1 (2026-06-13): メンバーシップ・ビューア (/ops/memberships) は撤去。
-    // 設計上 membership 行は構造的に生成されない (教員=共通PW・生徒=匿名magic-link) ためビューアは常に空。
-    // ⚠ memberships テーブル/スキーマ/RLS は auth/RLS が参照しうるため温存し、ビューア UI のみ削除する
-    // (§43 二段階退役)。
-    { label: "公開履歴", href: "/ops/publishes" },
-    { label: "学校設定", href: "/ops/school-configs" },
-    { label: "TVコマンド履歴", href: "/ops/tv-commands" },
-    { label: "TVダウンタイム", href: "/ops/tv-downtime" },
-    // 自分のパスワード変更 (個人 email/password アカウント)。ログイン後にここから再設定できる。
-    // 対象ロールは PASSWORD_CHANGE_ROLES (system_admin / school_admin) と揃える (password-policy.ts)。
-    { label: "パスワード変更", href: "/app/account/password" },
-    // 二要素認証 (MFA) は意図的に nav から外す (上記 NAV_BY_ROLE の注記参照。機能は残置)。
+    {
+      title: "学校・ユーザー",
+      items: [
+        { label: "学校一覧", href: "/ops/schools" },
+        // F11 (#324): 全校横断の教職員ユーザー管理 (system_admin 専用、ADR-026)。
+        { label: "教職員管理", href: "/ops/users" },
+        { label: "学校設定", href: "/ops/school-configs" },
+      ],
+    },
+    {
+      title: "配信・分析",
+      items: [
+        // F08 (#44): 全校横断の効果ダッシュボード (cross-tenant)。自校重複 /app/dashboard は §43 で撤去。
+        { label: "全校ダッシュボード", href: "/ops/dashboard" },
+        // F09 (#430): 全校横断の月次レポート履歴 + PDF DL (cross-tenant)。
+        { label: "月次レポート", href: "/ops/reports" },
+        // F10 (#46) → UIUX-03: 商流マスタは portal が SoR。v2 に残すのは「広告クリエイティブのクラス割当
+        // (配信)」のためラベルを「広告配信割当」にして一覧を温存する。
+        { label: "広告配信割当", href: "/ops/advertisers" },
+        { label: "公開履歴", href: "/ops/publishes" },
+      ],
+    },
+    {
+      title: "モニタ・端末",
+      items: [
+        // F15 (ADR-022): TV (サイネージ) 端末のリモート管理 (signage URL / 起動スケジュール / 死活)。
+        { label: "モニタ設定", href: "/ops/tv-devices" },
+        // F13 (#391, ADR-020): 全校横断の来場検知センサー状態 (cross-tenant)。自校 /app/sensors は §43 で統合。
+        { label: "センサー管理（全校）", href: "/ops/sensors" },
+        { label: "TVコマンド履歴", href: "/ops/tv-commands" },
+        { label: "TVダウンタイム", href: "/ops/tv-downtime" },
+      ],
+    },
+    {
+      title: "ログ・監査",
+      items: [
+        // UIUX-03 (PR2-5): 生データ閲覧ビューア群。PII 近接のため表示時マスキング + 閲覧自体の監査記録。
+        { label: "監査ログ", href: "/ops/audit" },
+        { label: "イベント生ログ", href: "/ops/events" },
+        { label: "AIチャット監査", href: "/ops/ai-chat" },
+        { label: "フィードバック", href: "/ops/feedback" },
+      ],
+    },
+    {
+      title: "アカウント",
+      // 自分のパスワード変更 (個人 email/password アカウント)。PASSWORD_CHANGE_ROLES と整合。
+      items: [{ label: "パスワード変更", href: "/app/account/password" }],
+    },
   ],
-  // 学校管理者: 自校スコープ (school_id) の学年/クラス/学科 CRUD ハブ + エディタ。
-  //
-  // **校務DX原則 (監視系は学校側に持たせない)**: ダッシュボード / 月次レポート / センサー管理は「自校の
-  // 運営を見る」監視・閲覧系であり、先生・校長の校務を楽にする機能ではない。運営 (system_admin) 専用に
-  // 集約し、学校側ロールの nav からは撤去する (UX 撤去 + 各ページ/API は requireRole(SYSTEM_ADMIN_ROLES)
-  // で URL 直打ち・API 直叩きも 403)。全校横断版は system_admin の /ops/* に存続する。
-  //
-  // **ADR-040 で contents 系統が休眠 → 「音声/チャット入力」(/app/teacher-input)・「コンテンツ」
-  // (/app/contents)・「掲示物 Q&A」(/app/chat) を school_admin nav からも撤去 (2026-06-14)**。生徒/保護者
-  // Q&A の知識源は編集 (`daily_data` 連絡/提出物) の直接注入に再ソース化され (ADR-040、#903)、curated
-  // `contents` 系統 (音声/チャット入力 → teacher_inputs → contents、コンテンツ画面での公開) とその embedding
-  // RAG は休眠した (embedding Job は enabled=false・未apply、#904)。よってこの 3 導線は「書いても Q&A にも
-  // サイネージにも出ない」デッドエンド。掲示物 Q&A (/app/chat) も staff 向けで、M3 直接注入は生徒の classId
-  // 前提のため staff (クラス非バインド) では grounding できず general_supplement のみ＝低価値。
-  // teacher ブロック (下) と同じ規律で **nav 導線のみ撤去**し、route/ページ/認可 (requireRole の
-  // PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置** — URL 直打ちは引き続き到達可能。
-  //
-  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。死リンクと
-  // 誤認して再追加しないこと。再表示は contents 系統の再活性 (ADR-040 の覆し) とセットで判断する。
+  // 学校管理者: 自校スコープ (school_id)。項目が少ないため見出し無しの 1 グループ (従来の見た目を維持)。
+  // 教員アカウント概念の撤去で「教職員」(/app/school/members) は廃止。監視系 (ダッシュボード/月次/センサー) は
+  // 校務DX原則で運営専用に撤去。contents 系統 3 導線は ADR-040 休眠で撤去 (上のヘッダ注記参照)。
   school_admin: [
-    { label: "学校管理", href: "/app/school" },
-    // 教員アカウント概念の撤去（2026-06-10 ユーザー判断）に伴い「教職員」(/app/school/members) を撤去。
-    // 教員は学校共通パスワード（ADR-032・系統A）のみでログインし個別アカウントを持たない。教員ロールの
-    // 付与/無効化/設定リンク発行という school_admin の自校教職員管理面ごと廃止した（[[project_remove_individual_teacher_accounts]]）。
-    { label: "エディタ", href: "/app/editor" },
-    // 自分のパスワード変更 (個人 email/password アカウント)。teacher は学校共通パスワード (ADR-032) で
-    // 個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES = school_admin / system_admin と整合)。
-    { label: "パスワード変更", href: "/app/account/password" },
-    // 二要素認証 (MFA) は意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
+    {
+      title: "",
+      items: [
+        { label: "学校管理", href: "/app/school" },
+        { label: "エディタ", href: "/app/editor" },
+        // teacher は学校共通PW (ADR-032) で個人 PW を持たないため出さない (PASSWORD_CHANGE_ROLES と整合)。
+        { label: "パスワード変更", href: "/app/account/password" },
+      ],
+    },
   ],
-  // 教員: スケジュール/連絡/宿題エディタ **のみ**。
-  //
-  // **教員 UX はエディタ 1 枚に集約する (2026-06-11 ユーザー判断)**。サイネージ (TV) に表示されるのは
-  // エディタが書く `daily_data` (予定/連絡/提出物) だけ — `getSignageDisplayData` は contents/publishes を
-  // 読まない。一方「音声/チャット入力」(F02)・「コンテンツ」(F04)・「掲示物 Q&A」(F06) は、音声/ファイル →
-  // contents → embedding → RAG → **生徒向け Q&A チャットボットの裏方**であり、サイネージには出ない別系統。
-  // よって教員が「サイネージに出す」目的では不要 → nav 導線から撤去し、先生を迷わせない (校務DX原則: 先生の
-  // 工数を増やさない)。
-  //
-  // ⚠️ **意図的な撤去であり「配線漏れ」ではない (MFA / 広告主 #46 の前例と区別すること)**。機能・ページ・
-  // 認可 (requireRole の PUBLISHER_ROLES / TEACHER_INPUT_STAFF_ROLES) は**残置**し、teacher は URL 直打ちで
-  // 引き続き到達できる。**ADR-040 (2026-06-14) で生徒/保護者 Q&A の知識源は編集 (`daily_data`) の直接注入に
-  // 再ソース化され、curated `contents` 経路とその embedding RAG は休眠した**。これに伴い「音声/チャット入力」
-  // (F02)・「コンテンツ」(F04)・「掲示物 Q&A」(F06) の 3 導線は **school_admin nav からも撤去** (上の
-  // school_admin ブロック参照)。旧「コンテンツ投入を school_admin に集約 (ADR-038)」は ADR-040 で決着済 →
-  // school_admin 集約は撤回。ダッシュボード (F08) / 月次レポート (F09) / センサー管理 (F13) は校務DX原則で
-  // 運営 (system_admin) 専用に撤去済。MFA も意図的に nav から外す (NAV_BY_ROLE の注記参照。機能は残置)。
-  teacher: [{ label: "エディタ", href: "/app/editor" }],
+  // 教員: エディタ 1 枚に集約 (2026-06-11)。サイネージに出るのは daily_data のみ。contents 系統・監視系・MFA は
+  // 意図的に nav から撤去 (機能・認可は残置・URL 直打ち可、上のヘッダ注記参照)。
+  teacher: [{ title: "", items: [{ label: "エディタ", href: "/app/editor" }] }],
 };
 
 /** 管理エリアに入れるロールか (純粋判定、guard から利用)。 */
@@ -151,15 +146,23 @@ export function isAdminRole(role: TenantRole): role is AdminRole {
 }
 
 /**
- * role に対応するサイドナビ項目を返す。管理エリア対象外ロール (student/guardian) は空配列。
- * 呼出側はこれを描画するだけ — 認可は guard + RLS が担保するので、ここで漏れても
- * 実データは出ない (deny-by-default、多層防御)。
+ * role に対応するサイドナビの **グループ** を返す。管理エリア対象外ロール (student/guardian) は空配列。
+ * Sidebar はこれを描画するだけ — 認可は guard + RLS が担保するので、ここで漏れても実データは出ない
+ * (deny-by-default、多層防御)。
  */
-export function navItemsForRole(role: TenantRole): readonly NavItem[] {
+export function navGroupsForRole(role: TenantRole): readonly NavGroup[] {
   if (!isAdminRole(role)) {
     return [];
   }
-  return NAV_BY_ROLE[role];
+  return NAV_GROUPS_BY_ROLE[role];
+}
+
+/**
+ * role に対応するサイドナビ項目を **フラット** に返す (グループを連結)。順序はグループ定義順に従う
+ * = active 判定・showSidebar 判定・順序契約テストの単一ソース。管理エリア対象外ロールは空配列。
+ */
+export function navItemsForRole(role: TenantRole): readonly NavItem[] {
+  return navGroupsForRole(role).flatMap((group) => group.items);
 }
 
 /**
