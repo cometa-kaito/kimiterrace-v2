@@ -203,3 +203,19 @@ export function finalizeInterruptedTurn(state: ChatState): ChatState {
     : state.messages;
   return { ...state, messages, streamingText: "", status: "done", error: null };
 }
+
+/**
+ * 読み取りループが**終端フレーム（done/error）を受け取らないまま**ストリームが閉じた場合の確定。
+ *
+ * サーバ/インフラが SSE を途中で切る（Cloud Run のリクエストタイムアウト・プロキシ切断・モデル無応答後の
+ * 接続クローズ等）と、クライアントは `done`/`error` を受信できず `status` が `streaming` のまま残り、
+ * UI が**永久に「考えています」で固まる**（`streaming && streamingText===""` の表示が消えない）。これを
+ * 防ぐため、ループ終了後に `status` がまだ `streaming` なら再試行可能な `stream_failed` に畳む。既に
+ * `done`/`error`（終端フレーム受信済み）に達していれば**現状をそのまま返す**（正常完了・既知の拒否を上書きしない）。
+ */
+export function finalizeUnterminatedTurn(state: ChatState): ChatState {
+  if (state.status !== "streaming") {
+    return state;
+  }
+  return { ...state, status: "error", error: { reason: "stream_failed" } };
+}

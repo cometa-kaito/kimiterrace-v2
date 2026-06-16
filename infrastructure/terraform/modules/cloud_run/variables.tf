@@ -116,6 +116,17 @@ variable "ai_enabled" {
   default     = false
 }
 
+variable "gemini_thinking_budget" {
+  description = <<-EOT
+    Editor AI（会話アシスタント / 連絡ドラフト）の Gemini 2.5 思考（thinking）トークン上限を app の env
+    `GEMINI_THINKING_BUDGET` に写す（#593 thinking-budget tuning）。**空文字なら env を注入しない**（app は未設定
+    = SDK 既定 dynamic）。`"0"` で思考を**無効化**し、構造化下書きの初回応答を最速化 + maxOutputTokens(2048) を
+    思考が食い潰して無応答になるハングを回避する（#982 本番「考えています」で固まる事故の緩和）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "container_port" {
   description = "コンテナがリッスンするポート。apps/web/Dockerfile は 3000 をハードコード（Next standalone）。"
   type        = number

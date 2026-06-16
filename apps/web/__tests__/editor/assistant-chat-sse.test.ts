@@ -77,6 +77,23 @@ function deps(partials: (AssistantTurnPartial | "THROW")[], opts: { acquire?: bo
   };
 }
 
+/**
+ * 無応答 stream client: partial を一切 yield せず done も解決しない（本番の「考えています」ハングを模す）。
+ * handler が張る AbortSignal が abort されると partialStream が reject し、handler が stream_failed に畳む。
+ */
+function hangingStreamClient() {
+  const stream = vi.fn((streamReq: { system: string; user: string; signal?: AbortSignal }) => ({
+    partialStream: (async function* () {
+      await new Promise<never>((_resolve, reject) => {
+        streamReq.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    })(),
+    // usage は永久に未解決（handler は partialStream の中断で先に catch へ抜ける）。
+    done: new Promise<{ modelVersion: string; tokenCount: number }>(() => {}),
+  }));
+  return { stream };
+}
+
 /** SSE Response を {event,data} フレーム列に解析する。 */
 async function frames(res: Response): Promise<Array<{ event: string; data: unknown }>> {
   const text = await res.text();
@@ -237,6 +254,27 @@ describe("respondWithAssistantChat", () => {
       status: 500,
       reason: "stream_failed",
     });
+  });
+
+  it("モデルが無応答でストールしたら中断して stream_failed に畳む（#982 本番ハング対策）", async () => {
+    const d = {
+      streamClient: hangingStreamClient(),
+      rateLimiter: { tryAcquire: vi.fn().mockResolvedValue(true) },
+      nowMs: 1000,
+      streamStallMs: 20, // テストは小さいストール上限で中断挙動を素早く検証する。
+    };
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    // meta は送られるが、done は無く、ストール中断で stream_failed に畳まれる（永久に開きっぱなしにしない）。
+    expect(fr[0]?.event).toBe("meta");
+    expect(fr.find((f) => f.event === "done")).toBeUndefined();
+    expect(fr.find((f) => f.event === "error")?.data).toMatchObject({
+      status: 500,
+      reason: "stream_failed",
+    });
+    // handler は無応答 client を実際に中断しようとした（abort 配線の確認）。
+    const sentReq = d.streamClient.stream.mock.calls[0]?.[0] as { signal?: AbortSignal };
+    expect(sentReq.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("許可外セクションの出力は落とす（pattern2 相当・schedules のみ許可）", async () => {

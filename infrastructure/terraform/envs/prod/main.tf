@@ -487,6 +487,11 @@ module "cloud_run" {
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
   ai_enabled = true # 2026-06-12 flip: UIUX-02 AI go-live。マスキング強化(redactSuspectedNames)+test+Reviewer+aiplatform API有効を確認済。停止は false に戻して apply で即 OFF
 
+  # #982 本番ハング修正: 会話AIが「考えています」で固まる事故の緩和。思考を無効化(=0)して構造化下書きの初回応答を
+  # 最速化し、maxOutputTokens(2048) を思考が食い潰して無応答になる事象を防ぐ（env 未設定=dynamic を明示的に上書き）。
+  # 実トラフィックで質を見て、必要なら小さい正の値（例 256）へ戻す（app は 0 で無効・正で上限・空で dynamic）。
+  gemini_thinking_budget = "0"
+
   memory              = "1Gi" # Next.js SSR + AI SDK の boot/peak 余裕。scale-to-zero ゆえアイドル課金増なし。
   deletion_protection = true  # prod は誤削除防止（モジュール既定 true・明示）
 

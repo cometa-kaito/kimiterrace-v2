@@ -53,6 +53,13 @@ import type { EditorActor, EditorTarget } from "./schedule-core";
  * - **AI kill-switch（#289/ルール4）**: `AI_ENABLED !== "true"` なら実 Vertex を呼ぶ前に 503。
  */
 
+/**
+ * モデル応答の**ストール上限（ms）**。partial が一定時間来ない（初回トークンが来ない / 途中で止まる）と
+ * Vertex 呼び出しを能動的に中断し `stream_failed` に畳む。Cloud Run の既定リクエストタイムアウト(300s)で
+ * 接続だけ切られて `meta` だけ送った状態で固まる事故（#982 本番「考えています」ハング）を防ぐため、十分手前で切る。
+ */
+const STREAM_STALL_MS = 60_000;
+
 /** 名前付き SSE フレーム（`event: <name>\ndata: <json>\n\n`）。 */
 function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -99,6 +106,8 @@ export interface AssistantChatDeps {
   streamClient: VertexAssistantChatClient;
   rateLimiter: RateLimiter;
   nowMs?: number;
+  /** モデル応答のストール上限（ms）。既定 {@link STREAM_STALL_MS}。テストは小さい値で中断挙動を検証する。 */
+  streamStallMs?: number;
 }
 
 const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
@@ -239,9 +248,24 @@ export async function respondWithAssistantChat(
         let emittedReplyLen = 0;
         let lastDraft: AssistantDraft = { ...EMPTY_DRAFT };
         let lastDraftJson = JSON.stringify(EMPTY_DRAFT);
+        // 無応答/ストール対策（#982 本番ハング修正）: 進捗（partial）が一定時間途絶えたら Vertex を中断して
+        // stream_failed に畳む。初回トークン待ちと途中ストールの両方を、partial 毎にタイマを張り直して監視する。
+        const stallMs = deps.streamStallMs ?? STREAM_STALL_MS;
+        const stallController = new AbortController();
+        let stallTimer: ReturnType<typeof setTimeout> | undefined;
+        const armStall = () => {
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => stallController.abort(), stallMs);
+        };
         try {
-          const result = deps.streamClient.stream({ system, user: masked });
+          armStall();
+          const result = deps.streamClient.stream({
+            system,
+            user: masked,
+            signal: stallController.signal,
+          });
           for await (const partial of result.partialStream) {
+            armStall(); // 進捗があるたびストール時計をリセット。
             // 会話応答（partial.reply は「ここまでのマスク済み全文」）。マスク空間で delta を切り、**マスク
             // トークンを分割しない安全境界**まで emit して同じ辞書で逆マスク（境界跨ぎで表示が壊れるのを防ぐ）。
             if (typeof partial.reply === "string") {
@@ -275,9 +299,13 @@ export async function respondWithAssistantChat(
           // usage の解決を駆動（監査は件数のみだが done を待ち切る・モデル障害をここで捕捉）。
           await result.done;
         } catch {
-          // モデル/通信障害。本文は出さない。送出済みの reply/draft は UI 側で保持される。
+          // モデル/通信障害・ストール中断（stallController.abort）。本文は出さない。送出済みの reply/draft は
+          // UI 側で保持される。クライアントは stream_failed を再試行可能として扱う。
           sendError(send, 500, "stream_failed", { message: "応答の生成に失敗しました。" });
           return;
+        } finally {
+          // 正常完了・早期 return（pii_leak 等）・中断のいずれでもストールタイマを必ず解除（遅延 abort を残さない）。
+          if (stallTimer) clearTimeout(stallTimer);
         }
 
         // reply も下書きも空＝モデルが何も生成しなかった（no_result）。監査もしない。
