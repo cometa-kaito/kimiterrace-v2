@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "c53903e" # c53903e: 横断バグ探索の web 修正2件 — #963 MFA enrollment 監査が system_admin uid を users-FK 列に入れ 23503 で監査喪失する是正 + #964 student-qa の LLM 出力 PII 再チェック追加（多層防御）。schema/secret 無変更=migrate 不要・疎通200
+  web_image_tag = "0a01b5c" # 0a01b5c: #967 WYSIWYG編集の領域クリックを実エリア直接方式(A)に作り替え（盤面の予定/連絡/提出物の実セクションを inset:0 で押せる/光る化＝編集枠のズレ解消。editRegions 任意で live TV/壁は不変）。schema/secret 無変更=migrate 不要・疎通200
 }
 
 module "network" {
