@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyChatFrame,
   beginUserTurn,
+  chatErrorMessage,
   type ChatState,
+  finalizeInterruptedTurn,
   initialChatState,
+  isRetryableError,
   parseSseFrames,
 } from "../../lib/editor/assistant-chat-client";
 
@@ -113,5 +116,70 @@ describe("beginUserTurn", () => {
     expect(s.messages.at(-1)).toEqual({ role: "user", content: "やること" });
     expect(s.status).toBe("streaming");
     expect(s.error).toBeNull();
+  });
+});
+
+describe("chatErrorMessage", () => {
+  it("理由ごとに具体的な教員向け文言を返す", () => {
+    expect(chatErrorMessage("rate_limited")).toContain("混み合っています");
+    expect(chatErrorMessage("stream_failed")).toContain("応答の生成に失敗");
+    expect(chatErrorMessage("no_result")).toContain("言い方を変えて");
+    expect(chatErrorMessage("pii_leak")).toContain("個人情報");
+    expect(chatErrorMessage("empty")).toContain("内容を入力");
+    expect(chatErrorMessage("too_long")).toContain("長すぎます");
+  });
+
+  it("未知/不正理由は安全な既定文言にフォールバックする", () => {
+    expect(chatErrorMessage("invalid")).toContain("送信に失敗");
+  });
+});
+
+describe("isRetryableError", () => {
+  it("一時的失敗（通信障害・混雑）のみ再試行可", () => {
+    expect(isRetryableError("stream_failed")).toBe(true);
+    expect(isRetryableError("rate_limited")).toBe(true);
+  });
+
+  it("入力起因・PII・no_result は再試行不可（入力を変える必要がある）", () => {
+    for (const r of [
+      "invalid",
+      "empty",
+      "too_long",
+      "pii_warning",
+      "pii_leak",
+      "no_result",
+    ] as const) {
+      expect(isRetryableError(r)).toBe(false);
+    }
+  });
+});
+
+describe("finalizeInterruptedTurn", () => {
+  it("中断時: 途中の応答を assistant ターンへ確定し status=done・エラー無し・下書きは保持", () => {
+    const base: ChatState = {
+      ...beginUserTurn(initialChatState(), "明日の連絡"),
+      streamingText: "ここまで作成",
+      draft: { schedules: [{ period: 1, subject: "数学" }], notices: [], assignments: [] },
+    };
+    const s = finalizeInterruptedTurn(base);
+    expect(s.status).toBe("done");
+    expect(s.error).toBeNull();
+    expect(s.streamingText).toBe("");
+    expect(s.messages).toEqual([
+      { role: "user", content: "明日の連絡" },
+      { role: "assistant", content: "ここまで作成" },
+    ]);
+    // 途中まで届いた下書きは破棄しない（確認カードで反映/破棄を選べる）。
+    expect(s.draft.schedules).toEqual([{ period: 1, subject: "数学" }]);
+  });
+
+  it("応答が空のまま中断したら assistant ターンは積まない（空メッセージを残さない）", () => {
+    const base: ChatState = {
+      ...beginUserTurn(initialChatState(), "やること"),
+      streamingText: "  ",
+    };
+    const s = finalizeInterruptedTurn(base);
+    expect(s.status).toBe("done");
+    expect(s.messages).toEqual([{ role: "user", content: "やること" }]);
   });
 });

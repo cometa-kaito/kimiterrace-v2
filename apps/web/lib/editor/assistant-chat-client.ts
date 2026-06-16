@@ -157,3 +157,49 @@ export function applyChatFrame(state: ChatState, frame: SseFrame): ChatState {
       return state;
   }
 }
+
+/**
+ * 拒否理由 → 教員向けの文言（UI shell が表示）。本文/生 PII は含めず、次の操作の手がかりになる短文にする。
+ * 純関数（UI 非依存・テスト可能）。`pii_warning` は専用の警告ボックスを出すため通常ここは通らないが網羅する。
+ */
+export function chatErrorMessage(reason: AssistantChatErrorReason): string {
+  switch (reason) {
+    case "rate_limited":
+      return "混み合っています。少し待ってからもう一度お試しください。";
+    case "stream_failed":
+      return "応答の生成に失敗しました。もう一度お試しください。";
+    case "no_result":
+      return "うまくまとめられませんでした。言い方を変えてもう一度お試しください。";
+    case "pii_leak":
+      return "個人情報が含まれていたため、安全のため中止しました。表現を変えてお試しください。";
+    case "pii_warning":
+      return "氏名らしき語が含まれています。個人情報にご注意ください。";
+    case "empty":
+      return "内容を入力してください。";
+    case "too_long":
+      return "入力が長すぎます。短く分けてお試しください。";
+    default:
+      return "送信に失敗しました。もう一度お試しください。";
+  }
+}
+
+/**
+ * その拒否理由が「同じ入力のまま再送して解消しうる一時的失敗」か。`true` の理由だけ UI に「再試行」を出す。
+ * 一時的（通信/モデル障害・混雑）= 再試行可。入力起因（空/過大/不正）・PII・no_result = 入力を変える必要があり再試行不可。
+ */
+export function isRetryableError(reason: AssistantChatErrorReason): boolean {
+  return reason === "stream_failed" || reason === "rate_limited";
+}
+
+/**
+ * ユーザーが生成を**中断**したときの状態確定（applyChatFrame の `done` と同型だが draft は差し替えない）。
+ * 途中まで届いた応答（streamingText）を assistant ターンへ確定し、途中まで届いた下書き（draft）は保持する。
+ * エラー表示はしない（中断はユーザーの意図的操作）。status は `done`（=確認カードで途中下書きを反映/破棄できる）。
+ */
+export function finalizeInterruptedTurn(state: ChatState): ChatState {
+  const trimmed = state.streamingText.trim();
+  const messages = trimmed
+    ? [...state.messages, { role: "assistant" as const, content: state.streamingText }]
+    : state.messages;
+  return { ...state, messages, streamingText: "", status: "done", error: null };
+}
