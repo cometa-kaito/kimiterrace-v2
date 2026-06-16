@@ -27,7 +27,7 @@
 
 - **main HEAD**: `f00e2e97`（#865 magic link ロール再編 squash merge）。URL は **namespace 改称完了**で `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（#891/#894/#895、下記「直近の完了」2026-06-14 / [[ref_namespace_rename_breaks_e2e_url_asserts]]）。
 - **staging live**: image `web:6618708`（2026-06-16・エディタ刷新「モニタの壁」+WYSIWYG編集+年度撤去）。`/api/health` 200 / `/login` `private,no-cache`。**migrate 実行済**（`20260615120000`: `academic_year` 列・`ix_classes_school_year` 削除 + `ux_classes_school_grade_name` 新設）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。
-- **prod live**: image `web:6618708`（2026-06-16・rev `kimiterrace-web-00043-dh7`、稼働 digest=`web:6618708` 突合確認）。`/api/health` 200・`cache-control private,no-cache`。**migrate 実行済**（同 `20260615120000`・本番に同名重複クラス無し＝fail-safe 通過）。bump 記録 [#957](https://github.com/cometa-kaito/kimiterrace-v2/pull/957)。
+- **prod live**: image `web:1910cd5`（2026-06-16・会話AIハング修正#986 + スキャンPDF自動OCR#989・`GEMINI_THINKING_BUDGET=0`、稼働 image 突合確認）。`/api/health` 200・`cache-control private,no-cache`。**migrate 実行済**（`20260615120000`・#986/#989 は schema 無変更=追加 migrate なし）。bump 記録 [#988](https://github.com/cometa-kaito/kimiterrace-v2/pull/988)/[#991](https://github.com/cometa-kaito/kimiterrace-v2/pull/991)。
 - **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/ops/schools/<id>/edit`（旧 `/admin/system/...`、§4.1 改称）で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
 - **Cloud Run URL**: `https://kimiterrace-web-5wkl3il5zq-an.a.run.app`（`/api/health` 200）。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash）。
@@ -38,6 +38,11 @@
 ---
 
 ## 直近の完了（最新の引き継ぎ）
+
+- 2026-06-16: **エディタAIの 2 件出荷（実装→Reviewer→自律 merge→prod 反映済、prod live `web:1910cd5`）**。
+  - [#986](https://github.com/cometa-kaito/kimiterrace-v2/pull/986) **会話AIが「考えています」で固まる本番ハング修正**（3層）。原因＝Gemini2.5 の thinking が `maxOutputTokens(2048)` を消費（dynamic+few-shot で出力枯渇）× サーバ無 timeout × クライアントが終端フレーム無し切断を畳まない。修正＝クライアント `finalizeUnterminatedTurn` / サーバ stall timeout(60s)+`abortSignal` / **prod `GEMINI_THINKING_BUDGET=0`**（cloud_run module に env 配線）。詳細 [[ref_gemini_thinking_consumes_output_budget_hang]]。横展開（notice-draft-sse 同型）= Issue [#987](https://github.com/cometa-kaito/kimiterrace-v2/issues/987)。
+  - [#989](https://github.com/cometa-kaito/kimiterrace-v2/pull/989) **スキャンPDFを自動OCRフォールバック**（Gemini直送）。`PdfExtractor` がテキストレイヤ希薄（<20字/頁）を検知し PDF を file part(application/pdf) で Gemini 直送 OCR。テキストPDFは従来どおりローカル抽出。画像と同じ三段ガード（オプトイン/egress監査＝mediaType+SHA256/下流マスク）。フォロー（混在PDF取りこぼし・巨大PDF上限）= Issue [#990](https://github.com/cometa-kaito/kimiterrace-v2/issues/990)。
+  - bump 記録: [#988](https://github.com/cometa-kaito/kimiterrace-v2/pull/988)（→53b8585）/ [#991](https://github.com/cometa-kaito/kimiterrace-v2/pull/991)（→1910cd5）。⚠️ 実機チャット/実スキャンPDFでの動作確認はユーザー本人ログインが必要（Claude は未了）。
 
 - 2026-06-16: **エディタ大改修「実画面モニタの壁」+ 盤面WYSIWYG編集 + 年度(academic_year)完全撤去（4 PR・staging/prod デプロイ済）**。ユーザー案＝廊下のサイネージTVを画面に再現し、各モニタに**実機サイネージを縮小表示**、クリックで拡大編集。承認済みプレビューを反復設計後、orchestrator で並行ワーカー実装→ fresh Reviewer→ 自律 merge:
   - [#953](https://github.com/cometa-kaito/kimiterrace-v2/pull/953) 盤面描画を再利用部品 `SignageBoardView`（純粋描画）/`ScaledSignageBoard`（1280×720→transform scale・16:9・read-only）に抽出。**実機サイネージ挙動は不変**（SignageClient は再生制御を保持し描画を移譲）。
