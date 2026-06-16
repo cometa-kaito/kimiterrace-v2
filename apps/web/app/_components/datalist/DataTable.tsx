@@ -1,8 +1,5 @@
-import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { type ListParams, listQueryString } from "./list-params";
-
-const { color, fontSize, space } = tokens;
 
 /**
  * UIUX-03: admin 一覧の共通テーブル (Server Component)。
@@ -10,8 +7,14 @@ const { color, fontSize, space } = tokens;
  * 列定義 + 整形済みセル (ReactNode) を受け取り、列ソートリンク付きの `<table>` を描画する。
  * ソートは URL (`?sort=&dir=`) 経由のサーバーサイド — クリックで同一ページに遷移し、
  * 呼び出し側のクエリ層が ORDER BY に反映する。並び替え可能列は `sortable: true` の列のみ
- * (クエリ層の sortKeys allowlist と一致させる)。色は tokens.ts 参照 (ハードコード廃止)。
- * 状態は記号 (▲/▼) + aria-sort で示し、色のみに依存しない (NFR05)。
+ * (クエリ層の sortKeys allowlist と一致させる)。状態は記号 (▲/▼) + aria-sort で示し、
+ * 色のみに依存しない (NFR05)。
+ *
+ * **レスポンシブ (2026-06-16 デザイン刷新)**: 配色・寸法は `globals.css` の `.kt-table*` クラスに
+ * 集約し (インライン style 廃止)、狭幅 (<=640px) では 1 行 = 1 カードに畳む (横スクロールの代わり)。
+ * 各 `<td>` は `data-label` に列見出しを持ち、カード表示時に `::before` でラベルを左、値を右に並べる
+ * (見やすさ)。**a11y**: `<thead>` は狭幅でも DOM/AT に残し (sr-only でクリップ) `<th scope="col">` +
+ * `aria-sort` を維持する = テーブルセマンティクス・読み上げを壊さずに見た目だけカード化する。
  */
 
 export type DataTableColumn = {
@@ -40,11 +43,11 @@ export function DataTable({
   empty?: string;
 }) {
   if (rows.length === 0) {
-    return <p style={emptyStyle}>{empty}</p>;
+    return <p className="kt-table__empty">{empty}</p>;
   }
   return (
-    <div style={scrollStyle}>
-      <table style={tableStyle}>
+    <div className="kt-table-scroll">
+      <table className="kt-table">
         <thead>
           <tr>
             {columns.map((col) => (
@@ -58,7 +61,7 @@ export function DataTable({
                       : "descending"
                     : undefined
                 }
-                style={{ ...thStyle, textAlign: col.align ?? "left" }}
+                className={col.align === "right" ? "kt-right" : undefined}
               >
                 {col.sortable ? (
                   <SortLink basePath={basePath} params={params} col={col} />
@@ -76,7 +79,9 @@ export function DataTable({
                 <td
                   // セルは列定義と 1:1 (並べ替えない) ため index キーで安定。
                   key={columns[i]?.key ?? i}
-                  style={{ ...tdStyle, textAlign: columns[i]?.align ?? "left" }}
+                  // 狭幅カード表示で `::before` に出す列見出し (操作列など label 空はラベル無し)。
+                  data-label={columns[i]?.label ?? ""}
+                  className={columns[i]?.align === "right" ? "kt-right" : undefined}
                 >
                   {cell}
                 </td>
@@ -103,32 +108,11 @@ function SortLink({
   const nextDir = active && params.dir === "asc" ? "desc" : "asc";
   const href = `${basePath}${listQueryString(params, { sort: col.key, dir: nextDir, page: null })}`;
   return (
-    <Link href={href} style={active ? sortLinkActiveStyle : sortLinkStyle}>
+    <Link href={href} className="kt-sort" data-active={active ? "true" : "false"}>
       {col.label}
-      <span aria-hidden="true" style={sortMarkStyle}>
+      <span aria-hidden="true" className="kt-sort__mark">
         {active ? (params.dir === "asc" ? "▲" : "▼") : "△"}
       </span>
     </Link>
   );
 }
-
-const scrollStyle: React.CSSProperties = { overflowX: "auto" };
-const emptyStyle: React.CSSProperties = { color: color.muted, padding: `${space.md} 0` };
-const tableStyle: React.CSSProperties = { borderCollapse: "collapse", width: "100%" };
-const thStyle: React.CSSProperties = {
-  fontSize: fontSize.sm,
-  color: color.muted,
-  fontWeight: 600,
-  padding: `${space.xs} ${space.sm}`,
-  borderBottom: `1px solid ${color.border}`,
-  whiteSpace: "nowrap",
-};
-const tdStyle: React.CSSProperties = {
-  padding: `${space.sm} ${space.sm}`,
-  borderBottom: `1px solid ${color.bgSoft}`,
-  fontSize: fontSize.md,
-  verticalAlign: "top",
-};
-const sortLinkStyle: React.CSSProperties = { color: color.muted, textDecoration: "none" };
-const sortLinkActiveStyle: React.CSSProperties = { color: color.ink, textDecoration: "none" };
-const sortMarkStyle: React.CSSProperties = { marginLeft: "0.25rem", fontSize: fontSize.xs };

@@ -421,6 +421,107 @@ body {
   }
 }
 
+/* ---- admin 一覧テーブル（DataTable, UIUX-03 / 2026-06-16 レスポンシブ刷新） ----
+ * デスクトップは通常の表。狭幅(<=640px)は 1 行=1 カードに畳み、横スクロールを避けて読みやすくする。
+ * 配色/寸法はここに集約（DataTable のインライン style 廃止）。--brand-* は tokens.ts と同値。
+ * a11y: thead は狭幅でも DOM に残し sr-only でクリップ（th[scope]・aria-sort を維持）。 */
+.kt-table-scroll {
+  overflow-x: auto;
+}
+.kt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.kt-table th {
+  text-align: left;
+  font-size: 0.85rem;
+  color: var(--brand-muted);
+  font-weight: 600;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--brand-border);
+  white-space: nowrap;
+}
+.kt-table td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--brand-bg-soft);
+  font-size: 0.95rem;
+  vertical-align: top;
+}
+.kt-table .kt-right {
+  text-align: right;
+}
+.kt-table__empty {
+  color: var(--brand-muted);
+  padding: 0.75rem 0;
+}
+.kt-sort {
+  color: var(--brand-muted);
+  text-decoration: none;
+}
+.kt-sort[data-active="true"] {
+  color: var(--brand-ink);
+}
+.kt-sort__mark {
+  margin-left: 0.25rem;
+  font-size: 0.78rem;
+}
+@media (max-width: 640px) {
+  /* カード化: 横スクロールをやめ、行をカード、セルを「ラベル: 値」の行に畳む。 */
+  .kt-table-scroll {
+    overflow-x: visible;
+  }
+  /* 見出し行は視覚的に隠すが DOM/AT には残す（テーブルセマンティクス・aria-sort 維持）。 */
+  .kt-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .kt-table tbody,
+  .kt-table tr,
+  .kt-table td {
+    display: block;
+    width: 100%;
+  }
+  .kt-table tr {
+    border: 1px solid var(--brand-border);
+    border-radius: 0.6rem;
+    background: #fff;
+    padding: 0.35rem 0.75rem;
+    margin-bottom: 0.6rem;
+  }
+  .kt-table td {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    justify-content: space-between;
+    text-align: right;
+    border-bottom: 1px solid var(--brand-bg-soft);
+    padding: 0.45rem 0;
+  }
+  .kt-table td:last-child {
+    border-bottom: none;
+  }
+  /* 各セルの左に列見出しを出す（値は右）。操作列など data-label 空はラベルを出さない。 */
+  .kt-table td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    text-align: left;
+    color: var(--brand-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .kt-table td[data-label=""]::before {
+    content: "";
+    flex: 0;
+  }
+}
+
 /*
  * 横断統一: AI 処理中の「考え中…」即時フィードバック（ADR-033 §3-④ / #243 ②UI-UX）。
  * 動かないスピナーは「失敗」と読まれ二重送信（Vertex 課金/レート）を招くため、AI が働いている間は
