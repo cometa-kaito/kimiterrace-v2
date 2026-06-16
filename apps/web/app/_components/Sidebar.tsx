@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useAdminMenu } from "./AdminMenu";
+import { navIcon } from "./nav-icons";
 
 /**
  * role 別サイドナビ (#48-C)。**クライアントコンポーネント** — 現在パスのハイライト
@@ -71,7 +72,8 @@ export function Sidebar({
                       // モバイルではリンク選択でメニューを閉じる。
                       onClick={() => setOpen(false)}
                     >
-                      {item.label}
+                      {navIcon(item.icon)}
+                      <span className="admin-nav__label">{item.label}</span>
                     </Link>
                   </li>
                 );
