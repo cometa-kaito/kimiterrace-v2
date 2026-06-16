@@ -167,19 +167,50 @@ export function assertStandardFontsAvailable(): void {
   );
 }
 
+/** PDF の IANA メディアタイプ（OCR フォールバックで Gemini に file パートとして直送する識別子）。 */
+const PDF_MEDIA_TYPE = "application/pdf";
+
+/**
+ * テキストレイヤがこの「非空白文字数 / ページ」未満なら **スキャン(画像)PDF** とみなし OCR フォールバックする閾値。
+ * 実テキスト PDF は 1 ページ数百字に達する一方、スキャン PDF はほぼ 0 字なので差が大きく、低めの閾値で
+ * 誤判定を避けられる。OCR は全文を読む superset ゆえ、短文 PDF で多少過剰にフォールバックしても結果は
+ * 正しく（egress コストが増えるだけ）、取りこぼし（スキャン PDF を空テキストのまま返す）より安全側。
+ */
+const SCANNED_PDF_MAX_NONWS_CHARS_PER_PAGE = 20;
+
+/** テキストレイヤが希薄（=スキャン PDF の可能性が高い）かを判定する。 */
+function isLikelyScannedPdf(text: string, pageCount: number): boolean {
+  if (pageCount <= 0) {
+    return false;
+  }
+  const nonWhitespace = text.replace(/\s/g, "").length;
+  return nonWhitespace < pageCount * SCANNED_PDF_MAX_NONWS_CHARS_PER_PAGE;
+}
+
 /**
  * PDF 抽出器（`pdfjs-dist` Node legacy build）。
  *
  * 各ページの text layer を `getTextContent()` で取り出し、items を結合する。
- * テキストレイヤを持たないスキャン PDF はここでは空に近い結果になり得るが、OCR フォールバックは
- * ImageExtractor 側（別 PR / ADR-024 決定2）の責務なのでここでは行わない。
- * 抽出テキストは PII 未マスクのまま返す（マスクは下流）。
+ * テキストレイヤを持たないスキャン PDF はここでは空に近い結果になるため、**OcrClient が注入されていれば**
+ * Gemini 直送 OCR（PDF を file パートで渡しネイティブにラスタライズ/OCR・ADR-038）にフォールバックする。
+ * OCR 未注入なら従来どおりテキストレイヤの結果（希薄でも）をそのまま返す（フェイルクローズせず best-effort）。
+ *
+ * ⚠ OCR フォールバックは **PDF そのものを Gemini に送る外部委託**（egress）。画像 OCR と同じ三段ガード
+ *   （アップロードオプトイン / 監査 / 下流マスキング）は呼び出し側の責務。OCR を通したことは
+ *   `meta.ocrUsed = true` で明示し、監査側が egress 発生を判別できるようにする。
+ * 抽出テキストは PII 未マスクのまま返す（マスクは下流・ルール4）。
  */
 export class PdfExtractor extends BaseExtractor {
   readonly format = "pdf" as const;
+  /** OCR バックエンド（任意）。スキャン PDF のテキストレイヤが希薄なときフォールバックに使う（ADR-038）。 */
+  constructor(private readonly ocr?: OcrClient) {
+    super();
+  }
   async extract(source: ExtractSource): Promise<ExtractedText> {
     // Node では DOM 非依存の legacy build を使う（CLAUDE.md / タスク指定）。
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    let text = "";
+    let pageCount = 0;
     try {
       // pdfjs は渡した TypedArray を内部で transfer/detach するため、コピーを渡して呼び出し側の bytes を守る。
       const data = new Uint8Array(source.bytes);
@@ -193,7 +224,7 @@ export class PdfExtractor extends BaseExtractor {
       );
       try {
         const doc = await loadingTask.promise;
-        const pageCount = doc.numPages;
+        pageCount = doc.numPages;
         const pageTexts: string[] = [];
         for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
           const page = await doc.getPage(pageNo);
@@ -209,17 +240,31 @@ export class PdfExtractor extends BaseExtractor {
             page.cleanup();
           }
         }
-        return {
-          text: pageTexts.join("\n"),
-          format: "pdf",
-          meta: { pageCount },
-        };
+        text = pageTexts.join("\n");
       } finally {
+        // OCR フォールバックの前に PDF doc/worker を解放する（ネットワーク往復中に資源を握らない）。
         await loadingTask.destroy();
       }
     } catch (cause) {
       throw new ExtractFailedError("pdf", "pdfjs-dist", cause);
     }
+
+    // スキャン(画像)PDF はテキストレイヤがほぼ空。OCR が注入されていれば Gemini 直送でフォールバックする。
+    // OCR 失敗は dependency="gemini-ocr" の ExtractFailedError として上流に伝える（pdfjs と区別）。
+    if (this.ocr && isLikelyScannedPdf(text, pageCount)) {
+      let ocrResult: Awaited<ReturnType<OcrClient["recognize"]>>;
+      try {
+        ocrResult = await this.ocr.recognize(source.bytes, PDF_MEDIA_TYPE);
+      } catch (cause) {
+        throw new ExtractFailedError("pdf", "gemini-ocr", cause);
+      }
+      return {
+        text: ocrResult.text,
+        format: "pdf",
+        meta: { pageCount, ocrUsed: true, confidence: ocrResult.confidence },
+      };
+    }
+    return { text, format: "pdf", meta: { pageCount } };
   }
 }
 

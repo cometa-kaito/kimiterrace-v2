@@ -102,4 +102,13 @@ describe("createGeminiOcrClient（Gemini OCR アダプタ契約・ADR-038）", (
     const images = imagePartsOf(capturedOptions[0] as DoGenerateOptions);
     expect(images[0]?.mediaType).toBe("image/png");
   });
+
+  it("application/pdf は file パートとして mediaType=application/pdf で送る（ネイティブ PDF OCR・ADR-038）", async () => {
+    nextText = "連絡\t明日は遠足";
+    const res = await createGeminiOcrClient(CONFIG).recognize(UNKNOWN, "application/pdf");
+    expect(res.text).toBe("連絡\t明日は遠足");
+    const files = imagePartsOf(capturedOptions[0] as DoGenerateOptions);
+    expect(files).toHaveLength(1);
+    expect(files[0]?.mediaType).toBe("application/pdf");
+  });
 });

@@ -59,13 +59,14 @@ export class ExtractorRegistry {
 
 /**
  * 既定レジストリ: 全形式の抽出器を登録する。
- * `text` / `pdf` / `docx` / `xlsx` は即時動作。`image` は `opts.ocr` を渡したときのみ動作し、
- * 未指定なら ExtractorNotConfiguredError（フェイルクローズ）。
+ * `text` / `docx` / `xlsx` は即時動作。`pdf` はテキストレイヤを即時抽出し、`opts.ocr` を渡したときは
+ * スキャン PDF（テキストレイヤ希薄）で OCR フォールバックする（未指定ならテキストレイヤのみ）。
+ * `image` は `opts.ocr` を渡したときのみ動作し、未指定なら ExtractorNotConfiguredError（フェイルクローズ）。
  */
 export function createDefaultRegistry(opts: RegistryOptions = {}): ExtractorRegistry {
   return new ExtractorRegistry()
     .register(new TextExtractor())
-    .register(new PdfExtractor())
+    .register(new PdfExtractor(opts.ocr))
     .register(new DocxExtractor())
     .register(new XlsxExtractor())
     .register(new ImageExtractor(opts.ocr));

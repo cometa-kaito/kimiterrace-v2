@@ -226,12 +226,33 @@ describe("assistDraftNoticesFromFileAction", () => {
     expect(h.insertValues).toHaveBeenCalledOnce();
   });
 
-  it("PDF 正常 → notices を返し audit_log に書き込む", async () => {
+  it("PDF 正常（テキストレイヤあり）→ notices を返し、OCR egress なし（draft 監査の 1 行のみ）", async () => {
+    // 既定 extractText は { text, format:"pdf" }（meta.ocrUsed なし）= テキストレイヤ抽出（egress なし）。
     const d = deps();
     const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
     expect(r).toEqual({ ok: true, notices: [{ text: "連絡A", isHighlight: true }] });
     expect(h.extractText).toHaveBeenCalledOnce();
+    // テキスト PDF は ocrUsed=false → egress 監査なし → draft 監査の 1 行のみ。
     expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("スキャン PDF は OCR にフォールバック（PDF にも OCR 注入）し、egress 監査 + draft 監査の 2 行を書く（ADR-038）", async () => {
+    // PdfExtractor が希薄テキストレイヤを検知して OCR フォールバック → meta.ocrUsed=true で返す状況を模す。
+    h.extractText.mockResolvedValue({ text: "1限 国語", format: "pdf", meta: { ocrUsed: true } });
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
+    expect(r).toEqual({ ok: true, notices: [{ text: "連絡A", isHighlight: true }] });
+    // スキャン PDF フォールバックのため PDF にも OCR クライアントを注入する。
+    expect(h.extractText.mock.calls[0]?.[1]).toMatchObject({ ocr: expect.anything() });
+    // OCR egress 監査 + draft 監査 = 2 行。
+    expect(h.insertValues).toHaveBeenCalledTimes(2);
+  });
+
+  it("PDF も OCR egress が発生しうるため egress の前に rate を取り、超過時は extract しない（NFR06）", async () => {
+    const d = deps({ acquire: false });
+    const r = await assistDraftNoticesFromFileAction("class", CLASS_ID, fileForm(pdfFile()), {}, d);
+    expect(r).toEqual({ ok: false, reason: "rate_limited" });
+    expect(h.extractText).not.toHaveBeenCalled();
   });
 
   it("OCR 未配線（ExtractorNotConfigured）は unsupported_format", async () => {
