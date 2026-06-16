@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "d845a31" # d845a31: #978 エディタ操作性4改善 — AIチャット入力LINE風自動伸長(140px上限+内部スクロール)/盤面領域クリック遷移を緩和(block:nearest+smooth+reduced-motion)/予定の対象日変更でトップへ飛ばない(scroll:false)/予定Tabを縦移動(同列下・最終行で行追加)。保存/AI/実機表示 無改変。schema/secret 無変更=migrate 不要・疎通200
+  web_image_tag = "64ccbac-clean" # prod web=64ccbac（#979 AI生成パラメータ/モデルID env化 + #981 few-shotプロンプト + #982 会話UX 停止/再試行）。schema/secret 無変更=migrate 不要・疎通200。tag に -clean を付すのは、最初の 64ccbac prod build が並行セッションの未コミット変更(getClassSignageUrl)を作業ツリーから巻き込んだため、pristine worktree から再ビルドしたクリーン image だから（staging は 64ccbac で無汚染）
 }
 
 module "network" {

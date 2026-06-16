@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "227a512" # 227a512: #968 モバイルでヘッダ操作群をハンバーガー(右上アイコンのみ)に集約しヘッダ崩れ解消 + #967 エディタWYSIWYG実エリア直接編集 + #965 監査ハッシュチェーン誤検知是正。schema変更=migrate実行済（20260615164918 audit_log.occurred_at DEFAULT→clock_timestamp）。疎通200。※prod は並行 deploy で 8aefde1（#970 含む）先行・staging は本 227a512
+  web_image_tag = "64ccbac" # staging web=64ccbac（#979 AI生成パラメータ/モデルID env化 + #981 few-shotプロンプト + #982 会話UX 停止/再試行）。schema/secret 無変更=migrate 不要・疎通200。staging build は無汚染（prod は別セッションの未コミット変更を巻き込んだため prod のみ 64ccbac-clean で再ビルド）
 }
 
 module "network" {
