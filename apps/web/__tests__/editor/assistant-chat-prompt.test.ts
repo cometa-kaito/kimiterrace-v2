@@ -39,12 +39,36 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain("曖昧なまま埋めない");
   });
 
+  it("few-shot 例を含む（曖昧→聞き返し / 既存下書きの部分編集→全体返却 / 時限外→連絡）", () => {
+    const sys = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年6月13日（土）",
+    );
+    expect(sys).toContain("【出力例】");
+    // 例1: 期限が無ければ創作せず聞き返す（assignments は空のまま）。
+    expect(sys).toContain("提出期限はいつにしますか？");
+    // 例2: 既存下書き（1限=数学）を保ったまま 2限だけ英語に直し、全体を返す。
+    expect(sys).toContain('"period":2,"subject":"英語"');
+    expect(sys).toContain('"period":1,"subject":"数学"');
+    // 例3: 朝の会など時限に乗らない事項は予定でなく連絡へ。
+    expect(sys).toContain("朝の会で表彰を行います。");
+  });
+
   it("pattern2 相当（schedules のみ許可）= 予定だけを許可ラベルに出す", () => {
     const sys = buildAssistantChatSystem(["schedules"], "2026年6月13日（土）");
     expect(sys).toContain("予定（時間割）");
     expect(sys).not.toContain("連絡（お知らせ） /");
     // 「これ以外のセクションは作らない」誘導が入る。
     expect(sys).toContain("これ以外のセクションは作らない");
+  });
+
+  it("few-shot 例は許可セクションに追従する（pattern2 では schedule 編集例のみ、許可外の例は出さない）", () => {
+    const sys = buildAssistantChatSystem(["schedules"], "2026年6月13日（土）");
+    // schedule 編集の例は出る。
+    expect(sys).toContain('"period":2,"subject":"英語"');
+    // notices/assignments を populate する例は出さない（許可外を埋める誤誘導を避ける）。
+    expect(sys).not.toContain("提出期限はいつにしますか？");
+    expect(sys).not.toContain("朝の会で表彰を行います。");
   });
 
   it("手入力セクション（来校者/呼び出し）があれば、AIで作らず手入力フォームへ誘導させる（ADR-034）", () => {

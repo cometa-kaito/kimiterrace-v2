@@ -23,6 +23,35 @@ const SECTION_LABEL: Record<DraftSectionKind, string> = {
 };
 
 /**
+ * 許可セクションに応じた few-shot 例（{@link buildAssistantChatSystem} の補助）。
+ *
+ * 各例は「ルールの実演」であり新しい規則を足さない。**許可セクションを populate する例だけ**を返す
+ * （許可外を埋める例を見せると finding① のパターン準拠に反する誘導になるため）。
+ * - schedules: 既存下書きの**部分編集 → 全体返却**（1限を残し2限だけ直す）。最頻出の編集挙動。
+ * - assignments: 期限が曖昧なら**創作せず聞き返す**（該当セクションは空のまま）。
+ * - notices: 時限に乗らない事項（朝の会等）を**予定でなく連絡へ**振り分ける。
+ */
+function buildExampleLines(allowed: readonly DraftSectionKind[]): string[] {
+  const ex: string[] = [];
+  if (allowed.includes("schedules")) {
+    ex.push(
+      '例（既存下書きの部分編集は全体を返す）: 現在の下書きが 1限=数学・2限=国語で、教員「2限を英語に」→ 1限は残し2限だけ直す → {"reply":"2限を英語に変更しました。この内容で反映してよいですか？","schedules":[{"period":1,"subject":"数学"},{"period":2,"subject":"英語"}],"notices":[],"assignments":[]}',
+    );
+  }
+  if (allowed.includes("assignments")) {
+    ex.push(
+      '例（曖昧なら創作せず聞き返す）: 教員「数学の宿題を出して」（期限の発話なし）→ {"reply":"数学の宿題ですね。提出期限はいつにしますか？","schedules":[],"notices":[],"assignments":[]}',
+    );
+  }
+  if (allowed.includes("notices")) {
+    ex.push(
+      '例（時限に乗らない事項は連絡へ）: 教員「朝の会で表彰します」→ 朝の会は時限外なので予定でなく連絡にする → {"reply":"朝の会の表彰を連絡に入れました。よろしいですか？","schedules":[],"notices":[{"text":"朝の会で表彰を行います。"}],"assignments":[]}',
+    );
+  }
+  return ex;
+}
+
+/**
  * system プロンプト（会話アシスタントの役割・出力構造・**パターン準拠**・捏造禁止・PII 非出力）。
  * `allowed` はこのクラスの実効パターンが盤面に出す（＝AI が下書きできる）セクション（finding①）。許可外は作らせない。
  * `manualSectionLabels` は同パターンの編集ブロックのうち **AI が作らない**（来校者/呼び出し等・氏名を含む）もので、
@@ -51,6 +80,17 @@ export function buildAssistantChatSystem(
     "マスクトークン（例 {{PHONE_001}}）が入力にあれば、その表記のまま保持する（展開・改変しない）。",
     "最後に必ず先生に『この内容で反映していいですか？』の確認を促す（自動保存はしない）。",
   ];
+
+  // few-shot 例: ルールを変えず最頻出の挙動を実演し、構造化出力の忠実性を上げる。**許可セクションを実演する
+  // 例だけ**を出す（許可外セクションを populate する例を見せて誤誘導しない・finding①と整合）。pattern1 では
+  // 3 例すべて、pattern2（schedules のみ）では編集例のみ、のように allowed に追従する。
+  const examples = buildExampleLines(allowed);
+  if (examples.length > 0) {
+    lines.push(
+      "【出力例】（構造と振る舞いの参考。許可外セクションは例でも必ず空配列にする）",
+      ...examples,
+    );
+  }
   // pattern2 等で来校者/呼び出しが盤面に出る場合: これらは氏名を含み AI では作らない（ADR-034）。
   // 手入力フォームへ誘導させる（AI が氏名を生成・Vertex 送信しないための明示ガード）。
   if (manualSectionLabels.length > 0) {
