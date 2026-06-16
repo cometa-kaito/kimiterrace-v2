@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "6618708" # migration 20260615120000（年度 academic_year 列・ix_classes_school_year 削除 + ux_classes_school_grade_name 新設）適用のため bump（#954）
+  migrate_image_tag = "227a512" # migration 20260615164918: audit_log.occurred_at の DEFAULT を clock_timestamp() に変更（#965 ハッシュチェーン同一tx誤検知の是正・列DEFAULT変更のみ＝非破壊）。staging先行検証後 prod Job 実行済
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
