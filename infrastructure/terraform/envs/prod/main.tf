@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "156ae90" # PR #1021(サイネージ pattern3「廊下設置版」追加=pattern2と同内容・デザインのみ最適化)反映。中間 #1023(pg cause連鎖→制約違反500ハードニング)・#1022/#1024/#1025(/ops パンくず共通化)同梱。schema/secret 無変更。app.school-signage.net /api/health 200・/login private,no-cache（s-maxage無し）。live rev 00064 = web:156ae90。pristine worktree から build。
+  web_image_tag = "3adf939" # PR #1026(/app エディタ系の深い階層ページにパンくず追加=PR4/4)反映。中間 #1027(pg cause連鎖ヘルパへ残り6 server-action 集約=#1023 DRY follow-up)・#1028(156ae90 bump)同梱。schema/secret 無変更。app.school-signage.net /api/health 200・/login private,no-cache（s-maxage無し）。live rev 00065 = web:3adf939。pristine worktree から build。
 }
 
 module "network" {
