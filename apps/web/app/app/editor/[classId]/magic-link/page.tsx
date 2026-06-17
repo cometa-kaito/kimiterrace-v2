@@ -1,8 +1,8 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { findVisibleClass, listClassMagicLinks } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MagicLinkManager } from "./_components/MagicLinkManager";
 
@@ -51,9 +51,13 @@ export default async function ClassMagicLinkPage({
 
   return (
     <div>
-      <Link href={`/app/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {data.className} の編集へ戻る
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "エディタ", href: "/app/editor" },
+          { label: data.className, href: `/app/editor/${classId}` },
+          { label: "生徒アクセスリンク" },
+        ]}
+      />
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
         {data.className} の生徒アクセスリンク
       </h1>

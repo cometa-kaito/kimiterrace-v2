@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { AssignmentEditor } from "@/app/app/editor/[classId]/_components/AssignmentEditor";
 import { FloatingAiChat } from "@/app/app/editor/[classId]/_components/FloatingAiChat";
 import { NoticeEditor } from "@/app/app/editor/[classId]/_components/NoticeEditor";
@@ -77,12 +78,7 @@ export async function ScopeEditorView({
   return (
     <>
       <header style={{ marginBottom: "0.75rem" }}>
-        <Link
-          href="/app/editor"
-          style={{ fontSize: tokens.fontSize.xs, color: tokens.color.blueStrong }}
-        >
-          ← 編集対象の選択へ戻る
-        </Link>
+        <Breadcrumb items={[{ label: "エディタ", href: "/app/editor" }, { label: data.label }]} />
         <h1 style={{ fontSize: "1.15rem", margin: "0.15rem 0 0.1rem" }}>{data.label}</h1>
         <p style={mutedStyle}>配下の全クラスに共通表示（クラス個別の入力が優先）。</p>
       </header>

@@ -1,8 +1,8 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { findVisibleClass, getEffectiveAdsForClass, listClassOwnAds } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdsManager } from "./_components/AdsManager";
 
@@ -43,17 +43,20 @@ export default async function ClassAdsPage({ params }: { params: Promise<{ class
     notFound();
   }
 
-  // 戻り導線は role 別: system_admin はエディタ (EDITOR_ROLES=teacher/school_admin) に 403 になるため
-  // 学校一覧へ戻す。school_admin はこのクラスの編集へ戻る。
-  const backHref = user.role === "system_admin" ? "/ops/schools" : `/app/editor/${classId}`;
-  const backLabel =
-    user.role === "system_admin" ? "学校一覧へ戻る" : `${data.className} の編集へ戻る`;
+  // パンくずの中間 crumb は role 別 (旧 back link の role 別遷移先を温存): system_admin はエディタ
+  // (EDITOR_ROLES=teacher/school_admin) で 403 になるため「学校一覧」(/ops/schools) を親に置き、クラス名は
+  // 死リンク回避で非リンク。school_admin/teacher は「エディタ」→ このクラスの編集へ辿れる従来導線を保つ。
+  const editorCrumbs =
+    user.role === "system_admin"
+      ? [{ label: "学校一覧", href: "/ops/schools" }, { label: data.className }]
+      : [
+          { label: "エディタ", href: "/app/editor" },
+          { label: data.className, href: `/app/editor/${classId}` },
+        ];
 
   return (
     <div>
-      <Link href={backHref} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {backLabel}
-      </Link>
+      <Breadcrumb items={[...editorCrumbs, { label: "広告" }]} />
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.className} の広告</h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         このクラスに表示される広告を管理します。学校 / 学科 / 学年から継承された広告は参照のみです。
