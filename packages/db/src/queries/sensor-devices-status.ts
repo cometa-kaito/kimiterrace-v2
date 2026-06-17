@@ -320,8 +320,8 @@ export type CreateSensorDeviceInput = {
   locationLabel: string | null;
   /** 紐づくクラス id (任意)。自校可視性は呼出側が事前検証する。 */
   classId: string | null;
-  /** 監査用 actor (created_by / updated_by)。 */
-  actorUserId: string;
+  /** 監査用 actor (created_by / updated_by)。system_admin は users 行が無いため null (FK 回避、ADR-041 D3)。 */
+  actorUserId: string | null;
 };
 
 /** edit で更新する編集可能フィールド (F13 §3.1: location_label / class_id)。 */
@@ -384,12 +384,13 @@ export async function createSensorDevice(
  *
  * `updated_at` / `updated_by` を**明示設定**する (auditColumns の updated_at は INSERT default のみで
  * `$onUpdate`/トリガが無いため、設定しないと作成時刻のまま残る監査不整合、[[updatedat-explicit-on-update]])。
+ * `updated_by` は呼出側 actor。system_admin は users 行が無いため null (FK 回避、ADR-041 D3)。
  */
 export async function updateSensorDevice(
   tx: TenantTx,
   id: string,
   fields: UpdateSensorDeviceFields,
-  actorUserId: string,
+  actorUserId: string | null,
 ): Promise<UpdateSensorDeviceResult> {
   const updated = await tx
     .update(sensorDevices)

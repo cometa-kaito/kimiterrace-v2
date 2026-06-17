@@ -8,12 +8,13 @@ import { canonicalizeMac } from "./switchbot";
  * `"use server"` ファイル (mutations-actions.ts) は async 関数しか export できない Next の制約のため、
  * 検証・型・定数はここに分離する (ads-core.ts / hub-core.ts と同じ構成)。
  *
- * **書き込みロール (teacher は書けない)**: 一覧 / 登録 / 編集ページ `/ops/sensors` (§43 で自校重複
- * `/app/sensors` から統合) は閲覧を system_admin に締めるが、**mutation は school_admin のみ**
- * (`SENSOR_WRITE_ROLES`)。センサーの設置/設定は自校の運用管理操作であり、school_admin に限定する。
- * teacher は閲覧のみ。system_admin は全校ビューを開けるが actor が school_id を持たないため実書き込みは
- * できない (フォーム送信は forbidden)。本集合は UX 層の早期 gate と Server Action の認可第一層に使う
- * ([[rls-tenant-not-role-boundary]] / advertisers と同じ per-surface 方針)。
+ * **書き込みロール (teacher は書けない)**: 自校の school_admin と、**特定校スコープの system_admin**
+ * (`SENSOR_WRITE_ROLES`、ADR-041 D3)。teacher は閲覧のみ。
+ * 当初は「センサーの設置/設定は自校の運用管理操作」として school_admin に限定し system_admin を**意図的に
+ * 除外**していた (system_admin が `users` 行を持たず `school_id` も持たない構造制約への対処)。ADR-041 D3 で
+ * これを覆し、運営によるセンサー設置代行・初期構築支援のため、system_admin も P1 パターン (明示
+ * `targetSchoolId` + `tenantScoped` 降格 + 三系統 actor) で特定校のセンサーを登録/編集できるようにした
+ * (ads/quiet_hours/editor と同型)。
  * 実データ越境は `sensor_devices` の RLS (tenant_isolation、ADR-019) が DB レベルで止め、本集合は
  * UX 層の早期 gate (`requireRole`) と Server Action の認可第一層に使う (多層防御、CLAUDE.md ルール2)。
  *
@@ -45,24 +46,59 @@ export function notFound(message: string): ActionError {
 }
 
 /**
- * センサーを登録/編集できるロール。**自校の school_admin のみ**。teacher は閲覧のみ (書けない)。
- * system_admin の全校横断操作は別面 (本スライス非対象)。
+ * センサーを登録/編集できるロール。自校の school_admin と、特定校スコープの system_admin (ADR-041 D3)。
+ * teacher は閲覧のみ (書けない)。system_admin は `targetSchoolId` 明示時のみ実書き込み可 (越境防止は
+ * `toSensorActor` + `withSession` の降格でゲート、ads-core.ts の `ADS_ROLES` と同型)。
  */
-export const SENSOR_WRITE_ROLES = ["school_admin"] as const satisfies readonly TenantRole[];
-
-/** mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査に使う (テナント外は不可)。 */
-export type SensorActor = { userId: string; schoolId: string };
+export const SENSOR_WRITE_ROLES = [
+  "school_admin",
+  "system_admin",
+] as const satisfies readonly TenantRole[];
 
 /**
- * AuthUser を mutation actor に変換する。school に属さない (school_id null) 場合は null
- * (呼出側が forbidden に変換する)。`SENSOR_WRITE_ROLES` は school_admin のみなので、ここに来る時点で
- * 自校 id を持つはずだが、型安全のため明示確認する。
+ * mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査の school_id に使う (テナント外は不可)。
+ *
+ * **監査 actor の三系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない、[[system-admin-not-in-users-table]])**:
+ * ads-core.ts の `AdsActor` と同思想。
+ * - `actorUserId`: `audit_log.actor_user_id` の操作者 uid。`tenantScoped` 降格後 (system_admin →
+ *   school_admin) は `audit_log_insert` policy (0005) が `actor_user_id = app.current_user_id` を
+ *   要求するため常に acting uid を入れる (school_admin はこれが users.id でもある)。FK は無い。
+ * - `userRef`: `sensor_devices.created_by` / `updated_by` (users.id への FK、0014)。system_admin は
+ *   users 行を持たないため **null** (FK 違反 23503 回避)。school_admin は自身の users.id。
+ * - `identityUid`: `audit_log.actor_identity_uid` (IdP uid キャッシュ)。system_admin のみ記録し、
+ *   school_admin は従来どおり null。
  */
-export function toSensorActor(user: AuthUser): SensorActor | null {
+export type SensorActor = {
+  actorUserId: string;
+  userRef: string | null;
+  identityUid: string | null;
+  schoolId: string;
+};
+
+/**
+ * AuthUser を mutation actor に変換する (ads-core.ts の `toAdsActor` と同規律)。
+ * - **system_admin**: テナント外 (session schoolId は null) のため、対象校 `targetSchoolId` を**明示**で
+ *   受け取りそれを actor の schoolId にする。未指定 / UUID でないときは null (呼出側が forbidden 化)。
+ *   `userRef` は null (users 行が無い → created_by/updated_by の FK 回避)、`identityUid` に uid を残す。
+ * - **tenant ロール (school_admin)**: `targetSchoolId` は**無視**し必ず自校 (`user.schoolId`) に固定する
+ *   (越境防止)。自校が無ければ null。
+ */
+export function toSensorActor(user: AuthUser, targetSchoolId?: string): SensorActor | null {
+  if (user.role === "system_admin") {
+    if (!isUuid(targetSchoolId)) {
+      return null;
+    }
+    return {
+      actorUserId: user.uid,
+      userRef: null,
+      identityUid: user.uid,
+      schoolId: targetSchoolId,
+    };
+  }
   if (!user.schoolId) {
     return null;
   }
-  return { userId: user.uid, schoolId: user.schoolId };
+  return { actorUserId: user.uid, userRef: user.uid, identityUid: null, schoolId: user.schoolId };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
