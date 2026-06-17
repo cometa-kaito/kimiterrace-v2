@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
@@ -57,9 +58,7 @@ export default async function SystemSchoolDetailPage({
 
   return (
     <article style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <Link href="/ops/schools" style={backLinkStyle}>
-        ← 学校一覧
-      </Link>
+      <Breadcrumb items={[{ label: "学校一覧", href: "/ops/schools" }, { label: school.name }]} />
 
       <header style={headerStyle}>
         <h1 style={titleStyle}>{school.name}</h1>
@@ -281,11 +280,6 @@ function formatJstDateTime(value: Date): string {
   }).format(value);
 }
 
-const backLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: "#2563eb",
-  textDecoration: "none",
-};
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",

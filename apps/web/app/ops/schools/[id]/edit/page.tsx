@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
@@ -33,7 +34,14 @@ export default async function SystemSchoolEditPage({
 
   return (
     <section style={{ maxWidth: "560px" }}>
-      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, marginBottom: "1rem" }}>学校を編集</h1>
+      <Breadcrumb
+        items={[
+          { label: "学校一覧", href: "/ops/schools" },
+          { label: school.name, href: `/ops/schools/${id}` },
+          { label: "編集" },
+        ]}
+      />
+      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.75rem 0 1rem" }}>学校を編集</h1>
       <SchoolEditForm school={school} />
     </section>
   );
