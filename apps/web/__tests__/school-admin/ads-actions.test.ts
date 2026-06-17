@@ -150,6 +150,17 @@ describe("createAdAction", () => {
     expect(res).toEqual({ ok: true, data: { id: "new-ad-1" } });
   });
 
+  it("school_admin が targetSchoolId(他校) を渡しても自校に固定する (越境不可)", async () => {
+    const OTHER_SCHOOL = "abababab-abab-4bab-8bab-abababababab";
+    const res = await createAdAction("class", CLASS_ID, VALID_AD, OTHER_SCHOOL);
+    expect(res).toEqual({ ok: true, data: { id: "new-ad-1" } });
+    // toAdsActor が tenant ロールの targetSchoolId を無視し自校固定 → withSession も自校 schoolId。
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: SCHOOL_ID,
+    });
+  });
+
   it("cross-tenant (grade): 自校で不可視な学年は invalid", async () => {
     findVisibleTargetMock.mockResolvedValue(null);
     const res = await createAdAction("grade", GRADE_ID, VALID_AD);

@@ -49,7 +49,7 @@ export const ADS_ROLES = ["school_admin", "system_admin"] as const;
 /**
  * mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査の school_id に使う。
  *
- * **監査 actor の二系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない)**:
+ * **監査 actor の三系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない)**:
  * hub-core.ts の `HubActor`・operator-ads の writeAudit と同思想。
  * - `actorUserId`: `audit_log.actor_user_id` の操作者 uid。`tenantScoped` 降格後 (system_admin →
  *   school_admin) は `audit_log_insert` policy (0005) が `actor_user_id = app.current_user_id` を
