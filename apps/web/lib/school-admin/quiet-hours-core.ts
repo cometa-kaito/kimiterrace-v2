@@ -55,18 +55,50 @@ export const QUIET_HOURS_ROLES = ["school_admin", "system_admin"] as const;
 export const QUIET_HOURS_KIND =
   "quiet_hours" as const satisfies (typeof configKind.enumValues)[number];
 
-/** mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査に使う (テナント外は不可)。 */
-export type QuietHoursActor = { userId: string; schoolId: string };
+/**
+ * mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査の school_id に使う。
+ *
+ * **監査 actor の三系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない)**:
+ * ads-core.ts の `AdsActor`・school-config-actions の writeConfigAudit と同思想。
+ * - `actorUserId`: `audit_log.actor_user_id` の操作者 uid。`tenantScoped` 降格後 (system_admin →
+ *   school_admin) は `audit_log_insert` policy が `actor_user_id = app.current_user_id` を要求するため
+ *   常に acting uid を入れる (school_admin はこれが users.id でもある)。FK は無い。
+ * - `userRef`: `created_by` / `updated_by` (school_configs / audit_log とも users.id への FK)。
+ *   system_admin は users 行を持たないため **null** (FK 違反回避)。school_admin は自身の users.id。
+ * - `identityUid`: `audit_log.actor_identity_uid` (IdP uid キャッシュ)。system_admin のみ記録し、
+ *   school_admin は従来どおり null。
+ */
+export type QuietHoursActor = {
+  actorUserId: string;
+  userRef: string | null;
+  identityUid: string | null;
+  schoolId: string;
+};
 
 /**
- * AuthUser を mutation actor に変換する。school に属さない (school_id null = テナント未選択の
- * system_admin) 場合は null。呼出側が forbidden に変換する。
+ * AuthUser を mutation actor に変換する (ads-core.ts の `toAdsActor` と同規律)。
+ * - **system_admin**: テナント外 (session schoolId は null) のため、対象校 `targetSchoolId` を**明示**で
+ *   受け取りそれを actor の schoolId にする。未指定 / UUID でないときは null (呼出側が forbidden 化)。
+ *   `userRef` は null (users 行が無い → created_by/updated_by の FK 回避)、`identityUid` に uid を残す。
+ * - **tenant ロール (school_admin)**: `targetSchoolId` は**無視**し必ず自校 (`user.schoolId`) に固定する
+ *   (越境防止)。自校が無ければ null。
  */
-export function toQuietHoursActor(user: AuthUser): QuietHoursActor | null {
+export function toQuietHoursActor(user: AuthUser, targetSchoolId?: string): QuietHoursActor | null {
+  if (user.role === "system_admin") {
+    if (!isUuid(targetSchoolId)) {
+      return null;
+    }
+    return {
+      actorUserId: user.uid,
+      userRef: null,
+      identityUid: user.uid,
+      schoolId: targetSchoolId,
+    };
+  }
   if (!user.schoolId) {
     return null;
   }
-  return { userId: user.uid, schoolId: user.schoolId };
+  return { actorUserId: user.uid, userRef: user.uid, identityUid: null, schoolId: user.schoolId };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

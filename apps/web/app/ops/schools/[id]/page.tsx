@@ -72,6 +72,10 @@ export default async function SystemSchoolDetailPage({
           <Link href={`/ops/schools/${school.id}/ads`} style={editLinkStyle}>
             広告掲載
           </Link>
+          {/* 静粛時間導線 (#1002 対称): 運営がこの学校のクラスを選び、サイネージ静音/非表示の時間帯を設定する。 */}
+          <Link href={`/ops/schools/${school.id}/quiet-hours`} style={editLinkStyle}>
+            静粛時間
+          </Link>
           <Link href={`/ops/schools/${school.id}/edit`} style={editLinkStyle}>
             編集
           </Link>
