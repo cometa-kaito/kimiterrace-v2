@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "db12ca5" # db12ca5: C(エディタ daily_data #1007/#1009)+D(センサー #1011)を system_admin が /ops/schools/[id]/* で特定校編集可に + ADR-041(#1008)。★schema 変更あり=migrate 実行済(migrate_image_tag db12ca5・#1010 classes department_id/grade nullable additive)。staging先行検証後 prod Job 実行→web apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。af40a4d を supersede
+  web_image_tag = "fb826fc" # その他(非教室サイネージ) #1012/#1013/#1015 反映（db12ca5→fb826fc）。schema/secret 無変更（#1010 migration は #1014 で適用済＝web のみ）。app.school-signage.net /api/health 200・/login private,no-cache。
 }
 
 module "network" {
