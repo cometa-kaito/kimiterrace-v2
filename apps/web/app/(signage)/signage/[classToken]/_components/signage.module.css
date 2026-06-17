@@ -795,6 +795,143 @@
   box-shadow: inset 3px 0 0 0 var(--accent-color);
 }
 
+/* ===================== 11c. パターン3 盤面（廊下設置・最適化） =====================
+   表示ブロック・データ・順序・広告は pattern2 と同一（先方確定コンテンツを変えない）。盤面の各部品
+   （Pattern2Schedule/Callouts/Visitors/Train/SensorCount）と広告（AdAside）を再利用し、ここは廊下の
+   「遠目・一瞥」に効くデザイン層だけを `.p3Root` 配下で上書きする（pattern2 のクラスには触れない）:
+     (1) 時刻を主役にした大型ヘッダー（.p3Header）
+     (2) 主要テキストの拡大（予定/氏名/鉄道/センサ の clamp 下限・上限を引き上げ）
+     (3) 「今日」列を枠で面強調 */
+
+/* (1) 大型ヘッダー: 時刻主役。--header-height を p3 だけ高くし .container の上余白も自動追従させる
+   （.signageRoot.p3Root の 2 クラス指定で 12 章のレスポンシブ --header-height より優先）。 */
+.signageRoot.p3Root {
+  --header-height: 58px;
+}
+.p3Header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0 18px;
+  background: #0f1420;
+  color: #fff;
+  white-space: nowrap;
+}
+.p3HeaderLoc {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: clamp(0.85rem, 1.2vw, 1.15rem);
+  max-width: 32%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 時刻＝主役。右寄せで大きく。tabular-nums で桁ブレを防ぐ。 */
+.p3HeaderClock {
+  margin-left: auto;
+  font-size: clamp(1.6rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-family: "Roboto", monospace;
+  font-variant-numeric: tabular-nums;
+}
+.p3HeaderDate {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.p3HeaderDateMain {
+  font-size: clamp(0.8rem, 1.15vw, 1.05rem);
+  font-weight: 700;
+}
+.p3HeaderDay {
+  font-size: clamp(0.6rem, 0.85vw, 0.8rem);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+}
+.p3HeaderWx {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0.9rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+}
+.p3HeaderWxGlyph {
+  font-size: clamp(1.1rem, 1.8vw, 1.7rem);
+  line-height: 1;
+}
+.p3HeaderWxTemp {
+  font-size: clamp(0.8rem, 1.15vw, 1.1rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.p3HeaderBrand {
+  font-size: clamp(0.55rem, 0.8vw, 0.72rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.5);
+  padding-left: 0.9rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* (2) 拡大タイポ: 主要テキストの clamp を一段引き上げ、廊下距離で読めるようにする（pattern2 部品の
+   クラスを `.p3Root` 配下でだけ上書き。pattern2 単体のサイズには影響しない）。 */
+.p3Root .p2ScheduleDate {
+  font-size: clamp(1rem, 1.55vw, 1.4rem);
+}
+.p3Root .p2ScheduleMain {
+  font-size: clamp(0.95rem, 1.5vw, 1.45rem);
+}
+.p3Root .cardTitle {
+  font-size: clamp(1.1rem, 1.7vw, 1.5rem);
+}
+.p3Root .p2VisitorMain {
+  font-size: clamp(0.95rem, 1.45vw, 1.35rem);
+}
+.p3Root .p2TrainStatus {
+  font-size: clamp(1rem, 1.6vw, 1.45rem);
+}
+.p3Root .p2StatusLabel {
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+}
+.p3Root .p2SensorNum {
+  font-size: clamp(1.5rem, 2.9vw, 2.5rem);
+}
+
+/* (3) 「今日」列を枠で面強調（日付ヘッダーの黒反転＝既存に加え、列全体を太枠で囲う・色非依存）。 */
+.p3Root .p2ScheduleToday {
+  border-color: var(--primary-color);
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+/* パターン3 のモバイル（縦長・小型画面）: 大型ヘッダーは sticky に倒して上部固定、ブランドは省く。
+   --header-height を 0 にして .container の上余白二重を避ける（pattern2 と同じ縦積みは p2Grid 側が担う）。 */
+@media (max-width: 899px) {
+  .signageRoot.p3Root {
+    --header-height: 0px;
+  }
+  .p3Header {
+    position: sticky;
+    height: auto;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.7rem;
+    padding: 8px 14px;
+  }
+  .p3HeaderClock {
+    margin-left: 0;
+  }
+  .p3HeaderBrand {
+    display: none;
+  }
+}
+
 /* ===================== 12. レスポンシブ ===================== */
 /* 大型モニタ（フル HD） */
 @media (min-width: 1800px) and (min-height: 1000px) {

@@ -16,7 +16,7 @@
  * `SignageClient` の dispatch に case を足すだけで拡張できる。
  */
 
-export const SIGNAGE_DESIGN_PATTERNS = ["pattern1", "pattern2"] as const;
+export const SIGNAGE_DESIGN_PATTERNS = ["pattern1", "pattern2", "pattern3"] as const;
 
 export type SignageDesignPattern = (typeof SIGNAGE_DESIGN_PATTERNS)[number];
 
@@ -27,6 +27,7 @@ export const DEFAULT_SIGNAGE_DESIGN_PATTERN: SignageDesignPattern = "pattern1";
 export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string> = {
   pattern1: "パターン1（標準・v1レイアウト）",
   pattern2: "パターン2（予定 / 来校者 / 呼び出し / センサ / 天気 / 鉄道）",
+  pattern3: "パターン3（廊下設置・pattern2 と同内容を遠目最適化）",
 };
 
 /** signage_url / サイネージ URL に載せるデザイン指定クエリのキー。 */
