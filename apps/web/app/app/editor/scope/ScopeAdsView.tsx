@@ -1,9 +1,9 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { type EditorTarget, targetId, targetIdColumns } from "@/lib/editor/schedule-core";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { findVisibleTarget, listOwnAds } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdsManager } from "../[classId]/ads/_components/AdsManager";
 
@@ -69,9 +69,13 @@ export async function ScopeAdsView({ target }: { target: EditorTarget }) {
 
   return (
     <div>
-      <Link href={scopeEditorHref(target)} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {data.name} の編集へ戻る
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "エディタ", href: "/app/editor" },
+          { label: data.name, href: scopeEditorHref(target) },
+          { label: "広告" },
+        ]}
+      />
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.name} の広告</h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         {`ここで設定した広告は、${noun}配下の全クラスのサイネージに継承表示されます（各クラスで個別の広告を足すこともできます）。`}

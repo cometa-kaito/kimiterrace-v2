@@ -1,8 +1,8 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { MAGIC_LINK_ISSUER_ROLES } from "@/lib/magic-link/request";
 import { findVisibleClass, listClassMagicLinks } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MagicLinkManager } from "./_components/MagicLinkManager";
 
@@ -25,7 +25,7 @@ export default async function ClassMagicLinkPage({
 }: {
   params: Promise<{ classId: string }>;
 }) {
-  await requireRole(MAGIC_LINK_ISSUER_ROLES);
+  const user = await requireRole(MAGIC_LINK_ISSUER_ROLES);
   const { classId } = await params;
 
   const data = await withSession(async (tx) => {
@@ -49,11 +49,20 @@ export default async function ClassMagicLinkPage({
     notFound();
   }
 
+  // パンくずの中間 crumb は role 別 (ads ページと同規律): system_admin はエディタ
+  // (EDITOR_ROLES=teacher/school_admin) で 403 になるため「学校一覧」(/ops/schools) を親に置き、クラス名は
+  // 死リンク回避で非リンク。school_admin はエディタ → このクラスの編集へ辿れる従来導線を保つ。
+  const editorCrumbs =
+    user.role === "system_admin"
+      ? [{ label: "学校一覧", href: "/ops/schools" }, { label: data.className }]
+      : [
+          { label: "エディタ", href: "/app/editor" },
+          { label: data.className, href: `/app/editor/${classId}` },
+        ];
+
   return (
     <div>
-      <Link href={`/app/editor/${classId}`} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {data.className} の編集へ戻る
-      </Link>
+      <Breadcrumb items={[...editorCrumbs, { label: "生徒アクセスリンク" }]} />
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>
         {data.className} の生徒アクセスリンク
       </h1>

@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { type EditorTarget, targetId, targetIdColumns } from "@/lib/editor/schedule-core";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
@@ -7,7 +8,6 @@ import {
   readQuietRanges,
 } from "@/lib/school-admin/quiet-hours-core";
 import { findVisibleTarget, getScopeConfigValue } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QuietHoursManager } from "../[classId]/quiet-hours/_components/QuietHoursManager";
 
@@ -67,9 +67,13 @@ export async function ScopeQuietHoursView({ target }: { target: EditorTarget }) 
 
   return (
     <div>
-      <Link href={scopeEditorHref(target)} style={{ fontSize: "0.85rem", color: "#2563eb" }}>
-        ← {data.name} の編集へ戻る
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "エディタ", href: "/app/editor" },
+          { label: data.name, href: scopeEditorHref(target) },
+          { label: "静粛時間" },
+        ]}
+      />
       <h1 style={{ fontSize: "1.4rem", margin: "0.5rem 0 0.25rem" }}>{data.name} の静粛時間</h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         {`サイネージを静音 / 非表示にする時間帯を設定します。ここで設定した時間帯は${noun}配下の全クラスに継承表示されます（各クラスで個別に上書きも可能）。`}
