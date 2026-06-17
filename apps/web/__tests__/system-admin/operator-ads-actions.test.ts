@@ -153,6 +153,18 @@ describe("createOperatorAdAction", () => {
     // 過剰に null 化していないことも確認。
     expect(adsInsert()).toMatchObject({ createdBy: USER_ID, updatedBy: USER_ID });
   });
+
+  it("制約違反（Drizzle wrap, cause.code=23503 FK）は conflict に写像し 500 化させない", async () => {
+    // 本番同形: Drizzle は SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は FK(23503) を
+    // 取りこぼし、catch されず再 throw → HTTP 500（本番マスク digest 2791236024）になっていた。
+    withSessionMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into ads"), {
+        cause: Object.assign(new Error("fk violation"), { code: "23503" }),
+      }),
+    );
+    const res = await createOperatorAdAction(VALID);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
 });
 
 describe("deleteOperatorAdAction", () => {

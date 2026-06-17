@@ -304,7 +304,19 @@ describe("upsertDailySectionForTarget: cross-tenant 可視確認", () => {
 });
 
 describe("isUniqueViolation", () => {
-  it("SQLSTATE 23505 を検出する", () => {
+  /** 本番同形: Drizzle は pg エラーを wrap し SQLSTATE を top-level の code から cause.code へ移す。 */
+  const drizzleWrapped = (code: string) =>
+    Object.assign(new Error("Failed query: insert into daily_data"), {
+      cause: Object.assign(new Error("duplicate key value"), { code }),
+    });
+
+  it("Drizzle wrap（cause.code=23505）を検出する（本番同形・回帰の要）", () => {
+    // 旧実装（top-level の code だけ見る）は wrap を取りこぼし全画面 500 を招いた（#1019）。
+    expect(isUniqueViolation(drizzleWrapped("23505"))).toBe(true);
+    expect(isUniqueViolation(drizzleWrapped("23503"))).toBe(false);
+  });
+
+  it("素の pg エラー（top-level code）・非該当・非エラーも正しく判定する", () => {
     expect(isUniqueViolation({ code: "23505" })).toBe(true);
     expect(isUniqueViolation({ code: "23503" })).toBe(false);
     expect(isUniqueViolation(new Error("x"))).toBe(false);

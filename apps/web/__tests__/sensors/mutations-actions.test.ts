@@ -155,8 +155,11 @@ describe("createSensorDeviceAction", () => {
   });
 
   it("device_mac グローバル一意衝突 (23505) は conflict 写像 (他校情報を漏らさない)", async () => {
+    // 本番同形: Drizzle は pg エラーを wrap し SQLSTATE を cause.code へ移す（top-level だけ見ると取りこぼし 500 化）。
     createSensorDeviceMock.mockRejectedValue(
-      Object.assign(new Error("duplicate"), { code: "23505" }),
+      Object.assign(new Error("Failed query: insert into sensor_devices"), {
+        cause: Object.assign(new Error("duplicate key value"), { code: "23505" }),
+      }),
     );
     const res = await createSensorDeviceAction(VALID_CREATE);
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
