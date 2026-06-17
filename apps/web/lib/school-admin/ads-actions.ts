@@ -61,24 +61,34 @@ async function writeAudit(
   },
 ): Promise<void> {
   await tx.insert(auditLog).values({
-    actorUserId: actor.userId,
+    actorUserId: actor.actorUserId,
+    actorIdentityUid: actor.identityUid,
     schoolId: actor.schoolId,
     tableName: "ads",
     recordId: params.recordId,
     operation: params.operation,
     diff: params.diff as object,
     rowHash: "",
-    createdBy: actor.userId,
-    updatedBy: actor.userId,
+    createdBy: actor.userRef,
+    updatedBy: actor.userRef,
   });
 }
 
-/** 認可 + actor 解決。teacher / テナント未選択は forbidden。 */
-async function authorize(): Promise<AdsActor | ActionResult<never>> {
+/**
+ * 認可 + actor 解決。teacher / テナント未選択は forbidden。`targetSchoolId` は **system_admin が
+ * 特定校を対象にする経路** (/ops/schools/[id]/ads/[classId]) からのみ意味を持つ。tenant ロール
+ * (school_admin) では `toAdsActor` が無視し自校に固定する (越境防止)。system_admin で対象校未指定 /
+ * 不正なら forbidden。
+ */
+async function authorize(targetSchoolId?: string): Promise<AdsActor | ActionResult<never>> {
   const user = await requireRole(ADS_ROLES);
-  const actor = toAdsActor(user);
+  const actor = toAdsActor(user, targetSchoolId);
   if (!actor) {
-    return forbidden("学校に属さないユーザーは広告を編集できません。");
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは広告を編集できません。",
+    );
   }
   return actor;
 }
@@ -97,18 +107,28 @@ function adsPath(target: EditorTarget): string {
   }
 }
 
-/** mutation の共通後処理: 自校 tx 実行 → 関連パス revalidate → 統一エラー写像。 */
+/**
+ * mutation の共通後処理: 対象校 tx 実行 → 関連パス revalidate → 統一エラー写像。
+ *
+ * `schoolId`: school_admin は自校 (= 渡しても同値)、system_admin は対象校 (/ops 経路)。`withSession` 側で
+ * 「system_admin のときだけ override を honor」するため tenant ロールは自校に固定される (越境防止)。
+ */
 async function finish<T>(
   target: EditorTarget,
   build: (tx: TenantTx) => Promise<T>,
+  schoolId: string,
 ): Promise<ActionResult<T>> {
   try {
     // tenantScoped: system_admin を school_admin に降格し system_admin_full_access policy の全校発火を
     // 止める (ADR-019 §#95 / Issue #197)。本 Action は特定 scope = 特定 school のテナントスコープ書込で、
     // これが無いと schoolId claim を持つ system_admin の findVisibleTarget が他校の 学科/学年 を可視と
     // 判定し、別テナントの grade_id/department_id を参照する広告を作れてしまう (cross-tenant write)。
-    const data = await withSession(build, { tenantScoped: true });
+    const data = await withSession(build, { tenantScoped: true, schoolId });
     revalidatePath(adsPath(target));
+    // system_admin の /ops 経路 (クラス広告) も反映。school_admin の自校経路では当該パスは未使用だが無害。
+    if (target.scope === "class") {
+      revalidatePath(`/ops/schools/${schoolId}/ads/${target.classId}`);
+    }
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。親階層 (学校/学科/学年) 広告は配下全クラスに
     // 継承表示されるため、動的 signage-preview ページ全体を revalidate する。
     revalidatePath("/app/signage-preview/[classId]", "page");
@@ -144,6 +164,7 @@ export async function createAdAction(
   rawScope: unknown,
   rawTargetId: unknown,
   raw: Parameters<typeof validateAdInput>[0],
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(rawScope, rawTargetId);
   if (!target) {
@@ -153,47 +174,51 @@ export async function createAdAction(
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
   const cols = targetIdColumns(target);
 
-  return finish(target, async (tx) => {
-    // 対象 (学科/学年/クラス) が自校で可視か (他校 id は RLS で不可視 → CrossTenantError)。
-    if (!(await findVisibleTarget(tx, cols))) {
-      throw new CrossTenantError("指定された編集対象が見つかりません。");
-    }
-    const [row] = await tx
-      .insert(ads)
-      .values({
-        schoolId: actor.schoolId,
-        scope: cols.scope,
-        gradeId: cols.gradeId,
-        departmentId: cols.departmentId,
-        classId: cols.classId,
-        mediaUrl: v.value.mediaUrl,
-        mediaType: v.value.mediaType,
-        durationSec: v.value.durationSec,
-        linkUrl: v.value.linkUrl,
-        caption: v.value.caption,
-        captionFontScale: v.value.captionFontScale,
-        displayOrder: v.value.displayOrder,
-        createdBy: actor.userId,
-        updatedBy: actor.userId,
-      })
-      .returning({ id: ads.id });
-    const newId = row?.id;
-    if (!newId) {
-      throw new AdNotFoundError();
-    }
-    await writeAudit(tx, actor, {
-      recordId: newId,
-      operation: "insert",
-      diff: { after: auditView(v.value) },
-    });
-    return { id: newId };
-  });
+  return finish(
+    target,
+    async (tx) => {
+      // 対象 (学科/学年/クラス) が自校で可視か (他校 id は RLS で不可視 → CrossTenantError)。
+      if (!(await findVisibleTarget(tx, cols))) {
+        throw new CrossTenantError("指定された編集対象が見つかりません。");
+      }
+      const [row] = await tx
+        .insert(ads)
+        .values({
+          schoolId: actor.schoolId,
+          scope: cols.scope,
+          gradeId: cols.gradeId,
+          departmentId: cols.departmentId,
+          classId: cols.classId,
+          mediaUrl: v.value.mediaUrl,
+          mediaType: v.value.mediaType,
+          durationSec: v.value.durationSec,
+          linkUrl: v.value.linkUrl,
+          caption: v.value.caption,
+          captionFontScale: v.value.captionFontScale,
+          displayOrder: v.value.displayOrder,
+          createdBy: actor.userRef,
+          updatedBy: actor.userRef,
+        })
+        .returning({ id: ads.id });
+      const newId = row?.id;
+      if (!newId) {
+        throw new AdNotFoundError();
+      }
+      await writeAudit(tx, actor, {
+        recordId: newId,
+        operation: "insert",
+        diff: { after: auditView(v.value) },
+      });
+      return { id: newId };
+    },
+    actor.schoolId,
+  );
 }
 
 /** 指定スコープの自スコープ広告 1 件を更新する。 */
@@ -202,6 +227,7 @@ export async function updateAdAction(
   rawTargetId: unknown,
   rawAdId: unknown,
   raw: Parameters<typeof validateAdInput>[0],
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(rawScope, rawTargetId);
   if (!target) {
@@ -215,51 +241,55 @@ export async function updateAdAction(
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
   const cols = targetIdColumns(target);
 
-  return finish(target, async (tx) => {
-    // 対象広告を「id + 同一スコープ・同一ターゲット」で取得 (継承広告・他校・他対象は弾く)。
-    const existing = await findOwnAd(tx, adId, cols);
-    if (!existing) {
-      throw new AdNotFoundError();
-    }
-    await tx
-      .update(ads)
-      .set({
-        mediaUrl: v.value.mediaUrl,
-        mediaType: v.value.mediaType,
-        durationSec: v.value.durationSec,
-        linkUrl: v.value.linkUrl,
-        caption: v.value.caption,
-        captionFontScale: v.value.captionFontScale,
-        displayOrder: v.value.displayOrder,
-        updatedBy: actor.userId,
-        updatedAt: new Date(),
-      })
-      // RLS に加え scope を WHERE で二重に強制 (別スコープの行は更新不可)。
-      .where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
-    await writeAudit(tx, actor, {
-      recordId: adId,
-      operation: "update",
-      diff: {
-        before: auditView({
-          mediaUrl: existing.mediaUrl,
-          mediaType: existing.mediaType,
-          durationSec: existing.durationSec,
-          linkUrl: existing.linkUrl,
-          caption: existing.caption,
-          captionFontScale: existing.captionFontScale,
-          displayOrder: existing.displayOrder,
-        }),
-        after: auditView(v.value),
-      },
-    });
-    return { id: adId };
-  });
+  return finish(
+    target,
+    async (tx) => {
+      // 対象広告を「id + 同一スコープ・同一ターゲット」で取得 (継承広告・他校・他対象は弾く)。
+      const existing = await findOwnAd(tx, adId, cols);
+      if (!existing) {
+        throw new AdNotFoundError();
+      }
+      await tx
+        .update(ads)
+        .set({
+          mediaUrl: v.value.mediaUrl,
+          mediaType: v.value.mediaType,
+          durationSec: v.value.durationSec,
+          linkUrl: v.value.linkUrl,
+          caption: v.value.caption,
+          captionFontScale: v.value.captionFontScale,
+          displayOrder: v.value.displayOrder,
+          updatedBy: actor.userRef,
+          updatedAt: new Date(),
+        })
+        // RLS に加え scope を WHERE で二重に強制 (別スコープの行は更新不可)。
+        .where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
+      await writeAudit(tx, actor, {
+        recordId: adId,
+        operation: "update",
+        diff: {
+          before: auditView({
+            mediaUrl: existing.mediaUrl,
+            mediaType: existing.mediaType,
+            durationSec: existing.durationSec,
+            linkUrl: existing.linkUrl,
+            caption: existing.caption,
+            captionFontScale: existing.captionFontScale,
+            displayOrder: existing.displayOrder,
+          }),
+          after: auditView(v.value),
+        },
+      });
+      return { id: adId };
+    },
+    actor.schoolId,
+  );
 }
 
 /** 指定スコープの自スコープ広告 1 件を削除する。 */
@@ -267,6 +297,7 @@ export async function deleteAdAction(
   rawScope: unknown,
   rawTargetId: unknown,
   rawAdId: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(rawScope, rawTargetId);
   if (!target) {
@@ -276,33 +307,37 @@ export async function deleteAdAction(
     return invalid("広告の指定が不正です。");
   }
   const adId = rawAdId;
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
   const cols = targetIdColumns(target);
 
-  return finish(target, async (tx) => {
-    const existing = await findOwnAd(tx, adId, cols);
-    if (!existing) {
-      throw new AdNotFoundError();
-    }
-    await tx.delete(ads).where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
-    await writeAudit(tx, actor, {
-      recordId: adId,
-      operation: "delete",
-      diff: {
-        before: auditView({
-          mediaUrl: existing.mediaUrl,
-          mediaType: existing.mediaType,
-          durationSec: existing.durationSec,
-          linkUrl: existing.linkUrl,
-          caption: existing.caption,
-          captionFontScale: existing.captionFontScale,
-          displayOrder: existing.displayOrder,
-        }),
-      },
-    });
-    return { id: adId };
-  });
+  return finish(
+    target,
+    async (tx) => {
+      const existing = await findOwnAd(tx, adId, cols);
+      if (!existing) {
+        throw new AdNotFoundError();
+      }
+      await tx.delete(ads).where(and(eq(ads.id, adId), eq(ads.scope, cols.scope)));
+      await writeAudit(tx, actor, {
+        recordId: adId,
+        operation: "delete",
+        diff: {
+          before: auditView({
+            mediaUrl: existing.mediaUrl,
+            mediaType: existing.mediaType,
+            durationSec: existing.durationSec,
+            linkUrl: existing.linkUrl,
+            caption: existing.caption,
+            captionFontScale: existing.captionFontScale,
+            displayOrder: existing.displayOrder,
+          }),
+        },
+      });
+      return { id: adId };
+    },
+    actor.schoolId,
+  );
 }

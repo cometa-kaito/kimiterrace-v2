@@ -46,18 +46,50 @@ export function notFound(message: string): ActionError {
  */
 export const ADS_ROLES = ["school_admin", "system_admin"] as const;
 
-/** mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査に使う (テナント外は不可)。 */
-export type AdsActor = { userId: string; schoolId: string };
+/**
+ * mutation の実行者。`schoolId` は RLS WITH CHECK 充足 + 監査の school_id に使う。
+ *
+ * **監査 actor の二系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない)**:
+ * hub-core.ts の `HubActor`・operator-ads の writeAudit と同思想。
+ * - `actorUserId`: `audit_log.actor_user_id` の操作者 uid。`tenantScoped` 降格後 (system_admin →
+ *   school_admin) は `audit_log_insert` policy (0005) が `actor_user_id = app.current_user_id` を
+ *   要求するため常に acting uid を入れる (school_admin はこれが users.id でもある)。FK は無い。
+ * - `userRef`: `created_by` / `updated_by` (users.id への FK)。system_admin は users 行を持たないため
+ *   **null** (FK 違反回避)。school_admin は自身の users.id。
+ * - `identityUid`: `audit_log.actor_identity_uid` (IdP uid キャッシュ)。system_admin のみ記録し、
+ *   school_admin は従来どおり null。
+ */
+export type AdsActor = {
+  actorUserId: string;
+  userRef: string | null;
+  identityUid: string | null;
+  schoolId: string;
+};
 
 /**
- * AuthUser を mutation actor に変換する。school に属さない (school_id null = テナント未選択の
- * system_admin) 場合は null。呼出側が forbidden に変換する。
+ * AuthUser を mutation actor に変換する (hub-core.ts の `toHubActor` と同規律)。
+ * - **system_admin**: テナント外 (session schoolId は null) のため、対象校 `targetSchoolId` を**明示**で
+ *   受け取りそれを actor の schoolId にする。未指定 / UUID でないときは null (呼出側が forbidden 化)。
+ *   `userRef` は null (users 行が無い → created_by/updated_by の FK 回避)、`identityUid` に uid を残す。
+ * - **tenant ロール (school_admin)**: `targetSchoolId` は**無視**し必ず自校 (`user.schoolId`) に固定する
+ *   (越境防止)。自校が無ければ null。
  */
-export function toAdsActor(user: AuthUser): AdsActor | null {
+export function toAdsActor(user: AuthUser, targetSchoolId?: string): AdsActor | null {
+  if (user.role === "system_admin") {
+    if (!isUuid(targetSchoolId)) {
+      return null;
+    }
+    return {
+      actorUserId: user.uid,
+      userRef: null,
+      identityUid: user.uid,
+      schoolId: targetSchoolId,
+    };
+  }
   if (!user.schoolId) {
     return null;
   }
-  return { userId: user.uid, schoolId: user.schoolId };
+  return { actorUserId: user.uid, userRef: user.uid, identityUid: null, schoolId: user.schoolId };
 }
 
 /** 広告メディア種別 (image / video)。enum 単一ソースから派生 (ルール3)。 */

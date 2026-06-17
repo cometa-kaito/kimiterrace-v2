@@ -7,11 +7,42 @@ const UUID = "11111111-1111-1111-1111-111111111111";
 
 describe("toAdsActor", () => {
   const base: AuthUser = { uid: "u1", role: "school_admin", schoolId: UUID };
-  it("school_id があれば actor を返す", () => {
-    expect(toAdsActor(base)).toEqual({ userId: "u1", schoolId: UUID });
+  const OTHER = "22222222-2222-2222-2222-222222222222";
+
+  it("school_admin: 自校 actor を返す (userRef=uid / identityUid=null)", () => {
+    expect(toAdsActor(base)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
   });
-  it("school_id null (テナント未選択 system_admin 等) は null", () => {
+
+  it("school_admin: targetSchoolId は無視し必ず自校に固定する (越境防止)", () => {
+    expect(toAdsActor(base, OTHER)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("school_admin: 自校 (schoolId) が無ければ null", () => {
+    expect(toAdsActor({ ...base, schoolId: null })).toBeNull();
+  });
+
+  it("system_admin: 対象校指定で actor を返す (userRef=null で FK 回避 / identityUid=uid)", () => {
+    expect(toAdsActor({ ...base, role: "system_admin", schoolId: null }, UUID)).toEqual({
+      actorUserId: "u1",
+      userRef: null,
+      identityUid: "u1",
+      schoolId: UUID,
+    });
+  });
+
+  it("system_admin: 対象校未指定 / 非 UUID は null (呼出側が forbidden 化)", () => {
     expect(toAdsActor({ ...base, role: "system_admin", schoolId: null })).toBeNull();
+    expect(toAdsActor({ ...base, role: "system_admin", schoolId: null }, "nope")).toBeNull();
   });
 });
 

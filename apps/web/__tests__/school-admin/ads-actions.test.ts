@@ -133,7 +133,11 @@ describe("createAdAction", () => {
     expect(res).toEqual({ ok: true, data: { id: "new-ad-1" } });
     expect(withSessionMock).toHaveBeenCalledTimes(1);
     // cross-tenant 防御: system_admin 降格 (tenantScoped) で実行する (ADR-019 §#95、ルール2)。
-    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), { tenantScoped: true });
+    // schoolId: school_admin は自校 (= 渡しても同値、越境は withSession 側が封じる)。
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: SCHOOL_ID,
+    });
   });
 
   it("正常系 (school スコープ, id 不要): 作成して id を返す", async () => {
@@ -199,5 +203,53 @@ describe("deleteAdAction", () => {
     const res = await deleteAdAction("class", CLASS_ID, AD_ID);
     expect(res).toEqual({ ok: true, data: { id: AD_ID } });
     expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
+  });
+});
+
+/**
+ * system_admin が /ops/schools/[id]/ads/[classId] から特定校を対象に編集する経路の配線
+ * (hub-actions.test.ts と同型)。actor が system_admin (session schoolId=null) のとき、各 action に
+ * 渡した `targetSchoolId` が `withSession(..., { tenantScoped: true, schoolId })` へ伝播することを固定する。
+ * 実際の越境封じ (override は system_admin のみ honor / 降格 RLS) は packages/db の実 PG テストで担保する。
+ */
+describe("system_admin: 対象校スコープの配線", () => {
+  const SYS_UID = "77777777-7777-4777-8777-777777777777";
+  const TARGET = "88888888-8888-4888-8888-888888888888";
+
+  beforeEach(() => {
+    requireRoleMock.mockResolvedValue({ uid: SYS_UID, role: "system_admin", schoolId: null });
+  });
+
+  it("対象校未指定は forbidden、DB に到達しない", async () => {
+    const res = await createAdAction("class", CLASS_ID, VALID_AD);
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("create: 対象校指定で withSession に { tenantScoped, schoolId } を渡す", async () => {
+    const res = await createAdAction("class", CLASS_ID, VALID_AD, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: "new-ad-1" } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+
+  it("update: 対象校 schoolId を渡す", async () => {
+    const res = await updateAdAction("class", CLASS_ID, AD_ID, VALID_AD, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: AD_ID } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+
+  it("delete: 対象校 schoolId を渡す", async () => {
+    const res = await deleteAdAction("class", CLASS_ID, AD_ID, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: AD_ID } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
   });
 });
