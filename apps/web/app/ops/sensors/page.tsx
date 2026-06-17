@@ -66,9 +66,9 @@ export default async function SystemSensorsPage({
         >
           カメラ不使用
         </span>
-        {/* §43: 登録/編集導線は本ルート配下へ移設済み。実書き込みは SENSOR_WRITE_ROLES (自校 school_admin) のみ。 */}
-        <Link href="/ops/sensors/new" style={registerLinkStyle}>
-          ＋ センサーを登録
+        {/* 登録は対象校スコープ (ADR-041 D3)。学校を選び /ops/schools/[id]/sensors で登録/編集する。 */}
+        <Link href="/ops/schools" style={registerLinkStyle}>
+          ＋ センサーを登録（学校を選ぶ）
         </Link>
       </header>
       <p style={subtitleStyle}>
@@ -152,7 +152,8 @@ export default async function SystemSensorsPage({
                 </span>
                 {decommissioned ? <span style={decommissionedTagStyle}>撤去済み</span> : null}
               </span>,
-              // §43: 履歴 (read) / 編集 (mutation) の行内導線。リンク先は本ルート配下に移設済み。
+              // 履歴 (read) は本ルート配下。編集 (mutation) は対象校スコープ (ADR-041 D3) のため
+              // /ops/schools/[id]/sensors/[sensorId]/edit へ導く (school_id は行から既知)。
               <span key="actions" style={actionsCellStyle}>
                 <Link
                   href={`/ops/sensors/${s.id}/history`}
@@ -163,7 +164,7 @@ export default async function SystemSensorsPage({
                   履歴
                 </Link>
                 <Link
-                  href={`/ops/sensors/${s.id}/edit`}
+                  href={`/ops/schools/${s.schoolId}/sensors/${s.id}/edit`}
                   style={actionLinkStyle}
                   prefetch={false}
                   aria-label={`${s.locationLabel ?? "未設定のセンサー"}を編集`}

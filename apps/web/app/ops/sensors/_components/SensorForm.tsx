@@ -11,9 +11,15 @@ import { type FormEvent, useState, useTransition } from "react";
 /**
  * F13 (#391, ADR-020): 来場検知センサーの **登録 / 編集**フォーム。**Client Component**。
  *
- * Server Actions (`createSensorDeviceAction` / `updateSensorDeviceAction`) を呼び、成功時は一覧
- * `/ops/sensors` へ戻る。認可 (school_admin のみ) / 検証 / 監査 / cross-tenant / device_mac 一意衝突は
- * Server Action 側 + RLS が担保するので、ここは入力収集と結果表示に徹する (AdsManager と同方針)。
+ * Server Actions (`createSensorDeviceAction` / `updateSensorDeviceAction`) を呼び、成功時は一覧へ戻る。
+ * 認可 (school_admin / system_admin) / 検証 / 監査 / cross-tenant / device_mac 一意衝突は Server Action 側
+ * + RLS が担保するので、ここは入力収集と結果表示に徹する (AdsManager と同方針)。
+ *
+ * **対象校スコープ (system_admin が /ops/schools/[id]/sensors から特定校を編集する経路、ADR-041 D3)**:
+ * `schoolId` 指定時は各 action の末尾引数 `targetSchoolId` に結ぶ (ads-actions.ts の `targetSchoolId` と同型)。
+ * 未指定 (= `/ops/sensors` の全校導線・自校 school_admin) では `undefined` が渡り従来動作のまま (回帰なし)。
+ * 越境防止のゲートはサーバ側 `toSensorActor` / `withSession` が role でかける。成功後の戻り先は `backHref`
+ * (未指定なら全校一覧 `/ops/sensors`)。
  *
  * **登録時のみ MAC を入力**できる (編集では MAC を変えない = webhook 解決キーの不変性)。設置場所ラベルは
  * **PII を入れない**旨を注記する (ADR-020 透明性要件、生徒名等を書かない)。
@@ -36,9 +42,15 @@ export type SensorFormInitial = {
 export function SensorForm({
   classes,
   initial,
+  schoolId,
+  backHref = "/ops/sensors",
 }: {
   classes: SensorClassOption[];
   initial?: SensorFormInitial;
+  /** system_admin が特定校を編集する /ops/schools/[id]/sensors 経路でのみ指定。未指定なら自校 (従来)。 */
+  schoolId?: string;
+  /** 成功後の戻り先 + 「一覧へ戻る」リンク先。未指定なら全校一覧 (/ops/sensors)。 */
+  backHref?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -54,15 +66,15 @@ export function SensorForm({
     startTransition(async () => {
       let res: ActionResult<{ id: string }>;
       if (isEdit) {
-        res = await updateSensorDeviceAction(initial.id, { locationLabel, classId });
+        res = await updateSensorDeviceAction(initial.id, { locationLabel, classId }, schoolId);
       } else {
         const deviceMac = (fd.get("deviceMac") as string) || undefined;
-        res = await createSensorDeviceAction({ deviceMac, locationLabel, classId });
+        res = await createSensorDeviceAction({ deviceMac, locationLabel, classId }, schoolId);
       }
       if (res.ok) {
         setMsg({ ok: true, text: isEdit ? "更新しました。" : "登録しました。" });
         // 一覧へ戻り、Server Component を再取得する。
-        router.push("/ops/sensors");
+        router.push(backHref);
         router.refresh();
       } else {
         setMsg({ ok: false, text: res.error.message });
@@ -148,7 +160,7 @@ export function SensorForm({
         <button type="submit" disabled={pending} style={submitStyle}>
           {pending ? "送信中…" : isEdit ? "更新する" : "登録する"}
         </button>
-        <a href="/ops/sensors" style={cancelStyle}>
+        <a href={backHref} style={cancelStyle}>
           一覧へ戻る
         </a>
       </div>

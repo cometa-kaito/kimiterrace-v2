@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { AuthUser } from "../../lib/auth/session";
 import {
   SENSOR_WRITE_ROLES,
   normalizeClassId,
   normalizeLocationLabel,
+  toSensorActor,
   validateAndNormalizeMac,
   validateCreateSensorInput,
   validateUpdateSensorInput,
@@ -11,11 +13,55 @@ import {
 /**
  * F13 (#391, ADR-020): センサー登録/編集の検証・正規化ロジック (mutations-core) の純粋テスト。
  * DB / next には触れない。MAC 正規化 (大小・区切りゆれ吸収)・長さ上限・任意フィールドの境界を pin する。
+ * ADR-041 D3: system_admin の特定校代行 (三系統 actor) を `toSensorActor` で pin する。
  */
 
+const UUID = "11111111-1111-1111-1111-111111111111";
+
 describe("SENSOR_WRITE_ROLES", () => {
-  it("school_admin のみ (teacher / system_admin を含まない = teacher は書けない)", () => {
-    expect(SENSOR_WRITE_ROLES).toEqual(["school_admin"]);
+  it("school_admin と system_admin (teacher は含まない = teacher は書けない、ADR-041 D3)", () => {
+    expect(SENSOR_WRITE_ROLES).toEqual(["school_admin", "system_admin"]);
+  });
+});
+
+describe("toSensorActor", () => {
+  const base: AuthUser = { uid: "u1", role: "school_admin", schoolId: UUID };
+  const OTHER = "22222222-2222-2222-2222-222222222222";
+
+  it("school_admin: 自校 actor を返す (userRef=uid / identityUid=null)", () => {
+    expect(toSensorActor(base)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("school_admin: targetSchoolId は無視し必ず自校に固定する (越境防止)", () => {
+    expect(toSensorActor(base, OTHER)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("school_admin: 自校 (schoolId) が無ければ null", () => {
+    expect(toSensorActor({ ...base, schoolId: null })).toBeNull();
+  });
+
+  it("system_admin: 対象校指定で actor を返す (userRef=null で FK 回避 / identityUid=uid)", () => {
+    expect(toSensorActor({ ...base, role: "system_admin", schoolId: null }, UUID)).toEqual({
+      actorUserId: "u1",
+      userRef: null,
+      identityUid: "u1",
+      schoolId: UUID,
+    });
+  });
+
+  it("system_admin: 対象校未指定 / 非 UUID は null (呼出側が forbidden 化)", () => {
+    expect(toSensorActor({ ...base, role: "system_admin", schoolId: null })).toBeNull();
+    expect(toSensorActor({ ...base, role: "system_admin", schoolId: null }, "nope")).toBeNull();
   });
 });
 

@@ -84,6 +84,10 @@ export default async function SystemSchoolDetailPage({
           <Link href={`/ops/schools/${school.id}/magic-link`} style={editLinkStyle}>
             生徒アクセスリンク
           </Link>
+          {/* 来場検知センサー導線 (ADR-041 D3): 運営がこの学校のセンサーを登録/編集する (対象校スコープ、監査記録)。 */}
+          <Link href={`/ops/schools/${school.id}/sensors`} style={editLinkStyle}>
+            センサー
+          </Link>
           <Link href={`/ops/schools/${school.id}/edit`} style={editLinkStyle}>
             編集
           </Link>

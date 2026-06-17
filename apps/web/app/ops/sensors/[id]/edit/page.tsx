@@ -1,57 +1,31 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
-import { maskDeviceMac } from "@/lib/sensors/status-presentation";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
-import { getOwnSensorDevice, listSchoolClassesForSensorForm } from "@kimiterrace/db";
-import { notFound } from "next/navigation";
-import { SensorForm } from "../../_components/SensorForm";
+import { getOwnSensorDevice } from "@kimiterrace/db";
+import { notFound, redirect } from "next/navigation";
 
 /**
- * F13 (#391, ADR-020): 来場検知センサーの **編集**フォームページ `/ops/sensors/[id]/edit`。
- * **Server Component**。
+ * 旧 `/ops/sensors/[id]/edit` (全校共通の編集フォーム)。**Server Component**。
  *
- * **認可（校務DX原則: 監視系は運営専用）**: 一覧 / 登録と同じく本ページも `requireRole(SYSTEM_ADMIN_ROLES)`
- * （system_admin のみ）に締める。teacher / school_admin は nav から撤去済み + ここで 403。対象センサーと
- * クラスを 1 つの `withSession` RLS tx で取得する。`getOwnSensorDevice` は RLS（tenant_isolation /
- * system_admin_full_access）で可視行のみ = 不可視/不存在の id は null → **404**（越境参照を見せない、ads
- * ページの notFound と同方針）。実更新 Server Action は自校 actor を要するため system_admin は実編集しない。
+ * ADR-041 D3 でセンサー編集は **対象校スコープ**になった (system_admin は targetSchoolId 明示で書く)。
+ * 全校共通フォームは対象校を持たず実書き込みできないため、対象センサーの school_id を解決し、正規の
+ * 対象校編集ページ `/ops/schools/{schoolId}/sensors/{id}/edit` へ恒久リダイレクトする (全校一覧 `/ops/sensors`
+ * の行リンクも既に新ページを指す。本ページは旧 URL の互換のために残す)。
  *
- * 編集できるのは location_label / class_id のみ。**device_mac は変更不可** (webhook 解決キーの不変性) で
- * 末尾 4 桁マスク表示のみ。実更新は Server Action (`updateSensorDeviceAction`) + RLS が担保する。
+ * **認可**: 一覧と同じく `requireRole(SYSTEM_ADMIN_ROLES)` (system_admin のみ)。`getOwnSensorDevice` は
+ * RLS (system_admin_full_access) で全校可視のため school_id を解決でき、不存在 id は 404。
  */
-export default async function EditSensorPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditSensorRedirectPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   await requireRole(SYSTEM_ADMIN_ROLES);
   const { id } = await params;
 
-  const data = await withSession(async (tx) => {
-    const sensor = await getOwnSensorDevice(tx, id);
-    if (!sensor) {
-      return null;
-    }
-    const classes = await listSchoolClassesForSensorForm(tx);
-    return { sensor, classes };
-  });
-
-  // 自校で不可視（他校 / 存在しない）なら 404。
-  if (!data) {
+  const sensor = await withSession((tx) => getOwnSensorDevice(tx, id));
+  if (!sensor) {
     notFound();
   }
-
-  return (
-    <section>
-      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0 0 0.35rem" }}>センサーを編集</h1>
-      <p style={{ color: "#6b7280", margin: "0 0 1.25rem", fontSize: "0.9rem" }}>
-        設置場所ラベルと紐づくクラスを変更できます。MAC アドレスは変更できません。
-      </p>
-      <SensorForm
-        classes={data.classes}
-        initial={{
-          id: data.sensor.id,
-          maskedMac: maskDeviceMac(data.sensor.deviceMac),
-          locationLabel: data.sensor.locationLabel,
-          classId: data.sensor.classId,
-        }}
-      />
-    </section>
-  );
+  redirect(`/ops/schools/${sensor.schoolId}/sensors/${sensor.id}/edit`);
 }

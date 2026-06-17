@@ -8,9 +8,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `getOwnSensorDevice`) を差し替えて cross-tenant / conflict / not_found 経路を検証する。
  * `withSession` は callback を fake tx で実行する。
  *
- * 重点: 認可 (SENSOR_WRITE_ROLES=school_admin のみ、teacher は弾く)、入力検証で DB に到達しないこと、
- * device_mac 一意衝突 (23505) → conflict 写像で他校情報を漏らさない、edit 0 行 → not_found、
- * cross-tenant classId 拒否。
+ * 重点: 認可 (SENSOR_WRITE_ROLES=school_admin / system_admin、teacher は弾く)、入力検証で DB に到達しない
+ * こと、device_mac 一意衝突 (23505) → conflict 写像で他校情報を漏らさない、edit 0 行 → not_found、
+ * cross-tenant classId 拒否、ADR-041 D3 の system_admin 特定校代行 (targetSchoolId 配線 + userRef=null FK 回避
+ * + withSession の tenantScoped 降格)。
  */
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -49,6 +50,9 @@ const SCHOOL_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "33333333-3333-4333-8333-333333333333";
 
 const admin = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID };
+const SYSADMIN_UID = "55555555-5555-4555-8555-555555555555";
+const TARGET_SCHOOL_ID = "66666666-6666-4666-8666-666666666666";
+const sysAdmin = { uid: SYSADMIN_UID, role: "system_admin" as const, schoolId: null };
 
 const VALID_CREATE = {
   deviceMac: "AA:BB:CC:DD:EE:FF",
@@ -80,6 +84,14 @@ beforeEach(() => {
     Promise.resolve(fn(fakeTx(), admin))) as typeof withSession);
 });
 
+/** withSession 呼び出しの options (2 引数目) を取り出す (tenantScoped / schoolId 配線の検証)。 */
+function lastWithSessionOptions():
+  | { tenantScoped?: boolean; schoolId?: string | null }
+  | undefined {
+  const call = withSessionMock.mock.calls.at(-1);
+  return call?.[1] as { tenantScoped?: boolean; schoolId?: string | null } | undefined;
+}
+
 describe("createSensorDeviceAction", () => {
   it("不正な MAC は invalid を返し、認可も走らせない", async () => {
     const res = await createSensorDeviceAction({ ...VALID_CREATE, deviceMac: "zzz" });
@@ -97,16 +109,42 @@ describe("createSensorDeviceAction", () => {
     expect(withSessionMock).not.toHaveBeenCalled();
   });
 
-  it("SENSOR_WRITE_ROLES (school_admin のみ) で認可する (teacher は含まない)", async () => {
+  it("SENSOR_WRITE_ROLES (school_admin / system_admin) で認可する (teacher は含まない)", async () => {
     await createSensorDeviceAction(VALID_CREATE);
-    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin"]);
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
   });
 
-  it("schoolId 無し (テナント未選択) は forbidden、DB に到達しない", async () => {
+  it("schoolId 無し (テナント未選択 school_admin) は forbidden、DB に到達しない", async () => {
     requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "school_admin", schoolId: null });
     const res = await createSensorDeviceAction(VALID_CREATE);
     expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
     expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("system_admin で targetSchoolId 未指定は forbidden、DB に到達しない (越境防止)", async () => {
+    requireRoleMock.mockResolvedValue(sysAdmin);
+    const res = await createSensorDeviceAction(VALID_CREATE);
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("school_admin: 自校に降格スコープ (tenantScoped + schoolId=自校) で書く", async () => {
+    await createSensorDeviceAction(VALID_CREATE);
+    expect(lastWithSessionOptions()).toEqual({ tenantScoped: true, schoolId: SCHOOL_ID });
+  });
+
+  it("system_admin: 対象校代行 — userRef=null (FK 回避) + 対象校に降格スコープ", async () => {
+    requireRoleMock.mockResolvedValue(sysAdmin);
+    const res = await createSensorDeviceAction(VALID_CREATE, TARGET_SCHOOL_ID);
+    expect(res).toEqual({ ok: true, data: { id: "new-sensor-1" } });
+    // 対象校に tenantScoped 降格して書く (system_admin_full_access の全校発火を止める)。
+    expect(lastWithSessionOptions()).toEqual({ tenantScoped: true, schoolId: TARGET_SCHOOL_ID });
+    const createInput = createSensorDeviceMock.mock.calls[0]?.[1];
+    expect(createInput).toMatchObject({
+      schoolId: TARGET_SCHOOL_ID,
+      // created_by/updated_by は users FK。system_admin は users 行が無いため null。
+      actorUserId: null,
+    });
   });
 
   it("cross-tenant: 自校で不可視なクラスは invalid (CrossTenantClassError 写像)", async () => {
@@ -174,12 +212,35 @@ describe("updateSensorDeviceAction", () => {
     expect(updateSensorDeviceMock).not.toHaveBeenCalled();
   });
 
-  it("正常系: 更新して id を返す", async () => {
+  it("正常系: 更新して id を返す (school_admin は自校に降格スコープ)", async () => {
     const res = await updateSensorDeviceAction(SENSOR_ID, {
       locationLabel: "新ラベル",
       classId: CLASS_ID,
     });
     expect(res).toEqual({ ok: true, data: { id: SENSOR_ID } });
-    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin"]);
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
+    expect(lastWithSessionOptions()).toEqual({ tenantScoped: true, schoolId: SCHOOL_ID });
+    // updated_by = userRef。school_admin は自身の users.id。
+    expect(updateSensorDeviceMock.mock.calls[0]?.[3]).toBe(USER_ID);
+  });
+
+  it("system_admin で targetSchoolId 未指定は forbidden (越境防止)", async () => {
+    requireRoleMock.mockResolvedValue(sysAdmin);
+    const res = await updateSensorDeviceAction(SENSOR_ID, { locationLabel: "x" });
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("system_admin: 対象校代行 — updated_by=null (FK 回避) + 対象校に降格スコープ", async () => {
+    requireRoleMock.mockResolvedValue(sysAdmin);
+    const res = await updateSensorDeviceAction(
+      SENSOR_ID,
+      { locationLabel: "新ラベル" },
+      TARGET_SCHOOL_ID,
+    );
+    expect(res).toEqual({ ok: true, data: { id: SENSOR_ID } });
+    expect(lastWithSessionOptions()).toEqual({ tenantScoped: true, schoolId: TARGET_SCHOOL_ID });
+    // updateSensorDevice(tx, id, fields, actorUserId) の 4 引数目 = userRef = null。
+    expect(updateSensorDeviceMock.mock.calls[0]?.[3]).toBeNull();
   });
 });
