@@ -67,6 +67,7 @@
 | 038 | [生徒/保護者向け Q&A(RAG) の知識源と embedding バッチの本番有効化](038-student-qa-rag-knowledge-source.md)（知識源=school_admin が `/app/contents` で公開した published content_versions。盤面再利用/教員 teacher-input 残置を不採用。embedding バッチ Job を staging/prod で有効化＝初回起動が冪等バックフィル、PII マスク境界不変、空知識は general_supplement フォールバック。item4） | Accepted |
 | 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Accepted |
 | 040 | [生徒/保護者向け Q&A の知識源を編集(daily_data)に再ソース化](040-rag-knowledge-source-daily-data.md)（**ADR-038 D1/D2 を supersede**。知識源=生徒クラスの今日表示中 daily_data 連絡/提出物を直接注入（埋め込み非経由）。`getEffectiveDailyData` の鮮度窓+クラス階層+RLS を再利用、embedding Job は未 apply 据置・curated contents 経路は温存、PII は既存 fail-closed 踏襲で露出面拡大は残存リスク。item4 後続） | Accepted |
+| 041 | [system_admin に school_admin 相当の「特定校スコープ操作」を開放](041-system-admin-school-scoped-operations.md)（運営代行。正準パターン=targetSchoolId+tenantScoped 降格+三系統 actor / 対象から学校導出+full_access。階層/広告/静粛時間/magic-link/エディタ daily_data を開放済〜進行中、**センサーの school_admin 限定を覆して開放**、休眠群(コンテンツ/教員入力)は ADR-040 休眠中ゆえ据え置き。監査三系統で代行を可視化、自校経路は不変） | Accepted |
 
 ## ルール
 
