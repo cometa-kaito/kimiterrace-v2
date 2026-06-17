@@ -5,6 +5,7 @@ import { and, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import {
   type ActionResult,
   type HubActor,
@@ -72,27 +73,15 @@ class ChildExistsError extends Error {}
 class DuplicateError extends Error {}
 
 /**
- * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す。drizzle は元の pg エラーを
- * DrizzleQueryError ("Failed query: …") でラップし、SQLSTATE は top-level ではなく `.cause.code`
- * 側に入るため、cause チェーンを辿る。top-level だけ見ると取りこぼし、同名重複が `conflict` ではなく
- * **未捕捉例外 → ルートエラー境界の 500** になる (本番 digest 2578603502 = 学科「電子工学科」重複登録)。
- * tv の `pgCode` / system-admin の `pgErrorCode` と同方針 (将来は共通ヘルパへ集約したい)。
+ * PostgreSQL の unique 制約違反 (SQLSTATE 23505)。同名 (ux_*_school_name) の重複登録など。
+ *
+ * drizzle は元の pg エラーを DrizzleQueryError ("Failed query: …") でラップし SQLSTATE を `.cause.code`
+ * 側へ移すため、共通ヘルパ (pg-error.ts) が cause 連鎖を辿って判定する。top-level だけ見ると取りこぼし、
+ * 同名重複が `conflict` ではなく**未捕捉例外 → ルートエラー境界の 500** になる
+ * (本番 digest 2578603502 = 学科「電子工学科」重複登録、#1019)。
  */
-function pgErrorCode(error: unknown): string | undefined {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth++) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string") {
-      return code;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return undefined;
-}
-
-/** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。同名 (ux_*_school_name) の重複登録など。 */
 function isUniqueViolation(error: unknown): boolean {
-  return pgErrorCode(error) === "23505";
+  return isPgErrorCode(error, "23505");
 }
 
 /**

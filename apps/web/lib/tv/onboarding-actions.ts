@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { pgErrorCode } from "../pg-error";
 import { type ActionResult, type TvConfigEditPatch, conflict, invalid } from "./config-edit-core";
 import { ONBOARDING_ROLES, type TvOnboardingInput, validateTvOnboarding } from "./onboarding-core";
 
@@ -32,27 +33,6 @@ import { ONBOARDING_ROLES, type TvOnboardingInput, validateTvOnboarding } from "
  * 弾く。将来サーバ側 fetch を足す場合は保存時検証に依存せず fetch 時に解決済み IP を再検証すること
  * （config-edit-core.ts のコメント参照、DNS-rebinding 対策）。
  */
-
-/**
- * PostgreSQL のエラーコード（SQLSTATE）を取り出す。
- *
- * **Drizzle のラップ対応**: Drizzle は driver の `PostgresError` を `DrizzleQueryError` で包むため、
- * SQLSTATE（`code`）は**トップレベルでなく `.cause` 側**に乗る（実 PG テストで判明、CI のみ露見）。
- * トップレベル `code` を直接読むと unique/FK 違反を検出できず conflict/invalid に写像し損ねて 500 に化ける。
- * よって `error.code` → `error.cause.code` … と cause 連鎖を辿って最初に見つかった文字列 code を返す
- * （ラップ無し・有り両対応）。深さは循環/暴走防止に上限を設ける。
- */
-function pgCode(error: unknown): string | undefined {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth++) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string") {
-      return code;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return undefined;
-}
 
 /** audit_log に新規登録（insert 操作）を 1 行追記。prev_hash/row_hash は BEFORE INSERT トリガが計算。 */
 async function writeCreateAudit(
@@ -131,7 +111,8 @@ export async function createTvDeviceAction(
     revalidatePath("/ops/tv-devices");
     return { ok: true, data: created };
   } catch (error) {
-    const code = pgCode(error);
+    // Drizzle は SQLSTATE を `.cause.code` 側へ移すため共通ヘルパで cause 連鎖を辿る（pg-error.ts）。
+    const code = pgErrorCode(error);
     if (code === "23505") {
       // device_id グローバル UNIQUE 違反（既に登録済 / 別校が同一 device_id を使用）。
       return conflict(

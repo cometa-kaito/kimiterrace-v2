@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { parseConfigValueText } from "./school-config-core";
 import { type ActionResult, conflict, invalid, isUuid, notFound } from "./schools-core";
@@ -44,25 +45,9 @@ import { type ActionResult, conflict, invalid, isUuid, notFound } from "./school
 /** 対象行が RLS で不可視 (不存在) のとき tx をロールバックさせる内部エラー。 */
 class ConfigNotFoundError extends Error {}
 
-/**
- * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す (schools-actions.ts と同実装)。
- * SQLSTATE は top-level / `.cause.code` のどちらかに入るため両方を見る。
- */
-function pgErrorCode(error: unknown): string | undefined {
-  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
-  if (e && typeof e.code === "string") {
-    return e.code;
-  }
-  if (e?.cause && typeof e.cause.code === "string") {
-    return e.cause.code;
-  }
-  return undefined;
-}
-
-/** unique (23505) / check (23514) 制約違反。並行更新との競合等。 */
+/** unique (23505) / check (23514) 制約違反。並行更新との競合等。cause 連鎖の解決は pg-error.ts。 */
 function isConstraintViolation(error: unknown): boolean {
-  const code = pgErrorCode(error);
-  return code === "23505" || code === "23514";
+  return isPgErrorCode(error, "23505", "23514");
 }
 
 /** audit_log に 1 行追記 (ルール1 / NFR04)。モジュール doc「監査」参照。 */

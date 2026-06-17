@@ -14,6 +14,7 @@ import {
 } from "../auth/admin-mutations";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import { validateStaffCreate } from "../role-management/staff-create-core";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import { type ActionResult, conflict, forbidden, invalid, isUuid, notFound } from "./schools-core";
@@ -46,29 +47,12 @@ class LastAdminRaceError extends Error {
 const LAST_ADMIN_INVARIANT_SQLSTATE = "KT001";
 
 /**
- * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す。drizzle は元の pg エラーを
- * DrizzleQueryError でラップし SQLSTATE は `.cause.code` 側に入るため、top-level と cause の両方を見る
- * (schools-actions.ts と同規律)。
- */
-function pgErrorCode(error: unknown): string | undefined {
-  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
-  if (e && typeof e.code === "string") {
-    return e.code;
-  }
-  if (e?.cause && typeof e.cause.code === "string") {
-    return e.cause.code;
-  }
-  return undefined;
-}
-
-/**
  * mirror tx の失敗が last-admin ロックアウト防止に由来するか。アプリ層 FOR UPDATE 再カウントの番兵
  * (#355) と、それを越えた DB トリガ (#395 L2) の不変条件違反の**両方**を同じ補償パスに合流させる。
+ * drizzle は SQLSTATE を `.cause.code` 側へ移すため、判定は共通ヘルパ (pg-error.ts) が cause 連鎖を辿る。
  */
 function isLastAdminRace(error: unknown): boolean {
-  return (
-    error instanceof LastAdminRaceError || pgErrorCode(error) === LAST_ADMIN_INVARIANT_SQLSTATE
-  );
+  return error instanceof LastAdminRaceError || isPgErrorCode(error, LAST_ADMIN_INVARIANT_SQLSTATE);
 }
 
 /**
