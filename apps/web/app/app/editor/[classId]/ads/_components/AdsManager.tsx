@@ -1,13 +1,21 @@
 "use client";
 
-import { createAdAction, deleteAdAction, updateAdAction } from "@/lib/school-admin/ads-actions";
+import * as adsActions from "@/lib/school-admin/ads-actions";
 import {
   type ActionResult,
   type AdMediaType,
   CAPTION_FONT_SCALES,
 } from "@/lib/school-admin/ads-core";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useRef, useState, useTransition } from "react";
+import {
+  createContext,
+  type FormEvent,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { AdThumbnail } from "@/app/_components/AdThumbnail";
 import { AdMediaUpload } from "./AdMediaUpload";
 
@@ -19,6 +27,40 @@ import { AdMediaUpload } from "./AdMediaUpload";
  * 継承広告 (`inherited`) は親階層由来 (is_inherited) で**編集不可**。一覧に「継承」バッジ付きで
  * read-only 表示し、フォーム・削除ボタンを出さない (V1 の「親階層広告は編集不可」挙動)。
  */
+
+/* ------------------------------------------------------------------ *
+ *  対象校スコープ (system_admin が /ops/schools/[id]/ads/[classId] から他校を編集する経路)
+ *
+ *  school_admin (/app/editor/[classId]/ads) は対象校 = 自校なので **schoolId を渡さない**。その場合
+ *  context は undefined となり、各 action の末尾引数 `targetSchoolId` には undefined が渡る (= 自校・
+ *  従来動作、回帰なし)。system_admin が `schoolId` を与えたときだけ、対象校を結ぶ (サーバ側
+ *  `toAdsActor`/`withSession` が role でゲートし越境を防ぐ。hub #998/#999 と同型)。
+ * ------------------------------------------------------------------ */
+
+const TargetSchoolContext = createContext<string | undefined>(undefined);
+
+/** 対象校 (system_admin /ops 経路) を各 Server Action の末尾引数に結んで返す。未指定なら自校 (従来)。 */
+function useScopedAdsActions() {
+  const schoolId = useContext(TargetSchoolContext);
+  return useMemo(
+    () => ({
+      create: (
+        scope: string,
+        targetId: string | null,
+        raw: Parameters<typeof adsActions.createAdAction>[2],
+      ) => adsActions.createAdAction(scope, targetId, raw, schoolId),
+      update: (
+        scope: string,
+        targetId: string | null,
+        adId: string,
+        raw: Parameters<typeof adsActions.updateAdAction>[3],
+      ) => adsActions.updateAdAction(scope, targetId, adId, raw, schoolId),
+      remove: (scope: string, targetId: string | null, adId: string) =>
+        adsActions.deleteAdAction(scope, targetId, adId, schoolId),
+    }),
+    [schoolId],
+  );
+}
 
 /** 自クラス広告 1 件 (編集可能)。listClassOwnAds の戻り値と同形。 */
 export type OwnAd = {
@@ -50,14 +92,7 @@ const SCOPE_LABEL: Record<string, string> = {
   class: "クラス",
 };
 
-export function AdsManager({
-  scope,
-  targetId,
-  ownLabel,
-  ownAds,
-  inherited,
-  showInherited = true,
-}: {
+type AdsManagerProps = {
   /** 編集対象のスコープ ("school"|"department"|"grade"|"class")。Server Action に渡す。 */
   scope: string;
   /** 対象 id (school は null)。Server Action に渡す。 */
@@ -68,7 +103,36 @@ export function AdsManager({
   inherited: InheritedAd[];
   /** 継承広告セクションを表示するか。クラス画面のみ true (per-class 実効ビューがあるため)。既定 true。 */
   showInherited?: boolean;
+};
+
+/**
+ * 対象校 Context を配下へ供給する薄いラッパ。`schoolId` 指定時 (system_admin の /ops 経路) は配下の
+ * `useScopedAdsActions` が各 action に対象校を結ぶ。未指定 (school_admin /app 経路) は undefined を
+ * 渡すため従来と完全同一 (回帰なし)。本体 (`AdsManagerInner`) は Provider の配下で hook を呼ぶ。
+ */
+export function AdsManager({
+  schoolId,
+  ...props
+}: AdsManagerProps & {
+  /** system_admin が特定校を編集する /ops/schools/[id]/ads/[classId] 経路でのみ指定。未指定なら自校。 */
+  schoolId?: string;
 }) {
+  return (
+    <TargetSchoolContext.Provider value={schoolId}>
+      <AdsManagerInner {...props} />
+    </TargetSchoolContext.Provider>
+  );
+}
+
+function AdsManagerInner({
+  scope,
+  targetId,
+  ownLabel,
+  ownAds,
+  inherited,
+  showInherited = true,
+}: AdsManagerProps) {
+  const { create, update, remove: removeAction } = useScopedAdsActions();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -109,7 +173,7 @@ export function AdsManager({
     e.preventDefault();
     const form = e.currentTarget;
     run(
-      () => createAdAction(scope, targetId, fieldsFrom(form)),
+      () => create(scope, targetId, fieldsFrom(form)),
       "広告を追加しました。",
       () => form.reset(),
     );
@@ -119,14 +183,14 @@ export function AdsManager({
     e.preventDefault();
     const form = e.currentTarget;
     run(
-      () => updateAdAction(scope, targetId, adId, fieldsFrom(form)),
+      () => update(scope, targetId, adId, fieldsFrom(form)),
       "広告を更新しました。",
       () => setEditing(null),
     );
   }
 
   function remove(adId: string) {
-    run(() => deleteAdAction(scope, targetId, adId), "広告を削除しました。");
+    run(() => removeAction(scope, targetId, adId), "広告を削除しました。");
   }
 
   return (

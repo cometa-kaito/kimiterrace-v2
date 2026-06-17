@@ -89,7 +89,7 @@ export default async function SchoolAdPlacementPage({
                   <strong>{primaryLabel}</strong>
                   {metaLabel ? <span style={metaStyle}>{metaLabel}</span> : null}
                 </span>
-                <Link href={`/app/editor/${c.classId}/ads`} style={manageLinkStyle}>
+                <Link href={`/ops/schools/${id}/ads/${c.classId}`} style={manageLinkStyle}>
                   広告管理 →
                 </Link>
               </li>
