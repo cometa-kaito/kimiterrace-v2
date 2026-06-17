@@ -232,6 +232,13 @@
       "when": 1781542158387,
       "tag": "20260615164918_audit_log_clock_timestamp",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781697370039,
+      "tag": "20260617115610_signage_other_locations",
+      "breakpoints": true
     }
   ]
 }

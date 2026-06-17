@@ -75,7 +75,9 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
       continue;
     }
     const list = byGrade.get(c.gradeId) ?? [];
-    list.push({ id: c.id, name: c.name, grade: c.grade });
+    // grade は「その他」(grade_id NULL) で nullable 化したが、ここは gradeId を持つ実クラスのみ
+    // (上の continue で除外済) ゆえ常に値がある。型を満たす防御的フォールバック (実発火しない)。
+    list.push({ id: c.id, name: c.name, grade: c.grade ?? 0 });
     byGrade.set(c.gradeId, list);
   }
 
