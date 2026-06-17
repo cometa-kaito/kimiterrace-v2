@@ -1,6 +1,6 @@
 import { tokens } from "@kimiterrace/ui";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SESSION_MESSAGES_LIMIT, getAiChatSessionDetail } from "@/lib/system-admin/ai-chat-list";
@@ -48,11 +48,9 @@ export default async function SystemAiChatSessionPage({
 
   return (
     <section>
-      <p style={backStyle}>
-        <Link href="/ops/ai-chat" style={backLinkStyle}>
-          ← セッション一覧へ
-        </Link>
-      </p>
+      <Breadcrumb
+        items={[{ label: "AIチャット監査", href: "/ops/ai-chat" }, { label: "対話セッション詳細" }]}
+      />
       <header style={headerStyle}>
         <h1 style={titleStyle}>対話セッション詳細</h1>
         <span style={countStyle}>{totalMessages} 発話</span>
@@ -135,8 +133,6 @@ function formatJstDateTime(value: Date): string {
   }).format(value);
 }
 
-const backStyle: React.CSSProperties = { marginBottom: space.sm };
-const backLinkStyle: React.CSSProperties = { color: color.primary, fontSize: fontSize.sm };
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",

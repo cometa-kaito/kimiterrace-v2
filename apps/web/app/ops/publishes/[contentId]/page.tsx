@@ -1,6 +1,6 @@
 import { tokens } from "@kimiterrace/ui";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { formatMaskedJson, truncateText } from "@/lib/system-admin/mask";
@@ -62,11 +62,9 @@ export default async function SystemContentVersionsPage({
 
   return (
     <section>
-      <p style={backStyle}>
-        <Link href="/ops/publishes" style={backLinkStyle}>
-          ← 公開履歴一覧へ
-        </Link>
-      </p>
+      {/* タイトルは PII マスク対象の自由テキスト (本ページ内も truncateText 経由でのみ表示) のため、
+          末尾 crumb はマスクを迂回せず固定のページ名「版履歴」(h1 と一致) とする。 */}
+      <Breadcrumb items={[{ label: "公開履歴", href: "/ops/publishes" }, { label: "版履歴" }]} />
       <header style={headerStyle}>
         <h1 style={titleStyle}>版履歴</h1>
         <span style={countStyle}>{totalVersions.toLocaleString("ja-JP")} 版</span>
@@ -177,8 +175,6 @@ function formatJstDateTime(value: Date): string {
 
 const monoFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-const backStyle: React.CSSProperties = { marginBottom: space.sm };
-const backLinkStyle: React.CSSProperties = { color: color.primary, fontSize: fontSize.sm };
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",

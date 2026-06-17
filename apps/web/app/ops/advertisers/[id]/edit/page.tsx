@@ -1,9 +1,9 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getAdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdvertiserEditForm } from "./_components/AdvertiserEditForm";
 
@@ -36,9 +36,14 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
     <section
       style={{ display: "flex", flexDirection: "column", gap: "1.25rem", maxWidth: "32rem" }}
     >
-      <Link href="/ops/advertisers" style={backLinkStyle}>
-        ← 広告主一覧
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "広告配信割当", href: "/ops/advertisers" },
+          // 編集ページが実質の広告主ホームのため、会社名はここで自リンクにせず非リンク見出しにする。
+          { label: advertiser.companyName },
+          { label: "編集" },
+        ]}
+      />
       <h1 style={titleStyle}>広告主の編集</h1>
       <AdvertiserEditForm advertiser={advertiser} />
       {/* 商流SoR一元化 Phase1 (2026-06-13): 契約管理・コミュニケーション履歴の正本は portal に一元化した
@@ -48,9 +53,4 @@ export default async function EditAdvertiserPage({ params }: { params: Promise<{
   );
 }
 
-const backLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: "#2563eb",
-  textDecoration: "none",
-};
 const titleStyle: React.CSSProperties = { fontSize: "1.3rem", fontWeight: 700, margin: 0 };

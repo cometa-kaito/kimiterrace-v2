@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { TV_CONFIG_EDIT_ROLES, isUuid } from "@/lib/tv/config-edit-core";
@@ -53,7 +54,16 @@ export default async function TvDeviceEditPage({
 
   return (
     <section style={{ maxWidth: "640px" }}>
-      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0 0 0.25rem" }}>TV 設定の編集</h1>
+      <Breadcrumb
+        items={[
+          { label: "モニタ設定", href: "/ops/tv-devices" },
+          { label: device.label ?? "（ラベル未設定）" },
+          { label: "編集" },
+        ]}
+      />
+      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.75rem 0 0.25rem" }}>
+        TV 設定の編集
+      </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1.25rem", fontSize: "0.9rem" }}>
         設定を保存すると設定版（v{device.version}）が 1 つ上がり、各 TV が次回ポーリング（最大 60
         秒以内）で新しい設定を取り込みます。
