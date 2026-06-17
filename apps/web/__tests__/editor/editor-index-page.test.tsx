@@ -36,6 +36,23 @@ vi.mock("../../lib/school-admin/hub-queries", () => ({
     },
   ),
 }));
+// 「その他」(grade_id NULL の非教室設置場所) 取得層。エディタ自身のデータ層（hub-queries とは別 PR 所有）。
+// getOtherClasses は tx.select を直に叩くため mock 必須（mock tx は {} で .select を持たない）。
+// computeTodayActiveOtherClasses は class → department → school の継承伝搬を行うので、テストでは
+// school / classId のみを反映する忠実な簡易版で代用する（学科継承は別 .test.ts の担保領域）。
+vi.mock("../../lib/editor/other-classes-queries", () => ({
+  getOtherClasses: vi.fn(),
+  computeTodayActiveOtherClasses: vi.fn(
+    (scopes: { school: boolean; classIds: string[] }, others: { id: string }[]) => {
+      const classSet = new Set(scopes.classIds);
+      const out: Record<string, boolean> = {};
+      for (const c of others) {
+        out[c.id] = scopes.school || classSet.has(c.id);
+      }
+      return out;
+    },
+  ),
+}));
 // 実画面 payload ビルダー: クラスごとに呼ばれる。中身は ScaledSignageBoard mock に渡るだけ。
 vi.mock("../../lib/signage/signage-display", () => ({ buildSignagePayloadForClass: vi.fn() }));
 // 着地日付は JST 今日。テストでは固定値に。
@@ -66,6 +83,7 @@ vi.mock("next/navigation", () => ({
 import EditorIndexPage from "../../app/app/editor/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
+import { getOtherClasses } from "../../lib/editor/other-classes-queries";
 import { getSchoolHierarchy, getTodayDailyDataScopes } from "../../lib/school-admin/hub-queries";
 import { buildSignagePayloadForClass } from "../../lib/signage/signage-display";
 import { redirect } from "next/navigation";
@@ -74,6 +92,7 @@ const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
 const getSchoolHierarchyMock = vi.mocked(getSchoolHierarchy);
 const getTodayDailyDataScopesMock = vi.mocked(getTodayDailyDataScopes);
+const getOtherClassesMock = vi.mocked(getOtherClasses);
 const buildSignagePayloadMock = vi.mocked(buildSignagePayloadForClass);
 const redirectMock = vi.mocked(redirect);
 
@@ -81,6 +100,9 @@ const DEPT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const GRADE_ID = "99999999-9999-4999-8999-999999999999";
 const CLASS_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_SCHOOL_CLASS_ID = "22222222-2222-4222-8222-222222222222";
+// 「その他」(grade_id NULL の非教室設置場所)。学校直下 (department_id NULL) と学科配下 (department_id 有) の 2 種。
+const OTHER_AT_SCHOOL_ID = "44444444-4444-4444-8444-444444444444";
+const OTHER_IN_DEPT_ID = "55555555-5555-4555-8555-555555555555";
 
 const hierarchy = {
   departments: [{ id: DEPT_ID, name: "電気科", displayOrder: 0 }],
@@ -106,6 +128,8 @@ beforeEach(() => {
     Promise.resolve(fn({}))) as typeof withSession);
   getSchoolHierarchyMock.mockResolvedValue(hierarchy as never);
   getTodayDailyDataScopesMock.mockResolvedValue(emptyScopes as never);
+  // 既定では「その他」(非教室) は無し。各テストで必要に応じて上書きする。
+  getOtherClassesMock.mockResolvedValue([] as never);
   // payload は classId をタグ付けして返す（ScaledSignageBoard mock がどのクラスのものか判別できるように）。
   buildSignagePayloadMock.mockImplementation(
     (_tx, _schoolId, classId) => Promise.resolve({ __classId: classId }) as never,
@@ -287,5 +311,90 @@ describe("EditorIndexPage ハンバーガー → ドロワー（client island）
     // 学年込みラベルでクラス行が出る (年度は出さない)。
     const clsRow = within(dialog).getByRole("link", { name: /1年A組/ });
     expect(clsRow).toHaveAttribute("href", `/app/editor/${CLASS_ID}`);
+  });
+});
+
+/**
+ * PR4: 「その他」(grade_id NULL の非教室サイネージ設置場所) を壁に出し全ロールが編集できる。
+ *
+ * 「その他」は学年ツリー外なので hub-queries の hierarchy に含まれず、エディタ自身のデータ層
+ * (`getOtherClasses`) で別途読む。通常クラスと同じタイル/リンク (`/app/editor/[classId]`)・状態ドットで
+ * 出し、学年を持たないのでラベルはクラス名のみ。学校直下 (department_id NULL) は「その他」セクション、
+ * 学科配下 (department_id 有) はその学科セクション内に並ぶ。
+ */
+describe("EditorIndexPage 「その他」(非教室サイネージ) を壁に出す（PR4）", () => {
+  it("学校直下の「その他」は『その他』見出しの下に名前ラベル + 編集リンクで出る", async () => {
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_AT_SCHOOL_ID, name: "玄関", departmentId: null },
+    ] as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+
+    // 「その他」見出し。
+    expect(screen.getByRole("heading", { name: "その他" })).toBeInTheDocument();
+    // クラス同様 /app/editor/[classId] へリンクし、ラベルは名前のみ（学年は付かない）。
+    const other = screen.getByRole("link", { name: /玄関 を編集/ });
+    expect(other).toHaveAttribute("href", `/app/editor/${OTHER_AT_SCHOOL_ID}`);
+  });
+
+  it("学科配下の「その他」はその学科セクション内に出る（学科の小見出し『その他』付き）", async () => {
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_IN_DEPT_ID, name: "実習棟入口", departmentId: DEPT_ID },
+    ] as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+
+    const other = screen.getByRole("link", { name: /実習棟入口 を編集/ });
+    expect(other).toHaveAttribute("href", `/app/editor/${OTHER_IN_DEPT_ID}`);
+    // 学科配下「その他」は小見出し h3「その他」を伴う。
+    expect(screen.getByRole("heading", { level: 3, name: "その他" })).toBeInTheDocument();
+  });
+
+  it("「その他」の本日掲示状態ドット（class scope で active）", async () => {
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_AT_SCHOOL_ID, name: "玄関", departmentId: null },
+    ] as never);
+    getTodayDailyDataScopesMock.mockResolvedValue({
+      ...emptyScopes,
+      classIds: [OTHER_AT_SCHOOL_ID],
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getAllByLabelText("本日表示中").length).toBeGreaterThan(0);
+  });
+
+  it("クラス 0・「その他」のみでも空状態にせず壁に出す（その他も編集可能な箱）", async () => {
+    getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_AT_SCHOOL_ID, name: "職員室前", departmentId: null },
+    ] as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    // 空状態メッセージは出さず、「その他」のモニタリンクが出る。
+    expect(screen.queryByText(/まだクラスがありません/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /職員室前 を編集/ })).toHaveAttribute(
+      "href",
+      `/app/editor/${OTHER_AT_SCHOOL_ID}`,
+    );
+  });
+
+  it("teacher・「その他」が唯一の箱なら自動直行する（通常クラスと同等に扱う）", async () => {
+    requireRoleMock.mockResolvedValue({ uid: "t1", role: "teacher", schoolId: "s1" } as never);
+    getSchoolHierarchyMock.mockResolvedValue({ departments: [], grades: [] } as never);
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_AT_SCHOOL_ID, name: "玄関", departmentId: null },
+    ] as never);
+    await expect(EditorIndexPage({ searchParams: Promise.resolve({}) })).rejects.toThrow(
+      `NEXT_REDIRECT:/app/editor/${OTHER_AT_SCHOOL_ID}`,
+    );
+  });
+
+  it("ドロワーにも「その他」行が名前ラベルで出る", async () => {
+    getOtherClassesMock.mockResolvedValue([
+      { id: OTHER_AT_SCHOOL_ID, name: "玄関", departmentId: null },
+    ] as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    fireEvent.click(screen.getByRole("button", { name: /メニュー/ }));
+    const dialog = screen.getByRole("dialog", { name: /モニタ一覧/ });
+    expect(within(dialog).getByRole("link", { name: /玄関/ })).toHaveAttribute(
+      "href",
+      `/app/editor/${OTHER_AT_SCHOOL_ID}`,
+    );
   });
 });
