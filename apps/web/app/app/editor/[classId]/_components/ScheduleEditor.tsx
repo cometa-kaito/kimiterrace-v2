@@ -1,7 +1,6 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
-import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import type { EditorTarget, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
 import {
   SCHEDULE_SLOT_OPTIONS,
@@ -23,6 +22,7 @@ import {
   thStyle,
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
+import { useScopedDailyDataActions } from "./target-school";
 
 /**
  * 予定エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
@@ -78,6 +78,8 @@ export function ScheduleEditor({
   onItemsChange?: (items: ScheduleItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
+  // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
+  const { setSchedule } = useScopedDailyDataActions();
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i) => ({
@@ -110,7 +112,7 @@ export function ScheduleEditor({
     serialized,
     items,
     complete,
-    save: (toSave) => setScheduleAction(target.scope, targetId(target), date, toSave),
+    save: (toSave) => setSchedule(target.scope, targetId(target), date, toSave),
   });
 
   function update(index: number, patch: Partial<Row>) {
