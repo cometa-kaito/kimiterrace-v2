@@ -64,6 +64,10 @@ export default async function SystemSchoolDetailPage({
       <header style={headerStyle}>
         <h1 style={titleStyle}>{school.name}</h1>
         <div style={headerActionsStyle}>
+          {/* クラス設定導線: 運営がこの学校の学科 / 学年 / クラス階層を編集する (対象校スコープ、監査記録)。 */}
+          <Link href={`/ops/schools/${school.id}/hierarchy`} style={editLinkStyle}>
+            クラス設定
+          </Link>
           {/* 広告掲載導線 (#46): 運営がこの学校のクラスを選び、クラス別広告管理で素材/リンク/秒数を設定する。 */}
           <Link href={`/ops/schools/${school.id}/ads`} style={editLinkStyle}>
             広告掲載
