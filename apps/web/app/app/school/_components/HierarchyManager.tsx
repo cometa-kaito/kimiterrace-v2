@@ -1,17 +1,6 @@
 "use client";
 
-import {
-  createClassAction,
-  createDepartmentAction,
-  createGradeAction,
-  deleteClassAction,
-  deleteDepartmentAction,
-  deleteGradeAction,
-  reorderHierarchyAction,
-  updateClassAction,
-  updateDepartmentAction,
-  updateGradeAction,
-} from "@/lib/school-admin/hub-actions";
+import * as hubActions from "@/lib/school-admin/hub-actions";
 import type { ActionResult } from "@/lib/school-admin/hub-core";
 import type { SchoolHierarchy } from "@/lib/school-admin/hub-queries";
 import Link from "next/link";
@@ -21,13 +10,49 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
+  createContext,
+  useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   useTransition,
 } from "react";
 import styles from "./hierarchy-manager.module.css";
+
+/* ------------------------------------------------------------------ *
+ *  対象校スコープ (system_admin が /ops/schools/[id]/hierarchy から他校を編集する経路)
+ *
+ *  school_admin (/app/school) は対象校 = 自校なので **schoolId を渡さない**。その場合 hook は
+ *  素の Server Action をそのまま返し、呼び出し引数も従来どおり (回帰なし)。system_admin が
+ *  `schoolId` を与えたときだけ、各 action の末尾引数 `targetSchoolId` に対象校を結ぶ
+ *  (サーバ側 `toHubActor`/`withSession` が role でゲートし越境を防ぐ。PR1)。
+ * ------------------------------------------------------------------ */
+
+const TargetSchoolContext = createContext<string | undefined>(undefined);
+
+/** 対象校が指定されていれば各 Server Action に結んで返す。未指定なら素の action (= 自校・従来動作)。 */
+function useScopedHubActions(): typeof hubActions {
+  const schoolId = useContext(TargetSchoolContext);
+  return useMemo<typeof hubActions>(() => {
+    if (schoolId === undefined) {
+      return hubActions;
+    }
+    return {
+      createDepartmentAction: (raw) => hubActions.createDepartmentAction(raw, schoolId),
+      updateDepartmentAction: (raw) => hubActions.updateDepartmentAction(raw, schoolId),
+      deleteDepartmentAction: (id) => hubActions.deleteDepartmentAction(id, schoolId),
+      createGradeAction: (raw) => hubActions.createGradeAction(raw, schoolId),
+      updateGradeAction: (raw) => hubActions.updateGradeAction(raw, schoolId),
+      deleteGradeAction: (id) => hubActions.deleteGradeAction(id, schoolId),
+      createClassAction: (raw) => hubActions.createClassAction(raw, schoolId),
+      updateClassAction: (raw) => hubActions.updateClassAction(raw, schoolId),
+      deleteClassAction: (id) => hubActions.deleteClassAction(id, schoolId),
+      reorderHierarchyAction: (raw) => hubActions.reorderHierarchyAction(raw, schoolId),
+    };
+  }, [schoolId]);
+}
 
 /**
  * 学校管理者ハブの階層 CRUD UI (#48-K / #48-K2 / #48-K3 UI再設計)。**Client Component**・**ツリー表示**。
@@ -63,13 +88,41 @@ function deriveGradeNumber(gradeName: string): number {
   return Number.isInteger(n) && n >= 1 && n <= 12 ? n : 1;
 }
 
-export function HierarchyManager({
+/**
+ * 対象校 Context を配下へ供給する薄いラッパ。`schoolId` 指定時 (system_admin /ops 経路) は配下の
+ * `useScopedHubActions` が各 action に対象校を結ぶ。未指定 (school_admin /app/school) は素の action
+ * を返すため従来と完全同一 (回帰なし)。本体 (`HierarchyManagerInner`) は Provider の**配下**で
+ * `useScopedHubActions` を呼ぶ必要がある (自分が張る Context を自分では読めないため分割している)。
+ */
+export function HierarchyManager(props: {
+  hierarchy: SchoolHierarchy;
+  statusByClass?: Record<string, boolean>;
+  /** system_admin が特定校を編集する /ops/schools/[id]/hierarchy 経路でのみ指定。未指定なら自校。 */
+  schoolId?: string;
+  /** 見出し。/ops 経路では「クラス設定 — 校名」等を渡す。未指定は「学校管理」。 */
+  heading?: string;
+}) {
+  return (
+    <TargetSchoolContext.Provider value={props.schoolId}>
+      <HierarchyManagerInner
+        hierarchy={props.hierarchy}
+        statusByClass={props.statusByClass}
+        heading={props.heading}
+      />
+    </TargetSchoolContext.Provider>
+  );
+}
+
+function HierarchyManagerInner({
   hierarchy,
   statusByClass = {},
+  heading = "学校管理",
 }: {
   hierarchy: SchoolHierarchy;
   statusByClass?: Record<string, boolean>;
+  heading?: string;
 }) {
+  const { reorderHierarchyAction } = useScopedHubActions();
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -106,7 +159,7 @@ export function HierarchyManager({
   return (
     <div style={pageStyle}>
       <div style={headerRowStyle}>
-        <h1 style={h1Style}>学校管理</h1>
+        <h1 style={h1Style}>{heading}</h1>
         {hasDepartments ? (
           <button type="button" style={toolbarBtnStyle} onClick={() => setBulkOpen((v) => !v)}>
             一括操作 <span aria-hidden>{bulkOpen ? "▴" : "▾"}</span>
@@ -615,6 +668,8 @@ function DepartmentNode({
   reorder?: RowReorder;
   report: Reporter;
 }) {
+  const { updateDepartmentAction, deleteDepartmentAction, reorderHierarchyAction } =
+    useScopedHubActions();
   const [open, setOpen] = useState(true);
   // 配下の学年（この学科の兄弟集合）の並べ替え。永続化は単一の原子的アクション。
   const gradeRowProps = useSiblingReorder(
@@ -687,6 +742,7 @@ function GradeNode({
   reorder?: RowReorder;
   report: Reporter;
 }) {
+  const { createClassAction, updateGradeAction, deleteGradeAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   const modeLabel = grade.hasClasses ? "クラス単位" : "学年単位";
   const unitClass = grade.classes[0];
@@ -813,6 +869,7 @@ function GradeNode({
  * ------------------------------------------------------------------ */
 
 function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report: Reporter }) {
+  const { updateClassAction, deleteClassAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -946,6 +1003,7 @@ function OrphanRow({
   departments: Dept[];
   report: Reporter;
 }) {
+  const { updateGradeAction, deleteGradeAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -1044,6 +1102,7 @@ function OrphanRow({
  * ------------------------------------------------------------------ */
 
 function EmptyState({ report }: { report: Reporter }) {
+  const { createGradeAction } = useScopedHubActions();
   const [showDept, setShowDept] = useState(false);
   const [pending, start] = useTransition();
   if (showDept) {
@@ -1084,6 +1143,7 @@ function EmptyState({ report }: { report: Reporter }) {
  * ------------------------------------------------------------------ */
 
 function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?: boolean }) {
+  const { createDepartmentAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1130,6 +1190,7 @@ function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?
  * 衝突を避ける（入力は「1年」等の短い学年でよい）。`department` 無し（学科なし校）は入力をそのまま使う。
  */
 function AddGradeForm({ department, report }: { department?: Dept; report: Reporter }) {
+  const { createGradeAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1173,6 +1234,7 @@ function AddGradeForm({ department, report }: { department?: Dept; report: Repor
 }
 
 function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
+  const { createClassAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1207,6 +1269,7 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
 
 /** 全学科に同じ学年をまとめて追加（各学科に `{学科名}{入力}` を生成）。 */
 function BulkAddYears({ departments, report }: { departments: Dept[]; report: Reporter }) {
+  const { createGradeAction } = useScopedHubActions();
   const [pending, start] = useTransition();
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
