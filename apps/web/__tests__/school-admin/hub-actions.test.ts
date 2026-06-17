@@ -27,6 +27,7 @@ vi.mock("../../lib/school-admin/hub-queries", () => ({
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import {
+  createDepartmentAction,
   createOtherLocationAction,
   deleteClassAction,
   deleteDepartmentAction,
@@ -49,6 +50,17 @@ const SCHOOL_ID = "44444444-4444-4444-8444-444444444444";
 const USER_ID = "55555555-5555-4555-8555-555555555555";
 
 const admin = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID };
+
+/**
+ * 本番の drizzle が投げる形の pg エラーを再現する。元の pg エラー (SQLSTATE 付き) を
+ * DrizzleQueryError ("Failed query: …") が `cause` でラップするため、`code` は top-level ではなく
+ * `cause` 側に載る。helper はこの cause チェーンを辿れて初めて重複を conflict に写せる。
+ */
+function drizzleWrapped(code: string): Error {
+  return Object.assign(new Error("Failed query: insert into ..."), {
+    cause: Object.assign(new Error("duplicate key value violates unique constraint"), { code }),
+  });
+}
 
 /**
  * select は呼ばれるたびに `selectQueue` の先頭の行配列を返す fake tx。
@@ -96,6 +108,16 @@ beforeEach(() => {
     Promise.resolve(fn(fakeTx()))) as typeof withSession);
 });
 
+describe("createDepartmentAction", () => {
+  it("同名の学科を二重登録すると conflict (本番 digest 2578603502 の回帰ガード)", async () => {
+    // 本番で発生したクラッシュ: 既存の学科名「電子工学科」を再登録 → DB の ux_departments_school_name
+    // 違反 (23505) を drizzle が cause にラップ → 旧 helper が取りこぼし未捕捉例外 → エラー境界 500。
+    withSessionMock.mockRejectedValue(drizzleWrapped("23505"));
+    const res = await createDepartmentAction({ name: "電子工学科" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+});
+
 describe("updateDepartmentAction", () => {
   it("不正な id は invalid を返し、認可も走らせない", async () => {
     const res = await updateDepartmentAction({ id: "nope", name: "x" });
@@ -129,9 +151,12 @@ describe("updateDepartmentAction", () => {
     expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 
-  it("unique 違反 (23505) は conflict に写像", async () => {
+  it("unique 違反 (23505) は conflict に写像 (drizzle が cause にラップした SQLSTATE も拾う)", async () => {
     selectQueue = [[{ name: "旧", displayOrder: 0 }]];
-    withSessionMock.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+    // 本番の drizzle は元の pg エラーを DrizzleQueryError ("Failed query: …") でラップし、SQLSTATE は
+    // top-level ではなく `.cause.code` に入る。以前の helper は top-level の code しか見ず、重複が
+    // conflict ではなく未捕捉例外 → エラー境界 500 (digest 2578603502) になっていた回帰のガード。
+    withSessionMock.mockRejectedValue(drizzleWrapped("23505"));
     const res = await updateDepartmentAction({ id: DEPT_ID, name: "重複" });
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
   });
