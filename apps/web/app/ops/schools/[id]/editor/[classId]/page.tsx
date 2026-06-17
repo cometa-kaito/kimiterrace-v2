@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { AssignmentEditor } from "@/app/app/editor/[classId]/_components/AssignmentEditor";
 import { NoticeEditor } from "@/app/app/editor/[classId]/_components/NoticeEditor";
 import { ScheduleEditor } from "@/app/app/editor/[classId]/_components/ScheduleEditor";
@@ -9,7 +10,6 @@ import { isValidDate } from "@/lib/editor/schedule-core";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
 import { findVisibleClass, getSchoolDetail } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 /**
@@ -82,21 +82,14 @@ export default async function SystemSchoolClassEditorPage({
 
   return (
     <div style={pageStyle}>
-      <nav style={breadcrumbStyle} aria-label="パンくず">
-        <Link href="/ops/schools" style={crumbLinkStyle}>
-          学校一覧
-        </Link>
-        <span aria-hidden="true">/</span>
-        <Link href={`/ops/schools/${school.id}`} style={crumbLinkStyle}>
-          {school.name}
-        </Link>
-        <span aria-hidden="true">/</span>
-        <Link href={`/ops/schools/${school.id}/editor`} style={crumbLinkStyle}>
-          エディタ
-        </Link>
-        <span aria-hidden="true">/</span>
-        <span style={crumbCurrentStyle}>{className}</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: "学校一覧", href: "/ops/schools" },
+          { label: school.name, href: `/ops/schools/${school.id}` },
+          { label: "エディタ", href: `/ops/schools/${school.id}/editor` },
+          { label: className },
+        ]}
+      />
 
       <div role="note" style={bannerStyle}>
         <span aria-hidden="true">🛡</span>
@@ -156,16 +149,6 @@ export default async function SystemSchoolClassEditorPage({
 }
 
 const pageStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "1rem" };
-const breadcrumbStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.5rem",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  flexWrap: "wrap",
-};
-const crumbLinkStyle: React.CSSProperties = { color: "#2563eb", textDecoration: "none" };
-const crumbCurrentStyle: React.CSSProperties = { color: "#1c1917" };
 const bannerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",

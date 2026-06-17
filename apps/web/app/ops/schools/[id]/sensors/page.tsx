@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { maskDeviceMac, presentSensorStatus } from "@/lib/sensors/status-presentation";
@@ -62,17 +63,13 @@ export default async function SystemSchoolSensorsPage({
 
   return (
     <div style={pageStyle}>
-      <nav style={breadcrumbStyle} aria-label="パンくず">
-        <Link href="/ops/schools" style={crumbLinkStyle}>
-          学校一覧
-        </Link>
-        <span aria-hidden="true">/</span>
-        <Link href={`/ops/schools/${school.id}`} style={crumbLinkStyle}>
-          {school.name}
-        </Link>
-        <span aria-hidden="true">/</span>
-        <span style={crumbCurrentStyle}>来場検知センサー</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: "学校一覧", href: "/ops/schools" },
+          { label: school.name, href: `/ops/schools/${school.id}` },
+          { label: "来場検知センサー" },
+        ]}
+      />
 
       <div role="note" style={bannerStyle}>
         <span aria-hidden="true">🛡</span>
@@ -156,16 +153,6 @@ export default async function SystemSchoolSensorsPage({
 }
 
 const pageStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "1rem" };
-const breadcrumbStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.5rem",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  flexWrap: "wrap",
-};
-const crumbLinkStyle: React.CSSProperties = { color: "#2563eb", textDecoration: "none" };
-const crumbCurrentStyle: React.CSSProperties = { color: "#1c1917" };
 const bannerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
