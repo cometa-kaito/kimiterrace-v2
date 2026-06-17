@@ -91,6 +91,11 @@ export class ForbiddenError extends Error {
  *   全校発火を止め、cross-tenant 越権 (自校可視性チェックのすり抜け、#73) を DB レベルで封じる。
  *   全校横断が必要な経路 (system_admin の学校一覧 #48-L 等) は **指定しない** ことで従来どおり
  *   全校可視を保つ (opt-in、後方互換)。降格条件・理由は `tenantScopedContext` を参照。
+ * - `options.schoolId` を渡すと、**system_admin のときだけ** その school を対象スコープにする
+ *   (テナント外 system_admin が特定校の階層を編集する経路、/ops/schools/[id]/hierarchy)。
+ *   tenant ロール (school_admin/teacher/...) では**無視**し、必ずセッションの自校に固定する
+ *   (クライアント由来の schoolId で他校へ切り替えさせない = 越境防止の一点強制、ルール2 第一層)。
+ *   降格させて当該校に閉じるには `tenantScoped: true` と併用する (single source は `tenantScopedContext`)。
  * - 非 null なら `withTenantContext` (packages/db) に user を渡して `SET LOCAL` 相当を一元処理。
  *   手書きの SET LOCAL は書かない (ADR-008 一元化 / ADR-019)。
  *
@@ -99,7 +104,11 @@ export class ForbiddenError extends Error {
  */
 export async function withSession<T>(
   fn: (tx: TenantTx, user: AuthUser) => Promise<T>,
-  options?: { allowedRoles?: readonly TenantRole[]; tenantScoped?: boolean },
+  options?: {
+    allowedRoles?: readonly TenantRole[];
+    tenantScoped?: boolean;
+    schoolId?: string | null;
+  },
 ): Promise<T> {
   const user = await getCurrentUser();
   if (!user) {
@@ -108,7 +117,14 @@ export async function withSession<T>(
   if (options?.allowedRoles && !options.allowedRoles.includes(user.role)) {
     throw new ForbiddenError();
   }
-  const baseContext = { userId: user.uid, schoolId: user.schoolId, role: user.role };
+  // 対象校オーバーライドは **system_admin のときだけ** honor する。tenant ロールはセッションの
+  // 自校に固定し、クライアント由来 schoolId では決して他校へ切り替えさせない (越境防止の不変条件)。
+  const overrideSchoolId =
+    options?.schoolId != null && options.schoolId !== "" && user.role === "system_admin"
+      ? options.schoolId
+      : null;
+  const effectiveSchoolId = overrideSchoolId ?? user.schoolId;
+  const baseContext = { userId: user.uid, schoolId: effectiveSchoolId, role: user.role };
   const context = options?.tenantScoped ? tenantScopedContext(baseContext) : baseContext;
   return await withTenantContext(getDb(), context, (tx) => fn(tx, user));
 }
