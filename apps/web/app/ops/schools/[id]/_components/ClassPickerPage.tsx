@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { listSchoolClassesForAdPlacement } from "@/lib/system-admin/ad-placement-queries";
@@ -65,9 +66,13 @@ export async function ClassPickerPage({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <Link href={`/ops/schools/${schoolId}`} style={backLinkStyle}>
-        ← {data.schoolName}
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "学校一覧", href: "/ops/schools" },
+          { label: data.schoolName, href: `/ops/schools/${schoolId}` },
+          { label: title },
+        ]}
+      />
       <header>
         <h1 style={titleStyle}>
           {data.schoolName} の{title}
@@ -118,7 +123,6 @@ export async function ClassPickerPage({
   );
 }
 
-const backLinkStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#2563eb" };
 const titleStyle: React.CSSProperties = {
   fontSize: "1.4rem",
   fontWeight: 700,
