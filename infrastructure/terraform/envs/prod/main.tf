@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "fb826fc" # その他(非教室サイネージ) #1012/#1013/#1015 反映（db12ca5→fb826fc）。schema/secret 無変更（#1010 migration は #1014 で適用済＝web のみ）。app.school-signage.net /api/health 200・/login private,no-cache。
+  web_image_tag = "67e7e8a" # PR #1019(学科の重複登録が500化する回帰修正/drizzle wrap の SQLSTATE を cause まで辿る)反映。中間 #1017(/ops クラス選択 picker DRY)同梱。schema/secret 無変更。app.school-signage.net /api/health 200・/login private,no-cache。pristine worktree から build。
 }
 
 module "network" {
