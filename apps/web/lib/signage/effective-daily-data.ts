@@ -1,7 +1,7 @@
 import { ASSIGNMENT_GRACE_DAYS } from "@/lib/editor/notice-assignment-core";
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
 import { type TenantTx, classes, dailyData, getClassConfigValue, grades } from "@kimiterrace/db";
-import { type InferSelectModel, and, eq, gte, inArray, lte, or } from "drizzle-orm";
+import { type InferSelectModel, and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 
 /**
  * サイネージの実効日次データ解決 (#48-E1 / #191)。
@@ -240,18 +240,31 @@ export function mergeEffectiveWithWindow(
 }
 
 /**
- * クラスの階層 (所属学年・所属学科)。`grades.department_id` 経由で学科を解決する (段A-2)。
- * `gradeId` / `departmentId` は未割当のとき null (学年未割当クラス / クラスモード校の学年は学科なし)。
+ * クラスの階層 (所属学年・所属学科)。学科は **学年経由 (`grades.department_id`) を優先しつつ、学年なし
+ * クラス (= 「その他」/grade_id NULL) では `classes.department_id` を直接採る** (段A-2 + 「その他」対応)。
+ * `gradeId` / `departmentId` は未割当のとき null (学年未割当クラス / クラスモード校の学年は学科なし /
+ * 学校直下の「その他」)。
  */
 type ClassHierarchy = { gradeId: string | null; departmentId: string | null };
 
-/** クラスの所属学年・所属学科を 1 クエリ (grades への left join) で解決する。不可視/不在なら null。 */
+/**
+ * クラスの所属学年・所属学科を 1 クエリ (grades への left join) で解決する。不可視/不在なら null。
+ *
+ * 通常クラスは学科を `grade_id → grades.department_id` 経由で持つが、「その他」(grade_id NULL の設置場所)
+ * はその経路を辿れないため `classes.department_id` を直接持つ (schema `classes.ts` 参照)。学科は
+ * **`grades.department_id` を優先し、無ければ `classes.department_id` に coalesce** する ─ これで「その他」の
+ * サイネージ階層フォールバックが class → department → school (grade 段はスキップ) になる。通常クラスでは
+ * `classes.department_id` は通常 NULL なので挙動不変。
+ */
 async function resolveClassHierarchy(
   tx: TenantTx,
   classId: string,
 ): Promise<ClassHierarchy | null> {
   const [row] = await tx
-    .select({ gradeId: classes.gradeId, departmentId: grades.departmentId })
+    .select({
+      gradeId: classes.gradeId,
+      departmentId: sql<string | null>`coalesce(${grades.departmentId}, ${classes.departmentId})`,
+    })
     .from(classes)
     .leftJoin(grades, eq(classes.gradeId, grades.id))
     .where(eq(classes.id, classId))

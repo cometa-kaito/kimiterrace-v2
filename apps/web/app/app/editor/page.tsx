@@ -1,5 +1,10 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
+import {
+  type OtherClass,
+  computeTodayActiveOtherClasses,
+  getOtherClasses,
+} from "@/lib/editor/other-classes-queries";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import {
   type GradeView,
@@ -58,34 +63,54 @@ export default async function EditorIndexPage({
   // 万一 null（claim 欠落）でも weather の prefecture 解決対象が空になるだけで RLS が越境を止める（fail-soft、
   // 盤面は壊さない）。weather 取得対象特定にのみ使い、テナント分離は withSession の RLS 文脈が担保する（ルール2）。
   const schoolId = user.schoolId ?? "";
-  const { hierarchy, statusByClass, payloadByClass } = await withSession(async (tx) => {
-    const hierarchy = await getSchoolHierarchy(tx);
-    const scopes = await getTodayDailyDataScopes(tx);
-    const statusByClass = computeTodayActiveClasses(scopes, hierarchy.grades);
-    // 各クラスの実画面 payload を実機と同一ビルダーで組み立てる（単一ソース）。空クラスは空 payload
-    // （盤面は placeholder を自然に描く）。N が増えても 1 tx 内で読むので追加コネクションは増えない。
-    // この学校はクラス少で問題なし（将来 N 多数時は lazy 化できるよう「事前構築 payload を素材に渡す」
-    // 形に保つ）。
-    const allClassIds = hierarchy.grades.flatMap((g) => g.classes.map((c) => c.id));
-    const payloadByClass: Record<string, SignagePayload> = {};
-    for (const classId of allClassIds) {
-      const payload = await buildSignagePayloadForClass(tx, schoolId, classId, date);
-      if (payload) {
-        payloadByClass[classId] = payload;
+  const { hierarchy, otherClasses, statusByClass, payloadByClass } = await withSession(
+    async (tx) => {
+      const hierarchy = await getSchoolHierarchy(tx);
+      // 「その他」(grade_id NULL の非教室設置場所) は学年ツリー外なので hub-queries の hierarchy に含まれない。
+      // エディタ自身のデータ層で別途読み、壁に「その他」セクションとして出す（全ロールが daily_data を編集可）。
+      const otherClasses = await getOtherClasses(tx);
+      const scopes = await getTodayDailyDataScopes(tx);
+      const statusByClass = {
+        ...computeTodayActiveClasses(scopes, hierarchy.grades),
+        // 「その他」は学年を持たないので class → department → school で本日掲示状態を判定する（grade 段スキップ）。
+        ...computeTodayActiveOtherClasses(scopes, otherClasses),
+      };
+      // 各クラスの実画面 payload を実機と同一ビルダーで組み立てる（単一ソース）。空クラスは空 payload
+      // （盤面は placeholder を自然に描く）。N が増えても 1 tx 内で読むので追加コネクションは増えない。
+      // この学校はクラス少で問題なし（将来 N 多数時は lazy 化できるよう「事前構築 payload を素材に渡す」
+      // 形に保つ）。「その他」も通常クラスと同じビルダーで組む（payload 単一ソース・実機一致）。
+      const allClassIds = [
+        ...hierarchy.grades.flatMap((g) => g.classes.map((c) => c.id)),
+        ...otherClasses.map((c) => c.id),
+      ];
+      const payloadByClass: Record<string, SignagePayload> = {};
+      for (const classId of allClassIds) {
+        const payload = await buildSignagePayloadForClass(tx, schoolId, classId, date);
+        if (payload) {
+          payloadByClass[classId] = payload;
+        }
       }
-    }
-    return { hierarchy, statusByClass, payloadByClass };
-  });
+      return { hierarchy, otherClasses, statusByClass, payloadByClass };
+    },
+  );
 
   const { departments, grades } = hierarchy;
+  // 「その他」を学科ごと / 学校直下に振り分ける（学科配下＝department_id 一致 / 学校直下＝department_id NULL）。
+  const othersOf = (deptId: string | null) => otherClasses.filter((c) => c.departmentId === deptId);
+  const schoolOthers = othersOf(null);
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
-  const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0);
+  // 編集できる箱の総数（通常クラス + 「その他」）。空状態 / 単一クラス自動直行の判定に使う。
+  const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0) + otherClasses.length;
 
   // UIUX-02 ホップ削減①: 編集できるクラスが 1 つだけの teacher は選択画面を飛ばして直行する。
   // school_admin は共通（scope）編集も使うため自動遷移しない。クラス画面の「戻る」は ?stay=1 で
-  // 本ページに留まれる（自動遷移とのループ防止）。
-  const allClasses = grades.flatMap((g) => g.classes.map((c) => ({ ...c, gradeName: g.name })));
+  // 本ページに留まれる（自動遷移とのループ防止）。「その他」も 1 つの編集可能な箱として扱う（学年は
+  // 持たないのでラベルは名前のみ、grade 突合からは除外）。
+  const allClasses = [
+    ...grades.flatMap((g) => g.classes.map((c) => ({ id: c.id, label: `${g.name} ${c.name}` }))),
+    ...otherClasses.map((c) => ({ id: c.id, label: c.name })),
+  ];
   const { stay } = await searchParams;
   const onlyClass = allClasses.length === 1 ? allClasses[0] : undefined;
   if (user.role === "teacher" && onlyClass && stay !== "1") {
@@ -97,11 +122,11 @@ export default async function EditorIndexPage({
   const lastClassId = (await cookies()).get(LAST_CLASS_COOKIE)?.value;
   const lastClass = lastClassId ? (allClasses.find((c) => c.id === lastClassId) ?? null) : null;
   const resumeHref = lastClass ? `/app/editor/${lastClass.id}` : null;
-  const resumeLabel = lastClass ? `${lastClass.gradeName} ${lastClass.name}` : null;
+  const resumeLabel = lastClass ? lastClass.label : null;
   const broadcastAllHref = "/app/editor/scope/school";
 
   // ドロワー（スマホ横リスト）用の serializable な学科グループを Server 側で組み立てる。
-  const drawerDepts = buildDrawerDepts(hierarchy, statusByClass);
+  const drawerDepts = buildDrawerDepts(hierarchy, otherClasses, statusByClass);
 
   return (
     <div className={styles.root}>
@@ -155,6 +180,12 @@ export default async function EditorIndexPage({
                     statusByClass={statusByClass}
                     payloadByClass={payloadByClass}
                   />
+                  {/* この学科配下の「その他」(非教室・学年なし) 設置場所。学年ツリーの下に並べる。 */}
+                  <OtherMonitors
+                    others={othersOf(d.id)}
+                    statusByClass={statusByClass}
+                    payloadByClass={payloadByClass}
+                  />
                 </section>
               ))}
               {orphanGrades.length > 0 ? (
@@ -177,6 +208,22 @@ export default async function EditorIndexPage({
               payloadByClass={payloadByClass}
             />
           )}
+
+          {/* 学校直下の「その他」(department_id NULL の非教室設置場所)。学科配下の「その他」は各学科
+              セクション内に出すので、ここは学校直下ぶんだけ。学科が無い学校では全「その他」がここに集まる。 */}
+          {schoolOthers.length > 0 ? (
+            <section className={styles.deptSection}>
+              <div className={styles.sectionHead}>
+                <h2 style={deptTitleStyle}>その他</h2>
+              </div>
+              <OtherMonitors
+                others={schoolOthers}
+                statusByClass={statusByClass}
+                payloadByClass={payloadByClass}
+                hideHeading
+              />
+            </section>
+          ) : null}
         </div>
       )}
     </div>
@@ -231,9 +278,62 @@ function GradeMonitors({
   );
 }
 
+/**
+ * 「その他」(非教室・grade_id NULL の設置場所) のモニタ（実画面サムネ）グリッド。通常クラスと同じタイル/
+ * リンク（`/app/editor/[classId]`）・状態ドットで出し、全ロールが中身（daily_data）を編集できる。学年を
+ * 持たないのでラベルはクラス名のみ（年度・学年は出さない）。`hideHeading` は呼び出し側が既に「その他」見出しを
+ * 出しているとき（学校直下セクション）に小見出しを抑制する。学科配下では学年モニタの下に小見出し付きで並ぶ。
+ */
+function OtherMonitors({
+  others,
+  statusByClass,
+  payloadByClass,
+  hideHeading = false,
+}: {
+  others: OtherClass[];
+  statusByClass: Record<string, boolean>;
+  payloadByClass: Record<string, SignagePayload>;
+  hideHeading?: boolean;
+}) {
+  if (others.length === 0) {
+    return null;
+  }
+  return (
+    <div style={hideHeading ? undefined : otherGroupStyle}>
+      {hideHeading ? null : <h3 style={otherSubTitleStyle}>その他</h3>}
+      <div className={styles.monitorGrid}>
+        {others.map((c) => {
+          const active = statusByClass[c.id] ?? false;
+          const payload = payloadByClass[c.id] ?? null;
+          return (
+            <Link
+              key={c.id}
+              href={`/app/editor/${c.id}`}
+              className={`${styles.monitorTile} ${active ? "" : styles.monitorTileEmpty}`}
+              aria-label={`${c.name} を編集`}
+            >
+              <div className={styles.thumb}>
+                {payload ? <ScaledSignageBoard payload={payload} width={MONITOR_THUMB_W} /> : null}
+              </div>
+              <div className={styles.tileFoot}>
+                <span
+                  className={`${styles.statusDot} ${active ? styles.statusActive : styles.statusEmpty}`}
+                  aria-label={active ? "本日表示中" : "未入力"}
+                />
+                <span className={styles.tileLabel}>{c.name}</span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** ドロワー（スマホ横リスト）用に serializable な学科グループを組み立てる。年度は出さない。 */
 function buildDrawerDepts(
   hierarchy: SchoolHierarchy,
+  otherClasses: OtherClass[],
   statusByClass: Record<string, boolean>,
 ): DrawerDept[] {
   const { departments, grades } = hierarchy;
@@ -245,6 +345,11 @@ function buildDrawerDepts(
         active: statusByClass[c.id] ?? false,
       })),
     );
+  // 「その他」(学年なし) はラベルを名前のみにする（学年文脈が無い）。学年クラスの後ろに並べる。
+  const toOtherRows = (deptId: string | null): DrawerClass[] =>
+    otherClasses
+      .filter((c) => c.departmentId === deptId)
+      .map((c) => ({ id: c.id, label: c.name, active: statusByClass[c.id] ?? false }));
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const out: DrawerDept[] = [];
   if (departments.length > 0) {
@@ -253,16 +358,28 @@ function buildDrawerDepts(
         id: d.id,
         name: d.name,
         broadcastHref: `/app/editor/scope/department/${d.id}`,
-        classes: toClasses(gradesOf(d.id)),
+        // 学科配下の通常クラス + 同学科の「その他」を 1 グループに（壁の学科セクションと同じ並び）。
+        classes: [...toClasses(gradesOf(d.id)), ...toOtherRows(d.id)],
       });
     }
     const orphan = toClasses(grades.filter((g) => !g.departmentId));
     if (orphan.length > 0) {
       out.push({ id: null, name: null, broadcastHref: null, classes: orphan });
     }
+    // 学校直下の「その他」(department_id NULL) は独立した「その他」グループに。
+    const schoolOthers = toOtherRows(null);
+    if (schoolOthers.length > 0) {
+      out.push({ id: "__other__", name: "その他", broadcastHref: null, classes: schoolOthers });
+    }
   } else {
     // 学科が無い学校: 学科未割当の単一グループにまとめる（まとめ出し導線は学校全体側で担う）。
-    out.push({ id: null, name: null, broadcastHref: null, classes: toClasses(grades) });
+    // 「その他」は全て学校直下なのでここに続けて並べる（ラベルは名前のみ）。
+    out.push({
+      id: null,
+      name: null,
+      broadcastHref: null,
+      classes: [...toClasses(grades), ...toOtherRows(null)],
+    });
   }
   return out;
 }
@@ -300,6 +417,15 @@ const commonBtnStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 const deptTitleStyle: React.CSSProperties = { fontSize: "1.1rem", margin: 0 };
+// 学科配下「その他」グループ: 学年モニタの下に少し間隔を空けて並べる。
+const otherGroupStyle: React.CSSProperties = { marginTop: "1rem" };
+// 学科配下「その他」の小見出し（学科見出しより一段小さく・控えめ）。
+const otherSubTitleStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.sm,
+  fontWeight: 600,
+  color: color.muted,
+  margin: "0 0 0.5rem",
+};
 // 「この学科にまとめて出す」: その場で押せる青チップ（タップ 36px）。
 const broadcastChipStyle: React.CSSProperties = {
   display: "inline-flex",
