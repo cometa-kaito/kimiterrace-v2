@@ -35,7 +35,22 @@ export type GradeView = {
   departmentId: string | null;
   classes: ClassView[];
 };
-export type SchoolHierarchy = { departments: DepartmentView[]; grades: GradeView[] };
+/**
+ * 「その他」= 非教室の設置場所 (玄関 / 廊下 / 職員室前 等)。`grade_id IS NULL` のクラスとして表現される
+ * (PR1 #1010)。所属は `department_id` で示す: NULL = 学校直下、値あり = その学科配下。学年を持たない末端の
+ * ため `grade` は持たせず、UI は名前の改名 / 削除のみを担う。
+ */
+export type OtherLocationView = {
+  id: string;
+  name: string;
+  departmentId: string | null;
+};
+export type SchoolHierarchy = {
+  departments: DepartmentView[];
+  grades: GradeView[];
+  /** 非教室の設置場所 (grade_id NULL クラス)。学校直下 (departmentId NULL) と各学科配下を一覧で持つ。 */
+  otherLocations: OtherLocationView[];
+};
 
 export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy> {
   const [deptRows, gradeRows, classRows] = await Promise.all([
@@ -61,6 +76,7 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
       .select({
         id: classes.id,
         gradeId: classes.gradeId,
+        departmentId: classes.departmentId,
         name: classes.name,
         grade: classes.grade,
       })
@@ -68,10 +84,13 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
       .orderBy(asc(classes.grade), asc(classes.name)),
   ]);
 
-  // クラスを親学年ごとにまとめる (学年未割当 = grade_id null は階層外として除外)。
+  // クラスを親学年ごとにまとめる。学年未割当 (grade_id NULL) は通常の学年ツリー外で、「その他」(非教室の
+  // 設置場所) として department_id でグルーピングして別枠 (otherLocations) に集める。
   const byGrade = new Map<string, ClassView[]>();
+  const otherLocations: OtherLocationView[] = [];
   for (const c of classRows) {
     if (!c.gradeId) {
+      otherLocations.push({ id: c.id, name: c.name, departmentId: c.departmentId });
       continue;
     }
     const list = byGrade.get(c.gradeId) ?? [];
@@ -84,6 +103,7 @@ export async function getSchoolHierarchy(tx: TenantTx): Promise<SchoolHierarchy>
   return {
     departments: deptRows,
     grades: gradeRows.map((g) => ({ ...g, classes: byGrade.get(g.id) ?? [] })),
+    otherLocations,
   };
 }
 
