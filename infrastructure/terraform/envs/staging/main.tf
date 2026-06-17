@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "db12ca5" # db12ca5: C(エディタ daily_data #1007/#1009)+D(センサー #1011)を system_admin が /ops/schools/[id]/* で特定校編集可に + ADR-041(#1008)。★schema 変更あり=migrate 実行済(migrate_image_tag db12ca5・#1010 classes department_id/grade nullable additive)。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。af40a4d を supersede
+  web_image_tag = "fb826fc" # その他(非教室サイネージ) #1012/#1013/#1015 反映（db12ca5→fb826fc）。schema/secret 無変更（#1010 migration は #1014 で適用済＝web のみ）。/api/health 200・/login private,no-cache。
 }
 
 module "network" {
