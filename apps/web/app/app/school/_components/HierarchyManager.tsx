@@ -78,6 +78,7 @@ type Reporter = (res: Result, okMsg: string) => void;
 type Dept = SchoolHierarchy["departments"][number];
 type Grade = SchoolHierarchy["grades"][number];
 type Cls = Grade["classes"][number];
+type Other = SchoolHierarchy["otherLocations"][number];
 
 /**
  * 学年名から学年数（1-12）を推定する（例:「電子工学科3年」→ 3 / 「1年」→ 1）。クラスの `grade` 列は
@@ -128,8 +129,12 @@ function HierarchyManagerInner({
   const router = useRouter();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const { departments, grades } = hierarchy;
+  const { departments, grades, otherLocations } = hierarchy;
   const hasDepartments = departments.length > 0;
+  // 学校直下の「その他」(非教室の設置場所 = 学科に属さない grade_id NULL クラス)。学科配下のものは
+  // 各学科ノード内に描く (DepartmentNode へ渡す)。
+  const schoolOtherLocations = otherLocations.filter((o) => o.departmentId === null);
+  const otherOf = (deptId: string) => otherLocations.filter((o) => o.departmentId === deptId);
 
   const notify = (ok: boolean, text: string) => {
     setMsg({ ok, text });
@@ -156,7 +161,7 @@ function HierarchyManagerInner({
 
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
-  const isEmpty = !hasDepartments && grades.length === 0;
+  const isEmpty = !hasDepartments && grades.length === 0 && otherLocations.length === 0;
 
   return (
     <div style={pageStyle}>
@@ -195,6 +200,7 @@ function HierarchyManagerInner({
                 key={d.id}
                 dept={d}
                 grades={gradesOf(d.id)}
+                otherLocations={otherOf(d.id)}
                 statusByClass={statusByClass}
                 reorder={deptRowProps(i)}
                 report={report}
@@ -205,6 +211,11 @@ function HierarchyManagerInner({
             <OrphanBox orphans={orphanGrades} departments={departments} report={report} />
           ) : null}
           <AddDepartmentForm report={report} />
+          <OtherLocationsSection
+            locations={schoolOtherLocations}
+            statusByClass={statusByClass}
+            report={report}
+          />
         </>
       ) : (
         <>
@@ -221,6 +232,11 @@ function HierarchyManagerInner({
           </div>
           <AddGradeForm report={report} />
           <p style={hintStyle}>学科制にすると「学科 → 学年 → クラス」の3階層で管理できます。</p>
+          <OtherLocationsSection
+            locations={schoolOtherLocations}
+            statusByClass={statusByClass}
+            report={report}
+          />
         </>
       )}
     </div>
@@ -660,12 +676,14 @@ function NodeHeader({
 function DepartmentNode({
   dept,
   grades,
+  otherLocations,
   statusByClass,
   reorder,
   report,
 }: {
   dept: Dept;
   grades: Grade[];
+  otherLocations: Other[];
   statusByClass: Record<string, boolean>;
   reorder?: RowReorder;
   report: Reporter;
@@ -723,6 +741,12 @@ function DepartmentNode({
             />
           ))}
           <AddGradeForm department={dept} report={report} />
+          <OtherLocationsSection
+            locations={otherLocations}
+            department={dept}
+            statusByClass={statusByClass}
+            report={report}
+          />
         </div>
       ) : null}
     </section>
@@ -962,6 +986,198 @@ function ClassNode({ cls, active, report }: { cls: Cls; active: boolean; report:
         </div>
       ) : null}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ *  その他（非教室の設置場所）: 玄関 / 廊下 / 職員室前 等。grade_id NULL のクラスとして表現される。
+ *
+ *  学校直下 (department なし) はツリー上位に独立セクションとして、各学科配下 (department あり) は学科ノード
+ *  内のサブセクションとして描く。設置場所は階層の末端 (学年・クラスを持たない) のため、操作は「追加 / 改名 /
+ *  削除」のみ。作成は createOtherLocationAction、改名は updateOtherLocationAction、削除は deleteClassAction
+ *  (その他は末端ゆえ子参照ガード不要) を流用する。サイネージの本日状態 (statusByClass) はクラスと同様に出す。
+ * ------------------------------------------------------------------ */
+
+function OtherLocationsSection({
+  locations,
+  department,
+  statusByClass,
+  report,
+}: {
+  locations: Other[];
+  /** 学科配下のサブセクションなら学科。未指定 = 学校直下のセクション。 */
+  department?: Dept;
+  statusByClass: Record<string, boolean>;
+  report: Reporter;
+}) {
+  const scopeLabel = department ? "この学科" : "学校";
+  return (
+    <section style={department ? otherDeptSectionStyle : otherSchoolSectionStyle}>
+      <div style={otherHeaderStyle}>
+        <span style={otherBadgeStyle}>その他</span>
+        <span style={otherTitleStyle}>
+          {department ? "その他（この学科の設置場所）" : "その他（非教室の設置場所）"}
+        </span>
+      </div>
+      <p style={otherHintStyle}>
+        玄関・廊下・職員室前など、教室以外の設置場所を{scopeLabel}
+        に追加できます。設置場所ごとにサイネージへ掲示できます。
+      </p>
+      {locations.length > 0 ? (
+        <div style={otherListStyle}>
+          {locations.map((o) => (
+            <OtherLocationNode
+              key={o.id}
+              loc={o}
+              active={statusByClass[o.id] ?? false}
+              report={report}
+            />
+          ))}
+        </div>
+      ) : null}
+      <AddOtherLocationForm department={department} report={report} />
+    </section>
+  );
+}
+
+function OtherLocationNode({
+  loc,
+  active,
+  report,
+}: {
+  loc: Other;
+  active: boolean;
+  report: Reporter;
+}) {
+  const { updateOtherLocationAction, deleteClassAction } = useScopedHubActions();
+  const [pending, start] = useTransition();
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    start(async () => {
+      // 所属学科 (departmentId) はノードの現在値を保持する (改名のみ。学科の付替は scope 外)。
+      const res = await updateOtherLocationAction({
+        id: loc.id,
+        name: fd.get("name"),
+        departmentId: loc.departmentId ?? undefined,
+      });
+      report(res, "設置場所を更新しました。");
+      if (res.ok) setEditing(false);
+    });
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={save} style={editFormStyle}>
+        <input
+          name="name"
+          defaultValue={loc.name}
+          required
+          style={inputStyle}
+          aria-label="設置場所名"
+        />
+        <button type="submit" disabled={pending} style={primaryBtnStyle}>
+          {pending ? "保存中…" : "保存"}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} style={ghostBtnStyle}>
+          やめる
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <div>
+      <div style={classRowStyle} className={styles.row}>
+        <span style={classBadgeStyle}>設置場所</span>
+        <span style={classNameStyle}>{loc.name}</span>
+        <StatusDot active={active} />
+        <span
+          className={styles.actions}
+          style={{
+            marginLeft: "auto",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.4rem",
+          }}
+        >
+          <EditorLink classId={loc.id} />
+          <RowMenu
+            label="設置場所の操作"
+            items={[
+              { label: "名称を編集", onSelect: () => setEditing(true) },
+              { label: "削除", danger: true, onSelect: () => setConfirming(true) },
+            ]}
+          />
+        </span>
+      </div>
+      {confirming ? (
+        <div style={confirmBoxStyle}>
+          <span style={{ fontSize: "0.82rem", color: C.danger }}>
+            「{loc.name}」を削除しますか？この設置場所の公開内容も失われます。
+          </span>
+          <span style={{ display: "inline-flex", gap: "0.4rem" }}>
+            <button
+              type="button"
+              disabled={pending}
+              style={dangerBtnStyle}
+              onClick={() =>
+                start(async () => {
+                  const res = await deleteClassAction(loc.id);
+                  report(res, "設置場所を削除しました。");
+                })
+              }
+            >
+              {pending ? "削除中…" : "削除する"}
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} style={ghostBtnStyle}>
+              やめる
+            </button>
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * 「その他」の追加フォーム。`department` 指定時はその学科配下に、未指定なら学校直下に作成する。
+ * 名前は自由入力 (玄関 / 廊下 等)。学科名の自動付与はしない (学年と違い掲示単位の固有名のため)。
+ */
+function AddOtherLocationForm({ department, report }: { department?: Dept; report: Reporter }) {
+  const { createOtherLocationAction } = useScopedHubActions();
+  const [pending, start] = useTransition();
+  function add(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    start(async () => {
+      const res = await createOtherLocationAction({
+        name: fd.get("name"),
+        departmentId: department?.id,
+      });
+      report(res, "設置場所を追加しました。");
+      if (res.ok) form.reset();
+    });
+  }
+  return (
+    <form onSubmit={add} style={addFormStyle}>
+      <span aria-hidden style={plusStyle}>
+        ＋
+      </span>
+      <input
+        name="name"
+        placeholder="設置場所名（例: 玄関 / 職員室前）"
+        required
+        style={growInputStyle}
+      />
+      <button type="submit" disabled={pending} style={secondaryBtnStyle}>
+        {pending ? "追加中…" : department ? "この学科に追加" : "その他を追加"}
+      </button>
+    </form>
   );
 }
 
@@ -1671,3 +1887,44 @@ const srOnlyStyle: React.CSSProperties = {
   border: 0,
 };
 const bulkPanelStyle: React.CSSProperties = { display: "grid", gap: "0.6rem" };
+
+/* その他（非教室の設置場所）— 学科ノード等と同じ 3 色基調。学校直下はカード、学科配下は控えめな囲み。 */
+const otherSchoolSectionStyle: React.CSSProperties = {
+  border: `1px solid ${C.border}`,
+  borderRadius: "8px",
+  padding: "0.7rem 0.85rem",
+  background: "#fff",
+  display: "grid",
+  gap: "0.5rem",
+};
+const otherDeptSectionStyle: React.CSSProperties = {
+  background: C.surface,
+  borderRadius: "6px",
+  padding: "0.5rem 0.65rem",
+  display: "grid",
+  gap: "0.4rem",
+};
+const otherHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.45rem",
+  flexWrap: "wrap",
+};
+const otherBadgeStyle: React.CSSProperties = { ...badgeStyle };
+const otherTitleStyle: React.CSSProperties = {
+  fontWeight: 500,
+  fontSize: "0.9rem",
+  color: C.inkPrimary,
+};
+const otherHintStyle: React.CSSProperties = {
+  fontSize: "0.76rem",
+  color: C.inkMuted,
+  margin: 0,
+  lineHeight: 1.6,
+};
+const otherListStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "0.45rem",
+  padding: "0 0 0 0.9rem",
+  borderLeft: `2px solid ${C.borderLight}`,
+};
