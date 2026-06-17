@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "57dce88" # 57dce88: #998/#999 system_admin が /ops/schools/[id]/hierarchy で特定校のクラス設定を編集可に。schema/secret 無変更=migrate不要。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache・新ルート unauth 307→/login。2b64c28(#996) を supersede
+  web_image_tag = "af40a4d" # af40a4d: #1002 広告 / #1003 静粛時間 / #1004 magic-link を system_admin が /ops/schools/[id]/* で特定校スコープ編集可に。schema/secret 無変更=migrate不要（#1003 の packages/db 変更は型拡張のみ）。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。57dce88(#998/#999) を supersede
 }
 
 module "network" {
