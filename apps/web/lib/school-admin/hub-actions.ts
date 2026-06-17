@@ -1,7 +1,7 @@
 "use server";
 
 import { type TenantTx, auditLog, classes, departments, grades } from "@kimiterrace/db";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -21,6 +21,8 @@ import {
   validateGradeInput,
   validateGradeUpdate,
   validateId,
+  validateOtherLocationInput,
+  validateOtherLocationUpdate,
   validateReorder,
 } from "./hub-core";
 import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
@@ -66,6 +68,9 @@ class HubNotFoundError extends Error {}
 /** 子参照が残っているため削除できないときに tx をロールバックさせる (子参照ガード)。 */
 class ChildExistsError extends Error {}
 
+/** 「その他」名が自校で重複するとき tx をロールバックさせる (学校直下=dept NULL は DB 部分 unique 外ゆえ app で封鎖)。 */
+class DuplicateError extends Error {}
+
 /** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。同名 (ux_*_school_name) の重複登録など。 */
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -104,6 +109,9 @@ async function finish<T>(
       return notFound(error.message);
     }
     if (error instanceof ChildExistsError) {
+      return conflict(error.message);
+    }
+    if (error instanceof DuplicateError) {
       return conflict(error.message);
     }
     if (isUniqueViolation(error)) {
@@ -176,6 +184,33 @@ async function existsInSchool(
 ): Promise<boolean> {
   const row = await tx.select({ id: table.id }).from(table).where(eq(table.id, id)).limit(1);
   return row.length > 0;
+}
+
+/**
+ * 自校の「その他」(grade_id NULL) に同一 (department_id, name) が既に存在するか。学校直下 (department_id
+ * NULL) は DB 部分 unique が NULL を distinct 扱いし強制しないため、ここで app 層が重複を封鎖する
+ * (department 指定時は DB unique と二重化＝race backstop)。RLS で自校に限定 (tenantScoped tx 内)。
+ */
+async function otherLocationNameExists(
+  tx: TenantTx,
+  departmentId: string | null,
+  name: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const conds = [
+    isNull(classes.gradeId),
+    eq(classes.name, name),
+    departmentId === null ? isNull(classes.departmentId) : eq(classes.departmentId, departmentId),
+  ];
+  if (excludeId) {
+    conds.push(ne(classes.id, excludeId));
+  }
+  const rows = await tx
+    .select({ id: classes.id })
+    .from(classes)
+    .where(and(...conds))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** 学科を作成する。 */
@@ -315,6 +350,65 @@ export async function createClassAction(
       return newId;
     },
     "同名のクラスが既に存在します。",
+    actor.schoolId,
+  );
+}
+
+/**
+ * 「その他」(非教室の設置場所 = 学年なしクラス) を作成する。
+ *
+ * 通常クラス (createClassAction) と違い gradeId を取らず `grade_id=NULL` / `grade=NULL` で保存する。
+ * departmentId 指定時は自校の学科か `existsInSchool` で確認 (cross-tenant 付替防止・既存パターン踏襲)。
+ * 名称重複は学科配下なら DB 部分 unique、学校直下 (dept NULL) は `otherLocationNameExists` で封鎖する。
+ */
+export async function createOtherLocationAction(
+  raw: {
+    name?: unknown;
+    departmentId?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
+  const v = validateOtherLocationInput(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  const actor = await authorize(targetSchoolId);
+  if ("ok" in actor) {
+    return actor;
+  }
+
+  return finishCreate(
+    async (tx) => {
+      if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
+        throw new CrossTenantError("指定された学科が見つかりません。");
+      }
+      if (await otherLocationNameExists(tx, v.value.departmentId, v.value.name)) {
+        throw new DuplicateError("同名の設置場所が既に存在します。");
+      }
+      const [row] = await tx
+        .insert(classes)
+        .values({
+          schoolId: actor.schoolId,
+          gradeId: null,
+          departmentId: v.value.departmentId,
+          name: v.value.name,
+          grade: null,
+          createdBy: actor.userRef,
+          updatedBy: actor.userRef,
+        })
+        .returning({ id: classes.id });
+      const newId = row?.id as string;
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: newId,
+        operation: "insert",
+        diff: {
+          after: { name: v.value.name, departmentId: v.value.departmentId, kind: "other_location" },
+        },
+      });
+      return newId;
+    },
+    "同名の設置場所が既に存在します。",
     actor.schoolId,
   );
 }
@@ -514,6 +608,77 @@ export async function updateClassAction(
       return { id: v.value.id };
     },
     "同名のクラスが既に存在します。",
+    actor.schoolId,
+  );
+}
+
+/**
+ * 「その他」(学年なしクラス) をリネーム / 所属学科の付替する。
+ *
+ * 対象は自校で可視かつ **`grade_id IS NULL`** (= その他) の行に限る。学年ありの通常クラスを指定した
+ * 場合は not_found (改名は updateClassAction の領分)。付替先 department は自校可視性を確認し、名称重複は
+ * 学科配下=DB unique・学校直下=`otherLocationNameExists` (自分自身は除外) で封鎖する。削除は末端ゆえ
+ * 既存の deleteClassAction を流用する (専用 delete は設けない)。
+ */
+export async function updateOtherLocationAction(
+  raw: {
+    id?: unknown;
+    name?: unknown;
+    departmentId?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
+  const v = validateOtherLocationUpdate(raw);
+  if (!v.ok) {
+    return invalid(v.message);
+  }
+  const actor = await authorize(targetSchoolId);
+  if ("ok" in actor) {
+    return actor;
+  }
+
+  return finish(
+    async (tx) => {
+      const [before] = await tx
+        .select({
+          name: classes.name,
+          departmentId: classes.departmentId,
+          gradeId: classes.gradeId,
+        })
+        .from(classes)
+        .where(eq(classes.id, v.value.id))
+        .limit(1);
+      if (!before || before.gradeId !== null) {
+        // 不可視/不存在、または学年ありの通常クラス (その他ではない) → not_found。
+        throw new HubNotFoundError("指定された設置場所が見つかりません。");
+      }
+      if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
+        throw new CrossTenantError("指定された学科が見つかりません。");
+      }
+      if (await otherLocationNameExists(tx, v.value.departmentId, v.value.name, v.value.id)) {
+        throw new DuplicateError("同名の設置場所が既に存在します。");
+      }
+      await tx
+        .update(classes)
+        .set({
+          name: v.value.name,
+          departmentId: v.value.departmentId,
+          updatedBy: actor.userRef,
+          updatedAt: new Date(),
+        })
+        .where(eq(classes.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: v.value.id,
+        operation: "update",
+        diff: {
+          before: { name: before.name, departmentId: before.departmentId },
+          after: { name: v.value.name, departmentId: v.value.departmentId },
+        },
+      });
+      return { id: v.value.id };
+    },
+    "同名の設置場所が既に存在します。",
     actor.schoolId,
   );
 }

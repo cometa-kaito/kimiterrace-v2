@@ -27,6 +27,7 @@ vi.mock("../../lib/school-admin/hub-queries", () => ({
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
 import {
+  createOtherLocationAction,
   deleteClassAction,
   deleteDepartmentAction,
   deleteGradeAction,
@@ -34,6 +35,7 @@ import {
   updateClassAction,
   updateDepartmentAction,
   updateGradeAction,
+  updateOtherLocationAction,
 } from "../../lib/school-admin/hub-actions";
 
 const requireRoleMock = vi.mocked(requireRole);
@@ -200,6 +202,87 @@ describe("updateClassAction", () => {
       grade: 2,
     });
     expect(res).toEqual({ ok: true, data: { id: CLASS_ID } });
+  });
+});
+
+describe("createOtherLocationAction（その他＝学年なしクラス）", () => {
+  it("空名称は DB に到達せず invalid", async () => {
+    const res = await createOtherLocationAction({ name: "  " });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("SCHOOL_HIERARCHY_ROLES のみ認可する", async () => {
+    selectQueue = [[]]; // otherLocationNameExists: 重複なし
+    await createOtherLocationAction({ name: "玄関" });
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
+  });
+
+  it("学校直下: 重複なしなら作成（classes + audit の 2 回 insert）", async () => {
+    selectQueue = [[]]; // otherLocationNameExists 0 件
+    const res = await createOtherLocationAction({ name: "玄関" });
+    expect(res).toEqual({ ok: true, data: { id: NEW_ID } });
+    expect(insertSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("学校直下: 同名が既にあれば conflict（DB 部分 unique 外を app で封鎖）", async () => {
+    selectQueue = [[{ id: CLASS_ID }]]; // otherLocationNameExists 1 件
+    const res = await createOtherLocationAction({ name: "玄関" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+
+  it("学科配下: 他校 department 指定は invalid（existsInSchool 0 件＝cross-tenant 拒否）", async () => {
+    selectQueue = [[]]; // existsInSchool 0 件
+    const res = await createOtherLocationAction({ name: "廊下", departmentId: OTHER_DEPT_ID });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+  });
+
+  it("学科配下: 自校 department + 重複なしなら作成", async () => {
+    selectQueue = [[{ id: DEPT_ID }], []]; // existsInSchool 1 件 → otherLocationNameExists 0 件
+    const res = await createOtherLocationAction({ name: "廊下", departmentId: DEPT_ID });
+    expect(res).toEqual({ ok: true, data: { id: NEW_ID } });
+  });
+});
+
+describe("updateOtherLocationAction", () => {
+  it("不正な id は invalid、認可も走らせない", async () => {
+    const res = await updateOtherLocationAction({ id: "x", name: "正門" });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+  });
+
+  it("対象不存在は not_found", async () => {
+    selectQueue = [[]]; // before 再取得 0 件
+    const res = await updateOtherLocationAction({ id: CLASS_ID, name: "正門" });
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("学年ありの通常クラスを指定したら not_found（その他ではない）", async () => {
+    selectQueue = [[{ name: "A組", departmentId: null, gradeId: GRADE_ID }]];
+    const res = await updateOtherLocationAction({ id: CLASS_ID, name: "正門" });
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("正常系: リネームして id を返す（学校直下・重複なし）", async () => {
+    selectQueue = [[{ name: "玄関", departmentId: null, gradeId: null }], []];
+    const res = await updateOtherLocationAction({ id: CLASS_ID, name: "正門" });
+    expect(res).toEqual({ ok: true, data: { id: CLASS_ID } });
+  });
+
+  it("重複名は conflict", async () => {
+    selectQueue = [[{ name: "玄関", departmentId: null, gradeId: null }], [{ id: OTHER_DEPT_ID }]];
+    const res = await updateOtherLocationAction({ id: CLASS_ID, name: "廊下" });
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+
+  it("他校 department への付替は invalid（cross-tenant）", async () => {
+    selectQueue = [[{ name: "玄関", departmentId: null, gradeId: null }], []];
+    const res = await updateOtherLocationAction({
+      id: CLASS_ID,
+      name: "玄関",
+      departmentId: OTHER_DEPT_ID,
+    });
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
   });
 });
 
