@@ -204,6 +204,35 @@ export function validateClassInput(raw: {
 }
 
 /* ------------------------------------------------------------------ *
+ *  「その他」(非教室の設置場所) の入力検証
+ *
+ *  玄関・廊下・職員室前など学年に属さない設置場所は「学年なしクラス (grade_id NULL)」として作る。
+ *  通常クラス (validateClassInput) と違い gradeId/grade を取らず、所属学科 departmentId は任意
+ *  (未指定=学校直下)。挿入時に actions 側で gradeId=null / grade=null として保存する。
+ * ------------------------------------------------------------------ */
+
+export type OtherLocationInput = { name: string; departmentId: string | null };
+
+/** 「その他」作成入力: name 1..64 文字 + 任意の departmentId (指定時 UUID・学科配下に置く)。 */
+export function validateOtherLocationInput(raw: {
+  name?: unknown;
+  departmentId?: unknown;
+}): Validated<OtherLocationInput> {
+  const name = normalizeName(raw.name);
+  if (!name) {
+    return { ok: false, message: "設置場所名は 1〜64 文字で入力してください。" };
+  }
+  let departmentId: string | null = null;
+  if (raw.departmentId !== undefined && raw.departmentId !== null && raw.departmentId !== "") {
+    if (!isUuid(raw.departmentId)) {
+      return { ok: false, message: "学科の指定が不正です。" };
+    }
+    departmentId = raw.departmentId;
+  }
+  return { ok: true, value: { name, departmentId } };
+}
+
+/* ------------------------------------------------------------------ *
  *  update 用入力検証 (#48-K2)
  *
  *  create 系と対称に「id (UUID) + 変更フィールド全置換」を検証する。
@@ -271,6 +300,24 @@ export function validateClassUpdate(raw: {
     return { ok: false, message: "学年の数値は 1〜12 で入力してください。" };
   }
   return { ok: true, value: { id: raw.id, name, grade } };
+}
+
+export type OtherLocationUpdate = { id: string; name: string; departmentId: string | null };
+
+/** 「その他」更新入力: id (UUID) + 名称 + 所属学科 (全フィールド置換)。学科の付替も許す。 */
+export function validateOtherLocationUpdate(raw: {
+  id?: unknown;
+  name?: unknown;
+  departmentId?: unknown;
+}): Validated<OtherLocationUpdate> {
+  if (!isUuid(raw.id)) {
+    return { ok: false, message: "設置場所の指定が不正です。" };
+  }
+  const v = validateOtherLocationInput(raw);
+  if (!v.ok) {
+    return v;
+  }
+  return { ok: true, value: { id: raw.id, ...v.value } };
 }
 
 /** delete 系の入力: id (UUID) のみ。 */

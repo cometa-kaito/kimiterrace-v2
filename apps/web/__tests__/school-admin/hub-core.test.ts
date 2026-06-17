@@ -5,6 +5,8 @@ import {
   validateClassInput,
   validateDepartmentInput,
   validateGradeInput,
+  validateOtherLocationInput,
+  validateOtherLocationUpdate,
   validateReorder,
 } from "../../lib/school-admin/hub-core";
 
@@ -121,6 +123,47 @@ describe("validateClassInput", () => {
   });
   it("非整数の学年数は拒否", () => {
     expect(validateClassInput({ ...ok, grade: 1.5 }).ok).toBe(false);
+  });
+});
+
+describe("validateOtherLocationInput（その他=学年なし設置場所）", () => {
+  it("正常: name trim + departmentId 任意（未指定は学校直下=null）", () => {
+    expect(validateOtherLocationInput({ name: "  玄関 " })).toEqual({
+      ok: true,
+      value: { name: "玄関", departmentId: null },
+    });
+  });
+  it("departmentId 指定時は UUID（学科配下）/ 不正は拒否", () => {
+    const r = validateOtherLocationInput({ name: "廊下", departmentId: UUID });
+    expect(r.ok && r.value.departmentId).toBe(UUID);
+    expect(validateOtherLocationInput({ name: "廊下", departmentId: "x" }).ok).toBe(false);
+  });
+  it("空名称 / 65 文字超は不正", () => {
+    expect(validateOtherLocationInput({ name: "  " }).ok).toBe(false);
+    expect(validateOtherLocationInput({ name: "あ".repeat(65) }).ok).toBe(false);
+  });
+  it("学年概念を持たない: 余剰の gradeId/grade は無視し name/departmentId のみ採る", () => {
+    const r = validateOtherLocationInput({
+      name: "職員室前",
+      gradeId: UUID,
+      grade: 3,
+    } as never);
+    expect(r).toEqual({ ok: true, value: { name: "職員室前", departmentId: null } });
+  });
+});
+
+describe("validateOtherLocationUpdate", () => {
+  it("正常: id + name + departmentId（学科の付替も許す）", () => {
+    expect(validateOtherLocationUpdate({ id: UUID, name: "正門", departmentId: OTHER })).toEqual({
+      ok: true,
+      value: { id: UUID, name: "正門", departmentId: OTHER },
+    });
+  });
+  it("id 不正は拒否（DB に到達させない）", () => {
+    expect(validateOtherLocationUpdate({ id: "x", name: "正門" }).ok).toBe(false);
+  });
+  it("空名称は拒否", () => {
+    expect(validateOtherLocationUpdate({ id: UUID, name: " " }).ok).toBe(false);
   });
 });
 

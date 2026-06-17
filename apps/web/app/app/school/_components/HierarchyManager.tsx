@@ -49,6 +49,8 @@ function useScopedHubActions(): typeof hubActions {
       createClassAction: (raw) => hubActions.createClassAction(raw, schoolId),
       updateClassAction: (raw) => hubActions.updateClassAction(raw, schoolId),
       deleteClassAction: (id) => hubActions.deleteClassAction(id, schoolId),
+      createOtherLocationAction: (raw) => hubActions.createOtherLocationAction(raw, schoolId),
+      updateOtherLocationAction: (raw) => hubActions.updateOtherLocationAction(raw, schoolId),
       reorderHierarchyAction: (raw) => hubActions.reorderHierarchyAction(raw, schoolId),
     };
   }, [schoolId]);
