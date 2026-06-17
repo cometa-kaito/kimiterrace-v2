@@ -17,7 +17,7 @@ import {
 } from "./notice-assignment-core";
 import {
   type ActionResult,
-  EDITOR_ROLES,
+  DAILY_DATA_EDITOR_ROLES,
   type EditorTarget,
   type Validated,
   conflict,
@@ -25,7 +25,7 @@ import {
   invalid,
   isValidDate,
   parseEditorTarget,
-  toEditorActor,
+  toScopedEditorActor,
 } from "./schedule-core";
 
 /**
@@ -34,6 +34,11 @@ import {
  * 完全に同型 (検証 → 認可 → RLS tx 内 upsert + audit_log、`upsertDailySectionForTarget` 共通コア)。
  *
  * notices / assignments は同一 daily_data 行の別カラムなので、一方の保存は他方を変更しない。
+ *
+ * **system_admin 対象校スコープ (C1 土台、ads と同型)**: `requireRole(DAILY_DATA_EDITOR_ROLES)` で
+ * system_admin も認可し、末尾の `targetSchoolId` を `toScopedEditorActor` で解決する。tenant ロール
+ * では `targetSchoolId` は無視され自校に固定される (越境防止)。`withSession` は `tenantScoped: true` で
+ * system_admin を降格する (ADR-019 §#95 / ルール2)。/ops 画面は後続 PR、本 PR は backend 配線のみ。
  */
 
 /** 検証 + 認可 + RLS tx 内 upsert を 1 セクション分共通化する内部ヘルパ (scope 汎用)。 */
@@ -43,6 +48,7 @@ async function upsertSectionAction<T>(
   date: unknown,
   validated: Validated<T>,
   field: DailySectionField,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(scope, targetId);
   if (!target) {
@@ -56,17 +62,22 @@ async function upsertSectionAction<T>(
   }
   const value = validated.value;
 
-  const user = await requireRole(EDITOR_ROLES);
-  const actor = toEditorActor(user);
+  const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
+  const actor = toScopedEditorActor(user, targetSchoolId);
   if (!actor) {
-    return forbidden("学校に属さないユーザーは編集できません。");
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは編集できません。",
+    );
   }
 
   try {
-    const id = await withSession((tx) =>
-      upsertDailySectionForTarget(tx, actor, target, date, field, value),
+    const id = await withSession(
+      (tx) => upsertDailySectionForTarget(tx, actor, target, date, field, value),
+      { tenantScoped: true, schoolId: actor.schoolId },
     );
-    revalidatePathsForTarget(target);
+    revalidatePathsForTarget(target, actor.schoolId);
     return { ok: true, data: { id } };
   } catch (error) {
     if (error instanceof EditorTargetNotFoundError) {
@@ -81,9 +92,11 @@ async function upsertSectionAction<T>(
 }
 
 /** 保存後にエディタ画面とサイネージプレビューを再検証する。scope 別にエディタ path を分岐。 */
-function revalidatePathsForTarget(target: EditorTarget): void {
+function revalidatePathsForTarget(target: EditorTarget, schoolId: string): void {
   if (target.scope === "class") {
     revalidatePath(`/app/editor/${target.classId}`);
+    // system_admin の /ops 経路 (クラスエディタ) も反映 (後続 PR の画面用)。自校経路では無害。
+    revalidatePath(`/ops/schools/${schoolId}/editor/${target.classId}`);
   } else if (target.scope === "department") {
     revalidatePath(`/app/editor/scope/department/${target.departmentId}`);
   } else if (target.scope === "grade") {
@@ -95,12 +108,13 @@ function revalidatePathsForTarget(target: EditorTarget): void {
   revalidatePath("/app/signage-preview/[classId]", "page");
 }
 
-/** 指定対象・日付の連絡 (お知らせ) を保存する (scope 汎用)。 */
+/** 指定対象・日付の連絡 (お知らせ) を保存する (scope 汎用)。`targetSchoolId` は system_admin の /ops 経路用。 */
 export async function setNoticesAction(
   scope: unknown,
   targetId: unknown,
   date: unknown,
   rawItems: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   return upsertSectionAction<NoticeItem[]>(
     scope,
@@ -108,15 +122,17 @@ export async function setNoticesAction(
     date,
     validateNoticeItems(rawItems),
     "notices",
+    targetSchoolId,
   );
 }
 
-/** 指定対象・日付の提出物 (課題) を保存する (scope 汎用)。 */
+/** 指定対象・日付の提出物 (課題) を保存する (scope 汎用)。`targetSchoolId` は system_admin の /ops 経路用。 */
 export async function setAssignmentsAction(
   scope: unknown,
   targetId: unknown,
   date: unknown,
   rawItems: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   return upsertSectionAction<AssignmentItem[]>(
     scope,
@@ -124,6 +140,7 @@ export async function setAssignmentsAction(
     date,
     validateAssignmentItems(rawItems),
     "assignments",
+    targetSchoolId,
   );
 }
 

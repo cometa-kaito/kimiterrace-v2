@@ -10,14 +10,14 @@ import {
 } from "./daily-data-write";
 import {
   type ActionResult,
-  EDITOR_ROLES,
+  DAILY_DATA_EDITOR_ROLES,
   type EditorTarget,
   conflict,
   forbidden,
   invalid,
   isValidDate,
   parseEditorTarget,
-  toEditorActor,
+  toScopedEditorActor,
   validateScheduleItems,
 } from "./schedule-core";
 
@@ -28,14 +28,21 @@ import {
  * 検証 → 認可 (`requireRole`) → `withSession` の自校 RLS tx 内で daily_data を upsert + `audit_log`
  * 追記 (`upsertDailySectionForTarget`) → `revalidatePath`。対象が自校で可視かを RLS 経由で確認してから
  * 書き込む (cross-tenant 防止、ルール2)。既存行があれば UPDATE、無ければ INSERT。
+ *
+ * **system_admin 対象校スコープ (C1 土台、ads と同型)**: `requireRole(DAILY_DATA_EDITOR_ROLES)` で
+ * system_admin も認可し、末尾の `targetSchoolId` を `toScopedEditorActor` で解決する。tenant ロール
+ * (school_admin / teacher) では `targetSchoolId` は無視され自校に固定される (越境防止)。`withSession` は
+ * `tenantScoped: true` で system_admin を降格し `system_admin_full_access` policy の全校発火を止める
+ * (ADR-019 §#95 / ルール2)。/ops 画面は後続 PR、本 PR は backend 配線のみ。
  */
 
-/** 指定対象・日付の予定を保存する (scope 汎用)。 */
+/** 指定対象・日付の予定を保存する (scope 汎用)。`targetSchoolId` は system_admin の /ops 経路でのみ意味を持つ。 */
 export async function setScheduleAction(
   scope: unknown,
   targetId: unknown,
   date: unknown,
   rawItems: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(scope, targetId);
   if (!target) {
@@ -49,17 +56,22 @@ export async function setScheduleAction(
     return invalid(v.message);
   }
 
-  const user = await requireRole(EDITOR_ROLES);
-  const actor = toEditorActor(user);
+  const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
+  const actor = toScopedEditorActor(user, targetSchoolId);
   if (!actor) {
-    return forbidden("学校に属さないユーザーは編集できません。");
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは編集できません。",
+    );
   }
 
   try {
-    const id = await withSession((tx) =>
-      upsertDailySectionForTarget(tx, actor, target, date, "schedules", v.value),
+    const id = await withSession(
+      (tx) => upsertDailySectionForTarget(tx, actor, target, date, "schedules", v.value),
+      { tenantScoped: true, schoolId: actor.schoolId },
     );
-    revalidatePathsForTarget(target);
+    revalidatePathsForTarget(target, actor.schoolId);
     return { ok: true, data: { id } };
   } catch (error) {
     if (error instanceof EditorTargetNotFoundError) {
@@ -86,9 +98,12 @@ export async function setClassScheduleAction(
 }
 
 /** 保存後にエディタ画面とサイネージプレビューを再検証する。scope 別にエディタ path を分岐。 */
-function revalidatePathsForTarget(target: EditorTarget): void {
+function revalidatePathsForTarget(target: EditorTarget, schoolId: string): void {
   if (target.scope === "class") {
     revalidatePath(`/app/editor/${target.classId}`);
+    // system_admin の /ops 経路 (クラスエディタ) も反映 (後続 PR の画面用)。school_admin / teacher の
+    // 自校経路では当該パスは未使用だが無害。
+    revalidatePath(`/ops/schools/${schoolId}/editor/${target.classId}`);
   } else if (target.scope === "department") {
     revalidatePath(`/app/editor/scope/department/${target.departmentId}`);
   } else if (target.scope === "grade") {

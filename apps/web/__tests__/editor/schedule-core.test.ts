@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AuthUser } from "../../lib/auth/session";
 import {
+  DAILY_DATA_EDITOR_ROLES,
+  EDITOR_ROLES,
   SCHEDULE_SLOT_OPTIONS,
   isValidDate,
   scheduleSlotLabel,
   scheduleSlotSortKey,
   toEditorActor,
+  toScopedEditorActor,
   validateScheduleItems,
 } from "../../lib/editor/schedule-core";
 
@@ -30,6 +33,65 @@ describe("toEditorActor", () => {
   });
   it("school_id null は null", () => {
     expect(toEditorActor({ uid: "u1", role: "system_admin", schoolId: null })).toBeNull();
+  });
+});
+
+describe("DAILY_DATA_EDITOR_ROLES", () => {
+  it("daily_data 3 action 用は EDITOR_ROLES + system_admin", () => {
+    expect(DAILY_DATA_EDITOR_ROLES).toEqual(["school_admin", "teacher", "system_admin"]);
+  });
+  it("EDITOR_ROLES は据え置き (callouts/visitors/assistant が共有、system_admin 非含)", () => {
+    expect(EDITOR_ROLES).toEqual(["school_admin", "teacher"]);
+  });
+});
+
+describe("toScopedEditorActor", () => {
+  const teacher: AuthUser = { uid: "u1", role: "teacher", schoolId: UUID };
+  const OTHER = "22222222-2222-2222-2222-222222222222";
+
+  it("tenant ロール: 自校 actor を返す (userRef=uid / identityUid=null)", () => {
+    expect(toScopedEditorActor(teacher)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+    // school_admin も同じ三系統。
+    expect(toScopedEditorActor({ ...teacher, role: "school_admin" })).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("tenant ロール: targetSchoolId(他校) は無視し必ず自校に固定する (越境防止)", () => {
+    expect(toScopedEditorActor(teacher, OTHER)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("tenant ロール: 自校 (schoolId) が無ければ null", () => {
+    expect(toScopedEditorActor({ ...teacher, schoolId: null })).toBeNull();
+  });
+
+  it("system_admin: 対象校指定で actor (userRef=null で FK 回避 / identityUid=uid)", () => {
+    expect(toScopedEditorActor({ uid: "u1", role: "system_admin", schoolId: null }, UUID)).toEqual({
+      actorUserId: "u1",
+      userRef: null,
+      identityUid: "u1",
+      schoolId: UUID,
+    });
+  });
+
+  it("system_admin: 対象校未指定 / 非 UUID は null (呼出側が forbidden 化)", () => {
+    expect(toScopedEditorActor({ uid: "u1", role: "system_admin", schoolId: null })).toBeNull();
+    expect(
+      toScopedEditorActor({ uid: "u1", role: "system_admin", schoolId: null }, "nope"),
+    ).toBeNull();
   });
 });
 
