@@ -1,6 +1,6 @@
 import { type TenantTx, auditLog, classes, dailyData, departments, grades } from "@kimiterrace/db";
 import { and, eq } from "drizzle-orm";
-import type { EditorActor, EditorTarget } from "./schedule-core";
+import type { EditorTarget, ScopedEditorActor } from "./schedule-core";
 import { targetIdColumns } from "./schedule-core";
 
 /**
@@ -34,11 +34,14 @@ export function isUniqueViolation(error: unknown): boolean {
 
 async function writeAudit(
   tx: TenantTx,
-  actor: EditorActor,
+  actor: ScopedEditorActor,
   params: { recordId: string; operation: "insert" | "update"; diff: unknown },
 ): Promise<void> {
   await tx.insert(auditLog).values({
-    actorUserId: actor.userId,
+    // 操作者 uid は常に acting uid (tenantScoped 降格後も audit_log_insert policy を満たす)。FK 無し。
+    actorUserId: actor.actorUserId,
+    // IdP uid キャッシュ。system_admin のみ非 null (users 行が無く actor_user_id を後追いできないため)。
+    actorIdentityUid: actor.identityUid,
     schoolId: actor.schoolId,
     tableName: "daily_data",
     recordId: params.recordId,
@@ -46,8 +49,9 @@ async function writeAudit(
     diff: params.diff as object,
     // prev_hash / row_hash は BEFORE INSERT トリガ (migration 0003) が計算 (placeholder)。
     rowHash: "",
-    createdBy: actor.userId,
-    updatedBy: actor.userId,
+    // created_by / updated_by は users.id への FK。system_admin は null (FK 違反 23503 回避)。
+    createdBy: actor.userRef,
+    updatedBy: actor.userRef,
   });
 }
 
@@ -132,7 +136,7 @@ export type DailySectionField = "schedules" | "notices" | "assignments";
  */
 export async function upsertDailySectionForTarget(
   tx: TenantTx,
-  actor: EditorActor,
+  actor: ScopedEditorActor,
   target: EditorTarget,
   date: string,
   field: DailySectionField,
@@ -149,7 +153,7 @@ export async function upsertDailySectionForTarget(
   if (existing) {
     await tx
       .update(dailyData)
-      .set({ [field]: value, updatedBy: actor.userId, updatedAt: new Date() })
+      .set({ [field]: value, updatedBy: actor.userRef, updatedAt: new Date() })
       .where(eq(dailyData.id, existing.id));
     await writeAudit(tx, actor, {
       recordId: existing.id,
@@ -170,8 +174,8 @@ export async function upsertDailySectionForTarget(
       classId: cols.classId,
       date,
       [field]: value,
-      createdBy: actor.userId,
-      updatedBy: actor.userId,
+      createdBy: actor.userRef,
+      updatedBy: actor.userRef,
     })
     .returning({ id: dailyData.id });
   const newId = inserted?.id as string;

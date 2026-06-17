@@ -1,4 +1,4 @@
-import type { dailyData } from "@kimiterrace/db";
+import type { TenantRole, dailyData } from "@kimiterrace/db";
 import type { AuthUser } from "../auth/session";
 
 /**
@@ -33,6 +33,21 @@ export function conflict(message: string): ActionError {
 
 /** スケジュールを編集できるロール。教員と学校管理者 (自校スコープ)。 */
 export const EDITOR_ROLES = ["school_admin", "teacher"] as const;
+
+/**
+ * daily_data (連絡 / 予定 / 提出物) の 3 action **のみ**が使う編集ロール。`EDITOR_ROLES` に
+ * system_admin を加え、テナント外の system_admin が特定校スコープ (/ops 経路) で daily_data を
+ * 書けるようにする (ads の `ADS_ROLES` と同思想)。
+ *
+ * **`EDITOR_ROLES` は据え置く** (callouts / visitors / assistant / blackout actions が共有しており、
+ * system_admin は users 行を持たないため created_by/updated_by に uid を入れると FK 違反 (23503) する。
+ * これらは daily-data-write の userRef=null 配線を経由しないため、本ロールでは開かない)。
+ */
+export const DAILY_DATA_EDITOR_ROLES = [
+  "school_admin",
+  "teacher",
+  "system_admin",
+] as const satisfies readonly TenantRole[];
 
 /**
  * 編集対象スコープ。`daily_data.scope` (`hierarchy_scope` enum) と単一ソース (ルール3、手書き union を
@@ -144,6 +159,56 @@ export function toEditorActor(user: AuthUser): EditorActor | null {
     return null;
   }
   return { userId: user.uid, schoolId: user.schoolId };
+}
+
+/**
+ * daily_data 書き込みの実行者 (`EditorActor` の三系統版)。`EditorActor` は callouts / visitors /
+ * assistant / blackout が共有するため壊さず、system_admin を含む daily_data 3 action 用に**別型**を足す
+ * (ads-core.ts の `AdsActor` と同思想)。
+ *
+ * **監査 actor の三系統 (CLAUDE.md ルール1 / system_admin は users 表に行を持たない)**:
+ * - `actorUserId`: `audit_log.actor_user_id` の操作者 uid。`tenantScoped` 降格後 (system_admin →
+ *   school_admin) も `audit_log_insert` policy が `actor_user_id = app.current_user_id` を要求するため
+ *   常に acting uid を入れる (school_admin はこれが users.id でもある)。FK は無い。
+ * - `userRef`: daily_data / audit_log の `created_by` / `updated_by` (users.id への FK)。system_admin は
+ *   users 行を持たないため **null** (FK 違反 23503 回避)。school_admin / teacher は自身の users.id。
+ * - `identityUid`: `audit_log.actor_identity_uid` (IdP uid キャッシュ)。system_admin のみ記録し、
+ *   tenant ロールは従来どおり null。
+ */
+export type ScopedEditorActor = {
+  actorUserId: string;
+  userRef: string | null;
+  identityUid: string | null;
+  schoolId: string;
+};
+
+/**
+ * AuthUser を daily_data mutation actor に変換する (ads-core.ts の `toAdsActor` と同規律)。
+ * - **system_admin**: テナント外 (session schoolId は null) のため、対象校 `targetSchoolId` を**明示**で
+ *   受け取りそれを actor の schoolId にする。未指定 / UUID でないときは null (呼出側が forbidden 化)。
+ *   `userRef` は null (users 行が無い → created_by/updated_by の FK 回避)、`identityUid` に uid を残す。
+ * - **tenant ロール (school_admin / teacher)**: `targetSchoolId` は**無視**し必ず自校 (`user.schoolId`)
+ *   に固定する (クライアント由来 schoolId で他校へ切り替えさせない = 越境防止)。自校が無ければ null。
+ */
+export function toScopedEditorActor(
+  user: AuthUser,
+  targetSchoolId?: string,
+): ScopedEditorActor | null {
+  if (user.role === "system_admin") {
+    if (!isUuid(targetSchoolId)) {
+      return null;
+    }
+    return {
+      actorUserId: user.uid,
+      userRef: null,
+      identityUid: user.uid,
+      schoolId: targetSchoolId,
+    };
+  }
+  if (!user.schoolId) {
+    return null;
+  }
+  return { actorUserId: user.uid, userRef: user.uid, identityUid: null, schoolId: user.schoolId };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
