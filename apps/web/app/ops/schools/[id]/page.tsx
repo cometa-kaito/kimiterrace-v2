@@ -76,6 +76,10 @@ export default async function SystemSchoolDetailPage({
           <Link href={`/ops/schools/${school.id}/quiet-hours`} style={editLinkStyle}>
             静粛時間
           </Link>
+          {/* 生徒アクセスリンク導線 (F05): 運営がこの学校のクラスを選び、magic link を発行/失効する。 */}
+          <Link href={`/ops/schools/${school.id}/magic-link`} style={editLinkStyle}>
+            生徒アクセスリンク
+          </Link>
           <Link href={`/ops/schools/${school.id}/edit`} style={editLinkStyle}>
             編集
           </Link>
