@@ -37,11 +37,20 @@ import { countClassesInGrade, countGradesInDepartment } from "./hub-queries";
  * これは create の親結線だけでなく、update の対象再取得・grade の department_id 付替先確認にも適用する。
  *
  * **system_admin の降格 (ADR-019 §#95 / Issue #197)**: 本ハブは常に特定 school を対象にする
- * テナントスコープ操作のため、`finish` は `withSession(..., { tenantScoped: true })` で実行する。
+ * テナントスコープ操作のため、`finish` は `withSession(..., { tenantScoped: true, schoolId })` で実行する。
  * これにより actor が system_admin でも tx 内 role が school_admin に降格され、`system_admin_full_access`
  * policy の全校発火が止まる。結果、上記の自校可視性チェック (existsInSchool) は system_admin でも
  * 自校のみを可視と判定し、cross-tenant 付替が DB レベルで成立しなくなる (従来は full_access が効き
  * すり抜けていた)。全校横断が必要な system_admin 専用経路は tenantScoped を指定しない。
+ *
+ * **対象校 (school_admin=自校 / system_admin=明示)**: 各 action は任意の `targetSchoolId` を取る。
+ * school_admin は自校に固定 (引数を無視、従来と完全同一)、system_admin は /ops/schools/[id]/hierarchy
+ * から対象校 id を受け取りそこへスコープする (`toHubActor` / `withSession` が role でゲートし越境を防ぐ)。
+ *
+ * **監査 actor (ルール1 / system_admin は users 表に行が無い)**: `writeAudit` と各 insert は
+ * `HubActor.userRef` を `created_by`/`updated_by` に使う。system_admin は users 行を持たないため null
+ * (FK 違反回避)、`audit_log.actor_user_id` には降格後 policy (0005) を満たす acting uid、
+ * `actor_identity_uid` に IdP uid を残す (詳細は `toHubActor`)。
  *
  * **子参照ガード (#48-K2 delete)**: FK は `onDelete: "set null"` のため DB は削除を拒否せず子を
  * 孤児化する。階層が静かに壊れるのを防ぐため、削除前に子 (学科→学年 / 学年→クラス) の有無を
@@ -76,12 +85,16 @@ function isUniqueViolation(error: unknown): boolean {
 async function finish<T>(
   build: (tx: TenantTx) => Promise<T>,
   conflictMessage: string,
+  schoolId: string,
 ): Promise<ActionResult<T>> {
   try {
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
     // (ADR-019 §#95 / Issue #197)。ハブは常に特定 school を対象にするテナントスコープ操作。
-    const data = await withSession(build, { tenantScoped: true });
+    // schoolId: school_admin は自校 (= 渡しても同値)、system_admin は対象校 (/ops 経路)。withSession 側で
+    // 「system_admin のときだけ override を honor」するため tenant ロールは自校に固定される (越境防止)。
+    const data = await withSession(build, { tenantScoped: true, schoolId });
     revalidatePath("/app/school");
+    revalidatePath(`/ops/schools/${schoolId}/hierarchy`);
     return { ok: true, data };
   } catch (error) {
     if (error instanceof CrossTenantError) {
@@ -104,8 +117,9 @@ async function finish<T>(
 function finishCreate(
   build: (tx: TenantTx) => Promise<string>,
   conflictMessage: string,
+  schoolId: string,
 ): Promise<ActionResult<{ id: string }>> {
-  return finish(async (tx) => ({ id: await build(tx) }), conflictMessage);
+  return finish(async (tx) => ({ id: await build(tx) }), conflictMessage, schoolId);
 }
 
 /**
@@ -123,23 +137,33 @@ async function writeAudit(
   },
 ): Promise<void> {
   await tx.insert(auditLog).values({
-    actorUserId: actor.userId,
+    actorUserId: actor.actorUserId,
+    actorIdentityUid: actor.identityUid,
     schoolId: actor.schoolId,
     tableName: params.tableName,
     recordId: params.recordId,
     operation: params.operation,
     diff: params.diff as object,
     rowHash: "",
-    createdBy: actor.userId,
-    updatedBy: actor.userId,
+    createdBy: actor.userRef,
+    updatedBy: actor.userRef,
   });
 }
 
-async function authorize(): Promise<HubActor | ActionResult<never>> {
+/**
+ * 認可 + actor 解決。`targetSchoolId` は **system_admin が特定校を対象にする経路**
+ * (/ops/schools/[id]/hierarchy) からのみ意味を持つ。tenant ロール (school_admin) では
+ * `toHubActor` が無視し自校に固定する (越境防止)。system_admin で対象校未指定 / 不正なら forbidden。
+ */
+async function authorize(targetSchoolId?: string): Promise<HubActor | ActionResult<never>> {
   const user = await requireRole(SCHOOL_HIERARCHY_ROLES);
-  const actor = toHubActor(user);
+  const actor = toHubActor(user, targetSchoolId);
   if (!actor) {
-    return forbidden("学校に属さないユーザーは階層を編集できません。");
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは階層を編集できません。",
+    );
   }
   return actor;
 }
@@ -155,123 +179,144 @@ async function existsInSchool(
 }
 
 /** 学科を作成する。 */
-export async function createDepartmentAction(raw: {
-  name?: unknown;
-  displayOrder?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function createDepartmentAction(
+  raw: {
+    name?: unknown;
+    displayOrder?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateDepartmentInput(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finishCreate(async (tx) => {
-    const [row] = await tx
-      .insert(departments)
-      .values({
-        schoolId: actor.schoolId,
-        name: v.value.name,
-        displayOrder: v.value.displayOrder,
-        createdBy: actor.userId,
-        updatedBy: actor.userId,
-      })
-      .returning({ id: departments.id });
-    const newId = row?.id as string;
-    await writeAudit(tx, actor, {
-      tableName: "departments",
-      recordId: newId,
-      operation: "insert",
-      diff: { after: v.value },
-    });
-    return newId;
-  }, "同名の学科が既に存在します。");
+  return finishCreate(
+    async (tx) => {
+      const [row] = await tx
+        .insert(departments)
+        .values({
+          schoolId: actor.schoolId,
+          name: v.value.name,
+          displayOrder: v.value.displayOrder,
+          createdBy: actor.userRef,
+          updatedBy: actor.userRef,
+        })
+        .returning({ id: departments.id });
+      const newId = row?.id as string;
+      await writeAudit(tx, actor, {
+        tableName: "departments",
+        recordId: newId,
+        operation: "insert",
+        diff: { after: v.value },
+      });
+      return newId;
+    },
+    "同名の学科が既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /** 学年を作成する。departmentId 指定時は自校の学科か確認してから結線。 */
-export async function createGradeAction(raw: {
-  name?: unknown;
-  displayOrder?: unknown;
-  hasClasses?: unknown;
-  departmentId?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function createGradeAction(
+  raw: {
+    name?: unknown;
+    displayOrder?: unknown;
+    hasClasses?: unknown;
+    departmentId?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateGradeInput(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finishCreate(async (tx) => {
-    if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
-      throw new CrossTenantError("指定された学科が見つかりません。");
-    }
-    const [row] = await tx
-      .insert(grades)
-      .values({
-        schoolId: actor.schoolId,
-        departmentId: v.value.departmentId,
-        name: v.value.name,
-        displayOrder: v.value.displayOrder,
-        hasClasses: v.value.hasClasses,
-        createdBy: actor.userId,
-        updatedBy: actor.userId,
-      })
-      .returning({ id: grades.id });
-    const newId = row?.id as string;
-    await writeAudit(tx, actor, {
-      tableName: "grades",
-      recordId: newId,
-      operation: "insert",
-      diff: { after: v.value },
-    });
-    return newId;
-  }, "同名の学年が既に存在します。");
+  return finishCreate(
+    async (tx) => {
+      if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
+        throw new CrossTenantError("指定された学科が見つかりません。");
+      }
+      const [row] = await tx
+        .insert(grades)
+        .values({
+          schoolId: actor.schoolId,
+          departmentId: v.value.departmentId,
+          name: v.value.name,
+          displayOrder: v.value.displayOrder,
+          hasClasses: v.value.hasClasses,
+          createdBy: actor.userRef,
+          updatedBy: actor.userRef,
+        })
+        .returning({ id: grades.id });
+      const newId = row?.id as string;
+      await writeAudit(tx, actor, {
+        tableName: "grades",
+        recordId: newId,
+        operation: "insert",
+        diff: { after: v.value },
+      });
+      return newId;
+    },
+    "同名の学年が既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /** クラスを作成する。gradeId が自校の学年か確認してから結線。 */
-export async function createClassAction(raw: {
-  gradeId?: unknown;
-  name?: unknown;
-  grade?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function createClassAction(
+  raw: {
+    gradeId?: unknown;
+    name?: unknown;
+    grade?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateClassInput(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finishCreate(async (tx) => {
-    if (!(await existsInSchool(tx, grades, v.value.gradeId))) {
-      throw new CrossTenantError("指定された学年が見つかりません。");
-    }
-    const [row] = await tx
-      .insert(classes)
-      .values({
-        schoolId: actor.schoolId,
-        gradeId: v.value.gradeId,
-        name: v.value.name,
-        grade: v.value.grade,
-        createdBy: actor.userId,
-        updatedBy: actor.userId,
-      })
-      .returning({ id: classes.id });
-    const newId = row?.id as string;
-    await writeAudit(tx, actor, {
-      tableName: "classes",
-      recordId: newId,
-      operation: "insert",
-      diff: { after: v.value },
-    });
-    return newId;
-  }, "同名のクラスが既に存在します。");
+  return finishCreate(
+    async (tx) => {
+      if (!(await existsInSchool(tx, grades, v.value.gradeId))) {
+        throw new CrossTenantError("指定された学年が見つかりません。");
+      }
+      const [row] = await tx
+        .insert(classes)
+        .values({
+          schoolId: actor.schoolId,
+          gradeId: v.value.gradeId,
+          name: v.value.name,
+          grade: v.value.grade,
+          createdBy: actor.userRef,
+          updatedBy: actor.userRef,
+        })
+        .returning({ id: classes.id });
+      const newId = row?.id as string;
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: newId,
+        operation: "insert",
+        diff: { after: v.value },
+      });
+      return newId;
+    },
+    "同名のクラスが既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /* ================================================================== *
@@ -282,46 +327,53 @@ export async function createClassAction(raw: {
  * ================================================================== */
 
 /** 学科をリネーム / 表示順変更する。 */
-export async function updateDepartmentAction(raw: {
-  id?: unknown;
-  name?: unknown;
-  displayOrder?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function updateDepartmentAction(
+  raw: {
+    id?: unknown;
+    name?: unknown;
+    displayOrder?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateDepartmentUpdate(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    const [before] = await tx
-      .select({ name: departments.name, displayOrder: departments.displayOrder })
-      .from(departments)
-      .where(eq(departments.id, v.value.id))
-      .limit(1);
-    if (!before) {
-      throw new HubNotFoundError("指定された学科が見つかりません。");
-    }
-    await tx
-      .update(departments)
-      .set({
-        name: v.value.name,
-        displayOrder: v.value.displayOrder,
-        updatedBy: actor.userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(departments.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "departments",
-      recordId: v.value.id,
-      operation: "update",
-      diff: { before, after: { name: v.value.name, displayOrder: v.value.displayOrder } },
-    });
-    return { id: v.value.id };
-  }, "同名の学科が既に存在します。");
+  return finish(
+    async (tx) => {
+      const [before] = await tx
+        .select({ name: departments.name, displayOrder: departments.displayOrder })
+        .from(departments)
+        .where(eq(departments.id, v.value.id))
+        .limit(1);
+      if (!before) {
+        throw new HubNotFoundError("指定された学科が見つかりません。");
+      }
+      await tx
+        .update(departments)
+        .set({
+          name: v.value.name,
+          displayOrder: v.value.displayOrder,
+          updatedBy: actor.userRef,
+          updatedAt: new Date(),
+        })
+        .where(eq(departments.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "departments",
+        recordId: v.value.id,
+        operation: "update",
+        diff: { before, after: { name: v.value.name, displayOrder: v.value.displayOrder } },
+      });
+      return { id: v.value.id };
+    },
+    "同名の学科が既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /**
@@ -337,119 +389,133 @@ export async function updateDepartmentAction(raw: {
  * school_admin に降格するようになった (file header 参照)。降格後は full_access が効かず、付替先
  * 可視性チェックが自校のみを通すため system_admin でも cross-tenant 付替は不成立。
  */
-export async function updateGradeAction(raw: {
-  id?: unknown;
-  name?: unknown;
-  displayOrder?: unknown;
-  hasClasses?: unknown;
-  departmentId?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function updateGradeAction(
+  raw: {
+    id?: unknown;
+    name?: unknown;
+    displayOrder?: unknown;
+    hasClasses?: unknown;
+    departmentId?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateGradeUpdate(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    const [before] = await tx
-      .select({
-        name: grades.name,
-        displayOrder: grades.displayOrder,
-        hasClasses: grades.hasClasses,
-        departmentId: grades.departmentId,
-      })
-      .from(grades)
-      .where(eq(grades.id, v.value.id))
-      .limit(1);
-    if (!before) {
-      throw new HubNotFoundError("指定された学年が見つかりません。");
-    }
-    // 付替先 department が自校で可視か (他校 / 不存在は cross-tenant 拒否)。
-    if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
-      throw new CrossTenantError("指定された学科が見つかりません。");
-    }
-    await tx
-      .update(grades)
-      .set({
-        name: v.value.name,
-        displayOrder: v.value.displayOrder,
-        hasClasses: v.value.hasClasses,
-        departmentId: v.value.departmentId,
-        updatedBy: actor.userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(grades.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "grades",
-      recordId: v.value.id,
-      operation: "update",
-      diff: {
-        before,
-        after: {
+  return finish(
+    async (tx) => {
+      const [before] = await tx
+        .select({
+          name: grades.name,
+          displayOrder: grades.displayOrder,
+          hasClasses: grades.hasClasses,
+          departmentId: grades.departmentId,
+        })
+        .from(grades)
+        .where(eq(grades.id, v.value.id))
+        .limit(1);
+      if (!before) {
+        throw new HubNotFoundError("指定された学年が見つかりません。");
+      }
+      // 付替先 department が自校で可視か (他校 / 不存在は cross-tenant 拒否)。
+      if (v.value.departmentId && !(await existsInSchool(tx, departments, v.value.departmentId))) {
+        throw new CrossTenantError("指定された学科が見つかりません。");
+      }
+      await tx
+        .update(grades)
+        .set({
           name: v.value.name,
           displayOrder: v.value.displayOrder,
           hasClasses: v.value.hasClasses,
           departmentId: v.value.departmentId,
+          updatedBy: actor.userRef,
+          updatedAt: new Date(),
+        })
+        .where(eq(grades.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "grades",
+        recordId: v.value.id,
+        operation: "update",
+        diff: {
+          before,
+          after: {
+            name: v.value.name,
+            displayOrder: v.value.displayOrder,
+            hasClasses: v.value.hasClasses,
+            departmentId: v.value.departmentId,
+          },
         },
-      },
-    });
-    return { id: v.value.id };
-  }, "同名の学年が既に存在します。");
+      });
+      return { id: v.value.id };
+    },
+    "同名の学年が既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /** クラスをリネーム / 学年数を変更する (親学年の付替は scope 外、別 issue)。 */
-export async function updateClassAction(raw: {
-  id?: unknown;
-  name?: unknown;
-  grade?: unknown;
-}): Promise<ActionResult<{ id: string }>> {
+export async function updateClassAction(
+  raw: {
+    id?: unknown;
+    name?: unknown;
+    grade?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateClassUpdate(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    const [before] = await tx
-      .select({
-        name: classes.name,
-        grade: classes.grade,
-      })
-      .from(classes)
-      .where(eq(classes.id, v.value.id))
-      .limit(1);
-    if (!before) {
-      throw new HubNotFoundError("指定されたクラスが見つかりません。");
-    }
-    await tx
-      .update(classes)
-      .set({
-        name: v.value.name,
-        grade: v.value.grade,
-        updatedBy: actor.userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(classes.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "classes",
-      recordId: v.value.id,
-      operation: "update",
-      diff: {
-        before,
-        after: {
+  return finish(
+    async (tx) => {
+      const [before] = await tx
+        .select({
+          name: classes.name,
+          grade: classes.grade,
+        })
+        .from(classes)
+        .where(eq(classes.id, v.value.id))
+        .limit(1);
+      if (!before) {
+        throw new HubNotFoundError("指定されたクラスが見つかりません。");
+      }
+      await tx
+        .update(classes)
+        .set({
           name: v.value.name,
           grade: v.value.grade,
+          updatedBy: actor.userRef,
+          updatedAt: new Date(),
+        })
+        .where(eq(classes.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: v.value.id,
+        operation: "update",
+        diff: {
+          before,
+          after: {
+            name: v.value.name,
+            grade: v.value.grade,
+          },
         },
-      },
-    });
-    return { id: v.value.id };
-  }, "同名のクラスが既に存在します。");
+      });
+      return { id: v.value.id };
+    },
+    "同名のクラスが既に存在します。",
+    actor.schoolId,
+  );
 }
 
 /* ================================================================== *
@@ -462,91 +528,110 @@ export async function updateClassAction(raw: {
 /** 学科を削除する。属する学年が 1 件でもあれば拒否 (先に学年の付替 / 削除が必要)。 */
 export async function deleteDepartmentAction(
   rawId: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const v = validateId(rawId);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    if (!(await existsInSchool(tx, departments, v.value.id))) {
-      throw new HubNotFoundError("指定された学科が見つかりません。");
-    }
-    if ((await countGradesInDepartment(tx, v.value.id)) > 0) {
-      throw new ChildExistsError(
-        "この学科に属する学年があるため削除できません。先に学年を移動または削除してください。",
-      );
-    }
-    await tx.delete(departments).where(eq(departments.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "departments",
-      recordId: v.value.id,
-      operation: "delete",
-      diff: { before: { id: v.value.id } },
-    });
-    return { id: v.value.id };
-  }, "削除に失敗しました。");
+  return finish(
+    async (tx) => {
+      if (!(await existsInSchool(tx, departments, v.value.id))) {
+        throw new HubNotFoundError("指定された学科が見つかりません。");
+      }
+      if ((await countGradesInDepartment(tx, v.value.id)) > 0) {
+        throw new ChildExistsError(
+          "この学科に属する学年があるため削除できません。先に学年を移動または削除してください。",
+        );
+      }
+      await tx.delete(departments).where(eq(departments.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "departments",
+        recordId: v.value.id,
+        operation: "delete",
+        diff: { before: { id: v.value.id } },
+      });
+      return { id: v.value.id };
+    },
+    "削除に失敗しました。",
+    actor.schoolId,
+  );
 }
 
 /** 学年を削除する。属するクラスが 1 件でもあれば拒否 (先にクラスの付替 / 削除が必要)。 */
-export async function deleteGradeAction(rawId: unknown): Promise<ActionResult<{ id: string }>> {
+export async function deleteGradeAction(
+  rawId: unknown,
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateId(rawId);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    if (!(await existsInSchool(tx, grades, v.value.id))) {
-      throw new HubNotFoundError("指定された学年が見つかりません。");
-    }
-    if ((await countClassesInGrade(tx, v.value.id)) > 0) {
-      throw new ChildExistsError(
-        "この学年に属するクラスがあるため削除できません。先にクラスを移動または削除してください。",
-      );
-    }
-    await tx.delete(grades).where(eq(grades.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "grades",
-      recordId: v.value.id,
-      operation: "delete",
-      diff: { before: { id: v.value.id } },
-    });
-    return { id: v.value.id };
-  }, "削除に失敗しました。");
+  return finish(
+    async (tx) => {
+      if (!(await existsInSchool(tx, grades, v.value.id))) {
+        throw new HubNotFoundError("指定された学年が見つかりません。");
+      }
+      if ((await countClassesInGrade(tx, v.value.id)) > 0) {
+        throw new ChildExistsError(
+          "この学年に属するクラスがあるため削除できません。先にクラスを移動または削除してください。",
+        );
+      }
+      await tx.delete(grades).where(eq(grades.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "grades",
+        recordId: v.value.id,
+        operation: "delete",
+        diff: { before: { id: v.value.id } },
+      });
+      return { id: v.value.id };
+    },
+    "削除に失敗しました。",
+    actor.schoolId,
+  );
 }
 
 /** クラスを削除する。クラスは階層の末端のため子参照ガードは不要。 */
-export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ id: string }>> {
+export async function deleteClassAction(
+  rawId: unknown,
+  targetSchoolId?: string,
+): Promise<ActionResult<{ id: string }>> {
   const v = validateId(rawId);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
 
-  return finish(async (tx) => {
-    if (!(await existsInSchool(tx, classes, v.value.id))) {
-      throw new HubNotFoundError("指定されたクラスが見つかりません。");
-    }
-    await tx.delete(classes).where(eq(classes.id, v.value.id));
-    await writeAudit(tx, actor, {
-      tableName: "classes",
-      recordId: v.value.id,
-      operation: "delete",
-      diff: { before: { id: v.value.id } },
-    });
-    return { id: v.value.id };
-  }, "削除に失敗しました。");
+  return finish(
+    async (tx) => {
+      if (!(await existsInSchool(tx, classes, v.value.id))) {
+        throw new HubNotFoundError("指定されたクラスが見つかりません。");
+      }
+      await tx.delete(classes).where(eq(classes.id, v.value.id));
+      await writeAudit(tx, actor, {
+        tableName: "classes",
+        recordId: v.value.id,
+        operation: "delete",
+        diff: { before: { id: v.value.id } },
+      });
+      return { id: v.value.id };
+    },
+    "削除に失敗しました。",
+    actor.schoolId,
+  );
 }
 
 /* ================================================================== *
@@ -560,15 +645,18 @@ export async function deleteClassAction(rawId: unknown): Promise<ActionResult<{ 
  * ================================================================== */
 
 /** 学科 / 学年の表示順を一括で並べ替える。orderedIds の順に displayOrder=0..n-1 を原子的に反映する。 */
-export async function reorderHierarchyAction(raw: {
-  entity?: unknown;
-  orderedIds?: unknown;
-}): Promise<ActionResult<{ count: number }>> {
+export async function reorderHierarchyAction(
+  raw: {
+    entity?: unknown;
+    orderedIds?: unknown;
+  },
+  targetSchoolId?: string,
+): Promise<ActionResult<{ count: number }>> {
   const v = validateReorder(raw);
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
@@ -576,45 +664,49 @@ export async function reorderHierarchyAction(raw: {
   const tableName = v.value.entity === "department" ? "departments" : "grades";
   const entityLabel = v.value.entity === "department" ? "学科" : "学年";
 
-  return finish(async (tx) => {
-    let count = 0;
-    for (const [i, id] of v.value.orderedIds.entries()) {
-      // 自校で可視か + 現在の displayOrder を取得 (RLS で他校行は不可視 → not_found で全体巻き戻し)。
-      const [row] = await tx
-        .select({ displayOrder: table.displayOrder })
-        .from(table)
-        .where(eq(table.id, id))
-        .limit(1);
-      if (!row) {
-        throw new HubNotFoundError(`指定された${entityLabel}が見つかりません。`);
+  return finish(
+    async (tx) => {
+      let count = 0;
+      for (const [i, id] of v.value.orderedIds.entries()) {
+        // 自校で可視か + 現在の displayOrder を取得 (RLS で他校行は不可視 → not_found で全体巻き戻し)。
+        const [row] = await tx
+          .select({ displayOrder: table.displayOrder })
+          .from(table)
+          .where(eq(table.id, id))
+          .limit(1);
+        if (!row) {
+          throw new HubNotFoundError(`指定された${entityLabel}が見つかりません。`);
+        }
+        if (row.displayOrder === i) {
+          continue; // 既に正しい順 → 無駄な update/監査を避ける。
+        }
+        // update は drizzle のテーブル型のため具体テーブルで分岐する (select は union で可)。
+        if (v.value.entity === "department") {
+          await tx
+            .update(departments)
+            .set({ displayOrder: i, updatedBy: actor.userRef, updatedAt: new Date() })
+            .where(eq(departments.id, id));
+        } else {
+          await tx
+            .update(grades)
+            .set({ displayOrder: i, updatedBy: actor.userRef, updatedAt: new Date() })
+            .where(eq(grades.id, id));
+        }
+        await writeAudit(tx, actor, {
+          tableName,
+          recordId: id,
+          operation: "update",
+          diff: {
+            before: { displayOrder: row.displayOrder },
+            after: { displayOrder: i },
+            reason: "reorder",
+          },
+        });
+        count += 1;
       }
-      if (row.displayOrder === i) {
-        continue; // 既に正しい順 → 無駄な update/監査を避ける。
-      }
-      // update は drizzle のテーブル型のため具体テーブルで分岐する (select は union で可)。
-      if (v.value.entity === "department") {
-        await tx
-          .update(departments)
-          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
-          .where(eq(departments.id, id));
-      } else {
-        await tx
-          .update(grades)
-          .set({ displayOrder: i, updatedBy: actor.userId, updatedAt: new Date() })
-          .where(eq(grades.id, id));
-      }
-      await writeAudit(tx, actor, {
-        tableName,
-        recordId: id,
-        operation: "update",
-        diff: {
-          before: { displayOrder: row.displayOrder },
-          after: { displayOrder: i },
-          reason: "reorder",
-        },
-      });
-      count += 1;
-    }
-    return { count };
-  }, "並べ替えに失敗しました。");
+      return { count };
+    },
+    "並べ替えに失敗しました。",
+    actor.schoolId,
+  );
 }

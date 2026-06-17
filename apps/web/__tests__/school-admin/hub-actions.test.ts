@@ -336,3 +336,58 @@ describe("reorderHierarchyAction", () => {
     expect(res).toEqual({ ok: true, data: { count: 2 } });
   });
 });
+
+/**
+ * system_admin が /ops/schools/[id]/hierarchy から特定校を対象に編集する経路の配線。
+ * actor が system_admin (session schoolId=null) のとき、各 action に渡した `targetSchoolId` が
+ * `withSession(..., { tenantScoped: true, schoolId })` へ伝播することを固定する。実際の越境封じ
+ * (override は system_admin のみ honor / 降格 RLS) は packages/db の実 PG テストで担保する。
+ */
+describe("system_admin: 対象校スコープの配線", () => {
+  const SYS_UID = "77777777-7777-4777-8777-777777777777";
+  const TARGET = "88888888-8888-4888-8888-888888888888";
+
+  beforeEach(() => {
+    requireRoleMock.mockResolvedValue({ uid: SYS_UID, role: "system_admin", schoolId: null });
+  });
+
+  it("対象校未指定は forbidden、DB に到達しない", async () => {
+    const res = await updateDepartmentAction({ id: DEPT_ID, name: "x" });
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("update: 対象校指定で withSession に { tenantScoped, schoolId } を渡す", async () => {
+    selectQueue = [[{ name: "旧", displayOrder: 0 }]];
+    const res = await updateDepartmentAction({ id: DEPT_ID, name: "機械科" }, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: DEPT_ID } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+
+  it("delete: 対象校 schoolId を渡す", async () => {
+    selectQueue = [[{ id: GRADE_ID }]];
+    countClassesInGradeMock.mockResolvedValue(0);
+    const res = await deleteGradeAction(GRADE_ID, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: GRADE_ID } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+
+  it("reorder: 対象校 schoolId を渡す", async () => {
+    selectQueue = [[{ displayOrder: 5 }]];
+    const res = await reorderHierarchyAction(
+      { entity: "department", orderedIds: [DEPT_ID] },
+      TARGET,
+    );
+    expect(res).toEqual({ ok: true, data: { count: 1 } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+});

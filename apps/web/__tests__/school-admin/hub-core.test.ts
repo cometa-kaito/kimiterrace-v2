@@ -9,14 +9,58 @@ import {
 } from "../../lib/school-admin/hub-core";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
+const OTHER = "22222222-2222-2222-2222-222222222222";
+const SYS_UID = "33333333-3333-4333-8333-333333333333";
 
 describe("toHubActor", () => {
   const base: AuthUser = { uid: "u1", role: "school_admin", schoolId: UUID };
-  it("school_id があれば actor を返す", () => {
-    expect(toHubActor(base)).toEqual({ userId: "u1", schoolId: UUID });
+
+  it("school_admin: 自校 + userRef=uid (users.id FK) + identityUid=null (従来挙動)", () => {
+    expect(toHubActor(base)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
   });
-  it("school_id null (テナント未選択 system_admin 等) は null", () => {
-    expect(toHubActor({ ...base, role: "system_admin", schoolId: null })).toBeNull();
+
+  it("school_admin: targetSchoolId を渡しても無視し自校に固定 (越境防止)", () => {
+    // 他校 id を渡してもセッションの自校 (UUID) に張り付く = クライアント由来 id で越境させない。
+    expect(toHubActor(base, OTHER)).toEqual({
+      actorUserId: "u1",
+      userRef: "u1",
+      identityUid: null,
+      schoolId: UUID,
+    });
+  });
+
+  it("school_admin: 自校 null は null (テナント未割当)", () => {
+    expect(toHubActor({ ...base, schoolId: null })).toBeNull();
+  });
+
+  it("system_admin: 対象校未指定は null (呼出側が forbidden 化)", () => {
+    expect(toHubActor({ uid: SYS_UID, role: "system_admin", schoolId: null })).toBeNull();
+  });
+
+  it("system_admin: 対象校が非 UUID は null", () => {
+    expect(
+      toHubActor({ uid: SYS_UID, role: "system_admin", schoolId: null }, "not-uuid"),
+    ).toBeNull();
+  });
+
+  it("system_admin: 対象校指定で userRef=null (users 行が無い) + identityUid=uid", () => {
+    expect(toHubActor({ uid: SYS_UID, role: "system_admin", schoolId: null }, UUID)).toEqual({
+      actorUserId: SYS_UID,
+      userRef: null,
+      identityUid: SYS_UID,
+      schoolId: UUID,
+    });
+  });
+
+  it("system_admin: actor の schoolId は対象校 (セッション schoolId に依存しない)", () => {
+    // セッションに別 schoolId があっても、明示の対象校 (UUID) が actor の schoolId になる。
+    const actor = toHubActor({ uid: SYS_UID, role: "system_admin", schoolId: OTHER }, UUID);
+    expect(actor?.schoolId).toBe(UUID);
   });
 });
 
