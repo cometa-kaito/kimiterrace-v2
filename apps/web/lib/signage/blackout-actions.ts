@@ -10,6 +10,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import {
   type ActionResult,
   EDITOR_ROLES,
@@ -51,11 +52,7 @@ class CrossTenantError extends Error {}
 
 /** PostgreSQL の unique / check 制約違反（SQLSTATE 23505 / 23514）。並行 upsert や制約違反など。 */
 function isConstraintViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const code = (error as { code: unknown }).code;
-  return code === "23505" || code === "23514";
+  return isPgErrorCode(error, "23505", "23514");
 }
 
 /** audit_log に 1 行追記（ルール1 / NFR04）。prev_hash/row_hash は BEFORE INSERT トリガが計算。 */

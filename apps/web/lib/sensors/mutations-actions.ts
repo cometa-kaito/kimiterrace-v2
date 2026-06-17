@@ -12,6 +12,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import {
   SENSOR_WRITE_ROLES,
   type ActionResult,
@@ -65,10 +66,7 @@ class CrossTenantClassError extends Error {}
 
 /** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。device_mac グローバル一意衝突など。 */
 function isUniqueViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  return (error as { code: unknown }).code === "23505";
+  return isPgErrorCode(error, "23505");
 }
 
 /** audit_log に 1 行追記 (ルール1 / NFR04)。prev_hash/row_hash は BEFORE INSERT トリガが計算。 */

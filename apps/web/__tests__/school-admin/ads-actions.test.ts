@@ -166,6 +166,18 @@ describe("createAdAction", () => {
     const res = await createAdAction("grade", GRADE_ID, VALID_AD);
     expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
   });
+
+  it("制約違反（Drizzle wrap, cause.code=23505）は conflict に写像し 500 化させない", async () => {
+    // 本番同形: Drizzle は SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は取りこぼし
+    // 全画面 500 を招いた（#1019）。finish() の catch が isConstraintViolation→conflict に倒す。
+    withSessionMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into ads"), {
+        cause: Object.assign(new Error("unique violation"), { code: "23505" }),
+      }),
+    );
+    const res = await createAdAction("class", CLASS_ID, VALID_AD);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
 });
 
 describe("updateAdAction", () => {

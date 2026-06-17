@@ -148,6 +148,18 @@ describe("updateTvDeviceConfigAction", () => {
     expect(auditValues).toBeUndefined();
   });
 
+  it("制約違反（Drizzle wrap, cause.code=23505）は conflict に写像し 500 化させない", async () => {
+    // 本番同形: Drizzle は SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は取りこぼし、
+    // 未捕捉例外の再 throw → ルートエラー境界の全画面 500 を招いた（#1019）。
+    updateTvDeviceConfigMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: update tv_devices"), {
+        cause: Object.assign(new Error("unique violation"), { code: "23505" }),
+      }),
+    );
+    const res = await updateTvDeviceConfigAction(ROW_ID, VALID_INPUT);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+
   it("正常系: update + audit operation=update（tv_devices）、version を返す", async () => {
     const res = await updateTvDeviceConfigAction(ROW_ID, VALID_INPUT);
     expect(res).toEqual({ ok: true, data: { id: ROW_ID, version: 6 } });

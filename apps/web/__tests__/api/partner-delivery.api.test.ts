@@ -333,6 +333,18 @@ describe("POST /api/partner/delivery (K3 §3)", () => {
     expect(res.status).toBe(409);
   });
 
+  it("FK 違反が Drizzle wrap（cause.code=23503）でも 409（本番同形・回帰の要）", async () => {
+    // Drizzle は pg エラーを wrap し SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は
+    // これを取りこぼし 500（transient 扱い）→ portal が恒久エラーを無限再送していた。
+    applyPartnerDelivery.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into advertisers"), {
+        cause: Object.assign(new Error("fk violation"), { code: "23503" }),
+      }),
+    );
+    const res = await POST(makeReq(validBody(), { key: SECRET }));
+    expect(res.status).toBe(409);
+  });
+
   it("check 制約違反 23514 → 409（恒久）", async () => {
     applyPartnerDelivery.mockRejectedValue(
       Object.assign(new Error("check violation"), { code: "23514" }),

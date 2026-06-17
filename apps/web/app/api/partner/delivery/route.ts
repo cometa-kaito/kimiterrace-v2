@@ -16,6 +16,7 @@ import {
   partnerKeyFromHeaders,
   verifyPartnerSecret,
 } from "@/lib/partner/secret";
+import { pgErrorCode } from "@/lib/pg-error";
 
 /**
  * Partner API K3（`docs/api/partner-api-contract.md` §3）: **配信 push 受け口**（write・Flow B の v2 側）。
@@ -62,14 +63,6 @@ type DeliveryResponse = {
  * これら以外（接続断・デッドロック 40P01・直列化 40001 等）は transient とみなし 5xx で再送させる。
  */
 const PERMANENT_PG_CODES = new Set(["23503", "23514"]);
-
-function pgErrorCode(err: unknown): string | undefined {
-  if (typeof err === "object" && err !== null && "code" in err) {
-    const code = (err as { code?: unknown }).code;
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   // 1. 共有シークレット検証（ルール5・fail-closed）。未設定 / 不一致 / 欠如は一律 401、本体に到達させない。

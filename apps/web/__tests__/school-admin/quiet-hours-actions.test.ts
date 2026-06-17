@@ -164,6 +164,18 @@ describe("saveQuietHoursAction", () => {
     expect(upsertScopeConfigMock).toHaveBeenCalledTimes(1);
   });
 
+  it("制約違反（Drizzle wrap, cause.code=23505）は conflict に写像し 500 化させない", async () => {
+    // 本番同形: Drizzle は SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は取りこぼし
+    // 全画面 500 を招いた（#1019）。action の catch が isConstraintViolation→conflict に倒す。
+    withSessionMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into school_configs"), {
+        cause: Object.assign(new Error("unique violation"), { code: "23505" }),
+      }),
+    );
+    const res = await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES);
+    expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
+  });
+
   it("upsert の値: kind=quiet_hours / target=class 列を結線 (value は {ranges})", async () => {
     await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES);
     expect(upsertScopeConfigMock).toHaveBeenCalledWith(

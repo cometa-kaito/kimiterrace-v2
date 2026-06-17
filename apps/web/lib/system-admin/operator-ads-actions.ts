@@ -5,6 +5,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import {
   type ActionResult,
   type AdInput,
@@ -32,12 +33,9 @@ import { SYSTEM_ADMIN_ROLES } from "./roles";
 
 class NotFoundError extends Error {}
 
+/** PostgreSQL の unique / check / FK 制約違反 (SQLSTATE 23505 / 23514 / 23503)。 */
 function isConstraintViolation(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const code = (error as { code: unknown }).code;
-  return code === "23505" || code === "23514" || code === "23503";
+  return isPgErrorCode(error, "23505", "23514", "23503");
 }
 
 /** 監査 diff 用に値を要約（ads-actions と同方針、mediaUrl/caption は丸出ししない）。 */

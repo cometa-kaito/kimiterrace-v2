@@ -1,5 +1,6 @@
 import { type TenantTx, auditLog, classes, dailyData, departments, grades } from "@kimiterrace/db";
 import { and, eq } from "drizzle-orm";
+import { isPgErrorCode } from "../pg-error";
 import type { EditorTarget, ScopedEditorActor } from "./schedule-core";
 import { targetIdColumns } from "./schedule-core";
 
@@ -24,12 +25,7 @@ export class EditorTargetNotFoundError extends Error {}
 
 /** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。同一 target+date の並行 INSERT 競合など。 */
 export function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "23505"
-  );
+  return isPgErrorCode(error, "23505");
 }
 
 async function writeAudit(
