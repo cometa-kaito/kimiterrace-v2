@@ -87,12 +87,17 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
  *
  * - **pattern1**（既定・v1 レイアウト）: 予定／連絡／提出物 ＋ 天気（予定内包）／広告。
  * - **pattern2**（掲示盤面）: 予定／生徒呼び出し／来校者一覧／鉄道／人感センサ ＋ 天気／広告。
+ * - **pattern3**（廊下設置）: **pattern2 と同一ブロック・同一順序**（先方リクエストの確定コンテンツを維持）。
+ *   違いは盤面レイアウトのみ＝廊下の「遠目・一瞥」に合わせた拡大タイポ／時刻主役ヘッダー／今日強調で、
+ *   出すブロックは変えない（`PATTERN_BOARDS` の `Pattern3Board` がデザイン層だけ差し替える）。
  *
  * 新パターンはここに 1 行追加するだけで全消費者が追従する（finding①「宣言的マッピングで一括駆動」）。
  */
 export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockKind[]> = {
   pattern1: ["schedule", "notice", "assignment", "weather", "ad"],
   pattern2: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
+  // pattern3（廊下）は pattern2 と同一ブロック（内容据え置き・デザインのみ最適化）。
+  pattern3: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
 };
 
 /**

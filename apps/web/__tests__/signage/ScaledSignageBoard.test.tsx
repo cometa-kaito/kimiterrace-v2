@@ -111,6 +111,38 @@ describe("SignageBoardView（純粋な盤面描画層）", () => {
     expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
   });
 
+  it("designPattern=pattern3（廊下）は pattern2 と同一ブロックを dispatch しつつ大型ヘッダーを出す", () => {
+    const weather: SignagePayload["weather"] = {
+      areaCode: "210000",
+      areaName: "岐阜県",
+      fetchedAt: null,
+      isStale: false,
+      days: [
+        {
+          forecastDate: "2026-05-31",
+          weatherCode: "100",
+          weatherText: "晴れ",
+          icon: "sunny",
+          iconLabel: "晴れ",
+          tempMin: 21,
+          tempMax: 28,
+          pop: null,
+        },
+      ],
+    };
+    render(
+      <SignageBoardView {...boardProps(samplePayload({ designPattern: "pattern3", weather }))} />,
+    );
+    // pattern2 と同一の掲示ブロック（先方確定コンテンツ据え置き）。
+    expect(screen.getByRole("region", { name: "生徒呼び出し" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
+    // 廊下版ヘッダーは当日の天気サマリ（気温）を時刻の隣に出す。気温表記はヘッダー固有（予定列の天気は
+    // アイコンのみで気温を出さない）なので、これがあれば pattern3 の大型ヘッダーが描かれたと言える。
+    expect(screen.getByText(/28°/)).toBeInTheDocument();
+  });
+
   // Approach A の behavior-preserving 保証: editRegions を渡さない（live TV / モニタの壁の経路）と、編集ボタンは
   // 一切描かれず region 名（予定/連絡/提出物）も従来どおり残る＝出力不変。
   it("editRegions 無し（live / 壁）では編集ボタンを描かず region 名も従来どおり残す（出力不変）", () => {

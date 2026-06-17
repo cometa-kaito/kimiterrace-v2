@@ -121,6 +121,8 @@ const PATTERN_BOARDS: Record<
 > = {
   pattern1: Pattern1Board,
   pattern2: Pattern2Board,
+  // pattern3 = pattern2 の掲示盤面を「廊下設置」向けにデザイン最適化した版（表示ブロック・データは同一）。
+  pattern3: Pattern3Board,
 };
 
 /**
@@ -312,6 +314,106 @@ function Pattern2Board({
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * パターン3: 廊下設置に最適化した掲示盤面。**表示ブロック・データ・順序・広告は pattern2 と完全に同一**
+ * （先方リクエストの確定コンテンツを変えない）で、廊下の「通り過ぎながら遠目で一瞥」に効く**デザイン層だけ**を
+ * 足す版（2026-06-17 ユーザー確定）:
+ *   (1) 時刻を主役にした大型ヘッダー（{@link Pattern3Header}）— 通行者が最も見る情報を最大化。
+ *   (2) 主要テキスト（予定／氏名／鉄道／センサ）を遠距離可読まで拡大（CSS `.p3Root` の上書き）。
+ *   (3) 「今日」列を枠で面強調。
+ * 盤面の各リージョン（予定／呼び出し／来校者／鉄道／センサ）と広告は **pattern2 の部品をそのまま再利用**し、
+ * region aria-label・fail-soft・編集配線・ドリフトガード（SignageClient.test）・データ取得ゲートを共有する
+ * （DRY。pattern2 は無改修＝既存教室端末は不変）。差分はラッパの `p3Root` クラスと専用ヘッダーのみ。
+ */
+function Pattern3Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
+  return (
+    <div className={`${styles.signageRoot} ${styles.p3Root}`}>
+      <Pattern3Header data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p2Grid}>
+            <Pattern2Schedule
+              days={data.scheduleDays}
+              today={data.date}
+              weather={data.weather ?? null}
+              editRegions={editRegions}
+            />
+            <div className={styles.p2People}>
+              <Pattern2Callouts callouts={data.callouts} />
+              <Pattern2Visitors visitors={data.visitors} />
+            </div>
+            <div className={styles.p2Status}>
+              <Pattern2Train train={data.trainStatus} />
+              <Pattern2SensorCount count={data.presenceCount} />
+            </div>
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン3（廊下版）の大型ヘッダー。`BoardHeader` と**同じ情報**（実時計／盤面日付／クラス識別／ブランド）に
+ * **当日の天気サマリ**（予定列ヘッダーにも出る既存の weather データを時刻の隣にも再掲）を添え、廊下の通行者が
+ * 遠目で一瞥できるよう**時刻を主役に大型化**する。ブロック構成・取得データは変えない（デザインのみ）。当日予報が
+ * 無い場合は天気サマリを出さない（fail-soft）。天気は単色グリフ＋`aria-label` で色非依存（NFR05・#847 と同作法）。
+ */
+function Pattern3Header({ data, now }: { data: SignagePayload; now: Date | null }) {
+  const { dateText, dayText } = formatBoardDate(data.date);
+  const time = now ? formatClock(now) : "";
+  const classIdentity = formatClassIdentity(data.classContext);
+  const weatherToday = data.weather?.days.find((d) => d.forecastDate === data.date) ?? null;
+  return (
+    <header className={styles.p3Header}>
+      {classIdentity ? (
+        <span className={styles.p3HeaderLoc} aria-label={`表示クラス: ${classIdentity}`}>
+          {classIdentity}
+        </span>
+      ) : null}
+      {time ? <span className={styles.p3HeaderClock}>{time}</span> : null}
+      <span className={styles.p3HeaderDate}>
+        <span className={styles.p3HeaderDateMain}>{dateText}</span>
+        <span className={styles.p3HeaderDay}>{dayText}曜日</span>
+      </span>
+      {weatherToday ? (
+        <span
+          className={styles.p3HeaderWx}
+          aria-label={weatherToday.weatherText ?? weatherToday.iconLabel}
+        >
+          <span aria-hidden="true" className={styles.p3HeaderWxGlyph}>
+            {WEATHER_ICON_GLYPH[weatherToday.icon]}
+          </span>
+          {weatherToday.tempMax != null ? (
+            <span className={styles.p3HeaderWxTemp}>
+              {weatherToday.tempMax}°
+              {weatherToday.tempMin != null ? ` / ${weatherToday.tempMin}°` : ""}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      <span className={styles.p3HeaderBrand}>キミテラス by Rebounder</span>
+    </header>
   );
 }
 

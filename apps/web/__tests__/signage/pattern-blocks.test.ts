@@ -59,6 +59,12 @@ describe("編集対象ブロックの出し分け", () => {
     expect(editableBlocksForPattern("pattern2")).toEqual(["schedule", "callout", "visitor"]);
   });
 
+  it("pattern3（廊下）は pattern2 と同一ブロック（内容据え置き・デザインのみ最適化）", () => {
+    // 先方確定コンテンツを変えない＝表示ブロックも順序も pattern2 と完全一致（違いは盤面レイアウトのみ）。
+    expect(PATTERN_BLOCKS.pattern3).toEqual(PATTERN_BLOCKS.pattern2);
+    expect(editableBlocksForPattern("pattern3")).toEqual(["schedule", "callout", "visitor"]);
+  });
+
   it("編集対象には自動ブロック（天気 / 広告 / センサ / 鉄道）を含めない", () => {
     for (const pattern of SIGNAGE_DESIGN_PATTERNS) {
       for (const kind of editableBlocksForPattern(pattern)) {
