@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { QuietHoursManager } from "@/app/app/editor/[classId]/quiet-hours/_components/QuietHoursManager";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
@@ -5,7 +6,6 @@ import { QUIET_HOURS_KIND, readQuietRanges } from "@/lib/school-admin/quiet-hour
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
 import { findVisibleClass, getClassConfigValue, getSchoolDetail } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 /**
@@ -60,21 +60,14 @@ export default async function SystemSchoolClassQuietHoursPage({
 
   return (
     <div style={pageStyle}>
-      <nav style={breadcrumbStyle} aria-label="パンくず">
-        <Link href="/ops/schools" style={crumbLinkStyle}>
-          学校一覧
-        </Link>
-        <span aria-hidden="true">/</span>
-        <Link href={`/ops/schools/${school.id}`} style={crumbLinkStyle}>
-          {school.name}
-        </Link>
-        <span aria-hidden="true">/</span>
-        <Link href={`/ops/schools/${school.id}/quiet-hours`} style={crumbLinkStyle}>
-          静粛時間
-        </Link>
-        <span aria-hidden="true">/</span>
-        <span style={crumbCurrentStyle}>{data.className}</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: "学校一覧", href: "/ops/schools" },
+          { label: school.name, href: `/ops/schools/${school.id}` },
+          { label: "静粛時間", href: `/ops/schools/${school.id}/quiet-hours` },
+          { label: data.className },
+        ]}
+      />
 
       <div role="note" style={bannerStyle}>
         <span aria-hidden="true">🛡</span>
@@ -103,16 +96,6 @@ export default async function SystemSchoolClassQuietHoursPage({
 }
 
 const pageStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: "1rem" };
-const breadcrumbStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "0.5rem",
-  fontSize: "0.85rem",
-  color: "#6b7280",
-  flexWrap: "wrap",
-};
-const crumbLinkStyle: React.CSSProperties = { color: "#2563eb", textDecoration: "none" };
-const crumbCurrentStyle: React.CSSProperties = { color: "#1c1917" };
 const bannerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
