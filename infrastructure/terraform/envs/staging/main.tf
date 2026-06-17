@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "227a512" # migration 20260615164918: audit_log.occurred_at の DEFAULT を clock_timestamp() に変更（#965 ハッシュチェーン同一tx誤検知の是正・列DEFAULT変更のみ＝非破壊）。staging Job 実行済
+  migrate_image_tag = "db12ca5" # migration 20260617115610 (#1010): classes に department_id(nullable FK) 追加 + grade nullable 化 + index（「その他」設置場所の土台・additive/後方互換）。C+D web(db12ca5) の前段。staging Job 実行済
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "af40a4d" # af40a4d: #1002 広告 / #1003 静粛時間 / #1004 magic-link を system_admin が /ops/schools/[id]/* で特定校スコープ編集可に。schema/secret 無変更=migrate不要（#1003 の packages/db 変更は型拡張のみ）。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。57dce88(#998/#999) を supersede
+  web_image_tag = "db12ca5" # db12ca5: C(エディタ daily_data #1007/#1009)+D(センサー #1011)を system_admin が /ops/schools/[id]/* で特定校編集可に + ADR-041(#1008)。★schema 変更あり=migrate 実行済(migrate_image_tag db12ca5・#1010 classes department_id/grade nullable additive)。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。af40a4d を supersede
 }
 
 module "network" {
