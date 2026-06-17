@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "227a512" # migration 20260615164918: audit_log.occurred_at の DEFAULT を clock_timestamp() に変更（#965 ハッシュチェーン同一tx誤検知の是正・列DEFAULT変更のみ＝非破壊）。staging先行検証後 prod Job 実行済
+  migrate_image_tag = "db12ca5" # migration 20260617115610 (#1010): classes に department_id(nullable FK) 追加 + grade nullable 化 + index（「その他」設置場所の土台・additive/後方互換）。staging先行検証(Job成功)後 prod Job 実行済。C+D web(db12ca5) の前段
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "af40a4d" # af40a4d: #1002 広告 / #1003 静粛時間 / #1004 magic-link を system_admin が /ops/schools/[id]/* で特定校スコープ編集可に。schema/secret 無変更=migrate不要（#1003 の packages/db 変更は型拡張のみ）。apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。57dce88(#998/#999) を supersede
+  web_image_tag = "db12ca5" # db12ca5: C(エディタ daily_data #1007/#1009)+D(センサー #1011)を system_admin が /ops/schools/[id]/* で特定校編集可に + ADR-041(#1008)。★schema 変更あり=migrate 実行済(migrate_image_tag db12ca5・#1010 classes department_id/grade nullable additive)。staging先行検証後 prod Job 実行→web apply 0add/1change/0destroy・/api/health 200・/login private,no-cache。af40a4d を supersede
 }
 
 module "network" {
