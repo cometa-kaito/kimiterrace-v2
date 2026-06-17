@@ -1,7 +1,6 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
-import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
@@ -9,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { inputStyle, removeBtnStyle, saveBarStyle, secondaryBtnStyle } from "./editor-styles";
 import { toEditorTarget } from "./target";
+import { useScopedDailyDataActions } from "./target-school";
 
 /**
  * 連絡 (お知らせ) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
@@ -75,6 +75,8 @@ export function NoticeEditor({
   onItemsChange?: (items: NoticeItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
+  // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
+  const { setNotices } = useScopedDailyDataActions();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i, idx) => {
       const dd = i.displayDays ?? 1;
@@ -103,7 +105,7 @@ export function NoticeEditor({
     serialized,
     items,
     complete,
-    save: (toSave) => setNoticesAction(target.scope, targetId(target), date, toSave),
+    save: (toSave) => setNotices(target.scope, targetId(target), date, toSave),
   });
 
   function update(index: number, patch: Partial<Row>) {

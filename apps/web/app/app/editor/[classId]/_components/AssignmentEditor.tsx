@@ -1,7 +1,6 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
-import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { isValidDate, targetId } from "@/lib/editor/schedule-core";
@@ -18,6 +17,7 @@ import {
   thStyle,
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
+import { useScopedDailyDataActions } from "./target-school";
 
 /**
  * 提出物 (課題) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
@@ -54,6 +54,8 @@ export function AssignmentEditor({
   onItemsChange?: (items: AssignmentItem[]) => void;
 }) {
   const target = toEditorTarget(targetProp, classId);
+  // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
+  const { setAssignments } = useScopedDailyDataActions();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i) => ({ deadline: i.deadline, subject: i.subject, task: i.task })),
   );
@@ -73,7 +75,7 @@ export function AssignmentEditor({
     serialized,
     items,
     complete,
-    save: (toSave) => setAssignmentsAction(target.scope, targetId(target), date, toSave),
+    save: (toSave) => setAssignments(target.scope, targetId(target), date, toSave),
   });
 
   function update(index: number, patch: Partial<Row>) {

@@ -64,6 +64,10 @@ export default async function SystemSchoolDetailPage({
       <header style={headerStyle}>
         <h1 style={titleStyle}>{school.name}</h1>
         <div style={headerActionsStyle}>
+          {/* エディタ導線 (C2): 運営がこの学校のクラスを選び、予定 / 連絡 / 提出物 (daily_data) を編集する。 */}
+          <Link href={`/ops/schools/${school.id}/editor`} style={editLinkStyle}>
+            エディタ
+          </Link>
           {/* クラス設定導線: 運営がこの学校の学科 / 学年 / クラス階層を編集する (対象校スコープ、監査記録)。 */}
           <Link href={`/ops/schools/${school.id}/hierarchy`} style={editLinkStyle}>
             クラス設定
