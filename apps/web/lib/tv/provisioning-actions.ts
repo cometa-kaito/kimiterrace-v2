@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
+import { pgErrorCode } from "../pg-error";
 import { type ActionResult, conflict, invalid } from "./config-edit-core";
 import { ONBOARDING_ROLES } from "./onboarding-core";
 import { type ProvisioningInput, validateProvisioningInput } from "./provisioning-core";
@@ -40,22 +41,6 @@ import { type ProvisioningInput, validateProvisioningInput } from "./provisionin
  *
  * @returns 作成した `{ jobId, deviceId, signageUrl }`。jobId は UI のライブ進捗ポーリングに使う。
  */
-
-/**
- * PostgreSQL の SQLSTATE を取り出す（Drizzle は `PostgresError` を `DrizzleQueryError` で包み code が
- * `.cause` 側に乗るため cause 連鎖を辿る。[[feedback_drizzle_query_error_cause_sqlstate]]）。
- */
-function pgCode(error: unknown): string | undefined {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && typeof current === "object" && current !== null; depth++) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string") {
-      return code;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return undefined;
-}
 
 export async function createProvisioningJobAction(
   rawInput: ProvisioningInput,
@@ -139,7 +124,8 @@ export async function createProvisioningJobAction(
     revalidatePath("/ops/tv-devices");
     return { ok: true, data: result };
   } catch (error) {
-    const code = pgCode(error);
+    // Drizzle は SQLSTATE を `.cause.code` 側へ移すため共通ヘルパで cause 連鎖を辿る（pg-error.ts）。
+    const code = pgErrorCode(error);
     if (code === "23505") {
       // device_id グローバル UNIQUE 違反（既に登録済 / 別校が同一 device_id を使用）。
       return conflict(

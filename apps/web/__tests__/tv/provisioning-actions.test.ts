@@ -155,13 +155,24 @@ describe("createProvisioningJobAction", () => {
   });
 
   it("device_id 重複 (23505) → conflict", async () => {
-    createTvDeviceMock.mockRejectedValue({ code: "23505" });
+    // 本番同形: drizzle は SQLSTATE を top-level の code から cause.code へ移す。top-level だけ見る旧実装は
+    // 取りこぼし未捕捉例外 → エラー境界 500 を招いた (#1019)。cause 連鎖を辿る共通ヘルパで conflict に倒す。
+    createTvDeviceMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into tv_devices"), {
+        cause: Object.assign(new Error("duplicate key value"), { code: "23505" }),
+      }),
+    );
     const res = await createProvisioningJobAction(VALID);
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
   });
 
   it("school/class FK 違反 (23503) → invalid（class が当該校に属さない等）", async () => {
-    createProvisioningJobMock.mockRejectedValue({ code: "23503" });
+    // 本番同形: SQLSTATE は cause.code に乗る (上記と同じ #1019 回帰ガード)。
+    createProvisioningJobMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into provisioning_jobs"), {
+        cause: Object.assign(new Error("foreign key violation"), { code: "23503" }),
+      }),
+    );
     const res = await createProvisioningJobAction(VALID);
     expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
   });

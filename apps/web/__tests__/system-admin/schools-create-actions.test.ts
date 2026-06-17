@@ -101,7 +101,13 @@ describe("createSchoolAction (DB 経路)", () => {
   });
 
   it("unique 違反 (23505) は conflict に写像", async () => {
-    withSessionMock.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+    // 本番同形: drizzle は SQLSTATE を cause.code へ移す。top-level だけ見る旧実装は取りこぼし
+    // 未捕捉例外 → エラー境界 500 を招いた (#1019)。cause 連鎖を辿る共通ヘルパで conflict に倒す。
+    withSessionMock.mockRejectedValue(
+      Object.assign(new Error("Failed query: insert into schools"), {
+        cause: Object.assign(new Error("duplicate key value"), { code: "23505" }),
+      }),
+    );
     const res = await createSchoolAction(validRaw);
     expect(res).toMatchObject({ ok: false, error: { code: "conflict" } });
   });

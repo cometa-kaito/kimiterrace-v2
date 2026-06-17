@@ -19,6 +19,7 @@ import {
 } from "../auth/teacher-account";
 import { validateTeacherPasswordPolicy } from "../auth/teacher-password-core";
 import { withSession } from "../db";
+import { isPgErrorCode } from "../pg-error";
 import { SYSTEM_ADMIN_ROLES } from "./roles";
 import {
   type ActionResult,
@@ -55,30 +56,14 @@ import {
  * 追跡可能にする (system_admin context では任意 school_id が許可される、0005 policy)。
  */
 
-/**
- * drizzle が wrap した PostgreSQL エラーの SQLSTATE を取り出す。drizzle は元の pg エラーを
- * DrizzleQueryError ("Failed query: …") でラップし、SQLSTATE は `.cause.code` 側に入るため、
- * top-level と cause の両方を見る (top-level だけだと取りこぼす)。
- */
-function pgErrorCode(error: unknown): string | undefined {
-  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
-  if (e && typeof e.code === "string") {
-    return e.code;
-  }
-  if (e?.cause && typeof e.cause.code === "string") {
-    return e.cause.code;
-  }
-  return undefined;
-}
-
-/** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。学校コード重複など。 */
+/** PostgreSQL の unique 制約違反 (SQLSTATE 23505)。学校コード重複など。cause 連鎖の解決は pg-error.ts。 */
 function isUniqueViolation(error: unknown): boolean {
-  return pgErrorCode(error) === "23505";
+  return isPgErrorCode(error, "23505");
 }
 
-/** PostgreSQL の FK 制約違反 (SQLSTATE 23503)。子データが残る学校の削除など。 */
+/** PostgreSQL の FK 制約違反 (SQLSTATE 23503)。子データが残る学校の削除など。cause 連鎖の解決は pg-error.ts。 */
 function isForeignKeyViolation(error: unknown): boolean {
-  return pgErrorCode(error) === "23503";
+  return isPgErrorCode(error, "23503");
 }
 
 /** 対象校が RLS で不可視 (他校 / 不存在) のとき tx をロールバックさせる。 */
