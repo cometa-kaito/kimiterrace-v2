@@ -197,6 +197,11 @@ export async function getScopeConfigValue(
  * {@link upsertClassConfig} / {@link upsertSchoolConfig} の scope 汎用版。競合キー・RLS 強制は同一。
  * scope と grade/department/class_id 列は `target` (targetIdColumns 由来) から設定し ck を充足する。
  *
+ * `actorUserId` は `created_by` / `updated_by` (どちらも `users.id` への FK) に入る値で、
+ * **null を許容**する。system_admin は `users` 表に行を持たないため、運営が特定校を編集する経路
+ * (/ops/schools/[id]/quiet-hours/[classId]) では null を渡し FK 違反 (23503) を回避する
+ * (audit_log 側で actor_identity_uid に IdP uid を残す)。school_admin は自身の users.id を渡す。
+ *
  * @returns upsert 後の行 id (audit_log の record_id に使う)。
  */
 export async function upsertScopeConfig(
@@ -206,7 +211,7 @@ export async function upsertScopeConfig(
     target: ScopeColumns;
     kind: ConfigKind;
     value: object;
-    actorUserId: string;
+    actorUserId: string | null;
   },
 ): Promise<string | null> {
   const [row] = await tx

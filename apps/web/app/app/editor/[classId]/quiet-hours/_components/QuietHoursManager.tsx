@@ -3,7 +3,7 @@
 import { saveQuietHoursAction } from "@/lib/school-admin/quiet-hours-actions";
 import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useState, useTransition } from "react";
+import { createContext, type FormEvent, useContext, useState, useTransition } from "react";
 
 /**
  * クラス静粛時間の設定 UI (#48-J-2)。**Client Component** — 時間帯リストをローカル state で編集し、
@@ -13,17 +13,43 @@ import { type FormEvent, useState, useTransition } from "react";
  *
  * 時間帯 0 件で保存すると「静粛時間なし」に更新できる (全削除)。
  */
+
+/* ------------------------------------------------------------------ *
+ *  対象校スコープ (system_admin が /ops/schools/[id]/quiet-hours/[classId] から他校を編集する経路)
+ *
+ *  school_admin (/app/editor/[classId]/quiet-hours) は対象校 = 自校なので **schoolId を渡さない**。
+ *  その場合 context は undefined となり、`saveQuietHoursAction` の末尾引数 `targetSchoolId` には
+ *  undefined が渡る (= 自校・従来動作、回帰なし)。system_admin が `schoolId` を与えたときだけ、対象校を
+ *  結ぶ (サーバ側 `toQuietHoursActor`/`withSession` が role でゲートし越境を防ぐ。ads #1002 と同型)。
+ * ------------------------------------------------------------------ */
+
+const TargetSchoolContext = createContext<string | undefined>(undefined);
+
 export function QuietHoursManager({
-  scope,
-  targetId,
-  initialRanges,
-}: {
+  schoolId,
+  ...props
+}: QuietHoursManagerProps & {
+  /** system_admin が特定校を編集する /ops/schools/[id]/quiet-hours/[classId] 経路でのみ指定。未指定なら自校。 */
+  schoolId?: string;
+}) {
+  return (
+    <TargetSchoolContext.Provider value={schoolId}>
+      <QuietHoursManagerInner {...props} />
+    </TargetSchoolContext.Provider>
+  );
+}
+
+type QuietHoursManagerProps = {
   /** 編集対象のスコープ ("school"|"department"|"grade"|"class")。Server Action に渡す。 */
   scope: string;
   /** 対象 id (school は null)。Server Action に渡す。 */
   targetId: string | null;
   initialRanges: QuietRange[];
-}) {
+};
+
+function QuietHoursManagerInner({ scope, targetId, initialRanges }: QuietHoursManagerProps) {
+  // 対象校 (system_admin /ops 経路) を Server Action の末尾引数に結ぶ。未指定なら自校 (従来)。
+  const targetSchoolId = useContext(TargetSchoolContext);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -43,7 +69,7 @@ export function QuietHoursManager({
     e.preventDefault();
     // 空欄 ("") はそのまま渡し、Server Action 側の検証 (HH:MM) で弾く (部分保存しない)。
     startTransition(async () => {
-      const res = await saveQuietHoursAction(scope, targetId, ranges);
+      const res = await saveQuietHoursAction(scope, targetId, ranges, targetSchoolId);
       if (res.ok) {
         setMsg({ ok: true, text: "静粛時間を保存しました。" });
         router.refresh();

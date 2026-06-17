@@ -71,24 +71,34 @@ async function writeAudit(
   },
 ): Promise<void> {
   await tx.insert(auditLog).values({
-    actorUserId: actor.userId,
+    actorUserId: actor.actorUserId,
+    actorIdentityUid: actor.identityUid,
     schoolId: actor.schoolId,
     tableName: "school_configs",
     recordId: params.recordId,
     operation: params.operation,
     diff: params.diff as object,
     rowHash: "",
-    createdBy: actor.userId,
-    updatedBy: actor.userId,
+    createdBy: actor.userRef,
+    updatedBy: actor.userRef,
   });
 }
 
-/** 認可 + actor 解決。teacher / テナント未選択は forbidden。 */
-async function authorize(): Promise<QuietHoursActor | ActionResult<never>> {
+/**
+ * 認可 + actor 解決。teacher / テナント未選択は forbidden。`targetSchoolId` は **system_admin が
+ * 特定校を対象にする経路** (/ops/schools/[id]/quiet-hours/[classId]) からのみ意味を持つ。tenant ロール
+ * (school_admin) では `toQuietHoursActor` が無視し自校に固定する (越境防止)。system_admin で対象校
+ * 未指定 / 不正なら forbidden。
+ */
+async function authorize(targetSchoolId?: string): Promise<QuietHoursActor | ActionResult<never>> {
   const user = await requireRole(QUIET_HOURS_ROLES);
-  const actor = toQuietHoursActor(user);
+  const actor = toQuietHoursActor(user, targetSchoolId);
   if (!actor) {
-    return forbidden("学校に属さないユーザーは静粛時間を編集できません。");
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは静粛時間を編集できません。",
+    );
   }
   return actor;
 }
@@ -124,6 +134,7 @@ export async function saveQuietHoursAction(
   rawScope: unknown,
   rawTargetId: unknown,
   rawRanges: unknown,
+  targetSchoolId?: string,
 ): Promise<ActionResult<{ id: string }>> {
   const target = parseEditorTarget(rawScope, rawTargetId);
   if (!target) {
@@ -133,7 +144,7 @@ export async function saveQuietHoursAction(
   if (!v.ok) {
     return invalid(v.message);
   }
-  const actor = await authorize();
+  const actor = await authorize(targetSchoolId);
   if ("ok" in actor) {
     return actor;
   }
@@ -142,6 +153,8 @@ export async function saveQuietHoursAction(
   try {
     // tenantScoped: system_admin を school_admin に降格し full_access policy の全校発火を止める
     // (ADR-019 §#95 / Issue #226)。本 Action は特定 scope = 特定 school のテナントスコープ操作。
+    // schoolId: school_admin は自校 (= 渡しても同値)、system_admin は対象校 (/ops 経路)。withSession 側で
+    // 「system_admin のときだけ override を honor」するため tenant ロールは自校に固定される (越境防止)。
     const id = await withSession(
       async (tx) => {
         // 対象 (学科/学年/クラス) が自校で可視か (他校 id は RLS で不可視 → CrossTenantError)。
@@ -157,7 +170,8 @@ export async function saveQuietHoursAction(
           target: cols,
           kind: QUIET_HOURS_KIND,
           value: v.value,
-          actorUserId: actor.userId,
+          // created_by / updated_by は users.id への FK。system_admin は null (FK 回避、userRef)。
+          actorUserId: actor.userRef,
         });
         if (!newId) {
           throw new CrossTenantError("静粛時間を保存できませんでした。");
@@ -176,10 +190,14 @@ export async function saveQuietHoursAction(
         });
         return newId;
       },
-      { tenantScoped: true },
+      { tenantScoped: true, schoolId: actor.schoolId },
     );
 
     revalidatePath(quietHoursPath(target));
+    // system_admin の /ops 経路 (クラス静粛時間) も反映。school_admin の自校経路では当該パスは未使用だが無害。
+    if (target.scope === "class") {
+      revalidatePath(`/ops/schools/${actor.schoolId}/quiet-hours/${target.classId}`);
+    }
     // サイネージ (#48-E1) も即時反映 (F04 即公開と同思想)。
     revalidatePath("/app/signage-preview/[classId]", "page");
     return { ok: true, data: { id } };

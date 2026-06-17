@@ -122,14 +122,22 @@ describe("saveQuietHoursAction", () => {
     expect(res).toEqual({ ok: true, data: { id: CONFIG_ID } });
     expect(upsertScopeConfigMock).toHaveBeenCalledTimes(1);
     // cross-tenant 防御: system_admin 降格 (tenantScoped) で実行する (ADR-019 §#95、ルール2)。
-    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), { tenantScoped: true });
+    // schoolId: school_admin は自校 (= 渡しても同値、越境は withSession 側が封じる)。
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: SCHOOL_ID,
+    });
     expect(auditInsertTable).toBe(auditLog);
     expect(auditValues).toMatchObject({
       tableName: "school_configs",
       operation: "insert",
       recordId: CONFIG_ID,
       schoolId: SCHOOL_ID,
+      // school_admin: actorUserId=uid / created_by,updated_by=uid (userRef) / actorIdentityUid=null。
       actorUserId: USER_ID,
+      actorIdentityUid: null,
+      createdBy: USER_ID,
+      updatedBy: USER_ID,
     });
   });
 
@@ -179,5 +187,64 @@ describe("saveQuietHoursAction", () => {
         kind: "quiet_hours",
       }),
     );
+  });
+
+  it("school_admin が targetSchoolId(他校) を渡しても自校に固定する (越境不可)", async () => {
+    const OTHER_SCHOOL = "abababab-abab-4bab-8bab-abababababab";
+    const res = await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES, OTHER_SCHOOL);
+    expect(res).toEqual({ ok: true, data: { id: CONFIG_ID } });
+    // toQuietHoursActor が tenant ロールの targetSchoolId を無視し自校固定 → withSession も自校 schoolId。
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: SCHOOL_ID,
+    });
+  });
+});
+
+/**
+ * system_admin が /ops/schools/[id]/quiet-hours/[classId] から特定校を対象に編集する経路の配線
+ * (ads-actions.test.ts の対応ブロックと同型)。actor が system_admin (session schoolId=null) のとき、
+ * 渡した `targetSchoolId` が `withSession(..., { tenantScoped: true, schoolId })` へ伝播し、
+ * created_by/updated_by (userRef) は null (FK 回避)・actorIdentityUid に uid が載ることを固定する。
+ * 実際の越境封じ (override は system_admin のみ honor / 降格 RLS) は packages/db の実 PG テストで担保する。
+ */
+describe("system_admin: 対象校スコープの配線", () => {
+  const SYS_UID = "77777777-7777-4777-8777-777777777777";
+  const TARGET = "88888888-8888-4888-8888-888888888888";
+
+  beforeEach(() => {
+    requireRoleMock.mockResolvedValue({ uid: SYS_UID, role: "system_admin", schoolId: null });
+  });
+
+  it("対象校未指定は forbidden、DB に到達しない", async () => {
+    const res = await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES);
+    expect(res).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    expect(withSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("対象校指定で withSession に { tenantScoped, schoolId: TARGET } を渡す", async () => {
+    const res = await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES, TARGET);
+    expect(res).toEqual({ ok: true, data: { id: CONFIG_ID } });
+    expect(withSessionMock).toHaveBeenCalledWith(expect.any(Function), {
+      tenantScoped: true,
+      schoolId: TARGET,
+    });
+  });
+
+  it("audit/upsert の FK 値: created_by/updated_by(userRef)=null・actorIdentityUid=uid・actorUserId=uid", async () => {
+    await saveQuietHoursAction("class", CLASS_ID, VALID_RANGES, TARGET);
+    // upsert の actorUserId (= created_by/updated_by FK) は null (system_admin は users 行を持たない)。
+    expect(upsertScopeConfigMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ schoolId: TARGET, actorUserId: null, kind: "quiet_hours" }),
+    );
+    // audit_log: actor_user_id=acting uid / created_by,updated_by=null / actor_identity_uid=uid。
+    expect(auditValues).toMatchObject({
+      schoolId: TARGET,
+      actorUserId: SYS_UID,
+      actorIdentityUid: SYS_UID,
+      createdBy: null,
+      updatedBy: null,
+    });
   });
 });
