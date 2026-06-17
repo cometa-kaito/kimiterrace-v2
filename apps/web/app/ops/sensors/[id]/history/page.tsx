@@ -1,3 +1,4 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import {
@@ -61,11 +62,13 @@ export default async function SensorHistoryPage({
 
   return (
     <section>
-      <p style={backLinkStyle}>
-        <a href="/ops/sensors" style={linkStyle}>
-          ← センサー管理に戻る
-        </a>
-      </p>
+      <Breadcrumb
+        items={[
+          { label: "センサー管理（全校）", href: "/ops/sensors" },
+          { label: sensor.locationLabel ?? "（設置場所 未設定）" },
+          { label: "検知履歴" },
+        ]}
+      />
 
       <div style={headerStyle}>
         <h1 style={titleStyle}>検知履歴: {sensor.locationLabel ?? "（設置場所 未設定）"}</h1>
@@ -223,8 +226,6 @@ function formatJstDateTime(value: Date): string {
   }).format(value);
 }
 
-const backLinkStyle: React.CSSProperties = { margin: "0 0 0.75rem", fontSize: "0.85rem" };
-const linkStyle: React.CSSProperties = { color: "#1d4ed8", fontWeight: 600 };
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",

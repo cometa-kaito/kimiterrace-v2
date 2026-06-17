@@ -1,8 +1,8 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { listSchools } from "@kimiterrace/db";
-import Link from "next/link";
 import { SystemStaffCreateForm } from "./_components/SystemStaffCreateForm";
 
 /**
@@ -27,9 +27,7 @@ export default async function SystemUserNewPage() {
     <section
       style={{ display: "flex", flexDirection: "column", gap: "1.25rem", maxWidth: "640px" }}
     >
-      <Link href="/ops/users" style={backLinkStyle}>
-        ← 教職員管理
-      </Link>
+      <Breadcrumb items={[{ label: "教職員管理", href: "/ops/users" }, { label: "新規発行" }]} />
       <h1 style={titleStyle}>教職員を発行</h1>
       <p style={subtitleStyle}>
         学校を選んで学校管理者アカウントを発行します。新規校では、まず「学校管理者」を 1
@@ -40,10 +38,5 @@ export default async function SystemUserNewPage() {
   );
 }
 
-const backLinkStyle: React.CSSProperties = {
-  fontSize: "0.85rem",
-  color: "#2563eb",
-  textDecoration: "none",
-};
 const titleStyle: React.CSSProperties = { fontSize: "1.4rem", fontWeight: 700, margin: 0 };
 const subtitleStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#6b7280", margin: 0 };

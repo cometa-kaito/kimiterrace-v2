@@ -1,8 +1,8 @@
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ONBOARDING_ROLES } from "@/lib/tv/onboarding-core";
 import { listSchools } from "@kimiterrace/db";
-import Link from "next/link";
 import { TvDeviceCreateForm } from "./_components/TvDeviceCreateForm";
 
 /**
@@ -28,12 +28,10 @@ export default async function NewTvDevicePage() {
 
   return (
     <section style={{ maxWidth: "640px" }}>
-      <p style={{ margin: "0 0 0.75rem" }}>
-        <Link href="/ops/tv-devices" style={{ color: "#1d4ed8", fontSize: "0.85rem" }}>
-          ← TV デバイス一覧へ戻る
-        </Link>
-      </p>
-      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0 0 0.25rem" }}>
+      <Breadcrumb
+        items={[{ label: "モニタ設定", href: "/ops/tv-devices" }, { label: "新規登録" }]}
+      />
+      <h1 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.75rem 0 0.25rem" }}>
         TV デバイスの新規登録
       </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1.25rem", fontSize: "0.9rem" }}>

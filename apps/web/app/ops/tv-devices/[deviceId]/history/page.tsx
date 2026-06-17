@@ -18,8 +18,8 @@ import {
   getTvUptimeSummary,
   listTvDeviceDowntime,
 } from "@kimiterrace/db";
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 
 /**
  * F16 §5 (ADR-023): TV デバイスの **ダウンタイム履歴 / 稼働サマリ**（`/ops/tv-devices/[deviceId]/history`）。
@@ -73,11 +73,13 @@ export default async function TvDeviceHistoryPage({
 
   return (
     <section>
-      <p style={{ margin: "0 0 0.5rem" }}>
-        <Link href="/ops/tv-devices" style={backLinkStyle}>
-          ← TV デバイス一覧へ戻る
-        </Link>
-      </p>
+      <Breadcrumb
+        items={[
+          { label: "モニタ設定", href: "/ops/tv-devices" },
+          { label: device.label ?? "（ラベル未設定）" },
+          { label: "稼働履歴" },
+        ]}
+      />
       <header style={headerStyle}>
         <h1 style={titleStyle}>稼働履歴 — {device.label ?? "（ラベル未設定）"}</h1>
         <span style={countStyle} title="device_id（先頭のみ表示）">
@@ -204,11 +206,6 @@ function DowntimeRow({
   );
 }
 
-const backLinkStyle: React.CSSProperties = {
-  color: "#1d4ed8",
-  fontSize: "0.85rem",
-  textDecoration: "none",
-};
 const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",

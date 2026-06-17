@@ -1,4 +1,5 @@
 import { AdThumbnail } from "@/app/_components/AdThumbnail";
+import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getAdvertiserDetail } from "@/lib/system-admin/advertisers-queries";
@@ -7,7 +8,6 @@ import { SYSTEM_ADMIN_ROLES } from "@/lib/system-admin/roles";
 import { isUuid } from "@/lib/system-admin/schools-core";
 import { listSchools } from "@kimiterrace/db";
 import { EmptyState } from "@kimiterrace/ui";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OperatorAdDeleteButton } from "./_components/OperatorAdDeleteButton";
 import { OperatorAdForm } from "./_components/OperatorAdForm";
@@ -50,9 +50,14 @@ export default async function AdvertiserAdsPage({ params }: { params: Promise<{ 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <Link href="/ops/advertisers" style={backLinkStyle}>
-        ← 広告主一覧
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: "広告配信割当", href: "/ops/advertisers" },
+          // 広告主の編集ページが実質の広告主ホームのため、会社名はそこへリンクする。
+          { label: data.advertiser.companyName, href: `/ops/advertisers/${id}/edit` },
+          { label: "広告" },
+        ]}
+      />
       <header>
         <h1 style={titleStyle}>{data.advertiser.companyName} の広告</h1>
         <p style={subtitleStyle}>
@@ -103,7 +108,6 @@ export default async function AdvertiserAdsPage({ params }: { params: Promise<{ 
   );
 }
 
-const backLinkStyle: React.CSSProperties = { fontSize: "0.85rem", color: "#2563eb" };
 const titleStyle: React.CSSProperties = {
   fontSize: "1.4rem",
   fontWeight: 700,
