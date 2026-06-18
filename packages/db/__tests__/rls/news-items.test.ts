@@ -1,0 +1,115 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createDbClient, withTenantContext } from "../../src/client.js";
+import { getLatestNews, saveNewsItems } from "../../src/queries/news-items.js";
+import { getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
+
+const url = getConnectionUrl();
+const describeOrSkip = url ? describe : describe.skip;
+
+/**
+ * pattern2/3「工学ニュース」 news_items の RLS（公開参照マスタ特例：read_all + write_system）を実 PG で検証する。
+ * weather_forecasts（0017）/ railway_status（0025）と同型。匿名サイネージが読め、system_admin（取得 Job）
+ * だけが書ける。
+ */
+describeOrSkip("RLS: news_items（工学ニュース見出し・公開キャッシュ）", () => {
+  // biome-ignore lint/style/noNonNullAssertion: describe.skip 時は実行されない
+  const { sql: raw, db } = createDbClient(url!);
+  const APP = { appRole: "kimiterrace_app" } as const;
+  let fx: Awaited<ReturnType<typeof seedBaseFixture>>;
+
+  const ctxSys = () => ({ role: "system_admin" as const });
+  const ctxA = () => ({ userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" as const });
+  // 匿名サイネージ: role 未設定・school_id のみ（ADR-016 の deny-by-default 接続）。
+  const ctxAnon = () => ({ schoolId: fx.schoolA });
+
+  const item = (title: string, url: string, publishedAt?: Date) =>
+    ({
+      source: "jst" as const,
+      sourceLabel: "JST サイエンスポータル",
+      title,
+      url,
+      publishedAt: publishedAt ?? null,
+    }) as const;
+
+  beforeAll(async () => {
+    fx = await seedBaseFixture(raw);
+  });
+
+  beforeEach(async () => {
+    await raw`RESET ROLE`;
+    await raw`DELETE FROM news_items`;
+  });
+
+  afterAll(async () => {
+    await raw.end({ timeout: 5 });
+  });
+
+  it("system は upsert でき、匿名サイネージ / school_admin とも read できる（read_all）", async () => {
+    await withTenantContext(
+      db,
+      ctxSys(),
+      (tx) =>
+        saveNewsItems(tx, [
+          item(
+            "H3ロケット、新型エンジンの燃焼試験に成功",
+            "https://scienceportal.jst.go.jp/a/",
+            new Date("2026-06-18T00:00:00Z"),
+          ),
+          item(
+            "グラフェンの新しい加工技術を開発",
+            "https://scienceportal.jst.go.jp/b/",
+            new Date("2026-06-17T00:00:00Z"),
+          ),
+        ]),
+      APP,
+    );
+
+    const anon = await withTenantContext(db, ctxAnon(), (tx) => getLatestNews(tx, 8), APP);
+    expect(anon).toHaveLength(2);
+    // 公開日降順 → 最新が先頭。
+    expect(anon[0]?.title).toBe("H3ロケット、新型エンジンの燃焼試験に成功");
+    expect(anon[0]?.sourceLabel).toBe("JST サイエンスポータル");
+
+    const a = await withTenantContext(db, ctxA(), (tx) => getLatestNews(tx, 8), APP);
+    expect(a).toHaveLength(2);
+  });
+
+  it("upsert は同一 (source,url) を 1 行で更新する（ON CONFLICT (source, url)）", async () => {
+    await withTenantContext(
+      db,
+      ctxSys(),
+      (tx) => saveNewsItems(tx, [item("旧見出し", "https://scienceportal.jst.go.jp/x/")]),
+      APP,
+    );
+    await withTenantContext(
+      db,
+      ctxSys(),
+      (tx) => saveNewsItems(tx, [item("差し替え後の見出し", "https://scienceportal.jst.go.jp/x/")]),
+      APP,
+    );
+
+    const r = await withTenantContext(db, ctxAnon(), (tx) => getLatestNews(tx, 8), APP);
+    expect(r).toHaveLength(1);
+    expect(r[0]?.title).toBe("差し替え後の見出し");
+    const [{ count }] = await raw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM news_items`;
+    expect(count).toBe(1);
+  });
+
+  it("非 system（school_admin）コンテキストは書き込めない（write_system）", async () => {
+    await expect(
+      withTenantContext(
+        db,
+        ctxA(),
+        (tx) => saveNewsItems(tx, [item("不正書込", "https://scienceportal.jst.go.jp/z/")]),
+        APP,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("該当が無ければ空配列（fail-soft）", async () => {
+    const r = await withTenantContext(db, ctxAnon(), (tx) => getLatestNews(tx, 8), APP);
+    expect(r).toEqual([]);
+  });
+});

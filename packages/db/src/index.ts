@@ -93,5 +93,7 @@ export * from "./queries/signage-class-context.js";
 export * from "./queries/daily-window.js";
 // F14 (#128, ADR-021): サイネージ天気予報キャッシュの upsert (取得 Job) / 読み取り (匿名サイネージ) 層
 export * from "./queries/weather-forecasts.js";
+// ADR-043: サイネージ「工学ニュース」見出しキャッシュの upsert (取得 Job) / 読み取り (匿名サイネージ) 層
+export * from "./queries/news-items.js";
 // F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
 export * from "./_shared/jma-area-map.js";

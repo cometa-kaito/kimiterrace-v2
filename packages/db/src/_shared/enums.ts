@@ -117,6 +117,22 @@ export type TvProvisioningStatus = (typeof tvProvisioningStatus.enumValues)[numb
 // 将来 JMA 障害時の商用 API フォールバックを採る場合は末尾に値を足す（ADD VALUE、非破壊）。
 export const weatherSource = pgEnum("weather_source", ["jma"]);
 
+// ADR-043: サイネージ「工学ニュース」のデータソース。`news_items.source` の値域を DB レベルで固定する
+// （ルール3: 値域の単一ソース化）。本文は転載せず見出し+出典+リンクのみ表示する（著作権回避）。
+//   jst  … JST サイエンスポータル（本命・工学/科学技術ニュース・日本語・日次）
+//   mext … 文部科学省 新着情報（政府標準利用規約 = CC BY 互換）
+//   meti … 経済産業省 ニュースリリース（政府標準利用規約 = CC BY 互換）
+// 将来 jaxa 等を足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊。generate が DROP TYPE を吐かないこと）。
+export const newsSource = pgEnum("news_source", ["jst", "mext", "meti"]);
+
+/**
+ * ニュースソースの型（単一ソース）。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema`
+ * から `import type` でこれを引き込み、許可値・発表元ラベルが enum とズレないことを `satisfies` で
+ * コンパイル時に強制する（`PublishScope` / `TvCommandType` と同方針）。型のみなので Next バンドルに
+ * enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type NewsSource = (typeof newsSource.enumValues)[number];
+
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "schedule",
