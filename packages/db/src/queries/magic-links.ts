@@ -340,9 +340,13 @@ export async function listClassMagicLinks(
   const where = options?.includeRevoked
     ? eq(magicLinks.classId, classId)
     : and(eq(magicLinks.classId, classId), isNull(magicLinks.revokedAt));
-  return tx
-    .select(ISSUED_COLUMNS)
-    .from(magicLinks)
-    .where(where)
-    .orderBy(desc(magicLinks.createdAt));
+  return (
+    tx
+      .select(ISSUED_COLUMNS)
+      .from(magicLinks)
+      .where(where)
+      // created_at 同値でも順序を決定的にする tiebreaker（id 降順）。get-or-create の「最新1本」再利用が
+      // 同時刻発行で非決定にならないようにする（ADR-042 PR3 Reviewer 指摘）。
+      .orderBy(desc(magicLinks.createdAt), desc(magicLinks.id))
+  );
 }
