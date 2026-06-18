@@ -209,4 +209,25 @@ describe("getCurrentUser", () => {
     });
     await expect(getCurrentUser()).resolves.toBeNull();
   });
+
+  // PR #1037 Reviewer nit-1: getCurrentUser は React `cache()` でラップされ、同一リクエスト内の
+  // 再呼び出しをメモ化する。だが、そのメモ化は **Next.js が RSC リクエストごとに張る境界に閉じた
+  // リクエストスコープ** でなければならない。リクエストを跨いで持続する (モジュールスコープの Map や
+  // unstable_cache 等への) 取り違えは、失効済みセッションを使い回す重大なセキュリティ後退になる。
+  //
+  // React `cache()` はリクエストスコープ外 (= Next ランタイムを経由しない unit テスト) では素通しになり、
+  // 呼ぶたびに本体が走る (検証済み挙動)。この性質を逆手に取り「2 回呼ぶと verifySessionCookie も 2 回」を
+  // 固定することで、横断的/永続キャッシュへの誤差し替えを CI で検出する (in-request の畳み込み自体は
+  // Next の RSC ランタイムが担い、unit では再現しないため、ここではスコープ境界のみを pin する)。
+  it("リクエストスコープ外では毎回検証が走る (横断的な永続キャッシュではない、nit-1)", async () => {
+    cookieValue.current = "good-cookie";
+    verifySessionCookie.mockResolvedValue({
+      uid: VALID_UID,
+      role: "school_admin",
+      school_id: VALID_SCHOOL,
+    });
+    await getCurrentUser();
+    await getCurrentUser();
+    expect(verifySessionCookie).toHaveBeenCalledTimes(2);
+  });
 });

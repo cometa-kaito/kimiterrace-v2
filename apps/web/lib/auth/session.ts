@@ -1,5 +1,6 @@
 import type { TenantRole } from "@kimiterrace/db";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { getAdminAuth } from "./adminApp";
 
 /**
@@ -174,14 +175,27 @@ const SESSION_COOKIE_NAME = "__session";
  *
  * Server Component / Route Handler / Server Action から呼ぶ (Edge middleware からは呼ばない:
  * firebase-admin は Edge runtime 非対応。middleware は cookie 存在チェックのみ、ADR-003)。
+ *
+ * **React `cache()` でラップ (PR #1037 Reviewer nit-1)**: 多層防御で同一リクエスト内に
+ * `requireRole` / `requireUser` が複数回呼ばれる箇所 (例: レイアウト + ページ、ページ + 委譲先 View、
+ * editor scope ページ群) があり、その都度 `verifySessionCookie(cookie, checkRevoked=true)` =
+ * Identity Platform へのリモート失効チェック往復が走る。`cache()` で **1 リクエスト内の再呼び出しを
+ * メモ化**し、検証往復を 1 回に畳む。
+ *
+ * **失効反映が遅れる副作用は無い (認可判定の核なので要確認事項)**: React `cache()` のメモ化スコープは
+ * **Next.js が RSC リクエストごとに張る境界に閉じる**。リクエストを跨いだ永続キャッシュではないため、
+ * `revokeRefreshTokens` による失効は次リクエストの検証で即座に反映される (ADR-026 D1 の保証は不変)。
+ * メモ化はあくまで「同一リクエスト内で同じ user を返す」= 既に冪等な振る舞いの最適化に留まる。
+ * リクエストスコープ外 (unit テスト等、Next ランタイム非経由) では `cache()` は素通し
+ * (メモ化されず毎回実行) になり、横断的キャッシュにはならない。
  */
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export const getCurrentUser = cache(async (): Promise<AuthUser | null> => {
   const cookieStore = await cookies();
   const cookie = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!cookie) {
     return null;
   }
   return await verifySessionCookie(cookie);
-}
+});
 
 export { SESSION_COOKIE_NAME };
