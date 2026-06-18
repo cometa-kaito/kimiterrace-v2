@@ -38,11 +38,10 @@ export default async function ClassMagicLinkPage({
       className: cls.name,
       links: links.map((l) => ({
         id: l.id,
-        // ADR-042 PR1: expiresAt は型上 Date | null になったが、無期限リンクの発行 (NULL 書込) は
-        // PR2 で導入する。PR1 時点で存在するのは全て期限つきリンクのため実行時 non-null。
-        // NULL 無期限の UI 表示 (MagicLinkManager の型/表示) は PR3 で対応する。
-        // biome-ignore lint/style/noNonNullAssertion: PR1 時点の発行リンクは全て期限つき
-        expiresAt: l.expiresAt!.toISOString(),
+        // ADR-042 D2: 再表示用の平文 token（自校 RLS スコープ済）。旧リンクは null で再表示不可。
+        token: l.token,
+        // ADR-042 D1: expiresAt は NULL = 無期限。null 安全に文字列化し、UI で「無期限」表示する。
+        expiresAt: l.expiresAt ? l.expiresAt.toISOString() : null,
         createdAt: l.createdAt.toISOString(),
       })),
     };
@@ -72,8 +71,9 @@ export default async function ClassMagicLinkPage({
       </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         生徒がサイネージ / 掲示物に匿名アクセスするための magic link
-        を発行・失効します。発行時に表示される URL は<strong>その場限り</strong>
-        です（後から再表示できません）。漏洩に気づいたら直ちに失効してください。
+        を発行・失効します。発行したリンクの URL は一覧から
+        <strong>後から再表示・コピー</strong>
+        できます。差し替えたいときは失効して再発行してください。
       </p>
       <MagicLinkManager classId={classId} initialLinks={data.links} />
     </div>
