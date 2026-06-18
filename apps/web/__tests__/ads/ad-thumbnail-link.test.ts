@@ -33,6 +33,15 @@ describe("safeHttpOrRelative", () => {
     expect(safeHttpOrRelative("//evil.com/path")).toBeNull();
   });
 
+  it("制御文字 `/<TAB|LF|CR>/host` をオープンリダイレクトとして弾く", () => {
+    // ブラウザはパース前に tab/改行/CR を URL から除去するため、単一 `/` の直後にこれらを挟んだ値は
+    // `//evil.com`（protocol-relative）へ再正規化されて別オリジンに飛ぶ。index-1 の文字チェックでは
+    // 漏れる別クラスなので、同一オリジン解決（プレースホルダ origin 不変）でまとめて塞ぐ。
+    expect(safeHttpOrRelative("/\t/evil.com")).toBeNull();
+    expect(safeHttpOrRelative("/\n/evil.com")).toBeNull();
+    expect(safeHttpOrRelative("/\r/evil.com")).toBeNull();
+  });
+
   it("危険スキーム（javascript:/data:）を弾く", () => {
     expect(safeHttpOrRelative("javascript:alert(1)")).toBeNull();
     expect(safeHttpOrRelative("data:text/html,<script>alert(1)</script>")).toBeNull();
