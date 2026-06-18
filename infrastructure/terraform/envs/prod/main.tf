@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "db12ca5" # migration 20260617115610 (#1010): classes に department_id(nullable FK) 追加 + grade nullable 化 + index（「その他」設置場所の土台・additive/後方互換）。staging先行検証(Job成功)後 prod Job 実行済。C+D web(db12ca5) の前段
+  migrate_image_tag = "98cc9d8" # migration 0028(#1049 news_items+RLS・ADR-043) + 0029(#1048 weather_warnings+RLS・ADR-044)。staging Job 成功後 prod Job 実行（人間専任）。いずれも additive/後方互換
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -182,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
+  jobs_image_tag = "98cc9d8" # 工学ニュース取得Job(dist/news/news-job.js)同梱(ADR-043/#1053) + #1048 気象警報取得(weather Job 相乗り/ADR-044)。weather/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "4b9ff70" # prod deploy: #1050 pattern3 ヘッダーの天気アイコン削除（週間天気帯と重複・気温は残置）。範囲 b5796da..4b9ff70 に #1049 news_items DB基盤(migration 0028)が挟まるが web 参照経路ゼロの休眠コード=ランタイム影響なし・migration 0028 は web 不要のため未適用(prod migrate は db12ca5 のまま)。schema/secret 無変更=migrate 不要。疎通 /api/health 200 + /login private,no-cache
+  web_image_tag = "98cc9d8" # prod deploy: #1052 工学ニュース盤面(pattern2/3・見出し+出典・ADR-043)。範囲 4b9ff70..98cc9d8（apps/web は news 盤面のみ・#1048 は web 非変更）。要: migrate 0028(news_items)+0029(weather_warnings) を web 前に適用。疎通 /api/health 200 + /login private,no-cache
 }
 
 module "network" {
@@ -607,7 +607,7 @@ module "cloud_run_job_news" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # PR2 scaffold（有効化は jobs image bump + staging 検証後の人間判断）
+  enabled                = true # 2026-06-18 有効化: jobs image 98cc9d8 同梱・staging 検証済（feeds:2 rowsUpserted:25）・ADR-043
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/news/news-job.js"]
   database_url_secret_id = local.db_url_app_secret_id
