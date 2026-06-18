@@ -105,11 +105,18 @@ const playBadgeStyle: CSSProperties = {
 
 /**
  * http(s) 絶対 URL か **同一オリジン相対パス**（単一 `/` 始まり）だけをリンク先に採用する。
- * `javascript:`/`data:` 等の危険スキームに加え、**プロトコル相対 `//host`**（別オリジンへ飛ぶ
- * オープンリダイレクト）も弾く（`SignageClient.safeHttpUrl` と同じ安全側の方針）。
+ * `javascript:`/`data:` 等の危険スキームに加え、別オリジンへ飛ぶ**オープンリダイレクト**も弾く:
+ * - **プロトコル相対 `//host`**
+ * - **`/\host`（先頭スラッシュ直後がバックスラッシュ）**: 一部ブラウザが `\`→`/` 正規化で `//host`
+ *   相当（protocol-relative）に解釈するため、`/` だけでなく `\` も同一オリジン相対とみなさず弾く。
+ *
+ * `SignageClient.safeHttpUrl` と同じ安全側の方針（あちらは相対パスを採らず絶対 http(s) のみなので、
+ * この `/\` ガードは不要＝同種の穴を持たない）。
  */
-function safeHttpOrRelative(url: string): string | null {
-  if (url.startsWith("/") && !url.startsWith("//")) {
+export function safeHttpOrRelative(url: string): string | null {
+  // 先頭が単一 `/` で、その直後が `/` でも `\` でもない時だけ同一オリジン相対パスとして採用する。
+  // `//host`（プロトコル相対）と `/\host`（ブラウザが `//host` に正規化しオープンリダイレクト化）を弾く。
+  if (url.startsWith("/") && url[1] !== "/" && url[1] !== "\\") {
     return url;
   }
   try {
