@@ -21,6 +21,7 @@ import {
   getEffectiveDailyData,
   getEffectiveScheduleDays,
 } from "./effective-daily-data";
+import { type SignageNews, getSignageNews } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
 import { signageScheduleDates } from "./rotation";
@@ -121,6 +122,14 @@ export type SignagePayload = {
    * キャッシュ無し・取得失敗は `null`（ウィジェットは「運行情報は取得できていません」表示＝fail-soft）。
    */
   trainStatus: SignageRailwayStatus | null;
+  /**
+   * パターン2/3「工学ニュース」用、外部取得キャッシュ（news_items）の最新見出し（見出し+発表元+公開日+出典 URL）。
+   * pattern1 は使わない。**端末は閉域**で、バックエンド取得 Job が `news_items` にキャッシュした行を読むだけ
+   * （政府系/JST の公開 RSS を直叩きしない・ADR-043）。RLS read_all で匿名でも読める。**本文は持たず転載しない**
+   * （著作権方針）。記事無し・取得失敗は `items: []`（ウィジェットは「ニュースを取得できていません」表示＝
+   * fail-soft）。`null` はパターン非該当（pattern1）で取得していないことを表す。
+   */
+  news: SignageNews | null;
   /**
    * このクラスのサイネージ「黒画面」状態（per-class 運用トグル・web のみ・パターン非依存）。`true` のとき
    * `SignageClient` が盤面の代わりに全画面の黒画面を描く（夜間/イベント等で一時的に画面を消す用途）。保存先は
@@ -243,6 +252,12 @@ export async function buildSignagePayloadForClass(
   const trainStatus = patternIncludesBlock(designPattern, "train")
     ? await getSignageRailwayStatus(tx).catch(() => null)
     : null;
+  // 「工学ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
+  // の RSS 直叩きしない・ADR-043）。RLS read_all で匿名でも読める。取得失敗は空リスト（fail-soft）に倒す。
+  // パターン非該当（pattern1）は引かず null（盤面でも出さない）。
+  const news = patternIncludesBlock(designPattern, "news")
+    ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
+    : null;
   // 黒画面トグル（per-class・パターン非依存）。class スコープ display_settings.blackout を読む。同一 tx・
   // RLS 自校限定（ルール2）。読み取り失敗は false に倒し盤面を出す（fail-soft、黒画面で覆い隠さない）。
   const blackout = await getClassSignageBlackout(tx, classId).catch(() => false);
@@ -258,6 +273,7 @@ export async function buildSignagePayloadForClass(
     visitors,
     callouts,
     trainStatus,
+    news,
     blackout,
   } satisfies SignagePayload;
 }

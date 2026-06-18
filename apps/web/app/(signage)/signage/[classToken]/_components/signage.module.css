@@ -801,6 +801,78 @@
   box-shadow: inset 3px 0 0 0 var(--accent-color);
 }
 
+/* ===================== 11b-2. 工学ニュース（pattern2/3・ADR-043） =====================
+   p2Grid 第4段。鉄道/センサのステータス帯より下、最も副次的なブロックとして横幅いっぱいに 1 枠。
+   見出し（headline）+ 発表元（出典明記・必須）+ 公開日 + 出典ドメインを 1 記事 1 行で出す。本文は持たない。
+   既存 .card を土台に、リスト体裁は来校者/呼び出し（.p2VisitorList）と同作法で揃える。 */
+.p2News {
+  flex: 22 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.p2NewsStale {
+  font-size: 0.6em;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 0.4rem;
+}
+.p2NewsList {
+  list-style: none;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+/* 1 記事 = 見出し（主役・1 行省略）＋ メタ（発表元/公開日）＋ 出典ドメイン。点線区切りは来校者と同作法。 */
+.p2NewsItem {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px dotted var(--border-color);
+  padding: 0.12rem 0;
+}
+.p2NewsTitle {
+  font-size: clamp(0.82rem, 1.2vw, 1.1rem);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--primary-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* 発表元 + 公開日。出典明記（発表元ラベル）は ADR-043 で必須。.p2ScheduleMetaSep を区切りに共有。 */
+.p2NewsMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 0 0.3rem;
+  font-size: clamp(0.66rem, 0.95vw, 0.86rem);
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+}
+.p2NewsSource {
+  color: var(--accent-color);
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* 出典ドメイン（QR 生成元の原文 URL を短縮表示）。控えめに副次表示。 */
+.p2NewsUrl {
+  font-size: clamp(0.6rem, 0.85vw, 0.78rem);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* pattern3（廊下版）: ニュース見出しを遠距離可読まで拡大（鉄道/センサと同じ .p3Root 配下の上書き）。 */
+.p3Root .p2NewsTitle {
+  font-size: clamp(1rem, 1.7vw, 1.45rem);
+}
+
 /* ===================== 11c. パターン3 盤面（廊下設置・最適化） =====================
    表示ブロック・データ・順序・広告は pattern2 と同一（先方確定コンテンツを変えない）。盤面の各部品
    （Pattern2Schedule/Callouts/Visitors/Train/SensorCount）と広告（AdAside）を再利用し、ここは廊下の
@@ -1151,6 +1223,10 @@
   .p2Status {
     flex: none;
     grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .p2News {
+    flex: none;
     overflow: visible;
   }
   .p2ScheduleDay {
