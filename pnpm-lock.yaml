@@ -54,6 +54,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
+      fast-xml-parser:
+        specifier: ^5.8.0
+        version: 5.8.0
       pdfkit:
         specifier: ^0.18.0
         version: 0.18.0

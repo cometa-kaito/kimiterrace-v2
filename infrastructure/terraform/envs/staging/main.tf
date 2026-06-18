@@ -591,6 +591,24 @@ module "cloud_run_job_railway_status" {
   external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
 }
 
+# pattern2/3 サイネージ工学ニュース取得 Job（政府系 / JST の公開 RSS、ADR-043）。30 分間隔。
+# PR2 は **enabled=false（scaffold）**。有効化時に jobs image を news-job 同梱で build/push 後、enabled=true へ
+# flip して apply する（image が dist/news/news-job.js を含む前に Job を作らない）。image / vpc_connector /
+# database_url_secret_id は weather / railway と同じローカル変数を流用（新規 secret なし・RSS はキーレス）。
+module "cloud_run_job_news" {
+  source                 = "../../modules/cloud_run_job_news"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = false # PR2 scaffold（有効化は jobs image bump + staging 検証後）
+  deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
+  image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
+  container_args         = ["dist/news/news-job.js"]
+  database_url_secret_id = local.db_url_app_secret_id
+  vpc_connector          = module.network.vpc_connector_id
+  external_egress_ready  = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-043）
+}
+
 # F16 TV 死活監視 Cloud Run Job + Scheduler（毎分・24/7）+ Slack 配信 + egress（#94, ADR-023 / PR7 §9）。
 # staging で有効化（weather と同じ jobs:<tag> イメージを共有・command/args だけ差し替え）。container_args で
 # tv-liveness-job を起動。DATABASE_URL は既存 app DSN secret（kimiterrace_app、down/recover 反映は run.ts が

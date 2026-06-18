@@ -130,6 +130,17 @@ module "cloud_run_job_railway_status" {
   external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-035）
 }
 
+# pattern2/3 サイネージ工学ニュース取得 Job（政府系 / JST の公開 RSS、ADR-043）。dev は scaffold。
+module "cloud_run_job_news" {
+  source                = "../../modules/cloud_run_job_news"
+  project_id            = var.project_id
+  region                = var.region
+  env                   = local.env
+  enabled               = false
+  deletion_protection   = false
+  external_egress_ready = module.network.egress_ready # network の Cloud NAT 実在 signal（ADR-043）
+}
+
 # Cloud Logging 閲覧の最小権限 IAM（ADR-029 / #439）。
 # 公開ルート（magic-link / webhook）の秘匿値が載る request log の閲覧を運用者へ限定する。
 # enabled 化時に var.log_viewer_members（運用者グループ + breakglass）を設定すること。
