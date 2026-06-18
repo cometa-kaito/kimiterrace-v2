@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "98ea09a" # 2026-06-13 BUG-2: tv-liveness が OFF時間帯を死活評価からスキップ(#851)反映のため bump（weather/railway 同梱）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "e466a3f" # prod deploy: ADR-042 magic-link 無期限/再表示/tv-deviceクラス選択化（#1035/#1036/#1038）+周辺#1040/#1041。schema 変更=migration 0027 を Cloud SQL Studio で migrator 手動適用済（resolve_magic_link owner=migrator 検証）。secret 無変更。疎通 /api/health 200 + /signage/ resolve end-to-end OK
+  web_image_tag = "566534a" # prod deploy: #1032 TVデバイス削除（ソフトデリート）UI（編集画面に「危険操作→削除」）。schema/secret 無変更=migrate 不要（既存 deleted_at 列を利用）。疎通 /api/health 200 + /login private,no-cache
 }
 
 module "network" {
