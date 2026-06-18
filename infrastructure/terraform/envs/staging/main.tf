@@ -600,7 +600,7 @@ module "cloud_run_job_news" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = true # 2026-06-18 有効化: jobs image 98cc9d8 同梱・staging デプロイ（ADR-043）
+  enabled                = true  # 2026-06-18 有効化: jobs image 98cc9d8 同梱・staging デプロイ（ADR-043）
   deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/news/news-job.js"]
