@@ -68,7 +68,8 @@ export function TvDeviceDeleteButton({
         </div>
         <p style={descStyle}>
           このモニタを一覧から削除（退役）します。削除後はポーリングしても未登録扱いになり盤面が消えます。
-          設置情報・履歴は残り、同じ端末での再登録は可能です。
+          設置情報・履歴は残ります。なお同じ device_id での再登録はできません（再設置する場合は別
+          device_id でプロビジョンしてください）。
         </p>
         <button type="button" onClick={() => setConfirming(true)} style={btnStyle}>
           このモニタを削除
