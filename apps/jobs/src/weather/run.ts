@@ -1,16 +1,25 @@
+import { createHash } from "node:crypto";
 import {
+  type EnabledCalendarSource,
   type HeatAlertLevel,
   type NormalizedWarning,
   type TenantTx,
+  type UpsertCalendarEventInput,
   type WbgtBand,
   createDbClient,
+  deleteStaleCalendarEvents,
+  listEnabledCalendarSources,
   listSchools,
   resolveJmaAreaCode,
+  updateCalendarSourceStatus,
+  upsertCalendarEvent,
   upsertHeatAlert,
   upsertWeatherForecast,
   upsertWeatherWarning,
   withTenantContext,
 } from "@kimiterrace/db";
+import { type ParsedCalendarEvent, parseIcs } from "../calendar/ical.js";
+import { type DnsResolver, fetchPublicIcs } from "../calendar/safe-fetch.js";
 import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
@@ -82,9 +91,22 @@ export interface FetchedHeat {
 }
 
 /**
+ * ADR-045: 1 校ぶんの公開 iCal 取得結果（パース済みイベント群 + 由来ソース）。per-school フェーズで使う。
+ */
+export interface FetchedCalendar {
+  /** どのソース設定由来か（lastFetchedAt/lastError 更新と sourceId 付与に使う）。 */
+  source: EnabledCalendarSource;
+  /** パース済みイベント（`parseIcs` 出力）。空もありうる。 */
+  events: ParsedCalendarEvent[];
+}
+
+/**
  * `runWeatherFetch` の依存（fetch / DB を注入してネットワーク・DB なしで検証可能にする）。
  * 警報（ADR-044 相乗り）の `fetchWarning` / `saveWarning` は **任意**。未指定なら警報取得を skip する
  * （既存の天気のみのテスト・呼び出し側を壊さない後方互換）。
+ *
+ * ADR-045: 学校行事カレンダー（per-school・tenant_isolation）の `listCalendarSources` / `fetchCalendar` /
+ * `saveCalendar` も **任意**。3 つ揃って初めて per-school カレンダーフェーズが走る（地域ループとは独立の別フェーズ）。
  */
 export interface WeatherFetchDeps {
   /** 取得対象の地域コードを列挙する（実体は system_admin context の `listSchools` → `collectAreaCodes`）。 */
@@ -101,6 +123,20 @@ export interface WeatherFetchDeps {
   fetchHeat?(areaCode: string): Promise<FetchedHeat>;
   /** ADR-044: パース済み熱中症アラート 1 地域ぶんを heat_alerts に upsert する（実体は system_admin context）。 */
   saveHeat?(areaCode: string, heat: FetchedHeat): Promise<void>;
+  /** ADR-045: 有効な学校カレンダーソースを列挙する（実体は system_admin context の `listEnabledCalendarSources`）。 */
+  listCalendarSources?(): Promise<EnabledCalendarSource[]>;
+  /** ADR-045: 1 校の公開 iCal を取得・パースする（実体は HTTP fetch + `parseIcs`）。失敗は throw（呼び出し側が捕捉）。 */
+  fetchCalendar?(source: EnabledCalendarSource): Promise<FetchedCalendar>;
+  /**
+   * ADR-045: 1 校ぶんのパース済みイベントを upsert（school_id 明示）+ 掃除し、保存件数を返す（実体は system_admin
+   * context）。失敗は throw（呼び出し側が捕捉し、lastError を記録）。
+   */
+  saveCalendar?(fetched: FetchedCalendar): Promise<number>;
+  /** ADR-045: ソースの取得結果（成功時刻 / 失敗理由・PII 非格納）を記録する（実体は system_admin context）。 */
+  recordCalendarResult?(
+    sourceId: string,
+    result: { ok: true } | { ok: false; error: string },
+  ): Promise<void>;
 }
 
 /** バッチ全体のサマリ（Cloud Logging に構造化ログとして残す。secret / PII は含めない）。 */
@@ -127,6 +163,16 @@ export interface WeatherFetchSummary {
   heatFailed: number;
   /** ADR-044: 熱中症アラート取得に失敗した地域コード（公開コード、PII でない）。 */
   heatFailedAreaCodes: string[];
+  /** ADR-045: 取得対象の有効なカレンダーソース数（per-school、listCalendarSources 未指定なら 0）。 */
+  calendarSources: number;
+  /** ADR-045: 取得・保存に成功した学校数。 */
+  calendarFetched: number;
+  /** ADR-045: upsert した行事行数（全校合算・挿入 + 更新）。 */
+  calendarRowsUpserted: number;
+  /** ADR-045: 取得・保存に失敗した学校数（天気系は壊さない / last-known-good 維持）。0 が正常。 */
+  calendarFailed: number;
+  /** ADR-045: 取得に失敗したソース id（運用・監視用。学校 id ではなくソース id で PII を避ける）。 */
+  calendarFailedSourceIds: string[];
 }
 
 /**
@@ -143,6 +189,12 @@ export interface WeatherFetchSummary {
  * ADR-044（3 例目）: さらに同じ地域コードで **熱中症警戒アラート / WBGT も相乗り取得**して heat_alerts に
  * upsert する（`fetchHeat` / `saveHeat` が注入されている場合のみ）。天気・警報・熱中症は **互いに独立した
  * try/catch** で、いずれかの失敗が他を巻き込まない（fail-soft / last-known-good 維持）。
+ *
+ * ADR-045: 地域ループの **後** に、独立した **per-school カレンダーフェーズ**を回す（`listCalendarSources` /
+ * `fetchCalendar` / `saveCalendar` が揃っている場合のみ）。各校の公開 iCal を取得 → 行事を upsert する。1 校の
+ * 失敗は **その校だけ skip** し、他校・天気系を壊さない（独立 try/catch・fail-soft）。これは地域コード単位の
+ * cross-tenant 共有キャッシュ（天気・警報・熱中症）と異なり、**school_id を持つ tenant_isolation テーブル**への
+ * 書込みであり、取得 Job は system_admin context で各校の school_id を明示して書く（ADR-045 §決定 2/3）。
  */
 export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFetchSummary> {
   const areaCodes = await deps.listAreaCodes();
@@ -196,6 +248,44 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
     }
   }
 
+  // ADR-045: per-school カレンダーフェーズ（地域ループとは独立）。1 校の失敗は他校・天気系を壊さない（fail-soft）。
+  let calendarSources = 0;
+  let calendarFetched = 0;
+  let calendarRowsUpserted = 0;
+  const calendarFailedSourceIds: string[] = [];
+  const calendarEnabled =
+    deps.listCalendarSources != null && deps.fetchCalendar != null && deps.saveCalendar != null;
+  if (calendarEnabled) {
+    let sources: EnabledCalendarSource[] = [];
+    try {
+      // biome-ignore lint/style/noNonNullAssertion: calendarEnabled で存在確認済み
+      sources = await deps.listCalendarSources!();
+    } catch {
+      // 列挙自体の失敗（DB エラー等）は per-school 成果ゼロで続行（天気系の summary は壊さない）。
+      sources = [];
+    }
+    calendarSources = sources.length;
+    for (const source of sources) {
+      try {
+        // biome-ignore lint/style/noNonNullAssertion: calendarEnabled で存在確認済み
+        const fetched = await deps.fetchCalendar!(source);
+        // biome-ignore lint/style/noNonNullAssertion: calendarEnabled で存在確認済み
+        const rows = await deps.saveCalendar!(fetched);
+        calendarFetched += 1;
+        calendarRowsUpserted += rows;
+        // 成功記録（lastFetchedAt 更新 / lastError クリア）。記録失敗は本校の成果には影響させない。
+        await deps.recordCalendarResult?.(source.id, { ok: true });
+      } catch (err) {
+        // 取得 / 保存失敗はその校のみ skip（既存の行事キャッシュは last-known-good として残す）。
+        calendarFailedSourceIds.push(source.id);
+        const message =
+          err instanceof Error ? `${err.name}: ${err.message}` : "calendar fetch failed";
+        // 失敗理由（PII 非格納）を記録。記録自体の失敗は握り潰す（fail-soft の外周）。
+        await deps.recordCalendarResult?.(source.id, { ok: false, error: message }).catch(() => {});
+      }
+    }
+  }
+
   return {
     areas: areaCodes.length,
     fetched,
@@ -208,6 +298,11 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
     heatFetched,
     heatFailed: heatFailedAreaCodes.length,
     heatFailedAreaCodes,
+    calendarSources,
+    calendarFetched,
+    calendarRowsUpserted,
+    calendarFailed: calendarFailedSourceIds.length,
+    calendarFailedSourceIds,
   };
 }
 
@@ -219,7 +314,20 @@ export interface HttpFetchConfig {
   timeoutMs?: number;
   /** テスト差し替え用の fetch 実装（既定は global fetch）。 */
   fetchImpl?: typeof fetch;
+  /**
+   * ADR-045 §SSRF: 半信頼の `ics_url` を SSRF セーフに取得する際の DNS resolver（テスト差し替え用）。
+   * 未指定なら `fetchPublicIcs` の既定（`dns/promises` lookup, all:true）を使う。JMA/環境省は固定 URL なので
+   * 天気・警報・熱中症の取得には使わない（カレンダーのみ）。
+   */
+  icsResolver?: DnsResolver;
+  /** ADR-045 §SSRF: iCal レスポンスのサイズ上限（bytes）。既定 5MB（巨大 body DoS 回避）。 */
+  icsMaxBytes?: number;
+  /** ADR-045 §SSRF: iCal 取得で追従するリダイレクトの最大数。既定 3（各ホップを再検証）。 */
+  icsMaxRedirects?: number;
 }
+
+/** ADR-045: 1 ソースあたり upsert する VEVENT の総数上限（巨大 iCal による行量産・DoS 回避）。 */
+export const MAX_EVENTS_PER_SOURCE = 2000;
 
 /**
  * 1 地域を JMA から HTTP 取得しパースする（実 I/O）。timeout / 明示 User-Agent を付ける。
@@ -344,6 +452,67 @@ export async function fetchHeatFromEnv(
   }
 }
 
+/**
+ * ADR-045: 1 校の公開 iCal/ICS を **SSRF セーフに** HTTP 取得しパースする（実 I/O）。
+ *
+ * ★ SSRF（ADR-045 §SSRF）: `source.icsUrl` は school_admin が登録する半信頼入力。weather Job は egress=
+ * ALL_TRAFFIC で VPC 内（Cloud SQL プライベート IP / GCP メタデータ 169.254.169.254 に到達可）なので、素の
+ * fetch だと内部 URL を入れられてブラインド SSRF になる。`fetchPublicIcs` 経由で **https 限定・プライベート/
+ * 予約 IP 拒否・リダイレクト各ホップ再検証・サイズ上限・認証情報不送信**を強制する（JMA/環境省は固定 URL なので
+ * 対象外で、この経路はカレンダーのみ）。
+ *
+ * 取込上限（ADR-045 §SSRF・MINOR）: 1 ソースあたり upsert する VEVENT は `MAX_EVENTS_PER_SOURCE` 件まで。
+ * 超過分は **切り捨てつつ WARN ログで件数を明示**（沈黙の切り捨てをしない）。
+ *
+ * 検証失敗・非 2xx・タイムアウト・サイズ超過は throw（`runWeatherFetch` が校単位で捕捉し、天気系を巻き込まず
+ * その校だけ skip する）。壊れた iCal は `parseIcs` が空 / 部分配列を返す（throw しない・fail-soft）。
+ */
+export async function fetchIcs(
+  source: EnabledCalendarSource,
+  config: HttpFetchConfig,
+): Promise<FetchedCalendar> {
+  const fetchOptions = {
+    userAgent: config.userAgent,
+    ...(config.fetchImpl !== undefined ? { fetchImpl: config.fetchImpl } : {}),
+    ...(config.icsResolver !== undefined ? { resolver: config.icsResolver } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.icsMaxBytes !== undefined ? { maxBytes: config.icsMaxBytes } : {}),
+    ...(config.icsMaxRedirects !== undefined ? { maxRedirects: config.icsMaxRedirects } : {}),
+  };
+  // SSRF 検証（https 限定・プライベート/予約 IP 拒否・リダイレクト各ホップ再検証）+ サイズ上限付きで取得。
+  // 検証 NG / 非 2xx / サイズ超過は throw（呼び出し側がその校だけ skip）。生 URL はメッセージに載せない。
+  const text = await fetchPublicIcs(source.icsUrl, fetchOptions);
+  const parsed = parseIcs(text);
+  // ADR-045 §取込上限: 1 ソース総 VEVENT 数を MAX_EVENTS_PER_SOURCE でクランプ（巨大 iCal の行量産を防ぐ）。
+  if (parsed.length > MAX_EVENTS_PER_SOURCE) {
+    const dropped = parsed.length - MAX_EVENTS_PER_SOURCE;
+    // ★ 沈黙の切り捨て禁止: 何件落としたか構造化 WARN で明示（sourceId は PII でない / URL・本文は載せない）。
+    // biome-ignore lint/suspicious/noConsole: Cloud Run Job の構造化運用ログ（Cloud Logging へ出力）。debug 用途でない。
+    console.warn(
+      JSON.stringify({
+        event: "calendar.ingest.truncated",
+        sourceId: source.id,
+        parsed: parsed.length,
+        kept: MAX_EVENTS_PER_SOURCE,
+        dropped,
+      }),
+    );
+    return { source, events: parsed.slice(0, MAX_EVENTS_PER_SOURCE) };
+  }
+  return { source, events: parsed };
+}
+
+/**
+ * ADR-045: iCal UID が無いイベントの **安定キー**を生成する純関数。`(source.id, startDate, summary)` の
+ * SHA-256 から決定論的に作るので、再取得しても同じ UID になり upsert が冪等になる（毎回新 UUID だと行が増殖する）。
+ * `summary` 等に PII が無い運用前提（schema コメント）だが、ハッシュ化するので原文はキーに露出しない。
+ */
+export function stableEventUid(sourceId: string, ev: ParsedCalendarEvent): string {
+  if (ev.uid) return ev.uid;
+  const basis = `${sourceId}|${ev.startDate}|${ev.summary ?? ""}|${ev.startAt?.toISOString() ?? ""}`;
+  return `gen-${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+}
+
 /** 実行時の設定（DB 接続 / User-Agent。DATABASE_URL は Secret Manager 経由、ルール5）。 */
 export interface RunWeatherFetchConfig {
   /** DB 接続文字列（kimiterrace_app ロール）。Secret Manager 経由で注入（ルール5）。 */
@@ -408,6 +577,31 @@ export async function runWeatherFetchBatch(
           db,
           { role: "system_admin" },
           (tx: TenantTx) => saveHeatRow(tx, heat),
+          appRoleOptions,
+        ),
+      // ADR-045: per-school カレンダーフェーズ。列挙・upsert・掃除・状態記録すべて system_admin context
+      // （school_calendar_* の system_admin_full_access policy が cross-tenant 書込みを許す。BYPASSRLS 不使用）。
+      // 列挙は RLS の全校 SELECT、書込みは各校の school_id を明示する（tenant_isolation テーブル、ルール2）。
+      listCalendarSources: () =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => listEnabledCalendarSources(tx),
+          appRoleOptions,
+        ),
+      fetchCalendar: (source) => fetchIcs(source, httpConfig),
+      saveCalendar: (fetched) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => saveCalendarRows(tx, fetched),
+          appRoleOptions,
+        ),
+      recordCalendarResult: (sourceId, result) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => updateCalendarSourceStatus(tx, sourceId, result),
           appRoleOptions,
         ),
     });
@@ -480,4 +674,41 @@ async function saveHeatRow(tx: TenantTx, heat: FetchedHeat): Promise<void> {
     // 原文（環境省 CSV の該当地域行を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
     raw: parsed.raw,
   });
+}
+
+/**
+ * ADR-045: 1 校ぶんのパース済みイベントを upsert（school_id 明示）+ 掃除し、upsert 行数を返す（system context）。
+ *
+ * - 各イベントに `(school_id, uid)` 一意のため安定 UID を付与（`stableEventUid`、欠落 UID も冪等化）。
+ * - upsert 後、**iCal に残っている UID 群**を keepUids として `deleteStaleCalendarEvents` に渡し、消えた行事を掃除する
+ *   （keepUids 空 = 取得 0 件は誤爆防止で掃除しない＝last-known-good を残す。query 層の安全弁）。
+ * - 取得 Job の書込みなので created_by/updated_by = null（システム）。
+ */
+async function saveCalendarRows(tx: TenantTx, fetched: FetchedCalendar): Promise<number> {
+  const { source, events } = fetched;
+  const keepUids: string[] = [];
+  let rows = 0;
+  for (const ev of events) {
+    const uid = stableEventUid(source.id, ev);
+    const input: UpsertCalendarEventInput = {
+      schoolId: source.schoolId,
+      uid,
+      summary: ev.summary,
+      startDate: ev.startDate,
+      endDate: ev.endDate,
+      startAt: ev.startAt,
+      endAt: ev.endAt,
+      allDay: ev.allDay,
+      location: ev.location,
+      sourceId: source.id,
+      // 原文（パース済み生プロパティ map）を保全（iCal 実装差の後追い解析用）。
+      raw: ev.raw,
+    };
+    await upsertCalendarEvent(tx, input);
+    keepUids.push(uid);
+    rows += 1;
+  }
+  // 消えた行事の掃除（keepUids 空なら query 層が no-op で last-known-good を残す）。
+  await deleteStaleCalendarEvents(tx, source.schoolId, keepUids);
+  return rows;
 }

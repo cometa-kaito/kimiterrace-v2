@@ -1,21 +1,27 @@
+import type { EnabledCalendarSource } from "@kimiterrace/db";
 import { describe, expect, it, vi } from "vitest";
+import type { ParsedCalendarEvent } from "../../calendar/ical.js";
 import type { ParsedHeatAlert } from "../env-heat.js";
 import type { ParsedForecast } from "../jma.js";
 import type { ParsedWarningSet } from "../jma-warning.js";
 import {
   type FetchedArea,
+  type FetchedCalendar,
   type FetchedHeat,
   type FetchedWarning,
   type HttpFetchConfig,
+  MAX_EVENTS_PER_SOURCE,
   collectAreaCodes,
   envHeatAlertUrl,
   fetchAreaFromJma,
   fetchHeatFromEnv,
+  fetchIcs,
   fetchWarningFromJma,
   jmaForecastUrl,
   jmaWarningUrl,
   jstHeatDateParts,
   runWeatherFetch,
+  stableEventUid,
 } from "../run.js";
 
 /**
@@ -89,6 +95,11 @@ describe("runWeatherFetch", () => {
       heatFetched: 0,
       heatFailed: 0,
       heatFailedAreaCodes: [],
+      calendarSources: 0,
+      calendarFetched: 0,
+      calendarRowsUpserted: 0,
+      calendarFailed: 0,
+      calendarFailedSourceIds: [],
     });
   });
 
@@ -139,6 +150,11 @@ describe("runWeatherFetch", () => {
       heatFetched: 0,
       heatFailed: 0,
       heatFailedAreaCodes: [],
+      calendarSources: 0,
+      calendarFetched: 0,
+      calendarRowsUpserted: 0,
+      calendarFailed: 0,
+      calendarFailedSourceIds: [],
     });
   });
 });
@@ -466,5 +482,264 @@ describe("fetchHeatFromEnv", () => {
       async () => new Response("not found", { status: 404 }),
     ) as unknown as typeof fetch;
     await expect(fetchHeatFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
+  });
+});
+
+// ============================================================================
+// ADR-045: per-school 学校行事カレンダー（公開 iCal）相乗りフェーズ
+// ============================================================================
+
+function fakeSource(id: string, schoolId: string): EnabledCalendarSource {
+  return { id, schoolId, icsUrl: `https://example.test/${id}.ics` };
+}
+
+function fakeCalEvent(startDate: string, summary = "始業式"): ParsedCalendarEvent {
+  return {
+    uid: `uid-${startDate}`,
+    summary,
+    startDate,
+    endDate: null,
+    startAt: null,
+    endAt: null,
+    allDay: true,
+    location: null,
+    raw: {},
+  };
+}
+
+describe("runWeatherFetch（ADR-045 学校カレンダー相乗り）", () => {
+  it("カレンダー deps 指定時は天気の後に per-school で取得・保存する", async () => {
+    const saved: string[] = [];
+    const recorded: Array<{ id: string; ok: boolean }> = [];
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      listCalendarSources: async () => [
+        fakeSource("src-a", "school-a"),
+        fakeSource("src-b", "school-b"),
+      ],
+      fetchCalendar: async (source) => ({
+        source,
+        events: [fakeCalEvent("2026-04-08"), fakeCalEvent("2026-04-09")],
+      }),
+      saveCalendar: async (fetched) => {
+        saved.push(fetched.source.id);
+        return fetched.events.length;
+      },
+      recordCalendarResult: async (id, result) => {
+        recorded.push({ id, ok: result.ok });
+      },
+    });
+    expect(summary.fetched).toBe(1);
+    expect(summary.calendarSources).toBe(2);
+    expect(summary.calendarFetched).toBe(2);
+    expect(summary.calendarRowsUpserted).toBe(4);
+    expect(summary.calendarFailed).toBe(0);
+    expect(summary.calendarFailedSourceIds).toEqual([]);
+    expect(saved).toEqual(["src-a", "src-b"]);
+    // 成功は ok=true を記録。
+    expect(recorded).toEqual([
+      { id: "src-a", ok: true },
+      { id: "src-b", ok: true },
+    ]);
+  });
+
+  it("★ 1 校の取得失敗は他校・天気を壊さない（その校だけ skip / fail-soft）", async () => {
+    const recorded: Array<{ id: string; ok: boolean }> = [];
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      listCalendarSources: async () => [
+        fakeSource("src-a", "school-a"),
+        fakeSource("src-bad", "school-b"),
+        fakeSource("src-c", "school-c"),
+      ],
+      fetchCalendar: async (source) => {
+        if (source.id === "src-bad") throw new Error("iCal 404");
+        return { source, events: [fakeCalEvent("2026-04-08")] };
+      },
+      saveCalendar: async (fetched) => fetched.events.length,
+      recordCalendarResult: async (id, result) => {
+        recorded.push({ id, ok: result.ok });
+      },
+    });
+    // 天気は無傷。
+    expect(summary.fetched).toBe(1);
+    expect(summary.failed).toBe(0);
+    // 失敗校だけ skip、他 2 校は前進。
+    expect(summary.calendarSources).toBe(3);
+    expect(summary.calendarFetched).toBe(2);
+    expect(summary.calendarRowsUpserted).toBe(2);
+    expect(summary.calendarFailed).toBe(1);
+    expect(summary.calendarFailedSourceIds).toEqual(["src-bad"]);
+    // 失敗校は ok=false（理由付き）を記録、成功校は ok=true。
+    expect(recorded).toEqual([
+      { id: "src-a", ok: true },
+      { id: "src-bad", ok: false },
+      { id: "src-c", ok: true },
+    ]);
+  });
+
+  it("★ カレンダーの保存(upsert)失敗もその校だけ skip する", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => [],
+      fetchArea: async () => ({ parsed: fakeParsed("x"), raw: {} }),
+      saveArea: async () => 1,
+      listCalendarSources: async () => [fakeSource("src-a", "school-a")],
+      fetchCalendar: async (source) => ({ source, events: [fakeCalEvent("2026-04-08")] }),
+      saveCalendar: async () => {
+        throw new Error("DB error");
+      },
+    });
+    expect(summary.calendarSources).toBe(1);
+    expect(summary.calendarFetched).toBe(0);
+    expect(summary.calendarFailed).toBe(1);
+    expect(summary.calendarFailedSourceIds).toEqual(["src-a"]);
+  });
+
+  it("ソース列挙自体の失敗は per-school 成果ゼロで続行し天気を壊さない", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      listCalendarSources: async () => {
+        throw new Error("DB list error");
+      },
+      fetchCalendar: async (source) => ({ source, events: [] }),
+      saveCalendar: async () => 0,
+    });
+    expect(summary.fetched).toBe(1);
+    expect(summary.calendarSources).toBe(0);
+    expect(summary.calendarFetched).toBe(0);
+    expect(summary.calendarFailed).toBe(0);
+  });
+
+  it("カレンダー deps が一部欠ける（listのみ）ならフェーズは走らない（後方互換）", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => [],
+      fetchArea: async () => ({ parsed: fakeParsed("x"), raw: {} }),
+      saveArea: async () => 1,
+      // fetchCalendar / saveCalendar を渡さない。
+      listCalendarSources: async () => [fakeSource("src-a", "school-a")],
+    });
+    expect(summary.calendarSources).toBe(0);
+    expect(summary.calendarFetched).toBe(0);
+  });
+});
+
+describe("stableEventUid", () => {
+  it("iCal UID があればそのまま使う", () => {
+    expect(stableEventUid("src-a", fakeCalEvent("2026-04-08"))).toBe("uid-2026-04-08");
+  });
+
+  it("UID 欠落は (source,startDate,summary) から決定論的に生成（再取得で同一 = 冪等）", () => {
+    const ev: ParsedCalendarEvent = { ...fakeCalEvent("2026-04-08"), uid: null };
+    const a = stableEventUid("src-a", ev);
+    const b = stableEventUid("src-a", { ...ev });
+    expect(a).toBe(b);
+    expect(a).toMatch(/^gen-[0-9a-f]{32}$/);
+    // 別ソース / 別日付なら別キー。
+    expect(stableEventUid("src-b", ev)).not.toBe(a);
+    expect(stableEventUid("src-a", { ...ev, startDate: "2026-04-09" })).not.toBe(a);
+  });
+});
+
+describe("fetchIcs", () => {
+  // ADR-045 §SSRF: fetchIcs は SSRF セーフな fetchPublicIcs 経由になったため、ホスト名解決を公開 IP に倒す
+  // resolver を注入する（実 DNS 非依存）。SSRF ガード自体の網羅は calendar/__tests__/safe-fetch.test.ts。
+  const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
+  const config = (fetchImpl: typeof fetch): HttpFetchConfig => ({
+    userAgent: "test-ua/1.0",
+    timeoutMs: 1000,
+    fetchImpl,
+    icsResolver: publicResolver,
+  });
+
+  it("2xx の iCal をパースする。明示 User-Agent を付ける", async () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "BEGIN:VEVENT",
+      "UID:evt-1",
+      "SUMMARY:始業式",
+      "DTSTART;VALUE=DATE:20260408",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://example.test/src-a.ics");
+      expect((init?.headers as Record<string, string>)["User-Agent"]).toBe("test-ua/1.0");
+      return new Response(ics, { status: 200 });
+    }) as unknown as typeof fetch;
+    const result: FetchedCalendar = await fetchIcs(
+      fakeSource("src-a", "school-a"),
+      config(fetchImpl),
+    );
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]?.summary).toBe("始業式");
+    expect(result.events[0]?.allDay).toBe(true);
+  });
+
+  it("非 2xx は throw する（status のみ・URL を漏らさない）", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("nope", { status: 403 }),
+    ) as unknown as typeof fetch;
+    await expect(fetchIcs(fakeSource("src-a", "school-a"), config(fetchImpl))).rejects.toThrow(
+      /status=403/,
+    );
+  });
+
+  it("★ SSRF: http scheme の icsUrl は fetch 前に拒否する", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("x", { status: 200 }),
+    ) as unknown as typeof fetch;
+    const source: EnabledCalendarSource = {
+      id: "src-http",
+      schoolId: "school-a",
+      icsUrl: "http://example.test/x.ics",
+    };
+    await expect(fetchIcs(source, config(fetchImpl))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("★ SSRF: メタデータ IP 直指定の icsUrl は fetch 前に拒否する", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("x", { status: 200 }),
+    ) as unknown as typeof fetch;
+    const source: EnabledCalendarSource = {
+      id: "src-meta",
+      schoolId: "school-a",
+      icsUrl: "https://169.254.169.254/computeMetadata/v1/",
+    };
+    await expect(fetchIcs(source, config(fetchImpl))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("★ 取込上限: MAX_EVENTS_PER_SOURCE 超過は切り捨て、何件落としたか WARN を出す", async () => {
+    // MAX_EVENTS_PER_SOURCE + 5 件の VEVENT を持つ巨大 iCal を生成。
+    const over = MAX_EVENTS_PER_SOURCE + 5;
+    const blocks: string[] = ["BEGIN:VCALENDAR"];
+    for (let i = 0; i < over; i++) {
+      blocks.push("BEGIN:VEVENT", `UID:evt-${i}`, "DTSTART;VALUE=DATE:20260408", "END:VEVENT");
+    }
+    blocks.push("END:VCALENDAR");
+    const ics = blocks.join("\r\n");
+    const fetchImpl = vi.fn(
+      async () => new Response(ics, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await fetchIcs(fakeSource("src-big", "school-a"), config(fetchImpl));
+      expect(result.events).toHaveLength(MAX_EVENTS_PER_SOURCE);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const logged = JSON.parse(String(warnSpy.mock.calls[0]?.[0]));
+      expect(logged.event).toBe("calendar.ingest.truncated");
+      expect(logged.sourceId).toBe("src-big");
+      expect(logged.dropped).toBe(5);
+      expect(logged.kept).toBe(MAX_EVENTS_PER_SOURCE);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

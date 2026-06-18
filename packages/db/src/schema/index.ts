@@ -37,6 +37,10 @@ export * from "./weather-warnings.js";
 export * from "./heat-alerts.js";
 // サイネージ静的コンテンツ（名言/四字熟語/英単語/今日は何の日）の共有マスタ（school_id 非保持の公開型・外部依存ゼロ）
 export * from "./signage-snippets.js";
+// ADR-045: 学校行事カレンダーの公開 iCal/ICS ソース設定（per-school・tenant_isolation）
+export * from "./school-calendar-sources.js";
+// ADR-045: 学校行事カレンダーのイベントキャッシュ（per-school・tenant_isolation・(school_id, uid) 一意）
+export * from "./school-calendar-events.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
