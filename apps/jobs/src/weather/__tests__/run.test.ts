@@ -1,10 +1,12 @@
 import type { EnabledCalendarSource } from "@kimiterrace/db";
 import { describe, expect, it, vi } from "vitest";
 import type { ParsedCalendarEvent } from "../../calendar/ical.js";
+import type { ParsedAirQuality } from "../env-air.js";
 import type { ParsedHeatAlert } from "../env-heat.js";
 import type { ParsedForecast } from "../jma.js";
 import type { ParsedWarningSet } from "../jma-warning.js";
 import {
+  type FetchedAir,
   type FetchedArea,
   type FetchedCalendar,
   type FetchedHeat,
@@ -13,6 +15,7 @@ import {
   MAX_EVENTS_PER_SOURCE,
   collectAreaCodes,
   envHeatAlertUrl,
+  fetchAirFromEnv,
   fetchAreaFromJma,
   fetchHeatFromEnv,
   fetchIcs,
@@ -21,6 +24,7 @@ import {
   jmaWarningUrl,
   jstHeatDateParts,
   runWeatherFetch,
+  soramameAirUrl,
   stableEventUid,
 } from "../run.js";
 
@@ -95,6 +99,9 @@ describe("runWeatherFetch", () => {
       heatFetched: 0,
       heatFailed: 0,
       heatFailedAreaCodes: [],
+      airFetched: 0,
+      airFailed: 0,
+      airFailedAreaCodes: [],
       calendarSources: 0,
       calendarFetched: 0,
       calendarRowsUpserted: 0,
@@ -150,6 +157,9 @@ describe("runWeatherFetch", () => {
       heatFetched: 0,
       heatFailed: 0,
       heatFailedAreaCodes: [],
+      airFetched: 0,
+      airFailed: 0,
+      airFailedAreaCodes: [],
       calendarSources: 0,
       calendarFetched: 0,
       calendarRowsUpserted: 0,
@@ -482,6 +492,147 @@ describe("fetchHeatFromEnv", () => {
       async () => new Response("not found", { status: 404 }),
     ) as unknown as typeof fetch;
     await expect(fetchHeatFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
+  });
+});
+
+// ============================================================================
+// ADR-046: 大気質(PM2.5)/UV 相乗り（5 例目・最も脆いソース = そらまめくん）
+// ============================================================================
+
+function fakeAir(areaCode: string, forecastDate = "2026-07-15"): FetchedAir {
+  const parsed: ParsedAirQuality = {
+    areaCode,
+    areaName: "テスト県",
+    pm25: 18,
+    pm25Band: "moderate",
+    oxidant: null,
+    uvIndex: null,
+    uvBand: null,
+    raw: { areaCode, areaName: "テスト県", pm25: 18, oxidant: null, source: { pm25: 18 } },
+  };
+  return { parsed, forecastDate };
+}
+
+describe("runWeatherFetch（ADR-046 大気質相乗り）", () => {
+  it("大気質 deps 指定時は天気・警報・熱中症と並走して大気質も取得・保存する", async () => {
+    const savedAir: string[] = [];
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000", "130000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchHeat: async (areaCode) => fakeHeat(areaCode),
+      saveHeat: async () => {},
+      fetchAir: async (areaCode) => fakeAir(areaCode),
+      saveAir: async (areaCode) => {
+        savedAir.push(areaCode);
+      },
+    });
+    expect(summary.fetched).toBe(2);
+    expect(summary.heatFetched).toBe(2);
+    expect(summary.airFetched).toBe(2);
+    expect(summary.airFailed).toBe(0);
+    expect(summary.airFailedAreaCodes).toEqual([]);
+    expect(savedAir).toEqual(["210000", "130000"]);
+  });
+
+  it("大気質 deps 未指定なら大気質は 0（既存の天気/警報/熱中症のみ呼び出しの後方互換）", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+    });
+    expect(summary.airFetched).toBe(0);
+    expect(summary.airFailed).toBe(0);
+    expect(summary.airFailedAreaCodes).toEqual([]);
+  });
+
+  it("★ 大気質の取得失敗は天気・警報・熱中症を壊さない（その地域も他指標は保存される / fail-soft）", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchWarning: async (areaCode) => ({ parsed: fakeWarning(areaCode), raw: {} }),
+      saveWarning: async () => {},
+      fetchHeat: async (areaCode) => fakeHeat(areaCode),
+      saveHeat: async () => {},
+      fetchAir: async () => {
+        throw new Error("soramame 404");
+      },
+      saveAir: async () => {
+        /* 呼ばれない */
+      },
+    });
+    // 天気・警報・熱中症は成功（大気質の失敗に巻き込まれない）。
+    expect(summary.fetched).toBe(1);
+    expect(summary.warningsFetched).toBe(1);
+    expect(summary.heatFetched).toBe(1);
+    // 大気質のみその地域を skip。
+    expect(summary.airFetched).toBe(0);
+    expect(summary.airFailed).toBe(1);
+    expect(summary.airFailedAreaCodes).toEqual(["210000"]);
+  });
+
+  it("大気質の保存(upsert)失敗もその地域だけ skip する", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchAir: async (areaCode) => fakeAir(areaCode),
+      saveAir: async () => {
+        throw new Error("DB error");
+      },
+    });
+    expect(summary.fetched).toBe(1);
+    expect(summary.airFetched).toBe(0);
+    expect(summary.airFailed).toBe(1);
+    expect(summary.airFailedAreaCodes).toEqual(["210000"]);
+  });
+});
+
+describe("soramameAirUrl", () => {
+  it("府県予報区コードの上 2 桁（都道府県コード）でスコープした想定 URL を組む（固定ホスト）", () => {
+    expect(soramameAirUrl("210000")).toBe("https://soramame.env.go.jp/data/sokutei/code/21.json");
+    expect(soramameAirUrl("130000")).toBe("https://soramame.env.go.jp/data/sokutei/code/13.json");
+  });
+});
+
+describe("fetchAirFromEnv", () => {
+  const config = (fetchImpl: typeof fetch): HttpFetchConfig => ({
+    userAgent: "test-ua/1.0",
+    timeoutMs: 1000,
+    fetchImpl,
+  });
+
+  it("2xx の JSON を取得し代表値をパースする。明示 User-Agent を付ける。forecastDate は当日(JST)", async () => {
+    const body = [{ pm25: 24, ox: 31, prefName: "岐阜県" }];
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toContain("soramame.env.go.jp");
+      expect((init?.headers as Record<string, string>)["User-Agent"]).toBe("test-ua/1.0");
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as unknown as typeof fetch;
+    const air: FetchedAir = await fetchAirFromEnv("210000", config(fetchImpl));
+    expect(air.parsed.areaCode).toBe("210000");
+    expect(air.parsed.pm25).toBe(24);
+    expect(air.parsed.pm25Band).toBe("moderate"); // 12..<35
+    // UV は本 PR 未取得（常に null）。
+    expect(air.parsed.uvIndex).toBeNull();
+    expect(air.forecastDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("object（非配列）レスポンスもそのまま代表値として防御的にパースする", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ PM25: "8" }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const air = await fetchAirFromEnv("210000", config(fetchImpl));
+    expect(air.parsed.pm25).toBe(8);
+    expect(air.parsed.pm25Band).toBe("good"); // < 12
+  });
+
+  it("非 2xx は throw する（runWeatherFetch が地域単位で捕捉して他指標を巻き込まず skip）", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+    await expect(fetchAirFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
   });
 });
 

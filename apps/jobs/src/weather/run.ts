@@ -12,6 +12,7 @@ import {
   listSchools,
   resolveJmaAreaCode,
   updateCalendarSourceStatus,
+  upsertAirQuality,
   upsertCalendarEvent,
   upsertHeatAlert,
   upsertWeatherForecast,
@@ -20,6 +21,7 @@ import {
 } from "@kimiterrace/db";
 import { type ParsedCalendarEvent, parseIcs } from "../calendar/ical.js";
 import { type DnsResolver, fetchPublicIcs } from "../calendar/safe-fetch.js";
+import { type ParsedAirQuality, parseSoramameAir } from "./env-air.js";
 import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
@@ -91,6 +93,15 @@ export interface FetchedHeat {
 }
 
 /**
+ * 1 地域・1 日ぶんの大気質取得結果（パース済み + 対象日。ADR-046 相乗り 5 例目）。
+ * `forecastDate` は取得対象日（JST 暦日 'YYYY-MM-DD'）。upsert キーの一部。
+ */
+export interface FetchedAir {
+  parsed: ParsedAirQuality;
+  forecastDate: string;
+}
+
+/**
  * ADR-045: 1 校ぶんの公開 iCal 取得結果（パース済みイベント群 + 由来ソース）。per-school フェーズで使う。
  */
 export interface FetchedCalendar {
@@ -123,6 +134,10 @@ export interface WeatherFetchDeps {
   fetchHeat?(areaCode: string): Promise<FetchedHeat>;
   /** ADR-044: パース済み熱中症アラート 1 地域ぶんを heat_alerts に upsert する（実体は system_admin context）。 */
   saveHeat?(areaCode: string, heat: FetchedHeat): Promise<void>;
+  /** ADR-046: 1 地域の大気質（PM2.5 等）を取得・パースする（実体は HTTP fetch + `parseSoramameAir`）。失敗は throw。 */
+  fetchAir?(areaCode: string): Promise<FetchedAir>;
+  /** ADR-046: パース済み大気質 1 地域ぶんを air_quality_index に upsert する（実体は system_admin context）。 */
+  saveAir?(areaCode: string, air: FetchedAir): Promise<void>;
   /** ADR-045: 有効な学校カレンダーソースを列挙する（実体は system_admin context の `listEnabledCalendarSources`）。 */
   listCalendarSources?(): Promise<EnabledCalendarSource[]>;
   /** ADR-045: 1 校の公開 iCal を取得・パースする（実体は HTTP fetch + `parseIcs`）。失敗は throw（呼び出し側が捕捉）。 */
@@ -163,6 +178,12 @@ export interface WeatherFetchSummary {
   heatFailed: number;
   /** ADR-044: 熱中症アラート取得に失敗した地域コード（公開コード、PII でない）。 */
   heatFailedAreaCodes: string[];
+  /** ADR-046: 大気質（PM2.5 等）の取得・保存に成功した地域数（fetchAir 未指定なら 0）。 */
+  airFetched: number;
+  /** ADR-046: 大気質の取得・保存に失敗した地域数（天気・警報・熱中症は壊さない / last-known-good 維持）。0 が正常。 */
+  airFailed: number;
+  /** ADR-046: 大気質取得に失敗した地域コード（公開コード、PII でない）。 */
+  airFailedAreaCodes: string[];
   /** ADR-045: 取得対象の有効なカレンダーソース数（per-school、listCalendarSources 未指定なら 0）。 */
   calendarSources: number;
   /** ADR-045: 取得・保存に成功した学校数。 */
@@ -190,6 +211,11 @@ export interface WeatherFetchSummary {
  * upsert する（`fetchHeat` / `saveHeat` が注入されている場合のみ）。天気・警報・熱中症は **互いに独立した
  * try/catch** で、いずれかの失敗が他を巻き込まない（fail-soft / last-known-good 維持）。
  *
+ * ADR-046（5 例目）: さらに同じ地域コードで **大気質（PM2.5 等）も相乗り取得**して air_quality_index に upsert
+ * する（`fetchAir` / `saveAir` が注入されている場合のみ）。これは **最も脆いソース**（そらまめくん = 正規 API
+ * 契約不確実の JS SPA）だが、取得層・パーサが完全防御的なため、他指標と同じく独立 try/catch で **大気質の失敗が
+ * 天気・警報・熱中症を壊さない**（fail-soft / last-known-good 維持）。
+ *
  * ADR-045: 地域ループの **後** に、独立した **per-school カレンダーフェーズ**を回す（`listCalendarSources` /
  * `fetchCalendar` / `saveCalendar` が揃っている場合のみ）。各校の公開 iCal を取得 → 行事を upsert する。1 校の
  * 失敗は **その校だけ skip** し、他校・天気系を壊さない（独立 try/catch・fail-soft）。これは地域コード単位の
@@ -207,6 +233,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
   let heatFetched = 0;
   const heatFailedAreaCodes: string[] = [];
   const heatEnabled = deps.fetchHeat != null && deps.saveHeat != null;
+  let airFetched = 0;
+  const airFailedAreaCodes: string[] = [];
+  const airEnabled = deps.fetchAir != null && deps.saveAir != null;
 
   for (const areaCode of areaCodes) {
     try {
@@ -244,6 +273,21 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
       } catch {
         // 熱中症の取得/保存失敗はその地域のみ skip（既存の熱中症キャッシュは last-known-good として残す）。
         heatFailedAreaCodes.push(areaCode);
+      }
+    }
+
+    // ADR-046（5 例目）: 大気質（PM2.5 等）を相乗り取得。天気・警報・熱中症の成否とは独立に試行する。
+    // 最も脆いソース（そらまめくん）だが、取得層・パーサが防御的なので失敗してもここで吸収して他を巻き込まない。
+    if (airEnabled) {
+      try {
+        // biome-ignore lint/style/noNonNullAssertion: airEnabled で両者の存在を確認済み
+        const air = await deps.fetchAir!(areaCode);
+        // biome-ignore lint/style/noNonNullAssertion: airEnabled で両者の存在を確認済み
+        await deps.saveAir!(areaCode, air);
+        airFetched += 1;
+      } catch {
+        // 大気質の取得/保存失敗はその地域のみ skip（既存の大気質キャッシュは last-known-good として残す）。
+        airFailedAreaCodes.push(areaCode);
       }
     }
   }
@@ -298,6 +342,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
     heatFetched,
     heatFailed: heatFailedAreaCodes.length,
     heatFailedAreaCodes,
+    airFetched,
+    airFailed: airFailedAreaCodes.length,
+    airFailedAreaCodes,
     calendarSources,
     calendarFetched,
     calendarRowsUpserted,
@@ -453,6 +500,65 @@ export async function fetchHeatFromEnv(
 }
 
 /**
+ * ADR-046: 環境省「そらまめくん」大気質エンドポイント URL を組む（純関数、テスト容易）。
+ *
+ * ★ ソースの脆さ（ADR-046 §残存リスク①）: そらまめくんは **正規の公開 API 契約が確認できない JS SPA**。
+ * 確証点として `https://soramame.env.go.jp/` 配下の地域別データ参照（測定局コードベース）が keyless である
+ * ことは確認したが、府県コードを直接キーにできる安定 JSON エンドポイントは確認できなかった。本関数は府県予報区
+ * コードを用いた地域別プレビュー JSON への **想定 URL** を組む（固定ホスト = soramame.env.go.jp）。形式が想定外でも
+ * 取得・パースは fail-soft なので、合わなければその地域は skip（last-known-good 維持）→ follow-up で実 URL を確定する。
+ *
+ * ★ SSRF（ADR-045 §SSRF）非対象: ホストは **固定**（soramame.env.go.jp）で半信頼入力に由来しないため、
+ * カレンダー（school_admin 登録の可変 URL）のような SSRF ガード（`fetchPublicIcs`）は不要。JMA / 環境省 alert CSV と
+ * 同じ固定 URL 扱い。
+ */
+export function soramameAirUrl(areaCode: string): string {
+  // 府県予報区コードの上 2 桁が都道府県コードに対応する（例 '210000' → 岐阜 '21'）。そらまめくんの地域別参照は
+  // 都道府県単位に近いため、想定 URL は都道府県コードでスコープする（不確実なため形式変化は parser が吸収）。
+  const prefCode = encodeURIComponent(areaCode.slice(0, 2));
+  return `https://soramame.env.go.jp/data/sokutei/code/${prefCode}.json`;
+}
+
+/**
+ * ADR-046: 1 地域の大気質（PM2.5 等）をそらまめくんから HTTP 取得しパースする（実 I/O）。`fetchHeatFromEnv` に倣う
+ * （timeout / 明示 User-Agent / 固定ホスト）。
+ *
+ * ★ 最も脆いソース: そらまめくんは正規 API 契約が不確実な JS SPA（実質スクレイプ相当）。本関数は想定 JSON を
+ * 取得し、レスポンスから「該当地域の代表測定値らしきオブジェクト」を素朴に取り出して `parseSoramameAir` に渡す。
+ * フィールド名・構造は parser 側で完全防御的に当てる（取れなければ全 null・throw しない）。非 2xx・タイムアウト・
+ * JSON パース不能は throw（`runWeatherFetch` が地域単位で捕捉し、天気・警報・熱中症を巻き込まずその地域の大気質
+ * だけ skip する）。`forecastDate` は **当日（JST 暦日）**（熱中症と同じ日付次元の組み立てを再利用）。
+ */
+export async function fetchAirFromEnv(
+  areaCode: string,
+  config: HttpFetchConfig,
+): Promise<FetchedAir> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
+  const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
+  const { isoDate } = jstHeatDateParts();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(soramameAirUrl(areaCode), {
+      method: "GET",
+      headers: { "User-Agent": config.userAgent, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`soramame air 取得失敗: areaCode=${areaCode} status=${res.status}`);
+    }
+    const raw: unknown = await res.json();
+    // レスポンスから「該当地域の代表測定値らしきオブジェクト」を素朴に取り出す（配列なら先頭、object ならそのまま）。
+    // 構造不確実のため parser 側で完全防御的に当てる（ここでの抽出ミスも parser が全 null に倒す）。
+    const record: unknown = Array.isArray(raw) ? raw[0] : raw;
+    return { parsed: parseSoramameAir(areaCode, record), forecastDate: isoDate };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * ADR-045: 1 校の公開 iCal/ICS を **SSRF セーフに** HTTP 取得しパースする（実 I/O）。
  *
  * ★ SSRF（ADR-045 §SSRF）: `source.icsUrl` は school_admin が登録する半信頼入力。weather Job は egress=
@@ -579,6 +685,16 @@ export async function runWeatherFetchBatch(
           (tx: TenantTx) => saveHeatRow(tx, heat),
           appRoleOptions,
         ),
+      // ADR-046（5 例目）: 大気質（PM2.5 等）の相乗り取得。天気・警報・熱中症と同じ httpConfig / system context を再利用する。
+      fetchAir: (areaCode) => fetchAirFromEnv(areaCode, httpConfig),
+      // 大気質 upsert も system_admin context（air_quality_index_write_system policy が書込みを system に限定）。
+      saveAir: (_areaCode, air) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => saveAirRow(tx, air),
+          appRoleOptions,
+        ),
       // ADR-045: per-school カレンダーフェーズ。列挙・upsert・掃除・状態記録すべて system_admin context
       // （school_calendar_* の system_admin_full_access policy が cross-tenant 書込みを許す。BYPASSRLS 不使用）。
       // 列挙は RLS の全校 SELECT、書込みは各校の school_id を明示する（tenant_isolation テーブル、ルール2）。
@@ -672,6 +788,29 @@ async function saveHeatRow(tx: TenantTx, heat: FetchedHeat): Promise<void> {
     wbgtMax: parsed.wbgtMax,
     wbgtBand: parsed.wbgtBand satisfies WbgtBand | null,
     // 原文（環境省 CSV の該当地域行を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
+    raw: parsed.raw,
+  });
+}
+
+/**
+ * ADR-046: パース済み 1 地域・1 日の大気質を air_quality_index に upsert する（ON CONFLICT
+ * (area_code, source, forecast_date)）。パーサ出力（`ParsedAirQuality`）の数値・区分をそのまま upsert 入力へ
+ * パススルーする（ルール3: 手書きドメイン型を作らない）。UV は本 PR 未取得なので uvIndex / uvBand は null のまま。
+ */
+async function saveAirRow(tx: TenantTx, air: FetchedAir): Promise<void> {
+  const { parsed } = air;
+  await upsertAirQuality(tx, {
+    areaCode: parsed.areaCode,
+    areaName: parsed.areaName,
+    source: "env_soramame",
+    forecastDate: air.forecastDate,
+    pm25: parsed.pm25,
+    pm25Band: parsed.pm25Band,
+    oxidant: parsed.oxidant,
+    // UV は本 PR では取得しない（GRIB2 のみ・follow-up）。パーサ出力も常に null。
+    uvIndex: parsed.uvIndex,
+    uvBand: parsed.uvBand,
+    // 原文（そらまめくんの代表値を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
     raw: parsed.raw,
   });
 }

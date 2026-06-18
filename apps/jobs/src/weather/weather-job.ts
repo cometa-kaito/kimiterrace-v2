@@ -100,6 +100,20 @@ async function main(): Promise<void> {
     );
   }
 
+  // ADR-046（5 例目）: 大気質相乗りの一部失敗（天気・警報・熱中症は壊さない / last-known-good 維持）も WARN を立てる。
+  // 大気質失敗だけで Job を fail させない（天気が取れていれば盤面は前進する）。最も脆いソースなので失敗は想定内。
+  if (summary.airFailed > 0) {
+    console.warn(
+      JSON.stringify({
+        event: "weather.air.partial_failure",
+        airFailed: summary.airFailed,
+        airFetched: summary.airFetched,
+        areas: summary.areas,
+        airFailedAreaCodes: summary.airFailedAreaCodes,
+      }),
+    );
+  }
+
   // ADR-045: per-school カレンダー取得の一部失敗（天気系は壊さない / last-known-good 維持）も WARN を立てる。
   // カレンダー失敗だけで Job を fail させない（天気が取れていれば盤面は前進する）。ソース id のみ（PII でない）。
   if (summary.calendarFailed > 0) {
