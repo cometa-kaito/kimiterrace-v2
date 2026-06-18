@@ -24,8 +24,9 @@
   --accent-weak: #eaf0f7;
   --urgent-color: #b91c1c;
   --urgent-weak: #fdecec;
-  /* 週間天気帯（pattern3）の最高気温＝暖色。白地で AA 充足の濃オレンジ（#fff 上 約 5.9:1 / #f7f8fa 上 約
-     5.6:1）。最低気温は寒色として既存の --accent-color（インディゴ）を流用する。NFR05 は数値併記で担保。 */
+  /* 週間天気帯（pattern3）の最高気温＝暖色。白地で本文 AA 充足の濃オレンジ（#fff 上 約 5.2:1 / #f7f8fa 上
+     約 4.9:1 ＝ いずれも 4.5:1 超）。最低気温は寒色として既存の --accent-color（インディゴ・#f7f8fa 上 約
+     7.5:1）を流用する。NFR05 は色だけに依らず数値併記で担保。 */
   --temp-high-color: #c2410c;
   --ad-bg: #111827;
   --font-base: "Inter", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
