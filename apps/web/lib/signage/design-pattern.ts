@@ -79,6 +79,22 @@ export function getDesignPatternFromUrl(
 }
 
 /**
+ * クラス（端末）の代表サイネージ URL と学校レベル既定から、**実効デザインパターン**を解決する純関数
+ * （client-safe・DB 非依存）。優先順位は **端末別 `?design` > 学校レベル既定 > `pattern1`**（既定は呼び出し側が
+ * 渡す `schoolDefault` が既に `pattern1` に倒れている前提）。`buildSignagePayloadForClass` のサーバ側解決
+ * （`isSignageDesignPattern(designParam) ? designParam : 学校既定`）と**同じ優先順位**をエディタ側でも 1 関数で
+ * 共有し、実機 TV と「モニタの壁」/ クラスエディタのプレビューが一致するようにする（ドリフト防止）。
+ *
+ * `url` が `?design` を持たない / パース不能なら `schoolDefault` を返す（fail-soft、盤面を壊さない）。
+ */
+export function resolveDesignPattern(
+  url: string | null | undefined,
+  schoolDefault: SignageDesignPattern,
+): SignageDesignPattern {
+  return getDesignPatternFromUrl(url) ?? schoolDefault;
+}
+
+/**
  * サイネージ URL から `design` クエリを取り除いた「素の URL」を返す（編集フォームの URL 欄表示用＝
  * パターン選択はドロップダウンが担い、URL 欄は design を持たない base を見せる）。`design` が無い / パース
  * 不能なら原文をそのまま返す（正規化による予期せぬ書き換えを避ける）。

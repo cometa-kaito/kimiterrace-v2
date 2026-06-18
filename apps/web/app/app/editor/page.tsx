@@ -5,6 +5,7 @@ import {
   computeTodayActiveOtherClasses,
   getOtherClasses,
 } from "@/lib/editor/other-classes-queries";
+import { getClassMonitorInfo } from "@/lib/editor/monitor-queries";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import {
   type GradeView,
@@ -13,6 +14,7 @@ import {
   getSchoolHierarchy,
   getTodayDailyDataScopes,
 } from "@/lib/school-admin/hub-queries";
+import { resolveDesignPattern } from "@/lib/signage/design-pattern";
 import { jstDateString } from "@/lib/signage/rotation";
 import { type SignagePayload, buildSignagePayloadForClass } from "@/lib/signage/signage-display";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
@@ -63,7 +65,7 @@ export default async function EditorIndexPage({
   // 万一 null（claim 欠落）でも weather の prefecture 解決対象が空になるだけで RLS が越境を止める（fail-soft、
   // 盤面は壊さない）。weather 取得対象特定にのみ使い、テナント分離は withSession の RLS 文脈が担保する（ルール2）。
   const schoolId = user.schoolId ?? "";
-  const { hierarchy, otherClasses, statusByClass, payloadByClass } = await withSession(
+  const { hierarchy, otherClasses, statusByClass, payloadByClass, monitorInfo } = await withSession(
     async (tx) => {
       const hierarchy = await getSchoolHierarchy(tx);
       // 「その他」(grade_id NULL の非教室設置場所) は学年ツリー外なので hub-queries の hierarchy に含まれない。
@@ -75,6 +77,10 @@ export default async function EditorIndexPage({
         // 「その他」は学年を持たないので class → department → school で本日掲示状態を判定する（grade 段スキップ）。
         ...computeTodayActiveOtherClasses(scopes, otherClasses),
       };
+      // 自校の「クラス→代表サイネージ URL」と学校レベル既定パターンをまとめて取得（1 tx・RLS 自校限定）。
+      // (1) 学科にモニタが紐づくか（壁から学科を出すか）/ (2) 端末別 `?design` でサムネを実機と同じパターンで描く、
+      // の両方をこの 1 ソースで駆動する。
+      const monitorInfo = await getClassMonitorInfo(tx);
       // 各クラスの実画面 payload を実機と同一ビルダーで組み立てる（単一ソース）。空クラスは空 payload
       // （盤面は placeholder を自然に描く）。N が増えても 1 tx 内で読むので追加コネクションは増えない。
       // この学校はクラス少で問題なし（将来 N 多数時は lazy 化できるよう「事前構築 payload を素材に渡す」
@@ -85,12 +91,17 @@ export default async function EditorIndexPage({
       ];
       const payloadByClass: Record<string, SignagePayload> = {};
       for (const classId of allClassIds) {
-        const payload = await buildSignagePayloadForClass(tx, schoolId, classId, date);
+        // このクラスの端末別パターン（`?design` > 学校既定 > pattern1）でサムネを実機と同じ盤面で描く。
+        const design = resolveDesignPattern(
+          monitorInfo.signageUrlByClass.get(classId),
+          monitorInfo.schoolDefaultPattern,
+        );
+        const payload = await buildSignagePayloadForClass(tx, schoolId, classId, date, design);
         if (payload) {
           payloadByClass[classId] = payload;
         }
       }
-      return { hierarchy, otherClasses, statusByClass, payloadByClass };
+      return { hierarchy, otherClasses, statusByClass, payloadByClass, monitorInfo };
     },
   );
 
@@ -100,6 +111,19 @@ export default async function EditorIndexPage({
   const schoolOthers = othersOf(null);
   const gradesOf = (deptId: string | null) => grades.filter((g) => g.departmentId === deptId);
   const orphanGrades = grades.filter((g) => !g.departmentId);
+  // 実機モニタが紐づくクラス集合（`signage_url` を持つ未削除 TV が在るクラス）。学科を壁に出すかの判定に使う。
+  const monitorClassIds = new Set(monitorInfo.signageUrlByClass.keys());
+  // 学科に実機モニタが 1 台も紐づかないなら、その学科は壁から丸ごと隠す（見出し・「まとめて出す」・配下タイル）。
+  // 判定は学科配下の通常クラス（学年経由）＋学科配下「その他」のいずれかが monitorClassIds に含まれるか
+  // （ユーザー指示 2026-06-18: モニタの壁なので、表示するモニタが無い学科は出さない）。
+  const departmentHasMonitor = (deptId: string): boolean => {
+    const classIds = [
+      ...gradesOf(deptId).flatMap((g) => g.classes.map((c) => c.id)),
+      ...othersOf(deptId).map((c) => c.id),
+    ];
+    return classIds.some((id) => monitorClassIds.has(id));
+  };
+  const visibleDepartments = departments.filter((d) => departmentHasMonitor(d.id));
   // 編集できる箱の総数（通常クラス + 「その他」）。空状態 / 単一クラス自動直行の判定に使う。
   const totalClasses = grades.reduce((n, g) => n + g.classes.length, 0) + otherClasses.length;
 
@@ -125,8 +149,9 @@ export default async function EditorIndexPage({
   const resumeLabel = lastClass ? lastClass.label : null;
   const broadcastAllHref = "/app/editor/scope/school";
 
-  // ドロワー（スマホ横リスト）用の serializable な学科グループを Server 側で組み立てる。
-  const drawerDepts = buildDrawerDepts(hierarchy, otherClasses, statusByClass);
+  // ドロワー（スマホ横リスト）用の serializable な学科グループを Server 側で組み立てる。実機モニタが紐づか
+  // ない学科は壁と同様にドロワーからも除く（monitorClassIds で判定）。
+  const drawerDepts = buildDrawerDepts(hierarchy, otherClasses, statusByClass, monitorClassIds);
 
   return (
     <div className={styles.root}>
@@ -167,7 +192,10 @@ export default async function EditorIndexPage({
         <div>
           {departments.length > 0 ? (
             <>
-              {departments.map((d) => (
+              {/* 実機モニタが紐づく学科だけを出す（visibleDepartments）。モニタの無い学科は見出し・「まとめて
+                  出す」・配下タイルごと非表示（ユーザー指示 2026-06-18）。学科未割当 / 学校直下「その他」は
+                  学科ではないので従来どおり別枠で出す。 */}
+              {visibleDepartments.map((d) => (
                 <section key={d.id} className={styles.deptSection}>
                   <div className={styles.sectionHead}>
                     <h2 style={deptTitleStyle}>{d.name}</h2>
@@ -330,11 +358,16 @@ function OtherMonitors({
   );
 }
 
-/** ドロワー（スマホ横リスト）用に serializable な学科グループを組み立てる。年度は出さない。 */
+/**
+ * ドロワー（スマホ横リスト）用に serializable な学科グループを組み立てる。年度は出さない。
+ * `monitorClassIds` に配下クラスが 1 つも含まれない学科は**壁と同様に除外**する（実機モニタが紐づかない学科は
+ * 出さない・ユーザー指示 2026-06-18）。
+ */
 function buildDrawerDepts(
   hierarchy: SchoolHierarchy,
   otherClasses: OtherClass[],
   statusByClass: Record<string, boolean>,
+  monitorClassIds: Set<string>,
 ): DrawerDept[] {
   const { departments, grades } = hierarchy;
   const toClasses = (gradeList: GradeView[]): DrawerClass[] =>
@@ -354,12 +387,17 @@ function buildDrawerDepts(
   const out: DrawerDept[] = [];
   if (departments.length > 0) {
     for (const d of departments) {
+      const classes = [...toClasses(gradesOf(d.id)), ...toOtherRows(d.id)];
+      // 実機モニタが配下に無い学科はドロワーにも出さない（壁の visibleDepartments と一致）。
+      if (!classes.some((c) => monitorClassIds.has(c.id))) {
+        continue;
+      }
       out.push({
         id: d.id,
         name: d.name,
         broadcastHref: `/app/editor/scope/department/${d.id}`,
         // 学科配下の通常クラス + 同学科の「その他」を 1 グループに（壁の学科セクションと同じ並び）。
-        classes: [...toClasses(gradesOf(d.id)), ...toOtherRows(d.id)],
+        classes,
       });
     }
     const orphan = toClasses(grades.filter((g) => !g.departmentId));

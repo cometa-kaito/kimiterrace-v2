@@ -5,6 +5,8 @@ import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_compon
 import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
+import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
+import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
@@ -132,6 +134,14 @@ export function WysiwygBoardEditor({
     [base, schedules, notices, assignments],
   );
 
+  // このクラスの実機が出すパターンに含まれる**編集対象ブロックだけ**を出す（`PATTERN_BLOCKS` 単一ソース駆動）。
+  // 予定は全パターン共通。連絡 / 提出物は pattern1 専用ブロックなので pattern2/3 では盤面に出ず、編集欄も出さない
+  // （死セクション防止・finding① の対称ケース）。来校者 / 生徒呼び出しは pattern2/3 用で親（page.tsx）が盤面下に
+  // 出し分ける。盤面取得不能（base=null）は既定 pattern1 に倒し従来の縦積みフォーム（予定/連絡/提出物）を出す。
+  const pattern = base?.designPattern ?? DEFAULT_SIGNAGE_DESIGN_PATTERN;
+  const showNotice = patternIncludesBlock(pattern, "notice");
+  const showAssignment = patternIncludesBlock(pattern, "assignment");
+
   return (
     <div className={styles.root}>
       {previewPayload ? (
@@ -176,32 +186,36 @@ export function WysiwygBoardEditor({
             onItemsChange={onSchedules}
           />
         </EditorCard>
-        <EditorCard
-          title="連絡"
-          cardRef={noticeRef}
-          active={active === "notices"}
-          onFocusCapture={() => setActive("notices")}
-        >
-          <NoticeEditor
-            classId={classId}
-            date={date}
-            initialItems={initialNotices}
-            onItemsChange={onNotices}
-          />
-        </EditorCard>
-        <EditorCard
-          title="提出物"
-          cardRef={assignmentRef}
-          active={active === "assignments"}
-          onFocusCapture={() => setActive("assignments")}
-        >
-          <AssignmentEditor
-            classId={classId}
-            date={date}
-            initialItems={initialAssignments}
-            onItemsChange={onAssignments}
-          />
-        </EditorCard>
+        {showNotice ? (
+          <EditorCard
+            title="連絡"
+            cardRef={noticeRef}
+            active={active === "notices"}
+            onFocusCapture={() => setActive("notices")}
+          >
+            <NoticeEditor
+              classId={classId}
+              date={date}
+              initialItems={initialNotices}
+              onItemsChange={onNotices}
+            />
+          </EditorCard>
+        ) : null}
+        {showAssignment ? (
+          <EditorCard
+            title="提出物"
+            cardRef={assignmentRef}
+            active={active === "assignments"}
+            onFocusCapture={() => setActive("assignments")}
+          >
+            <AssignmentEditor
+              classId={classId}
+              date={date}
+              initialItems={initialAssignments}
+              onItemsChange={onAssignments}
+            />
+          </EditorCard>
+        ) : null}
       </div>
     </div>
   );

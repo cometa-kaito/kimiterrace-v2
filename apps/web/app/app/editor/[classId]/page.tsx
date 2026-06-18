@@ -8,6 +8,7 @@ import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { getClassSignageBlackout } from "@/lib/signage/blackout";
+import { resolveDesignPattern } from "@/lib/signage/design-pattern";
 import {
   getEffectiveDailyData,
   getEffectiveScheduleDays,
@@ -77,11 +78,17 @@ export default async function ClassEditorPage({
     }
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
-    // サイネージデザインパターンを解決（学校レベル既定）。来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS`
-    // 上 pattern2 専用ブロックなので、パターンに含まれる時だけ取得・描画する（pattern1 では取得もしない＝
-    // 不要セクションの無条件描画を解消・指摘ログ finding①。単一ソース `patternIncludesBlock` で駆動し
-    // `=== "pattern2"` のハードコード分岐を作らない＝将来パターン追加に自動追従）。
-    const pattern = await getSignageDesignPattern(tx);
+    // 「このクラスのサイネージを開く」導線兼**端末別デザインパターン解決**用に、当該クラスの TV デバイスの公開
+    // サイネージ URL を引く（同一 tx・RLS 自校限定）。未設置クラスは undefined → リンクを出さない（死リンク防止）。
+    const liveSignageUrl = await getClassSignageUrl(tx, classId);
+    // サイネージデザインパターンを解決（**端末別 `?design` > 学校レベル既定 > pattern1**）。実機 TV / モニタの壁と
+    // 同じ優先順位（`resolveDesignPattern` 単一ソース）で、このクラスの実機が実際に出すパターンでプレビュー・編集
+    // セクションを出し分ける（学校既定が pattern1 でも端末が pattern2/3 なら追従＝旧「学校既定のみ参照」を是正）。
+    // 来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS` 上 pattern2/3 専用ブロックなので、パターンに含まれる時だけ
+    // 取得・描画する（含まないパターンでは取得もしない＝不要セクションの無条件描画を解消・指摘ログ finding①。
+    // 単一ソース `patternIncludesBlock` で駆動し `=== "pattern2"` のハードコード分岐を作らない＝将来パターン追加に
+    // 自動追従）。
+    const pattern = resolveDesignPattern(liveSignageUrl, await getSignageDesignPattern(tx));
     const showVisitors = patternIncludesBlock(pattern, "visitor");
     const showCallouts = patternIncludesBlock(pattern, "callout");
     const visitors = showVisitors ? await getVisitorsForClass(tx, classId, date) : null;
@@ -104,9 +111,7 @@ export default async function ClassEditorPage({
     const previewWeather = user.schoolId
       ? await getSignageWeather(tx, user.schoolId, date).catch(() => null)
       : null;
-    // 「このクラスのサイネージを開く」導線用に、当該クラスの TV デバイスの公開サイネージ URL を引く
-    // （同一 tx・RLS 自校限定）。未設置クラスは undefined → リンクを出さない（死リンク防止）。
-    const liveSignageUrl = await getClassSignageUrl(tx, classId);
+    // liveSignageUrl は上で取得済み（パターン解決と「このクラスのサイネージを開く」導線で共用）。
     return {
       schedule,
       notices,
@@ -149,8 +154,10 @@ export default async function ClassEditorPage({
 
   // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`previewDaily` が取れた時だけ盤面を出す
   // （取れない時は WysiwygBoardEditor 側がプレビューを畳んで従来フォームのみにフォールバック＝盤面を壊さない）。
-  // pattern2 専用ブロック（来校者/呼び出し/センサ/鉄道）は編集タブのプレビューでは出さない（盤面は実機の
-  // pattern2 でも右の広告と予定主体で、ここでは予定/連絡/提出物の編集連動に集中する）。null 渡しで fail-soft。
+  // `designPattern` はこのクラスの実機が出すパターン（端末別 `?design` 解決済み）。pattern2/3 のクラスでは盤面が
+  // Pattern2/3 レイアウトで描かれ、来校者 / 生徒呼び出しは取得済みスナップショット（`showVisitors`/`showCallouts`）
+  // を渡して実機どおりに表示する（編集連動は予定のみ・来校者/呼び出しの編集欄は盤面下に出す）。人感センサ / 鉄道は
+  // 自動ブロック（編集対象外）なので null 渡しで fail-soft（ウィジェットは不在表示）。
   const boardBase: EditorBoardBase | null = previewDaily
     ? {
         date,
