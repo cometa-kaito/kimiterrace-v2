@@ -376,9 +376,10 @@ function Pattern3Board({
 
 /**
  * パターン3（廊下版）の大型ヘッダー。`BoardHeader` と**同じ情報**（実時計／盤面日付／クラス識別／ブランド）に
- * **当日の天気サマリ**（予定列ヘッダーにも出る既存の weather データを時刻の隣にも再掲）を添え、廊下の通行者が
- * 遠目で一瞥できるよう**時刻を主役に大型化**する。ブロック構成・取得データは変えない（デザインのみ）。当日予報が
- * 無い場合は天気サマリを出さない（fail-soft）。天気は単色グリフ＋`aria-label` で色非依存（NFR05・#847 と同作法）。
+ * **当日の気温**（最高/最低）を時刻の隣に添え、廊下の通行者が遠目で一瞥できるよう**時刻を主役に大型化**する。
+ * 天気アイコン（マーク）は週間天気帯（{@link Pattern3WeeklyWeather}）の「今日」セルが既に出すので、ヘッダーでは
+ * **重複を避けて出さない**（2026-06-18 ユーザー指示）。気温だけ残すので weather 条件の `aria-label` も付けない
+ * （視覚＝数値・読み上げ＝数値で一致）。当日予報が無い／最高気温が無ければ気温サマリを出さない（fail-soft）。
  */
 function Pattern3Header({ data, now }: { data: SignagePayload; now: Date | null }) {
   const { dateText, dayText } = formatBoardDate(data.date);
@@ -397,20 +398,12 @@ function Pattern3Header({ data, now }: { data: SignagePayload; now: Date | null 
         <span className={styles.p3HeaderDateMain}>{dateText}</span>
         <span className={styles.p3HeaderDay}>{dayText}曜日</span>
       </span>
-      {weatherToday ? (
-        <span
-          className={styles.p3HeaderWx}
-          aria-label={weatherToday.weatherText ?? weatherToday.iconLabel}
-        >
-          <span aria-hidden="true" className={styles.p3HeaderWxGlyph}>
-            {WEATHER_ICON_GLYPH[weatherToday.icon]}
+      {weatherToday && weatherToday.tempMax != null ? (
+        <span className={styles.p3HeaderWx}>
+          <span className={styles.p3HeaderWxTemp}>
+            {weatherToday.tempMax}°
+            {weatherToday.tempMin != null ? ` / ${weatherToday.tempMin}°` : ""}
           </span>
-          {weatherToday.tempMax != null ? (
-            <span className={styles.p3HeaderWxTemp}>
-              {weatherToday.tempMax}°
-              {weatherToday.tempMin != null ? ` / ${weatherToday.tempMin}°` : ""}
-            </span>
-          ) : null}
         </span>
       ) : null}
       <span className={styles.p3HeaderBrand}>キミテラス by Rebounder</span>
