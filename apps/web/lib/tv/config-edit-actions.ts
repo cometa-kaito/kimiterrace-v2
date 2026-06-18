@@ -1,6 +1,6 @@
 "use server";
 
-import { type TenantTx, auditLog, updateTvDeviceConfig } from "@kimiterrace/db";
+import { type TenantTx, auditLog, softDeleteTvDevice, updateTvDeviceConfig } from "@kimiterrace/db";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -69,7 +69,7 @@ function isConstraintViolation(error: unknown): boolean {
 async function writeAudit(
   tx: TenantTx,
   actor: TvConfigEditActor,
-  params: { recordId: string; schoolId: string; diff: unknown },
+  params: { recordId: string; schoolId: string; operation: "update" | "delete"; diff: unknown },
 ): Promise<void> {
   await tx.insert(auditLog).values({
     actorUserId: actor.userId,
@@ -77,7 +77,7 @@ async function writeAudit(
     schoolId: params.schoolId,
     tableName: "tv_devices",
     recordId: params.recordId,
-    operation: "update",
+    operation: params.operation,
     diff: params.diff as object,
     rowHash: "",
     createdBy: actor.userId,
@@ -143,6 +143,7 @@ export async function updateTvDeviceConfigAction(
         await writeAudit(tx, actor, {
           recordId: ref.id,
           schoolId: ref.schoolId,
+          operation: "update",
           diff: auditView(v.value, ref.version),
         });
         return ref;
@@ -163,4 +164,64 @@ export async function updateTvDeviceConfigAction(
     }
     throw error;
   }
+}
+
+/** 監査 diff（削除）: 撤去したデバイスの識別情報（設置ラベル / device_id・PII 非含）を before-snapshot で残す。 */
+function deleteAuditView(ref: { deviceId: string; label: string | null }): Record<string, unknown> {
+  return { before: { deviceId: ref.deviceId, label: ref.label }, deleted: true };
+}
+
+/**
+ * F15 §4.2: 指定 TV デバイスを**ソフトデリート（退役）**する Server Action。
+ *
+ * 操作: 行 id 検証 → 認可（`requireRole(TV_CONFIG_EDIT_ROLES)`）→ actor 解決 → `withSession` の RLS tx 内で
+ * `softDeleteTvDevice`（`deleted_at` を now() に設定）+ `audit_log`（operation=delete）追記 → `revalidatePath`。
+ *
+ * **認可と cross-tenant（updateTvDeviceConfigAction と同方針）**: school_admin は自校デバイスのみ
+ * （RLS `tenant_isolation`）、system_admin は全校デバイスを削除できる（`system_admin_full_access`、cross-tenant
+ * 運用者）。`tenantScoped` は使わず `allowedRoles` で role 境界を tx 層でも二重化する（多層防御、ルール2）。
+ * 0 行（他校 / 不可視 / **既に削除済み**）は `not_found` に写像する（冪等＝二重削除は安全に no-op）。
+ *
+ * **ソフトデリート（hard でない）理由**: 過去の死活/設定履歴・子参照 FK（commands / downtime）を保全しつつ、
+ * `device_id` の部分 UNIQUE（migration 0027, `WHERE deleted_at IS NULL`）により**同じ物理端末での再登録を許す**。
+ *
+ * **監査 actor（ルール1）**: system_admin は `users` 行でないため FK 列（`updated_by` / `actor_user_id`）は null、
+ * 「誰が」は `actor_identity_uid` に IdP uid を残す。audit の school_id は削除対象デバイスの school（RETURNING 由来）。
+ *
+ * @param rawDeviceRowId 対象 `tv_devices.id`（device_id ではなく行 PK）。
+ */
+export async function deleteTvDeviceAction(
+  rawDeviceRowId: unknown,
+): Promise<ActionResult<{ id: string }>> {
+  if (!isUuid(rawDeviceRowId)) {
+    return invalid("デバイスの指定が不正です。");
+  }
+  const id = rawDeviceRowId;
+  const actor = await authorize();
+
+  const deleted = await withSession(
+    async (tx) => {
+      const ref = await softDeleteTvDevice(tx, { id, actorUserId: actor.userId });
+      if (!ref) {
+        // 0 行: 他校 / 不可視 / 既に削除済み（RLS で弾かれた or deleted_at IS NOT NULL）。
+        return null;
+      }
+      await writeAudit(tx, actor, {
+        recordId: ref.id,
+        schoolId: ref.schoolId,
+        operation: "delete",
+        diff: deleteAuditView(ref),
+      });
+      return ref;
+    },
+    { allowedRoles: TV_CONFIG_EDIT_ROLES },
+  );
+
+  if (!deleted) {
+    return notFound("対象の TV デバイスが見つかりません（既に削除済みの可能性があります）。");
+  }
+
+  revalidatePath("/ops/tv-devices");
+  revalidatePath(`/ops/tv-devices/${id}/edit`);
+  return { ok: true, data: { id: deleted.id } };
 }

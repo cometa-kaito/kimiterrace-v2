@@ -46,6 +46,10 @@ import { schools } from "./schools.js";
  * UNIQUE だと同一 device_id を 2 校が登録でき、ポーリング解決が曖昧化して A 校 TV へ B 校設定を配信
  * しうる（テナント越境汚染。許容不可）。グローバル一意なら一行に解決され構造的に防げる。
  *
+ * 注: この UNIQUE は `tv_device_commands` / `tv_device_downtime` の `device_id` FK の参照先でもある
+ * （FK は非部分 UNIQUE を要求）。ソフトデリートしても行は残り device_id を保持するため、同一 device_id の
+ * 再登録は不可（撤去端末を別 device_id で再プロビジョニングする運用で対応する）。
+ *
  * ## テナント分離（ルール2 / ADR-019）
  * `school_id` を持つテナント分離テーブル。RLS は migrations/0016_tv_devices_rls.sql で
  * tenant_isolation（school_id 一致）+ system_admin_full_access を付与する。ポーリング経路は
