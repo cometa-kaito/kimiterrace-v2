@@ -54,6 +54,10 @@ export function AdThumbnail({
     );
   }
 
+  // mediaUrl は同一オリジン `/ad-media/…`（学校アップロード）か外部 https（運営入稿）。<img>/<video> の
+  // `src` は**スクリプトを実行しないシンク**（`javascript:` 等を入れても発火しない・React が属性値をエスケープ）
+  // なので XSS 経路にならない。CodeQL js/xss-through-dom はこれを誤検知する（dismiss 済・下の href は
+  // safeHttpOrRelative で別途サニタイズ）。詳細は docs/security/codeql-triage-2026-06-18.md。
   const inner =
     mediaType === "video" ? (
       <>
