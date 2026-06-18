@@ -72,6 +72,20 @@ async function main(): Promise<void> {
   // 件数サマリのみ info ログに（Cloud Logging の構造化ログ）。secret / PII は出さない。
   console.info(JSON.stringify({ event: "weather.fetch.done", summary }));
 
+  // ADR-044: 警報相乗りの一部失敗（天気は壊さない / last-known-good 維持）も WARN を立てる。
+  // 警報失敗だけで Job を fail させない（天気が取れていれば盤面は前進する）。公開の地域コードのみ。
+  if (summary.warningsFailed > 0) {
+    console.warn(
+      JSON.stringify({
+        event: "weather.warning.partial_failure",
+        warningsFailed: summary.warningsFailed,
+        warningsFetched: summary.warningsFetched,
+        areas: summary.areas,
+        warningsFailedAreaCodes: summary.warningsFailedAreaCodes,
+      }),
+    );
+  }
+
   // 一部地域の取得失敗（last-known-good は維持済）は WARN を立て severity ベースのアラート対象にする。
   // failedAreaCodes は公開の地域コードのみ（PII でない）。
   if (summary.failed > 0) {
