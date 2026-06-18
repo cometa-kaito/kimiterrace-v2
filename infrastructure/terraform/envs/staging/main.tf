@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "db12ca5" # migration 20260617115610 (#1010): classes に department_id(nullable FK) 追加 + grade nullable 化 + index（「その他」設置場所の土台・additive/後方互換）。C+D web(db12ca5) の前段。staging Job 実行済
+  migrate_image_tag = "98cc9d8" # migration 20260618085216 + 0028 (#1049): news_items テーブル + news_source enum + RLS read_all/write_system + 監査FK（工学ニュース・ADR-043・additive/後方互換）。staging Job 実行予定
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "25587e3"
+  jobs_image_tag = "98cc9d8" # 工学ニュース取得Job(dist/news/news-job.js)同梱（ADR-043・#1053）。weather/railway/tv-liveness は同コードで image のみ更新
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "fb826fc" # その他(非教室サイネージ) #1012/#1013/#1015 反映（db12ca5→fb826fc）。schema/secret 無変更（#1010 migration は #1014 で適用済＝web のみ）。/api/health 200・/login private,no-cache。
+  web_image_tag = "98cc9d8" # staging deploy 98cc9d8（内容は PR/commit に記述）
 }
 
 module "network" {
@@ -600,7 +600,7 @@ module "cloud_run_job_news" {
   project_id             = var.project_id
   region                 = var.region
   env                    = local.env
-  enabled                = false # PR2 scaffold（有効化は jobs image bump + staging 検証後）
+  enabled                = true  # 2026-06-18 有効化: jobs image 98cc9d8 同梱・staging デプロイ（ADR-043）
   deletion_protection    = false # staging は recreate 容易性優先（Issue #70）
   image                  = "${module.artifact_registry.image_repo_url}/jobs:${local.jobs_image_tag}"
   container_args         = ["dist/news/news-job.js"]
