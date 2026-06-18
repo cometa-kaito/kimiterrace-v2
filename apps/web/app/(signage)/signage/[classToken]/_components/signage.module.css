@@ -24,6 +24,9 @@
   --accent-weak: #eaf0f7;
   --urgent-color: #b91c1c;
   --urgent-weak: #fdecec;
+  /* 週間天気帯（pattern3）の最高気温＝暖色。白地で AA 充足の濃オレンジ（#fff 上 約 5.9:1 / #f7f8fa 上 約
+     5.6:1）。最低気温は寒色として既存の --accent-color（インディゴ）を流用する。NFR05 は数値併記で担保。 */
+  --temp-high-color: #c2410c;
   --ad-bg: #111827;
   --font-base: "Inter", "Noto Sans JP", "Helvetica Neue", Arial, sans-serif;
   --radius-sm: 6px;
@@ -911,6 +914,88 @@
 .p3Root .p2ScheduleToday {
   border-color: var(--primary-color);
   box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+/* (4) 週間天気帯（廊下版・グラフなし）。情報エリア（.p2Grid）先頭に本日以降 7 日を 1 行で出す。各日 =
+   曜日/日付 + 単色グリフ + 最高(暖色)/最低(寒色)気温 + 降水確率。気温は色だけでなく数値で示す（NFR05）。
+   今日列は枠で面強調。要素は pattern3 のみが描画（pattern2 無改修）なので p3Root スコープ限定は不要。
+   flex:0 0 auto で自然高さを取り、予定/人物/ステータスの flex 比は元の配分のまま残す（盤面を圧迫しない）。 */
+.p3WeeklyWx {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5vmin;
+  min-height: 0;
+}
+.p3WxCell {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.35vmin 0.3vmin;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+/* 今日セル: 予定の今日列と同じ太枠で面強調（色非依存）。 */
+.p3WxCellToday {
+  border-color: var(--primary-color);
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+.p3WxDow {
+  font-size: clamp(0.72rem, 1.05vw, 0.98rem);
+  font-weight: 700;
+  color: var(--primary-color);
+  line-height: 1.1;
+}
+.p3WxCellToday .p3WxDow {
+  color: var(--accent-color);
+}
+.p3WxDate {
+  font-size: clamp(0.55rem, 0.78vw, 0.74rem);
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.1;
+}
+.p3WxIcon {
+  font-size: clamp(1.15rem, 2vw, 1.8rem);
+  line-height: 1.15;
+}
+/* 最高(暖色・大)/最低(寒色)を横並びで。tabular-nums で桁ブレ防止。 */
+.p3WxTemps {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.p3WxHigh {
+  font-size: clamp(0.88rem, 1.35vw, 1.2rem);
+  font-weight: 800;
+  color: var(--temp-high-color);
+}
+.p3WxLow {
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+  font-weight: 700;
+  color: var(--accent-color);
+}
+.p3WxPop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  font-size: clamp(0.55rem, 0.8vw, 0.74rem);
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+/* 降水確率が高い日（≥50%）は accent で注意喚起（色だけに依存せず % 数値も併記）。 */
+.p3WxPopHigh {
+  color: var(--accent-color);
 }
 
 /* パターン3 のモバイル（縦長・小型画面）: 大型ヘッダーは sticky に倒して上部固定、ブランドは省く。
