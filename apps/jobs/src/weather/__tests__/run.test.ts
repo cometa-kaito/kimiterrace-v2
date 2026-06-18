@@ -10,6 +10,7 @@ import {
   type FetchedHeat,
   type FetchedWarning,
   type HttpFetchConfig,
+  MAX_EVENTS_PER_SOURCE,
   collectAreaCodes,
   envHeatAlertUrl,
   fetchAreaFromJma,
@@ -646,10 +647,14 @@ describe("stableEventUid", () => {
 });
 
 describe("fetchIcs", () => {
+  // ADR-045 §SSRF: fetchIcs は SSRF セーフな fetchPublicIcs 経由になったため、ホスト名解決を公開 IP に倒す
+  // resolver を注入する（実 DNS 非依存）。SSRF ガード自体の網羅は calendar/__tests__/safe-fetch.test.ts。
+  const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
   const config = (fetchImpl: typeof fetch): HttpFetchConfig => ({
     userAgent: "test-ua/1.0",
     timeoutMs: 1000,
     fetchImpl,
+    icsResolver: publicResolver,
   });
 
   it("2xx の iCal をパースする。明示 User-Agent を付ける", async () => {
@@ -683,5 +688,58 @@ describe("fetchIcs", () => {
     await expect(fetchIcs(fakeSource("src-a", "school-a"), config(fetchImpl))).rejects.toThrow(
       /status=403/,
     );
+  });
+
+  it("★ SSRF: http scheme の icsUrl は fetch 前に拒否する", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("x", { status: 200 }),
+    ) as unknown as typeof fetch;
+    const source: EnabledCalendarSource = {
+      id: "src-http",
+      schoolId: "school-a",
+      icsUrl: "http://example.test/x.ics",
+    };
+    await expect(fetchIcs(source, config(fetchImpl))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("★ SSRF: メタデータ IP 直指定の icsUrl は fetch 前に拒否する", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("x", { status: 200 }),
+    ) as unknown as typeof fetch;
+    const source: EnabledCalendarSource = {
+      id: "src-meta",
+      schoolId: "school-a",
+      icsUrl: "https://169.254.169.254/computeMetadata/v1/",
+    };
+    await expect(fetchIcs(source, config(fetchImpl))).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("★ 取込上限: MAX_EVENTS_PER_SOURCE 超過は切り捨て、何件落としたか WARN を出す", async () => {
+    // MAX_EVENTS_PER_SOURCE + 5 件の VEVENT を持つ巨大 iCal を生成。
+    const over = MAX_EVENTS_PER_SOURCE + 5;
+    const blocks: string[] = ["BEGIN:VCALENDAR"];
+    for (let i = 0; i < over; i++) {
+      blocks.push("BEGIN:VEVENT", `UID:evt-${i}`, "DTSTART;VALUE=DATE:20260408", "END:VEVENT");
+    }
+    blocks.push("END:VCALENDAR");
+    const ics = blocks.join("\r\n");
+    const fetchImpl = vi.fn(
+      async () => new Response(ics, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await fetchIcs(fakeSource("src-big", "school-a"), config(fetchImpl));
+      expect(result.events).toHaveLength(MAX_EVENTS_PER_SOURCE);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const logged = JSON.parse(String(warnSpy.mock.calls[0]?.[0]));
+      expect(logged.event).toBe("calendar.ingest.truncated");
+      expect(logged.sourceId).toBe("src-big");
+      expect(logged.dropped).toBe(5);
+      expect(logged.kept).toBe(MAX_EVENTS_PER_SOURCE);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

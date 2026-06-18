@@ -51,6 +51,17 @@
 
    依存方針: 軽量・低依存の iCal ライブラリ（node-ical / ical.js 等）が Dependency Review CI を通れば採用してもよいが、**本 PR は依存を増やさず自前サブセットを採用**した（blast radius 最小化・既存の防御的パーサ流儀 `jma-warning.ts` / `news-parse.ts` と一貫）。繰返しの本格対応が要件化したらライブラリ採用を再検討する（§再検討トリガ）。
 
+6. **SSRF 緩和（半信頼 `ics_url` の取得を内部到達から守る・セキュリティ最優先）**。`ics_url` は school_admin（将来の設定 UI / ops 投入）が登録する **半信頼の外部入力**であり、取得は weather Cloud Run Job 上で **egress=ALL_TRAFFIC（VPC コネクタ経由）** で走る。この Job は Cloud SQL プライベート IP（10/8 等）・**GCP メタデータサーバ `169.254.169.254`（SA トークン窃取に直結）**・他内部サービスに **到達できる**ため、素の `fetch(ics_url)` は **ブラインド SSRF** 面になる（任意内部 URL を踏ませて応答有無・タイミングで内部を探索 / メタデータ窃取）。これを防ぐため、iCal 取得を専用ユーティリティ `apps/jobs/src/calendar/safe-fetch.ts`（`fetchPublicIcs`）に隔離し、**多層防御**を強制する。JMA / 環境省（天気・警報・熱中症）は **コード内固定 URL** なので本ガードの対象外（カレンダーのみ semi-trusted URL を扱う）:
+   - **scheme は https のみ**許可（`http` / `file` / `ftp` / `data` 等は拒否）。
+   - **ホスト検証**: IP リテラルはそのまま、ホスト名は **DNS 解決（A/AAAA 全件）して解決された全 IP** を検査し、プライベート/予約レンジを 1 つでも含めば拒否。対象レンジ — IPv4: `0/8`, `10/8`, `100.64/10`(CGNAT), `127/8`, **`169.254/16`（メタデータ含む）**, `172.16/12`, `192.0.0/24`, `192.0.2/24`, `192.168/16`, `198.18/15`, `198.51.100/24`, `203.0.113/24`, `224/4`, `240/4`, `255.255.255.255`; IPv6: `::1`, `::`, `::ffff:0:0/96`（IPv4-mapped は内側 v4 を再検査）, `fc00::/7`(ULA), `fe80::/10`(link-local)。`localhost` / `*.localhost` / `*.internal` / `metadata.google.internal` 等の **ホスト名**も明示拒否。
+   - **リダイレクト安全**: `redirect:"manual"` で自前処理し、**各ホップの `Location` を再度 scheme + 解決 IP で検証**してから次へ進む（公開ホストから内部 IP へ誘導する 30x 攻撃を塞ぐ）。最大 `maxRedirects`（既定 3）超過・`Location` 欠落・検証失敗は拒否。
+   - **レスポンスサイズ上限** `maxBytes`（既定 5MB）。ストリームで読み、超過は読み取り中断 + 拒否（巨大 body による DoS / メモリ枯渇回避）。
+   - **認証情報を送らない**（`credentials:"omit"`・cookie 無し）、明示 User-Agent、`AbortController` で timeout。
+   - **fail-soft**: 検証違反・取得失敗はいずれも throw し、`run.ts` のカレンダーフェーズが **当該校だけ skip**（他校・天気/警報/熱中症は継続・last-known-good 維持）。
+   - **テスト容易性**: DNS resolver と fetch を **依存注入**できる（既定は実体）。SSRF ガードは `apps/jobs/src/calendar/__tests__/safe-fetch.test.ts` で http 拒否・各種内部 IP（v4/v6/IPv4-mapped）拒否・公開許可・リダイレクト内部誘導拒否 / 公開追従・サイズ超過・timeout を網羅。
+
+7. **取込上限（巨大 iCal の行量産 / DoS 抑制・MINOR）**。1 ソースあたり upsert する VEVENT 総数を `MAX_EVENTS_PER_SOURCE`（= 2000）でクランプする。超過分は **切り捨てつつ構造化 WARN ログ**（`event: "calendar.ingest.truncated"` に `sourceId` / `parsed` / `kept` / `dropped` 件数）で明示する（**沈黙の切り捨て禁止** = 何件落としたか必ずログに出す）。既存の RRULE 1 イベントあたり 366 件上限（`MAX_RECURRENCE_OCCURRENCES`）はそのまま（こちらは 1 VEVENT の展開上限、`MAX_EVENTS_PER_SOURCE` は 1 ソース全体の上限で二段防御）。
+
 ## keyless per-school データ追加の標準手順（本 ADR が定める拡張パターン）
 
 ADR-044（地域単位・公開参照）に対し、本 ADR は **per-school・tenant_isolation** 版の標準手順を定める:
@@ -68,6 +79,7 @@ ADR-044（地域単位・公開参照）に対し、本 ADR は **per-school・t
 - ③ **RRULE 取りこぼし**: 対応外の繰返し（MONTHLY 等）は初回 1 件しか出ない。→ MVP では許容。要件化したらライブラリ採用 / 展開拡張（再検討トリガ）。
 - ④ **更新頻度**: Job の起動間隔（30〜60 分）に律速。行事は即時性が低いので許容。
 - ⑤ **相乗りで天気 Job の 1 サイクルが延びる**: per-school で HTTP が校数ぶん増える。PoC（1 校）では無視できる。校数増で長くなったら分割を再検討（ADR-044 §再検討トリガと共通）。
+- ⑥ **DNS リバインディング（SSRF の TOCTOU 残余）**: `safe-fetch.ts` は「DNS 解決 → 解決 IP を検査 → fetch」の順だが、**検査時に解決した IP と、その後 fetch 内部で OS が再解決する IP がズレうる**（攻撃者が短い TTL で公開 IP → 内部 IP に差し替える古典的 DNS リバインディング）。完全に塞ぐには **検証済み IP への接続ピンニング**（undici custom dispatcher / `lookup` フックで解決 IP を固定し、その IP に直接接続しつつ TLS SNI/Host だけ元ホスト名を使う）が要る。**本 PR スコープ外**とし、現状は (a) https 限定で MITM を難しくし、(b) リダイレクトの各ホップを再検証し、(c) 解決された全 IP を検査することで、実務上の主要面（直接内部 URL・リダイレクト内部誘導・部分的に内部へ向く DNS）を塞ぐ。IP ピンニングは要件化したら follow-up（脅威モデル上、攻撃者は登録 `ics_url` を自由に選べる school_admin 相当の半信頼アクタであり、メタデータ窃取の主要経路は本ガードで遮断済み）。
 
 ## 再検討トリガ
 
@@ -75,10 +87,11 @@ ADR-044（地域単位・公開参照）に対し、本 ADR は **per-school・t
 - 繰返し（MONTHLY/YEARLY/BYDAY/EXDATE）の正確な展開が要件化した → 軽量 iCal ライブラリ採用（Dependency Review CI 通過前提）または展開ロジック拡張。
 - 1 校 1 ソースで足りなくなった（複数カレンダー統合表示）→ `unique(school_id)` を外し source 複数化（follow-up）。
 - per-school フェーズで天気 Job の 1 サイクルが長くなりすぎた → 分割 / 並列化を再評価。
+- SSRF の脅威モデルが上がった（外部公開の登録 UI 等で攻撃者が任意 `ics_url` を入れやすくなった）→ **DNS リバインディング対策の IP ピンニング**（undici dispatcher で解決済み IP に固定接続）を導入（残存リスク⑥）。
 
 ## 影響
 
-- 新規 `school_calendar_sources` / `school_calendar_events` テーブル（per-school・tenant_isolation・監査）+ 純パーサ `apps/jobs/src/calendar/ical.ts` + 取得 Job の per-school フェーズ相乗り（`weather/run.ts` 拡張）+ クエリ層 `packages/db/src/queries/school-calendar.ts`。**新 Cloud Run Job / Cloud Scheduler / Terraform 変更なし**（既存天気 Job に相乗り＝新規固定費ゼロ、ルール8）。
+- 新規 `school_calendar_sources` / `school_calendar_events` テーブル（per-school・tenant_isolation・監査）+ 純パーサ `apps/jobs/src/calendar/ical.ts` + **SSRF セーフ取得ユーティリティ `apps/jobs/src/calendar/safe-fetch.ts`（`fetchPublicIcs`・https 限定 / プライベート IP 拒否 / リダイレクト各ホップ再検証 / サイズ上限 / 認証情報不送信、DI で単体検証）** + 取得 Job の per-school フェーズ相乗り（`weather/run.ts` 拡張・`fetchIcs` は `fetchPublicIcs` 経由 + `MAX_EVENTS_PER_SOURCE` クランプ）+ クエリ層 `packages/db/src/queries/school-calendar.ts`。**新 Cloud Run Job / Cloud Scheduler / Terraform 変更なし**（既存天気 Job に相乗り＝新規固定費ゼロ、ルール8）。
 - 端末閉域は維持（端末は自社 DB のみ読む）。**サイネージ盤面への行事表示の結線・設定 UI（school_admin が ics_url 登録）は follow-up（別 PR）**。prod の `school_calendar_sources` 初期投入は **ops 手順**（公開 iCal URL を ops が登録）。
 - ルール4（Vertex マスキング）: 行事は LLM / embedding 経路に **載せない**（送信しないので「マスキング」ではなく「非送信」で対処）。
 - ルール5（secret）: **SA JSON 鍵を使わない keyless 設計**。`ics_url` は secret ではない公開 URL。`DATABASE_URL` は従来どおり Secret Manager 経由。

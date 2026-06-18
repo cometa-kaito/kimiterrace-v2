@@ -19,6 +19,7 @@ import {
   withTenantContext,
 } from "@kimiterrace/db";
 import { type ParsedCalendarEvent, parseIcs } from "../calendar/ical.js";
+import { type DnsResolver, fetchPublicIcs } from "../calendar/safe-fetch.js";
 import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
@@ -313,7 +314,20 @@ export interface HttpFetchConfig {
   timeoutMs?: number;
   /** テスト差し替え用の fetch 実装（既定は global fetch）。 */
   fetchImpl?: typeof fetch;
+  /**
+   * ADR-045 §SSRF: 半信頼の `ics_url` を SSRF セーフに取得する際の DNS resolver（テスト差し替え用）。
+   * 未指定なら `fetchPublicIcs` の既定（`dns/promises` lookup, all:true）を使う。JMA/環境省は固定 URL なので
+   * 天気・警報・熱中症の取得には使わない（カレンダーのみ）。
+   */
+  icsResolver?: DnsResolver;
+  /** ADR-045 §SSRF: iCal レスポンスのサイズ上限（bytes）。既定 5MB（巨大 body DoS 回避）。 */
+  icsMaxBytes?: number;
+  /** ADR-045 §SSRF: iCal 取得で追従するリダイレクトの最大数。既定 3（各ホップを再検証）。 */
+  icsMaxRedirects?: number;
 }
+
+/** ADR-045: 1 ソースあたり upsert する VEVENT の総数上限（巨大 iCal による行量産・DoS 回避）。 */
+export const MAX_EVENTS_PER_SOURCE = 2000;
 
 /**
  * 1 地域を JMA から HTTP 取得しパースする（実 I/O）。timeout / 明示 User-Agent を付ける。
@@ -439,34 +453,53 @@ export async function fetchHeatFromEnv(
 }
 
 /**
- * ADR-045: 1 校の公開 iCal/ICS を HTTP 取得しパースする（実 I/O）。`fetchWarningFromJma` に倣う（timeout /
- * 明示 User-Agent）。非 2xx・タイムアウトは throw（`runWeatherFetch` が校単位で捕捉し、天気系を巻き込まず
+ * ADR-045: 1 校の公開 iCal/ICS を **SSRF セーフに** HTTP 取得しパースする（実 I/O）。
+ *
+ * ★ SSRF（ADR-045 §SSRF）: `source.icsUrl` は school_admin が登録する半信頼入力。weather Job は egress=
+ * ALL_TRAFFIC で VPC 内（Cloud SQL プライベート IP / GCP メタデータ 169.254.169.254 に到達可）なので、素の
+ * fetch だと内部 URL を入れられてブラインド SSRF になる。`fetchPublicIcs` 経由で **https 限定・プライベート/
+ * 予約 IP 拒否・リダイレクト各ホップ再検証・サイズ上限・認証情報不送信**を強制する（JMA/環境省は固定 URL なので
+ * 対象外で、この経路はカレンダーのみ）。
+ *
+ * 取込上限（ADR-045 §SSRF・MINOR）: 1 ソースあたり upsert する VEVENT は `MAX_EVENTS_PER_SOURCE` 件まで。
+ * 超過分は **切り捨てつつ WARN ログで件数を明示**（沈黙の切り捨てをしない）。
+ *
+ * 検証失敗・非 2xx・タイムアウト・サイズ超過は throw（`runWeatherFetch` が校単位で捕捉し、天気系を巻き込まず
  * その校だけ skip する）。壊れた iCal は `parseIcs` が空 / 部分配列を返す（throw しない・fail-soft）。
  */
 export async function fetchIcs(
   source: EnabledCalendarSource,
   config: HttpFetchConfig,
 ): Promise<FetchedCalendar> {
-  const fetchImpl = config.fetchImpl ?? fetch;
-  // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
-  const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(source.icsUrl, {
-      method: "GET",
-      headers: { "User-Agent": config.userAgent, Accept: "text/calendar,text/plain" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      // ★ icsUrl は PII でないがログ汚染を避けるため status のみ。
-      throw new Error(`iCal 取得失敗: sourceId=${source.id} status=${res.status}`);
-    }
-    const text: string = await res.text();
-    return { source, events: parseIcs(text) };
-  } finally {
-    clearTimeout(timer);
+  const fetchOptions = {
+    userAgent: config.userAgent,
+    ...(config.fetchImpl !== undefined ? { fetchImpl: config.fetchImpl } : {}),
+    ...(config.icsResolver !== undefined ? { resolver: config.icsResolver } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.icsMaxBytes !== undefined ? { maxBytes: config.icsMaxBytes } : {}),
+    ...(config.icsMaxRedirects !== undefined ? { maxRedirects: config.icsMaxRedirects } : {}),
+  };
+  // SSRF 検証（https 限定・プライベート/予約 IP 拒否・リダイレクト各ホップ再検証）+ サイズ上限付きで取得。
+  // 検証 NG / 非 2xx / サイズ超過は throw（呼び出し側がその校だけ skip）。生 URL はメッセージに載せない。
+  const text = await fetchPublicIcs(source.icsUrl, fetchOptions);
+  const parsed = parseIcs(text);
+  // ADR-045 §取込上限: 1 ソース総 VEVENT 数を MAX_EVENTS_PER_SOURCE でクランプ（巨大 iCal の行量産を防ぐ）。
+  if (parsed.length > MAX_EVENTS_PER_SOURCE) {
+    const dropped = parsed.length - MAX_EVENTS_PER_SOURCE;
+    // ★ 沈黙の切り捨て禁止: 何件落としたか構造化 WARN で明示（sourceId は PII でない / URL・本文は載せない）。
+    // biome-ignore lint/suspicious/noConsole: Cloud Run Job の構造化運用ログ（Cloud Logging へ出力）。debug 用途でない。
+    console.warn(
+      JSON.stringify({
+        event: "calendar.ingest.truncated",
+        sourceId: source.id,
+        parsed: parsed.length,
+        kept: MAX_EVENTS_PER_SOURCE,
+        dropped,
+      }),
+    );
+    return { source, events: parsed.slice(0, MAX_EVENTS_PER_SOURCE) };
   }
+  return { source, events: parsed };
 }
 
 /**
