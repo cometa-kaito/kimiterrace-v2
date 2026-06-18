@@ -210,6 +210,29 @@ export const wbgtBand = pgEnum("wbgt_band", [
  */
 export type WbgtBand = (typeof wbgtBand.enumValues)[number];
 
+// サイネージ静的コンテンツ（名言/四字熟語/英単語/今日は何の日）の日替わり表示。`signage_snippets.category`
+// の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。weather/news 等の外部取得キャッシュと違い
+// **外部 API も Cloud Run Job も使わない完全ゼロコスト枠**（seed 済みの静的データを日付決定論ローテで出すだけ）。
+//   quote       … 名言（本文＋出典/著者）
+//   idiom       … 四字熟語（語＋読み＋意味）
+//   word        … 英単語（語＋発音＋和訳）
+//   on_this_day … 今日は何の日（記念日。month_day = 'MM-DD' に一致する行から決定論選択）
+// 将来カテゴリ（例: 諺）を足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊。generate が DROP TYPE を吐かないこと）。
+export const snippetCategory = pgEnum("snippet_category", [
+  "quote",
+  "idiom",
+  "word",
+  "on_this_day",
+]);
+
+/**
+ * サイネージ静的コンテンツ種別の型（単一ソース）。アプリ層 (apps/web) は client-safe な
+ * `@kimiterrace/db/schema` から `import type` でこれを引き込み、盤面のカテゴリ表示・取得が enum と
+ * ズレないことを `satisfies` でコンパイル時に強制する（`WarningLevel` / `NewsSource` と同方針）。
+ * 型のみなので Next バンドルに enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type SnippetCategory = (typeof snippetCategory.enumValues)[number];
+
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "schedule",
