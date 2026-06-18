@@ -115,6 +115,7 @@ export type TvProvisioningStatus = (typeof tvProvisioningStatus.enumValues)[numb
 // F14 (ADR-021): サイネージ天気予報のデータソース。現状 気象庁 (JMA) 無料 API のみ。
 // `weather_forecasts.source` の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。
 // 将来 JMA 障害時の商用 API フォールバックを採る場合は末尾に値を足す（ADD VALUE、非破壊）。
+// 気象警報・注意報 (ADR-044) も同じ取得元 (JMA bosai) なので `weather_warnings.source` で本 enum を再利用する。
 export const weatherSource = pgEnum("weather_source", ["jma"]);
 
 // ADR-043: サイネージ「工学ニュース」のデータソース。`news_items.source` の値域を DB レベルで固定する
@@ -132,6 +133,24 @@ export const newsSource = pgEnum("news_source", ["jst", "mext", "meti"]);
  * enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
  */
 export type NewsSource = (typeof newsSource.enumValues)[number];
+
+// ADR-044 (気象警報・注意報): その地域で出ている最大の警戒段階の派生値。`weather_warnings.max_level` の
+// 値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。盤面の存在判定・強調表示を、jsonb の中身を
+// 端末側で再集計させずに済ませる（取得 Job のパーサで一元導出する単一ソース）。順序（弱→強）:
+//   none      … 警報・注意報なし（解除済を含む）
+//   advisory  … 注意報（JMA の注意報レベル）
+//   warning   … 警報
+//   emergency … 特別警報（最上位）
+// 将来値（例: より細かい段階）を足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊）。
+export const warningLevel = pgEnum("warning_level", ["none", "advisory", "warning", "emergency"]);
+
+/**
+ * 気象警報レベルの型（単一ソース）。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema`
+ * から `import type` でこれを引き込み、盤面の段階表示・強調が enum とズレないことを `satisfies` で
+ * コンパイル時に強制する（`TvCommandType` / `PublishScope` と同方針）。型のみなので Next バンドルに
+ * enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type WarningLevel = (typeof warningLevel.enumValues)[number];
 
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
