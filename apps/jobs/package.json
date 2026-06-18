@@ -17,6 +17,7 @@
     "@kimiterrace/db": "workspace:*",
     "@kimiterrace/fcm": "workspace:*",
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.8.0",
     "pdfkit": "^0.18.0"
   },
   "devDependencies": {
