@@ -4,7 +4,7 @@ import { getAdminAuth } from "./adminApp";
 import { buildInAppResetLink } from "./reset-link";
 
 /**
- * F11 (#324, ADR-026): アカウント無効化 / ロール変更の **Identity Platform エンフォース seam**。
+ * F11 (#324, ADR-026): アカウント無効化の **Identity Platform エンフォース seam**。
  *
  * ADR-026 の決定: **IdP を認証エンフォースの単一ソースとし、DB の `users.is_active` / `users.role` は
  * IdP 状態の mirror (表示・監査用の投影) に留める**。claims / トークン有効性こそがエンフォースの根拠
@@ -15,7 +15,10 @@ import { buildInAppResetLink } from "./reset-link";
  * localId を渡す — provisioning 前提により localId == `users.id`(UUID) (ADR-003、session.ts の
  * normalizeClaims docstring 参照)。
  *
- * 無効化 / 再有効化 (ADR-026 D1) と **ロール変更 (D2、`changeIdpUserRole`)** を提供する。
+ * 無効化 / 再有効化 (ADR-026 D1) を提供する。ロール変更 (ADR-026 D2) の seam (`changeIdpUserRole`) は
+ * 教員アカウント概念の撤去 (2026-06-10) で唯一の呼出側だった教職員ロール変更フローが消滅し、本番呼出元
+ * ゼロのまま任意 role (system_admin 含む) / 任意 school を claim に書ける権限昇格プリミティブとして残って
+ * いたため撤去した (ADR-026 D2 の撤回注記参照)。再導入が必要になったら ADR-026 D2 の設計から再生する。
  */
 
 /**
@@ -47,31 +50,6 @@ export async function deactivateIdpUser(uid: string): Promise<void> {
  */
 export async function reactivateIdpUser(uid: string): Promise<void> {
   await getAdminAuth().updateUser(uid, { disabled: false });
-}
-
-/**
- * ADR-026 D2: ロール変更。**claims がロールの単一ソース**なので、claims を再付与し **必ず revoke する**。
- *
- * 1. **claims を再付与** (`setCustomUserClaims(uid, { role, school_id })`) — 新ロールを claims に反映。
- *    custom claims は全置換なので、`normalizeClaims` が読む `role` / `school_id` を完全な形で渡す
- *    (`uid` は localId であり custom claim ではない、session.ts 参照)。
- * 2. **リフレッシュトークンを失効** (`revokeRefreshTokens(uid)`)。**降格 (school_admin→teacher) では
- *    revoke しないと旧特権 claim が cookie 有効期間 (最大 14 日) 残存して危険**なため revoke は必須。
- *    昇格も同様に一旦失効 → 利用者は再ログインで新ロールの claim を取得する (revoke 後の既存 session は
- *    自動で新ロールに変わるのではなく、`checkRevoked` で deny に倒れ「再ログイン強制」になる)。
- *
- * `schoolId` はテナント claim (school_admin / teacher は所属校 UUID)。本 seam は教職員ロール間の変更
- * (school_admin ↔ teacher) に使い、school 横断や system_admin 化はしない (呼出側 action が role を限定)。
- */
-export async function changeIdpUserRole(
-  uid: string,
-  role: TenantRole,
-  schoolId: string,
-): Promise<void> {
-  const auth = getAdminAuth();
-  // claims を先に確定してから revoke する (新ロールを載せた上で既存 session を失効 = 再ログインで新権限)。
-  await auth.setCustomUserClaims(uid, { role, school_id: schoolId });
-  await auth.revokeRefreshTokens(uid);
 }
 
 /**

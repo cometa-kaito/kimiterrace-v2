@@ -62,7 +62,6 @@ vi.mock("@kimiterrace/db", () => ({
 import { POST as EXTEND } from "../../app/api/magic-links/[id]/extend/route";
 import { POST as REVOKE } from "../../app/api/magic-links/[id]/revoke/route";
 import { GET, POST } from "../../app/api/magic-links/route";
-import { EXPIRES_DEFAULT_DAYS } from "../../lib/magic-link/request";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** createClassMagicLink に渡った expiresAt（Date）を取り出す。 */
@@ -208,25 +207,28 @@ describe("POST /api/magic-links (発行)", () => {
     );
   });
 
-  it("expiresInDays 省略時は既定 1 年 (EXPIRES_DEFAULT_DAYS) を明示適用する (DB 90 日に倒さない・finding④)", async () => {
-    vi.useFakeTimers();
-    const now = new Date("2026-06-13T00:00:00.000Z");
-    vi.setSystemTime(now);
+  it("ADR-042 D1: expiresInDays 省略時は無期限で発行する (expiresAt=undefined → DB に NULL)", async () => {
     getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     createClassMagicLink.mockResolvedValue({
       id: LINK_ID,
       classId: CLASS_ID,
-      expiresAt: new Date(now.getTime() + EXPIRES_DEFAULT_DAYS * DAY_MS),
+      token: "PLAINTOKEN",
+      expiresAt: null,
       revokedAt: null,
-      createdAt: now,
+      createdAt: new Date("2026-06-13T00:00:00.000Z"),
     });
     const res = await POST(jsonRequest({ classId: CLASS_ID }));
     expect(res.status).toBe(201);
-    // DB 列デフォルト(90日)に倒さず、サーバ時刻起点で既定 365 日の Date を明示的に渡す。
-    const expected = new Date(now.getTime() + EXPIRES_DEFAULT_DAYS * DAY_MS);
-    expect(passedExpiresAt()).toBeInstanceOf(Date);
-    expect(passedExpiresAt().toISOString()).toBe(expected.toISOString());
-    expect(EXPIRES_DEFAULT_DAYS).toBe(365);
+    // 省略時は有限期限を算出せず undefined を渡す → createClassMagicLink が expires_at に NULL を書く。
+    expect(passedExpiresAt()).toBeUndefined();
+    // ADR-042 D2: 平文 token を DB に渡す (再表示用の列保存)。
+    expect(createClassMagicLink).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ token: "PLAINTOKEN" }),
+    );
+    // レスポンスの expiresAt は無期限 = null。
+    const json = await res.json();
+    expect(json.expiresAt).toBeNull();
   });
 
   it("expiresInDays 明示指定はその日数でサーバ時刻起点に算出する", async () => {
@@ -256,12 +258,13 @@ describe("POST /api/magic-links (発行)", () => {
 });
 
 describe("GET /api/magic-links (一覧)", () => {
-  it("成功時 token を含まないメタのみ返す", async () => {
+  it("ADR-042 D2: 平文 token は再表示のため返すが、token_hash は決して返さない", async () => {
     getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     listClassMagicLinks.mockResolvedValue([
       {
         id: LINK_ID,
         classId: CLASS_ID,
+        token: "PLAIN_REDISPLAY",
         tokenHash: "SHOULD_NOT_LEAK",
         expiresAt: new Date("2026-04-01T00:00:00.000Z"),
         revokedAt: null,
@@ -272,9 +275,28 @@ describe("GET /api/magic-links (一覧)", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.links).toHaveLength(1);
-    expect(json.links[0]).not.toHaveProperty("token");
+    // 平文 token は再表示用に返す (RLS スコープ済の運用者のみ・ADR-042 D2)。
+    expect(json.links[0].token).toBe("PLAIN_REDISPLAY");
+    // token_hash は依然返さない (resolve 照合用の内部値)。
     expect(json.links[0]).not.toHaveProperty("tokenHash");
     expect(JSON.stringify(json)).not.toContain("SHOULD_NOT_LEAK");
+  });
+
+  it("ADR-042 D2: 旧リンク (token=null) は token を null で返す (再表示不可フォールバック)", async () => {
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
+    listClassMagicLinks.mockResolvedValue([
+      {
+        id: LINK_ID,
+        classId: CLASS_ID,
+        token: null,
+        expiresAt: new Date("2026-04-01T00:00:00.000Z"),
+        revokedAt: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ]);
+    const res = await GET(new Request(`http://test/api/magic-links?classId=${CLASS_ID}`));
+    const json = await res.json();
+    expect(json.links[0].token).toBeNull();
   });
 
   it("classId クエリ欠落は 400", async () => {

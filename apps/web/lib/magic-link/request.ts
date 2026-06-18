@@ -31,23 +31,17 @@ export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
-/** 有効期限の許容範囲 (日)。発行者が短縮/延長する場合の上下限（下限 1 日・上限 1 年）。 */
+/**
+ * 有効期限の許容範囲 (日)。**明示指定時のみ**の上下限（下限 1 日・上限 1 年）。
+ * 未指定の既定は ADR-042 で**無期限（expires_at = NULL）**に変更されたため、ここは「あえて有限期限を
+ * 付ける場合」の範囲チェック専用（短縮/延長 UI から渡る値の検証）。
+ */
 export const EXPIRES_MIN_DAYS = 1;
 export const EXPIRES_MAX_DAYS = 365;
 
-/**
- * 発行時に `expiresInDays` を省略した場合の**既定有効期限（日）= 1 年（学年度をカバー）**。
- *
- * 旧既定は DB 列デフォルトの 90 日だったが「年度途中で失効→再発行の手間」が大きく、一方でサイネージ seed の
- * 10 年は匿名リンクの漏洩窓が過大（pattern2 は生徒実名を表示・ADR-034）。その中間として**1 年**に統一する
- * （指摘ログ finding④。seed 側 `DEFAULT_SIGNAGE_TTL_DAYS` も 1 年に揃え済み）。発行 API がこの既定で
- * `expiresAt` を**明示算出**するため、DB 列デフォルト（90 日）はこの経路では使われない（フォールバックのみ）。
- */
-export const EXPIRES_DEFAULT_DAYS = 365;
-
 export type ParsedIssueBody = {
   classId: string;
-  /** 未指定なら発行 API が {@link EXPIRES_DEFAULT_DAYS}（1 年）を適用。指定時は範囲内の整数。 */
+  /** 未指定なら**無期限**（expires_at = NULL・ADR-042）。指定時のみ範囲内の整数の有限期限。 */
   expiresInDays?: number;
 };
 

@@ -38,13 +38,22 @@ export const magicLinks = pgTable(
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     tokenHash: varchar("token_hash", { length: 128 }).notNull(),
     /**
-     * 列デフォルトは 90 日だが**フォールバックのみ**。発行 API（`/api/magic-links`）は `EXPIRES_DEFAULT_DAYS`
-     * ＝既定 1 年（365 日・学年度カバー）でサーバ時刻起点の `expiresAt` を**明示算出**して渡すため、通常この
-     * 列デフォルトには倒れない（既定はアプリ層に集約・finding④）。発行者 UI から短縮/延長可能（F05）。
+     * ADR-042: 再表示用の平文トークン。サイネージ / 生徒リンクを後から再表示するための平文。
+     * 発行 API がハッシュ（`token_hash`）と併せて保存する。旧リンク（ADR-042 PR2 以前発行）は NULL ＝
+     * 再表示不可（UI は再発行を促す）。`resolve_magic_link` はハッシュ参照のままで本列は参照しない
+     * （再表示用途専用）。nullable。
      */
-    expiresAt: timestamp("expires_at", { withTimezone: true })
-      .notNull()
-      .default(sql`now() + interval '90 days'`),
+    token: varchar("token", { length: 128 }),
+    /**
+     * ADR-042: **NULL = 無期限（永続リンク）**。発行 API（`/api/magic-links`）は `expiresInDays` 未指定なら
+     * **NULL（無期限）を明示的に書く**（既定が無期限）。明示指定時のみ有限期限を算出して渡す（後方互換）。
+     * 列デフォルト（90 日）はどちらの経路でも倒れないフォールバックとして残置。発行者 UI から有限期限の
+     * 短縮/延長は可能（F05）。`resolve_magic_link` は `expires_at IS NULL OR expires_at > now()` で NULL を
+     * 無期限として解決する（migration 0027）。
+     */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).default(
+      sql`now() + interval '90 days'`,
+    ),
     /** 失効時刻。非 null = 失効済 (生徒アクセスは 410 Gone)。漏洩検知時に即時設定。 */
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     /**

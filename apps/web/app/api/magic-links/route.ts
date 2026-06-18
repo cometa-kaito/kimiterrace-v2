@@ -12,20 +12,17 @@ import {
   tenantContextForIssuer,
   toMagicLinkActor,
 } from "../../../lib/magic-link/issuer";
-import {
-  EXPIRES_DEFAULT_DAYS,
-  computeExpiresAt,
-  isUuid,
-  parseIssueBody,
-} from "../../../lib/magic-link/request";
+import { computeExpiresAt, isUuid, parseIssueBody } from "../../../lib/magic-link/request";
 import { generateToken, hashToken } from "../../../lib/magic-link/token";
 
 /**
- * F05: クラス magic link の発行 / 一覧 API (ADR-008 Route Handlers / ADR-019 RLS)。
+ * F05 / ADR-042: クラス magic link の発行 / 一覧 API (ADR-008 Route Handlers / ADR-019 RLS)。
  *
- * - `POST /api/magic-links` — 学校管理者 / 運営がクラスにリンクを発行。**平文トークンはこの
- *   レスポンスで 1 度だけ返す** (QR/URL 用)。以降は DB に hash しか無く再取得不可 (ルール5)。
- * - `GET /api/magic-links?classId=` — クラスの有効なリンク一覧 (メタのみ、token は返さない)。
+ * - `POST /api/magic-links` — 学校管理者 / 運営がクラスにリンクを発行。**ADR-042 D1: `expiresInDays`
+ *   省略時は無期限（expires_at=NULL）**で発行する（明示指定時のみ有限期限・後方互換）。**ADR-042 D2:
+ *   平文トークンを `magic_links.token` に保存**して後から再表示可にする（resolve は hash 参照のまま）。
+ * - `GET /api/magic-links?classId=` — クラスのリンク一覧。**ADR-042 D2: 平文 `token` を含めて返す**
+ *   （RLS スコープ済＝system_admin 全校 / school_admin 自校のみ。再表示要件）。旧リンクは token=null。
  *
  * 認可（発行者ロール・RLS context・監査 actor）の解決は `lib/magic-link/issuer.ts` に集約し 3 ルートで共有
  * する（発行者 = school_admin / system_admin のみ・teacher 除外・finding④。system_admin は cross-tenant 発行）。
@@ -49,16 +46,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
-  // 平文トークンは発行レスポンスのみ。DB には hash を保存する。
+  // 平文トークンを生成し、hash（resolve 照合用）と平文（ADR-042 D2: 再表示用に列保存）の両方を保存する。
   const token = generateToken();
   const tokenHash = hashToken(token);
-  // 有効期限はサーバ時刻起点で**常に明示算出**する（client 時刻を信用しない）。`expiresInDays` 省略時は
-  // 既定 1 年（`EXPIRES_DEFAULT_DAYS`、学年度カバー・finding④）を適用し、DB 列デフォルト（90 日）には
-  // 倒さない（既定を 1 箇所＝アプリ層に集約）。
-  const expiresAt = computeExpiresAt(
-    parsed.value.expiresInDays ?? EXPIRES_DEFAULT_DAYS,
-    new Date(),
-  );
+  // ADR-042 D1: `expiresInDays` 省略時は**無期限（NULL）**で発行する（既定を無期限に変更）。明示指定時のみ
+  // サーバ時刻起点で有限期限を算出する（client 時刻を信用しない・後方互換）。undefined を渡すと
+  // createClassMagicLink が expires_at に NULL を明示 INSERT する（DB 列デフォルト 90 日には倒さない）。
+  const expiresAt =
+    parsed.value.expiresInDays === undefined
+      ? undefined
+      : computeExpiresAt(parsed.value.expiresInDays, new Date());
 
   const { issuer } = auth;
   try {
@@ -73,6 +70,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         schoolId,
         classId: parsed.value.classId,
         tokenHash,
+        // ADR-042 D2: 平文 token を列に保存（再表示用）。監査 diff には載らない（queries 層で除外）。
+        token,
         expiresAt,
         actor: toMagicLinkActor(issuer),
       });
@@ -88,7 +87,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         token,
         path: `/s/${token}`,
         signagePath: `/signage/${token}`,
-        expiresAt: issued.expiresAt.toISOString(),
+        // ADR-042: expiresAt は NULL = 無期限のため null 安全化（string | null）。
+        expiresAt: issued.expiresAt?.toISOString() ?? null,
       },
       { status: 201 },
     );
@@ -118,12 +118,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     listClassMagicLinks(tx, classId, { includeRevoked }),
   );
 
-  // token は一切返さない (発行時のみ)。メタ情報のみ。revokedAt で失効済を判別できる。
+  // ADR-042 D2: 再表示のため**平文 `token` を含めて返す**。これは RLS の tenant_isolation 下で自校のリンク
+  // のみが返る（system_admin は全校・school_admin は自校）ため、再表示できる人は ADR-042 の対象に一致する。
+  // token_hash は依然返さない。旧リンク（PR2 以前発行）は token=null で、クライアント側で「再表示不可」に倒す。
   return NextResponse.json({
     links: links.map((l) => ({
       id: l.id,
       classId: l.classId,
-      expiresAt: l.expiresAt.toISOString(),
+      token: l.token,
+      // ADR-042: expiresAt は NULL = 無期限のため null 安全化（string | null）。
+      expiresAt: l.expiresAt?.toISOString() ?? null,
       revokedAt: l.revokedAt?.toISOString() ?? null,
       createdAt: l.createdAt.toISOString(),
     })),

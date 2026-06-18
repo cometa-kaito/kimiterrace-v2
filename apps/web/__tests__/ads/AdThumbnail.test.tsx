@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { AdThumbnail } from "../../app/_components/AdThumbnail";
 
 /**
- * AdThumbnail — 広告素材サムネイルの**安全境界**を固定する。`safeHttpOrRelative`（非 export）は
- * 危険スキーム（`javascript:`/`data:`）とプロトコル相対 `//host`（オープンリダイレクト）を弾く防御点なので、
+ * AdThumbnail — 広告素材サムネイルの**安全境界**を固定する。`safeHttpOrRelative` は危険スキーム
+ * （`javascript:`/`data:`）とプロトコル相対 `//host`・`/\host`（オープンリダイレクト）を弾く防御点なので、
  * 描画結果（原寸リンク `<a href>` の有無）で回帰を防ぐ。jest-dom 非依存（getAttribute / queryByRole）。
+ * ヘルパ単体の網羅は ad-thumbnail-link.test.ts（こちらは実 DOM シンク `<a href>` での回帰防止）。
  */
 describe("AdThumbnail", () => {
   it("同一オリジン /ad-media/… は原寸リンク化する（target=_blank + noopener）", () => {
@@ -34,6 +35,12 @@ describe("AdThumbnail", () => {
 
   it("プロトコル相対 //host はリンク化しない（オープンリダイレクト防止）", () => {
     render(<AdThumbnail mediaUrl="//evil.example.com/x" mediaType="image" />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("`/\\host`（先頭 `/` 直後がバックスラッシュ）はリンク化しない（オープンリダイレクト防止）", () => {
+    // 一部ブラウザが `\`→`/` 正規化で `//evil.example.com` 相当に解釈する経路を実 DOM シンクで塞ぐ。
+    render(<AdThumbnail mediaUrl="/\\evil.example.com/x" mediaType="image" />);
     expect(screen.queryByRole("link")).toBeNull();
   });
 

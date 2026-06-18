@@ -54,6 +54,10 @@ export function AdThumbnail({
     );
   }
 
+  // mediaUrl は同一オリジン `/ad-media/…`（学校アップロード）か外部 https（運営入稿）。<img>/<video> の
+  // `src` は**スクリプトを実行しないシンク**（`javascript:` 等を入れても発火しない・React が属性値をエスケープ）
+  // なので XSS 経路にならない。CodeQL js/xss-through-dom はこれを誤検知する（dismiss 済・下の href は
+  // safeHttpOrRelative で別途サニタイズ）。詳細は docs/security/codeql-triage-2026-06-18.md。
   const inner =
     mediaType === "video" ? (
       <>
@@ -99,18 +103,41 @@ const playBadgeStyle: CSSProperties = {
   color: "#fff",
 };
 
+/** 相対パスの同一オリジン判定に使う、現実には存在しない（`.invalid` TLD）プレースホルダ origin。 */
+const SAME_ORIGIN_BASE = "https://relative.invalid";
+
 /**
  * http(s) 絶対 URL か **同一オリジン相対パス**（単一 `/` 始まり）だけをリンク先に採用する。
- * `javascript:`/`data:` 等の危険スキームに加え、**プロトコル相対 `//host`**（別オリジンへ飛ぶ
- * オープンリダイレクト）も弾く（`SignageClient.safeHttpUrl` と同じ安全側の方針）。
+ * `javascript:`/`data:` 等の危険スキームに加え、別オリジンへ飛ぶ**オープンリダイレクト**も弾く:
+ * - **プロトコル相対 `//host`**
+ * - **`/\host`（先頭スラッシュ直後がバックスラッシュ）**: 一部ブラウザが `\`→`/` 正規化で `//host`
+ *   相当（protocol-relative）に解釈する。
+ * - **`/<TAB>/host`・`/<LF>/host`・`/<CR>/host`（制御文字）**: ブラウザはパース前に tab/改行/CR を
+ *   除去するため `//host` に再正規化されて別オリジンへ飛ぶ。
+ *
+ * 上記の文字単位ガードを個別に積むのではなく、**相対パスをプレースホルダ origin に解決して origin が
+ * 変わらない時だけ採用**する（`new URL` はブラウザと同じ正規化＝tab/改行/CR 除去・特殊スキームでの
+ * `\`→`/` 畳み込みを行うので、正規化で別オリジンに化ける入力をクラスごと一括で弾ける）。
+ *
+ * `SignageClient.safeHttpUrl` と同じ安全側の方針（あちらは相対パスを採らず絶対 http(s) のみなので、
+ * この同一オリジン判定は不要＝同種の穴を持たない）。
  */
-function safeHttpOrRelative(url: string): string | null {
-  if (url.startsWith("/") && !url.startsWith("//")) {
-    return url;
-  }
+export function safeHttpOrRelative(url: string): string | null {
+  // 1) 絶対 URL は http(s) のみ採用（`javascript:`/`data:`/`file:` 等は弾く）。
   try {
     const u = new URL(url);
     return u.protocol === "http:" || u.protocol === "https:" ? url : null;
+  } catch {
+    // 絶対 URL でなければ相対パスとして 2) で判定する。
+  }
+  // 2) ルート相対パス（単一 `/` 始まり）だけを対象に、プレースホルダ origin へ解決して origin が
+  //    変わらない＝同一オリジンに留まる時だけ採用する。`//host`・`/\host` に加え、tab/改行/CR を
+  //    挟んで `//host` に再正規化される制御文字オープンリダイレクトもまとめて弾く。
+  if (!url.startsWith("/")) {
+    return null;
+  }
+  try {
+    return new URL(url, SAME_ORIGIN_BASE).origin === SAME_ORIGIN_BASE ? url : null;
   } catch {
     return null;
   }

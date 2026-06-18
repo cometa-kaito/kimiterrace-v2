@@ -38,7 +38,10 @@ export default async function ClassMagicLinkPage({
       className: cls.name,
       links: links.map((l) => ({
         id: l.id,
-        expiresAt: l.expiresAt.toISOString(),
+        // ADR-042 D2: 再表示用の平文 token（自校 RLS スコープ済）。旧リンクは null で再表示不可。
+        token: l.token,
+        // ADR-042 D1: expiresAt は NULL = 無期限。null 安全に文字列化し、UI で「無期限」表示する。
+        expiresAt: l.expiresAt ? l.expiresAt.toISOString() : null,
         createdAt: l.createdAt.toISOString(),
       })),
     };
@@ -68,8 +71,9 @@ export default async function ClassMagicLinkPage({
       </h1>
       <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
         生徒がサイネージ / 掲示物に匿名アクセスするための magic link
-        を発行・失効します。発行時に表示される URL は<strong>その場限り</strong>
-        です（後から再表示できません）。漏洩に気づいたら直ちに失効してください。
+        を発行・失効します。発行したリンクの URL は一覧から
+        <strong>後から再表示・コピー</strong>
+        できます。差し替えたいときは失効して再発行してください。
       </p>
       <MagicLinkManager classId={classId} initialLinks={data.links} />
     </div>

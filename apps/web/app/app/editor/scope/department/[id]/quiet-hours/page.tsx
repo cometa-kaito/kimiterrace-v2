@@ -1,4 +1,6 @@
+import { requireRole } from "@/lib/auth/guard";
 import { parseEditorTarget } from "@/lib/editor/schedule-core";
+import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { notFound } from "next/navigation";
 import { ScopeQuietHoursView } from "../../../ScopeQuietHoursView";
 
@@ -8,6 +10,8 @@ export default async function DepartmentQuietHoursPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // ページ本体でも委譲先 View と同じ集合で明示ガード (多層防御・棚卸し耐性)。
+  await requireRole(QUIET_HOURS_ROLES);
   const { id } = await params;
   const target = parseEditorTarget("department", id);
   if (!target) {

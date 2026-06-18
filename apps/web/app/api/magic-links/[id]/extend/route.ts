@@ -55,6 +55,7 @@ export async function POST(
 
   return NextResponse.json({
     id: updated.id,
-    expiresAt: updated.expiresAt.toISOString(),
+    // ADR-042: expiresAt は NULL = 無期限のため null 安全化（string | null）。
+    expiresAt: updated.expiresAt?.toISOString() ?? null,
   });
 }
