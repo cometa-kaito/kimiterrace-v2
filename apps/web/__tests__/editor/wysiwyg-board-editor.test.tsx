@@ -224,4 +224,26 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
     expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
   });
+
+  it("pattern2 ではパターンに含まれない編集欄（連絡 / 提出物）を出さず、予定の編集欄だけ出す（全パターン対応・完全な出し分け）", () => {
+    // このクラスの実機が pattern2（掲示盤面）。編集対象ブロックは予定 / 来校者 / 生徒呼び出しで、連絡・提出物は
+    // 盤面に出ない＝編集欄も出さない（来校者 / 生徒呼び出しの編集欄は親 page.tsx が盤面下に出す）。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern2" }}
+        initialSchedules={[]}
+        initialNotices={[{ text: "既存連絡" }]}
+        initialAssignments={[]}
+      />,
+    );
+    // 予定の編集欄（見出し + 盤面の領域編集ボタン）は出る（予定は全パターン共通ブロック）。
+    expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "予定を編集" })).toBeTruthy();
+    // 連絡 / 提出物の編集欄（見出し + placeholder）は出さない（pattern2 の盤面に無いブロック）。
+    expect(screen.queryByRole("heading", { name: "連絡", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "提出物", level: 2 })).toBeNull();
+    expect(screen.queryByPlaceholderText("連絡事項")).toBeNull();
+  });
 });
