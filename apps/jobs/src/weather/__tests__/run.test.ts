@@ -1,15 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ParsedHeatAlert } from "../env-heat.js";
 import type { ParsedForecast } from "../jma.js";
 import type { ParsedWarningSet } from "../jma-warning.js";
 import {
   type FetchedArea,
+  type FetchedHeat,
   type FetchedWarning,
   type HttpFetchConfig,
   collectAreaCodes,
+  envHeatAlertUrl,
   fetchAreaFromJma,
+  fetchHeatFromEnv,
   fetchWarningFromJma,
   jmaForecastUrl,
   jmaWarningUrl,
+  jstHeatDateParts,
   runWeatherFetch,
 } from "../run.js";
 
@@ -81,6 +86,9 @@ describe("runWeatherFetch", () => {
       warningsFetched: 0,
       warningsFailed: 0,
       warningsFailedAreaCodes: [],
+      heatFetched: 0,
+      heatFailed: 0,
+      heatFailedAreaCodes: [],
     });
   });
 
@@ -128,6 +136,9 @@ describe("runWeatherFetch", () => {
       warningsFetched: 0,
       warningsFailed: 0,
       warningsFailedAreaCodes: [],
+      heatFetched: 0,
+      heatFailed: 0,
+      heatFailedAreaCodes: [],
     });
   });
 });
@@ -308,5 +319,152 @@ describe("fetchWarningFromJma", () => {
       async () => new Response("not found", { status: 404 }),
     ) as unknown as typeof fetch;
     await expect(fetchWarningFromJma("999999", config(fetchImpl))).rejects.toThrow(/status=404/);
+  });
+});
+
+function fakeHeat(areaCode: string, forecastDate = "2026-07-15"): FetchedHeat {
+  const parsed: ParsedHeatAlert = {
+    areaCode,
+    areaName: "テスト県",
+    alertLevel: "warning",
+    wbgtMax: 33,
+    wbgtBand: "danger",
+    raw: {
+      areaCode,
+      areaName: "テスト県",
+      prefName: "テスト",
+      targetDate1Flag: "1",
+      targetDate2Flag: "0",
+      wbgtCells: "テスト:33",
+    },
+  };
+  return { parsed, forecastDate };
+}
+
+describe("runWeatherFetch（ADR-044 熱中症相乗り）", () => {
+  it("熱中症 deps 指定時は天気・警報と並走して熱中症も取得・保存する", async () => {
+    const savedHeat: string[] = [];
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000", "130000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchWarning: async (areaCode) => ({ parsed: fakeWarning(areaCode), raw: {} }),
+      saveWarning: async () => {},
+      fetchHeat: async (areaCode) => fakeHeat(areaCode),
+      saveHeat: async (areaCode) => {
+        savedHeat.push(areaCode);
+      },
+    });
+    expect(summary.fetched).toBe(2);
+    expect(summary.warningsFetched).toBe(2);
+    expect(summary.heatFetched).toBe(2);
+    expect(summary.heatFailed).toBe(0);
+    expect(summary.heatFailedAreaCodes).toEqual([]);
+    expect(savedHeat).toEqual(["210000", "130000"]);
+  });
+
+  it("熱中症 deps 未指定なら熱中症は 0（既存の天気/警報のみ呼び出しの後方互換）", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+    });
+    expect(summary.heatFetched).toBe(0);
+    expect(summary.heatFailed).toBe(0);
+    expect(summary.heatFailedAreaCodes).toEqual([]);
+  });
+
+  it("★ 熱中症の取得失敗は天気・警報を壊さない（その地域も天気/警報は保存される / fail-soft）", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchWarning: async (areaCode) => ({ parsed: fakeWarning(areaCode), raw: {} }),
+      saveWarning: async () => {},
+      fetchHeat: async () => {
+        throw new Error("env heat 404");
+      },
+      saveHeat: async () => {
+        /* 呼ばれない */
+      },
+    });
+    // 天気・警報は成功（熱中症の失敗に巻き込まれない）。
+    expect(summary.fetched).toBe(1);
+    expect(summary.warningsFetched).toBe(1);
+    // 熱中症のみその地域を skip。
+    expect(summary.heatFetched).toBe(0);
+    expect(summary.heatFailed).toBe(1);
+    expect(summary.heatFailedAreaCodes).toEqual(["210000"]);
+  });
+
+  it("熱中症の保存(upsert)失敗もその地域だけ skip する", async () => {
+    const summary = await runWeatherFetch({
+      listAreaCodes: async () => ["210000"],
+      fetchArea: async (areaCode) => ({ parsed: fakeParsed(areaCode), raw: {} }),
+      saveArea: async (area) => area.parsed.days.length,
+      fetchHeat: async (areaCode) => fakeHeat(areaCode),
+      saveHeat: async () => {
+        throw new Error("DB error");
+      },
+    });
+    expect(summary.fetched).toBe(1);
+    expect(summary.heatFetched).toBe(0);
+    expect(summary.heatFailed).toBe(1);
+    expect(summary.heatFailedAreaCodes).toEqual(["210000"]);
+  });
+});
+
+describe("jstHeatDateParts", () => {
+  it("UTC から +9h して JST 暦日を組む（日付跨ぎ）", () => {
+    // 2026-07-14T20:00:00Z = 2026-07-15T05:00 JST → 7/15。
+    const parts = jstHeatDateParts(new Date("2026-07-14T20:00:00Z"));
+    expect(parts.isoDate).toBe("2026-07-15");
+    expect(parts.yyyymmdd).toBe("20260715");
+    expect(parts.yyyy).toBe("2026");
+  });
+});
+
+describe("envHeatAlertUrl", () => {
+  it("年・日付・発表時刻から環境省 alert CSV URL を組む（既定 17 時）", () => {
+    expect(envHeatAlertUrl("2026", "20260715")).toBe(
+      "https://www.wbgt.env.go.jp/alert/dl/2026/alert_20260715_17.csv",
+    );
+    expect(envHeatAlertUrl("2026", "20260715", "05")).toBe(
+      "https://www.wbgt.env.go.jp/alert/dl/2026/alert_20260715_05.csv",
+    );
+  });
+});
+
+describe("fetchHeatFromEnv", () => {
+  const config = (fetchImpl: typeof fetch): HttpFetchConfig => ({
+    userAgent: "test-ua/1.0",
+    timeoutMs: 1000,
+    fetchImpl,
+  });
+
+  it("2xx の CSV を text で取得し該当地域行をパースする。明示 User-Agent を付ける。forecastDate は当日(JST)", async () => {
+    const body = [
+      "府県予報区,a,b,府県予報区等コード,都道府県名,e,TargetDate1フラグ,TargetDate2フラグ,日最高WBGT（10:00）,日最高WBGT（17:00）,日最高WBGT（5:00）",
+      "岐阜県,52,0,210000,岐阜,21,1,0,岐阜:33,,",
+    ].join("\n");
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toContain("/alert/dl/");
+      expect(String(url)).toContain("/alert_");
+      expect((init?.headers as Record<string, string>)["User-Agent"]).toBe("test-ua/1.0");
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof fetch;
+    const heat: FetchedHeat = await fetchHeatFromEnv("210000", config(fetchImpl));
+    expect(heat.parsed.areaCode).toBe("210000");
+    expect(heat.parsed.alertLevel).toBe("warning");
+    expect(heat.parsed.wbgtMax).toBe(33);
+    // forecastDate は JST 暦日（'YYYY-MM-DD'）。
+    expect(heat.forecastDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("非 2xx は throw する（runWeatherFetch が地域単位で捕捉して天気・警報を巻き込まず skip）", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+    await expect(fetchHeatFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
   });
 });

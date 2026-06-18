@@ -97,5 +97,7 @@ export * from "./queries/weather-forecasts.js";
 export * from "./queries/news-items.js";
 // ADR-044: サイネージ気象警報・注意報キャッシュの upsert (取得 Job 相乗り) / 読み取り (匿名サイネージ) 層
 export * from "./queries/weather-warnings.js";
+// ADR-044: サイネージ熱中症警戒アラート / WBGT キャッシュの upsert (取得 Job 相乗り) / 読み取り (匿名サイネージ) 層
+export * from "./queries/heat-alerts.js";
 // F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
 export * from "./_shared/jma-area-map.js";

@@ -1,13 +1,17 @@
 import {
+  type HeatAlertLevel,
   type NormalizedWarning,
   type TenantTx,
+  type WbgtBand,
   createDbClient,
   listSchools,
   resolveJmaAreaCode,
+  upsertHeatAlert,
   upsertWeatherForecast,
   upsertWeatherWarning,
   withTenantContext,
 } from "@kimiterrace/db";
+import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
 
@@ -69,6 +73,15 @@ export interface FetchedWarning {
 }
 
 /**
+ * 1 地域・1 日ぶんの熱中症アラート取得結果（パース済み + 対象日。ADR-044 相乗り 3 例目）。
+ * `forecastDate` は環境省 alert CSV の取得対象日（JST 暦日 'YYYY-MM-DD'）。upsert キーの一部。
+ */
+export interface FetchedHeat {
+  parsed: ParsedHeatAlert;
+  forecastDate: string;
+}
+
+/**
  * `runWeatherFetch` の依存（fetch / DB を注入してネットワーク・DB なしで検証可能にする）。
  * 警報（ADR-044 相乗り）の `fetchWarning` / `saveWarning` は **任意**。未指定なら警報取得を skip する
  * （既存の天気のみのテスト・呼び出し側を壊さない後方互換）。
@@ -84,6 +97,10 @@ export interface WeatherFetchDeps {
   fetchWarning?(areaCode: string): Promise<FetchedWarning>;
   /** ADR-044: パース済み警報 1 地域ぶんを weather_warnings に upsert する（実体は system_admin context）。 */
   saveWarning?(areaCode: string, warning: FetchedWarning): Promise<void>;
+  /** ADR-044: 1 地域の熱中症アラートを取得・パースする（実体は HTTP fetch + `parseEnvHeatAlert`）。失敗は throw。 */
+  fetchHeat?(areaCode: string): Promise<FetchedHeat>;
+  /** ADR-044: パース済み熱中症アラート 1 地域ぶんを heat_alerts に upsert する（実体は system_admin context）。 */
+  saveHeat?(areaCode: string, heat: FetchedHeat): Promise<void>;
 }
 
 /** バッチ全体のサマリ（Cloud Logging に構造化ログとして残す。secret / PII は含めない）。 */
@@ -104,6 +121,12 @@ export interface WeatherFetchSummary {
   warningsFailed: number;
   /** ADR-044: 警報取得に失敗した地域コード（公開コード、PII でない）。 */
   warningsFailedAreaCodes: string[];
+  /** ADR-044: 熱中症アラートの取得・保存に成功した地域数（fetchHeat 未指定なら 0）。 */
+  heatFetched: number;
+  /** ADR-044: 熱中症アラートの取得・保存に失敗した地域数（天気・警報は壊さない / last-known-good 維持）。0 が正常。 */
+  heatFailed: number;
+  /** ADR-044: 熱中症アラート取得に失敗した地域コード（公開コード、PII でない）。 */
+  heatFailedAreaCodes: string[];
 }
 
 /**
@@ -116,6 +139,10 @@ export interface WeatherFetchSummary {
  * ADR-044: 同じ地域コードで **気象警報・注意報も相乗り取得**して weather_warnings に upsert する
  * （`fetchWarning` / `saveWarning` が注入されている場合のみ）。**警報の取得・保存失敗は天気を壊さない**
  * （独立 try/catch）。その地域の警報だけ skip し、既存の警報キャッシュ（last-known-good）は残す。
+ *
+ * ADR-044（3 例目）: さらに同じ地域コードで **熱中症警戒アラート / WBGT も相乗り取得**して heat_alerts に
+ * upsert する（`fetchHeat` / `saveHeat` が注入されている場合のみ）。天気・警報・熱中症は **互いに独立した
+ * try/catch** で、いずれかの失敗が他を巻き込まない（fail-soft / last-known-good 維持）。
  */
 export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFetchSummary> {
   const areaCodes = await deps.listAreaCodes();
@@ -125,6 +152,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
   let warningsFetched = 0;
   const warningsFailedAreaCodes: string[] = [];
   const warningsEnabled = deps.fetchWarning != null && deps.saveWarning != null;
+  let heatFetched = 0;
+  const heatFailedAreaCodes: string[] = [];
+  const heatEnabled = deps.fetchHeat != null && deps.saveHeat != null;
 
   for (const areaCode of areaCodes) {
     try {
@@ -150,6 +180,20 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
         warningsFailedAreaCodes.push(areaCode);
       }
     }
+
+    // ADR-044（3 例目）: 熱中症アラートを相乗り取得。天気・警報の成否とは独立に試行する。
+    if (heatEnabled) {
+      try {
+        // biome-ignore lint/style/noNonNullAssertion: heatEnabled で両者の存在を確認済み
+        const heat = await deps.fetchHeat!(areaCode);
+        // biome-ignore lint/style/noNonNullAssertion: heatEnabled で両者の存在を確認済み
+        await deps.saveHeat!(areaCode, heat);
+        heatFetched += 1;
+      } catch {
+        // 熱中症の取得/保存失敗はその地域のみ skip（既存の熱中症キャッシュは last-known-good として残す）。
+        heatFailedAreaCodes.push(areaCode);
+      }
+    }
   }
 
   return {
@@ -161,6 +205,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
     warningsFetched,
     warningsFailed: warningsFailedAreaCodes.length,
     warningsFailedAreaCodes,
+    heatFetched,
+    heatFailed: heatFailedAreaCodes.length,
+    heatFailedAreaCodes,
   };
 }
 
@@ -234,6 +281,69 @@ export async function fetchWarningFromJma(
   }
 }
 
+/**
+ * ADR-044: 環境省 alert CSV の日付次元（JST 暦日）を組み立てる純関数（テスト容易）。
+ * `at`（既定 now）を JST に変換し、`{ yyyy, yyyymmdd, isoDate }` を返す。サーバ TZ に依存しないよう UTC から
+ * +9h して算出する（Cloud Run は UTC 既定）。
+ */
+export function jstHeatDateParts(at: Date = new Date()): {
+  yyyy: string;
+  yyyymmdd: string;
+  isoDate: string;
+} {
+  const jst = new Date(at.getTime() + 9 * 60 * 60 * 1000);
+  const yyyy = String(jst.getUTCFullYear());
+  const mm = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(jst.getUTCDate()).padStart(2, "0");
+  return { yyyy, yyyymmdd: `${yyyy}${mm}${dd}`, isoDate: `${yyyy}-${mm}-${dd}` };
+}
+
+/**
+ * ADR-044: 環境省「熱中症予防情報サイト」alert CSV の URL を組む（純関数、テスト容易）。
+ * 形式（確認済 2026 シーズン）: `https://www.wbgt.env.go.jp/alert/dl/{YYYY}/alert_{YYYYMMDD}_{HH}.csv`。
+ * `{HH}` は発表時刻（環境省は前日 17 時 / 当日 5 時に翌日・当日アラートを発表）。本スライスは前日 17 時発表
+ * （当日 + 翌日を含む）を既定に用いる。CSV は **全国 1 ファイル**（地域コードは URL に含めない）。
+ */
+export function envHeatAlertUrl(yyyy: string, yyyymmdd: string, hour = "17"): string {
+  return `https://www.wbgt.env.go.jp/alert/dl/${encodeURIComponent(yyyy)}/alert_${encodeURIComponent(yyyymmdd)}_${encodeURIComponent(hour)}.csv`;
+}
+
+/**
+ * ADR-044: 1 地域の熱中症アラートを環境省 alert CSV から HTTP 取得しパースする（実 I/O）。`fetchWarningFromJma`
+ * に倣う（timeout / 明示 User-Agent）。
+ *
+ * 環境省 CSV は **全国 1 ファイル**（地域コードは URL に含まれない）なので、本関数は CSV 全文を取得して
+ * `parseEnvHeatAlert(areaCode, csvText)` で該当地域行だけを抜き出す。PoC 規模（dedup 後 1〜数地域）では同一 CSV を
+ * 地域ごとに再取得しても許容（15 分キャッシュ・低頻度起動）。地域数が増えたら 1 サイクル 1 取得への最適化を
+ * 検討する（follow-up、ADR-044 §再検討トリガ）。非 2xx・タイムアウトは throw（`runWeatherFetch` が地域単位で
+ * 捕捉し、天気・警報を巻き込まずその地域の熱中症だけ skip する）。`forecastDate` は **当日（JST 暦日）**。
+ */
+export async function fetchHeatFromEnv(
+  areaCode: string,
+  config: HttpFetchConfig,
+): Promise<FetchedHeat> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
+  const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
+  const { yyyy, yyyymmdd, isoDate } = jstHeatDateParts();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(envHeatAlertUrl(yyyy, yyyymmdd), {
+      method: "GET",
+      headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`env heat alert 取得失敗: areaCode=${areaCode} status=${res.status}`);
+    }
+    const csvText: string = await res.text();
+    return { parsed: parseEnvHeatAlert(areaCode, csvText), forecastDate: isoDate };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** 実行時の設定（DB 接続 / User-Agent。DATABASE_URL は Secret Manager 経由、ルール5）。 */
 export interface RunWeatherFetchConfig {
   /** DB 接続文字列（kimiterrace_app ロール）。Secret Manager 経由で注入（ルール5）。 */
@@ -290,6 +400,16 @@ export async function runWeatherFetchBatch(
           (tx: TenantTx) => saveWarningRow(tx, warning),
           appRoleOptions,
         ),
+      // ADR-044（3 例目）: 熱中症アラートの相乗り取得。天気・警報と同じ httpConfig / system context を再利用する。
+      fetchHeat: (areaCode) => fetchHeatFromEnv(areaCode, httpConfig),
+      // 熱中症 upsert も system_admin context（heat_alerts_write_system policy が書込みを system に限定）。
+      saveHeat: (_areaCode, heat) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => saveHeatRow(tx, heat),
+          appRoleOptions,
+        ),
     });
   } finally {
     await sql.end({ timeout: 5 });
@@ -337,5 +457,27 @@ async function saveWarningRow(tx: TenantTx, warning: FetchedWarning): Promise<vo
     warnings: parsed.warnings satisfies NormalizedWarning[],
     // 原文 JSON を保全（JMA bosai は非公式・無保証、後追い解析用、ADR-044 §残存リスク①）。
     raw: warning.raw,
+  });
+}
+
+/**
+ * ADR-044: パース済み 1 地域・1 日の熱中症アラートを heat_alerts に upsert する（ON CONFLICT
+ * (area_code, source, forecast_date)）。パーサ出力（`ParsedHeatAlert`）の段階・WBGT をそのまま upsert 入力へ
+ * パススルーする（ルール3: 手書きドメイン型を作らない）。alertLevel / wbgtBand は db enum 型と構造一致し、
+ * `satisfies` で両者がズレたらコンパイル時に検出する（silent drift 防止）。
+ */
+async function saveHeatRow(tx: TenantTx, heat: FetchedHeat): Promise<void> {
+  const { parsed } = heat;
+  await upsertHeatAlert(tx, {
+    areaCode: parsed.areaCode,
+    areaName: parsed.areaName,
+    source: "env_moe",
+    forecastDate: heat.forecastDate,
+    // パーサ出力を db enum 型へパススルー（ルール3）。`satisfies` で型がズレたらコンパイル時に検出する。
+    alertLevel: parsed.alertLevel satisfies HeatAlertLevel,
+    wbgtMax: parsed.wbgtMax,
+    wbgtBand: parsed.wbgtBand satisfies WbgtBand | null,
+    // 原文（環境省 CSV の該当地域行を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
+    raw: parsed.raw,
   });
 }

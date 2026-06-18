@@ -86,6 +86,20 @@ async function main(): Promise<void> {
     );
   }
 
+  // ADR-044（3 例目）: 熱中症アラート相乗りの一部失敗（天気・警報は壊さない / last-known-good 維持）も WARN を立てる。
+  // 熱中症失敗だけで Job を fail させない（天気が取れていれば盤面は前進する）。公開の地域コードのみ。
+  if (summary.heatFailed > 0) {
+    console.warn(
+      JSON.stringify({
+        event: "weather.heat.partial_failure",
+        heatFailed: summary.heatFailed,
+        heatFetched: summary.heatFetched,
+        areas: summary.areas,
+        heatFailedAreaCodes: summary.heatFailedAreaCodes,
+      }),
+    );
+  }
+
   // 一部地域の取得失敗（last-known-good は維持済）は WARN を立て severity ベースのアラート対象にする。
   // failedAreaCodes は公開の地域コードのみ（PII でない）。
   if (summary.failed > 0) {
