@@ -128,7 +128,8 @@ export function MagicLinkManager({
         path: string;
         signagePath?: string;
         token?: string;
-        expiresAt: string;
+        // 無期限発行時は API が null を返す（ADR-042）。
+        expiresAt: string | null;
       } = await res.json();
       const origin = window.location.origin;
       // サイネージ用パスは API の signagePath を優先。無ければ token / 生徒パスから導出（後方互換）。
