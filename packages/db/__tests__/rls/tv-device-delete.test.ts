@@ -19,8 +19,9 @@ const describeOrSkip = url ? describe : describe.skip;
  *  - **不可視化**: 削除後は read 経路（listTvDevices / getTvDeviceConfig / pollTvConfig）から消える。
  *  - **冪等**: 二重削除は 0 行（undefined）で deleted_at を上書きしない。
  *  - **RLS テナント分離（ルール2）**: school_admin は自校のみ削除可。別校デバイスへの削除は 0 行（不可視）。
- *  - **device_id 再利用（migration 0027 = 部分 UNIQUE）**: 撤去（ソフトデリート）後、同一 device_id で
- *    再登録（createTvDevice）できる。稼働中行は依然として device_id 一意（ポーリング解決の 1 行性は不変）。
+ *
+ * 注: `device_id` はグローバル UNIQUE（`tv_device_commands`/`tv_device_downtime` の FK 参照先）のままなので、
+ * ソフト削除後も同一 device_id の再登録は不可（撤去端末は別 device_id で再プロビジョン）。よって「再利用」テストは持たない。
  *
  * 実 PG（DATABASE_URL）でのみ走り、未設定ならスキップ（ADR-012）。ドメイン関数はテスト superuser 接続を
  * `appRole: 'kimiterrace_app'` で降格させ RLS を実際に効かせる（さもないと vacuous）。`sql`（BYPASSRLS）は

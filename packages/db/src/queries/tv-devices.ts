@@ -366,8 +366,9 @@ export async function updateTvDeviceConfig(
  * ソフトデリート（退役、F15 §4.2）: 指定 TV デバイスの `deleted_at` を now() に設定し、以後 read 経路
  * （`listTvDevices` / `getTvDeviceConfig` / `pollTvConfig` 等、いずれも `deleted_at IS NULL` で絞る）から
  * 不可視にする。物理行は残す（過去の死活/設定履歴・子参照 FK = tv_device_commands / tv_device_downtime の
- * 保全）。`device_id` は部分 UNIQUE（migration 0027, `WHERE deleted_at IS NULL`）の対象外になるため、
- * **同じ物理端末（同一 device_id）での再登録（createTvDevice）が可能**になる。
+ * 保全）。`device_id` はグローバル UNIQUE（`tv_device_commands` / `tv_device_downtime` の `device_id` FK の
+ * 参照先・FK は非部分 UNIQUE を要求）のままなので、ソフト削除後も device_id は解放されず **同一 device_id での
+ * 再登録は不可**（撤去端末は別 device_id で再プロビジョニングする運用で対応する）。
  *
  * - **冪等**: `WHERE deleted_at IS NULL` のため、既に削除済み / 不可視 / 他校 / 不在は 0 行 →
  *   `undefined`（呼び出し側で not_found 写像）。二重削除で `deleted_at` を上書きしない。

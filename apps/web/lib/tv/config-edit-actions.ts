@@ -182,8 +182,9 @@ function deleteAuditView(ref: { deviceId: string; label: string | null }): Recor
  * 運用者）。`tenantScoped` は使わず `allowedRoles` で role 境界を tx 層でも二重化する（多層防御、ルール2）。
  * 0 行（他校 / 不可視 / **既に削除済み**）は `not_found` に写像する（冪等＝二重削除は安全に no-op）。
  *
- * **ソフトデリート（hard でない）理由**: 過去の死活/設定履歴・子参照 FK（commands / downtime）を保全しつつ、
- * `device_id` の部分 UNIQUE（migration 0027, `WHERE deleted_at IS NULL`）により**同じ物理端末での再登録を許す**。
+ * **ソフトデリート（hard でない）理由**: 過去の死活/設定履歴・子参照 FK（commands / downtime, ON DELETE
+ * restrict）を保全する。`device_id` はグローバル UNIQUE のまま（同一 device_id の再登録は不可・撤去端末は別
+ * device_id で再プロビジョニングで対応）。
  *
  * **監査 actor（ルール1）**: system_admin は `users` 行でないため FK 列（`updated_by` / `actor_user_id`）は null、
  * 「誰が」は `actor_identity_uid` に IdP uid を残す。audit の school_id は削除対象デバイスの school（RETURNING 由来）。
