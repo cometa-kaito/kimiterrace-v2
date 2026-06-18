@@ -1,24 +1,45 @@
 "use client";
 
+import {
+  SIGNAGE_DESIGN_PATTERN_LABELS,
+  type SignageDesignPattern,
+  applyDesignPatternToUrl,
+} from "@/lib/signage/design-pattern";
+import {
+  type ClassOption,
+  getOrCreateClassSignageUrl,
+  listClassesForSchoolAction,
+} from "@/lib/tv/class-signage-actions";
 import { createTvDeviceAction } from "@/lib/tv/onboarding-actions";
 import type { TvSchedule } from "@kimiterrace/db/schema";
 import Link from "next/link";
 import { type FormEvent, useState, useTransition } from "react";
 
 /**
- * F15 §4.3 (ADR-022): TV デバイス新規登録フォーム。**Client Component** — 設置先の学校・device_id・設定を
- * 収集して `createTvDeviceAction` に渡す。認可（system_admin 限定）・検証（UUID / URL 形式 / SSRF / 長さ）・
- * device_id 自動採番・監査・cross-tenant 登録の安全性は Server Action 側と RLS が担保するので、ここは入力
- * 収集と結果表示に徹する（薄い UI、編集フォームと同じ規律）。
+ * F15 §4.3 (ADR-022 / ADR-042 D6): TV デバイス新規登録フォーム。**Client Component** — 設置先の学校・
+ * device_id・設定を収集して `createTvDeviceAction` に渡す。認可（system_admin 限定）・検証（UUID / URL 形式 /
+ * SSRF / 長さ）・device_id 自動採番・監査・cross-tenant 登録の安全性は Server Action 側と RLS が担保するので、
+ * ここは入力収集と結果表示に徹する（薄い UI、編集フォームと同じ規律）。
+ *
+ * **ADR-042 D6（クラス選択化）**: サイネージ URL を手貼りする代わりに **学校→クラスを選ぶ**だけで、サーバが
+ * 当該クラスの magic-link トークンを自動発行/再利用して signageUrl 欄を充填し、ラベルもクラス名から補完する
+ * （`getOrCreateClassSignageUrl` / `listClassesForSchoolAction`）。design は既定 pattern2。手貼り（URL 直接入力）
+ * も後方互換で残す（モード切替）。
  *
  * 登録成功時は採番された **device_id を目立つ形で表示**する（オペレーターが TV 側に設定するため。以降は
  * 一覧から参照可）。型は `@kimiterrace/db/schema`（client-safe、postgres 非依存）から import する（barrel は
- * postgres を引き込み next build が落ちる、#148 の罠）。
+ * postgres を引き込み next build が落ちる、#148 の罠）。design ヘルパは postgres 非依存の純モジュール。
  */
 
 type SchoolOption = { id: string; name: string; prefecture: string };
 
 type ScheduleForm = { enabled: boolean; onHour: string; offHour: string };
+
+/** signage URL の決め方。"class" = 学校→クラス選択で自動充填、"manual" = URL を手貼り（後方互換）。 */
+type SignageMode = "class" | "manual";
+
+/** ADR-042 D6: クラス選択は design 既定 pattern2（pattern2 = 予定/来校者/呼び出し/センサ/天気/鉄道の主盤面）。 */
+const DEFAULT_CLASS_DESIGN: SignageDesignPattern = "pattern2";
 
 /**
  * 文字列の hour 入力を 0-23 の数値 or undefined に変換（空欄・非数値は未指定扱い）。範囲検証は Server 側に
@@ -52,6 +73,83 @@ export function TvDeviceCreateForm({ schools }: { schools: SchoolOption[] }) {
     onHour: "",
     offHour: "",
   });
+
+  // ADR-042 D6: signage URL の決め方。既定は「クラスから設定」（手往復を消す主導線）。手貼りは後方互換。
+  const [signageMode, setSignageMode] = useState<SignageMode>("class");
+  // クラス選択モードの状態（選択中クラス・学校に紐づくクラス一覧・連動取得中フラグ）。
+  const [classId, setClassId] = useState("");
+  const [classes, setClasses] = useState<ClassOption[]>([]);
+  const [classBusy, setClassBusy] = useState(false);
+
+  /**
+   * 学校選択時にその学校のクラス一覧を取得する（クラスモードのみ）。学校が変わったら選択中クラス・signageUrl を
+   * リセットして取り違えを防ぐ。手貼りモードでは取得しない。
+   *
+   * `mode` は明示で受ける（既定は現在の `signageMode`）。`onChangeMode` から「クラスへ切替直後」に呼ぶ際は
+   * `setSignageMode` の再レンダ前で closure の `signageMode` がまだ旧値のため、新モードを引数で渡して取り違えを防ぐ。
+   */
+  function onSelectSchool(nextSchoolId: string, mode: SignageMode = signageMode) {
+    setSchoolId(nextSchoolId);
+    setClassId("");
+    setClasses([]);
+    if (mode === "class") {
+      setSignageUrl("");
+    }
+    if (mode !== "class" || !nextSchoolId) {
+      return;
+    }
+    setError(null);
+    setClassBusy(true);
+    startTransition(async () => {
+      const res = await listClassesForSchoolAction(nextSchoolId);
+      setClassBusy(false);
+      if (res.ok) {
+        setClasses(res.data.classes);
+      } else {
+        setError(res.error.message);
+      }
+    });
+  }
+
+  /**
+   * クラス選択時に、そのクラスの signage base URL をサーバで get-or-create し、design 既定 pattern2 を合成して
+   * signageUrl 欄へ充填する。ラベルが空ならクラス名で補完する（手入力済みのラベルは尊重して上書きしない）。
+   */
+  function onSelectClass(nextClassId: string) {
+    setClassId(nextClassId);
+    if (!nextClassId) {
+      setSignageUrl("");
+      return;
+    }
+    setError(null);
+    setClassBusy(true);
+    startTransition(async () => {
+      const res = await getOrCreateClassSignageUrl(nextClassId);
+      setClassBusy(false);
+      if (res.ok) {
+        // base URL に design 既定 pattern2 を合成（編集フォーム保存と同じ applyDesignPatternToUrl 規約）。
+        setSignageUrl(applyDesignPatternToUrl(res.data.signageUrl, DEFAULT_CLASS_DESIGN));
+        const picked = classes.find((c) => c.classId === nextClassId);
+        if (picked && label.trim() === "") {
+          setLabel(picked.label);
+        }
+      } else {
+        setError(res.error.message);
+      }
+    });
+  }
+
+  /** モード切替（クラス ⇄ 手貼り）。クラスモードへ戻る時は手貼り値の取り違えを避けるため URL をクリアする。 */
+  function onChangeMode(mode: SignageMode) {
+    setSignageMode(mode);
+    setSignageUrl("");
+    setClassId("");
+    if (mode === "class" && schoolId) {
+      // 既に学校選択済みならクラス一覧を取り直す（手貼りから戻った場合）。新モードを明示で渡す
+      // （setSignageMode の再レンダ前で closure の signageMode はまだ旧値のため）。
+      onSelectSchool(schoolId, mode);
+    }
+  }
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -119,7 +217,7 @@ export function TvDeviceCreateForm({ schools }: { schools: SchoolOption[] }) {
         <span style={labelTextStyle}>設置先の学校 *</span>
         <select
           value={schoolId}
-          onChange={(e) => setSchoolId(e.target.value)}
+          onChange={(e) => onSelectSchool(e.target.value)}
           disabled={pending}
           required
           style={inputStyle}
@@ -132,6 +230,68 @@ export function TvDeviceCreateForm({ schools }: { schools: SchoolOption[] }) {
           ))}
         </select>
       </label>
+
+      <fieldset style={fieldsetStyle}>
+        <legend style={labelTextStyle}>サイネージ URL の設定方法</legend>
+        <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
+          <label style={checkRowStyle}>
+            <input
+              type="radio"
+              name="signageMode"
+              checked={signageMode === "class"}
+              onChange={() => onChangeMode("class")}
+              disabled={pending}
+            />
+            <span>クラスから設定（推奨）</span>
+          </label>
+          <label style={checkRowStyle}>
+            <input
+              type="radio"
+              name="signageMode"
+              checked={signageMode === "manual"}
+              onChange={() => onChangeMode("manual")}
+              disabled={pending}
+            />
+            <span>または URL を直接入力</span>
+          </label>
+        </div>
+
+        {signageMode === "class" ? (
+          <label style={fieldStyle}>
+            <span style={labelTextStyle}>クラス</span>
+            <select
+              value={classId}
+              onChange={(e) => onSelectClass(e.target.value)}
+              disabled={pending || !schoolId || classBusy}
+              style={inputStyle}
+            >
+              <option value="">
+                {schoolId ? "クラスを選択してください" : "先に学校を選択してください"}
+              </option>
+              {classes.map((c) => (
+                <option key={c.classId} value={c.classId}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {schoolId && !classBusy && classes.length === 0 ? (
+              <span style={hintStyle}>
+                この学校にはクラスがありません。先に{" "}
+                <Link href={`/ops/schools/${schoolId}`} style={{ color: "#1d4ed8" }}>
+                  学校の階層
+                </Link>{" "}
+                でクラスを作成してください。
+              </span>
+            ) : (
+              <span style={hintStyle}>
+                クラスを選ぶと、そのクラスのサイネージ URL（デザイン
+                {SIGNAGE_DESIGN_PATTERN_LABELS[DEFAULT_CLASS_DESIGN]}）を自動で発行・充填します。
+                既存のリンクがあれば再利用します。
+              </span>
+            )}
+          </label>
+        ) : null}
+      </fieldset>
 
       <label style={fieldStyle}>
         <span style={labelTextStyle}>device_id（空欄で自動採番）</span>
@@ -165,9 +325,15 @@ export function TvDeviceCreateForm({ schools }: { schools: SchoolOption[] }) {
           type="url"
           value={signageUrl}
           onChange={(e) => setSignageUrl(e.target.value)}
-          disabled={pending}
-          placeholder="https://app.school-signage.net/?..."
-          style={inputStyle}
+          // クラスモードでは自動充填の結果を読み取り専用で見せる（URL の手編集は手貼りモードで）。
+          readOnly={signageMode === "class"}
+          disabled={pending || (signageMode === "class" && classBusy)}
+          placeholder={
+            signageMode === "class"
+              ? "クラスを選ぶと自動で入ります"
+              : "https://app.school-signage.net/?..."
+          }
+          style={signageMode === "class" ? { ...inputStyle, background: "#f9fafb" } : inputStyle}
         />
       </label>
 
@@ -294,6 +460,7 @@ const checkRowStyle: React.CSSProperties = {
 };
 const hourRowStyle: React.CSSProperties = { display: "flex", gap: "1rem" };
 const hourFieldStyle: React.CSSProperties = { display: "grid", gap: "0.3rem", maxWidth: "8rem" };
+const hintStyle: React.CSSProperties = { fontSize: "0.78rem", color: "#6b7280" };
 const submitStyle: React.CSSProperties = {
   padding: "0.5rem 1.25rem",
   background: "#1d4ed8",
