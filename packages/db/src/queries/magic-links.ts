@@ -108,7 +108,8 @@ export type CreateClassMagicLinkParams = {
 export type IssuedMagicLink = {
   id: string;
   classId: string | null;
-  expiresAt: Date;
+  /** ADR-042: NULL = 無期限（永続リンク）。期限つきリンクは従来どおり Date。 */
+  expiresAt: Date | null;
   revokedAt: Date | null;
   createdAt: Date;
 };
@@ -200,7 +201,8 @@ export async function createClassMagicLink(
       recordId: row.id,
       operation: "insert",
       // token/hash は載せない (ルール5)。発行された事実とメタのみ。
-      diff: { classId: row.classId, expiresAt: row.expiresAt.toISOString() },
+      // ADR-042: expiresAt は NULL = 無期限のため null 安全化する。
+      diff: { classId: row.classId, expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null },
     },
   );
   return row;
@@ -284,9 +286,10 @@ export async function extendMagicLink(
       recordId: row.id,
       operation: "update",
       diff: {
+        // ADR-042: expiresAt は NULL = 無期限のため null 安全化する。
         expiresAt: {
-          before: before.expiresAt.toISOString(),
-          after: row.expiresAt.toISOString(),
+          before: before.expiresAt ? before.expiresAt.toISOString() : null,
+          after: row.expiresAt ? row.expiresAt.toISOString() : null,
         },
       },
     },

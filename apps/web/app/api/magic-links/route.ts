@@ -88,7 +88,8 @@ export async function POST(request: Request): Promise<NextResponse> {
         token,
         path: `/s/${token}`,
         signagePath: `/signage/${token}`,
-        expiresAt: issued.expiresAt.toISOString(),
+        // ADR-042: expiresAt は NULL = 無期限のため null 安全化（string | null）。
+        expiresAt: issued.expiresAt?.toISOString() ?? null,
       },
       { status: 201 },
     );
@@ -123,7 +124,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     links: links.map((l) => ({
       id: l.id,
       classId: l.classId,
-      expiresAt: l.expiresAt.toISOString(),
+      // ADR-042: expiresAt は NULL = 無期限のため null 安全化（string | null）。
+      expiresAt: l.expiresAt?.toISOString() ?? null,
       revokedAt: l.revokedAt?.toISOString() ?? null,
       createdAt: l.createdAt.toISOString(),
     })),
