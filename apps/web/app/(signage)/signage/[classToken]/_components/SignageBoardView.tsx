@@ -344,6 +344,7 @@ function Pattern3Board({
       <div className={styles.container}>
         <main className={styles.infoArea}>
           <div className={styles.p2Grid}>
+            <Pattern3WeeklyWeather weather={data.weather ?? null} today={data.date} />
             <Pattern2Schedule
               days={data.scheduleDays}
               today={data.date}
@@ -414,6 +415,77 @@ function Pattern3Header({ data, now }: { data: SignagePayload; now: Date | null 
       ) : null}
       <span className={styles.p3HeaderBrand}>キミテラス by Rebounder</span>
     </header>
+  );
+}
+
+/**
+ * パターン3（廊下版）専用の**週間天気帯**。`data.weather.days` の本日以降（最大 7 日）を情報エリア（`.p2Grid`）
+ * の先頭に 1 行で出す。各日 = 曜日／日付 ＋ 単色天気グリフ ＋ 最高（暖色）／最低（寒色）気温 ＋ 降水確率。
+ * 廊下の通行者が「今日この先 1 週間の天気と気温の高低」を遠目で一瞥できることを狙う（2026-06-18 ユーザー確定。
+ * 当初案にあった折れ線グラフは面積過多のため不採用＝数値で高低を示す）。
+ *
+ * ## 設計上の不変条件
+ * - **広告 9:16 列は不変**: 本帯は左 70% の情報エリア内だけに収め、右 30% の広告（`.adContainer` の 9:16）は
+ *   一切削らない（ユーザー指示 2026-06-18）。
+ * - **pattern3 のみが描画**: pattern2（教室端末）は無改修。weather ブロック自体は既に PATTERN_BLOCKS に含まれ
+ *   データ取得は共有なので、本コンポーネントは純デザイン層の追加（データ層・取得ゲートは無改修）。
+ * - **region landmark を作らない**: weather は {@link SIGNAGE_BLOCK_META} で `hasRegion=false`（予定列ヘッダー
+ *   内包が原型）。盤面 region ドリフトガード（SignageClient.test の region 集合一致）を崩さぬよう、本帯は
+ *   `<section aria-label>` ではなく `role="group"` でまとめる（group は landmark ではない）。
+ * - **NFR05（色非依存）**: 気温は色だけでなく必ず数値を添え、天気グリフは `aria-label` で意味を担保（既存の
+ *   予定列ヘッダー #847 と同作法）。
+ * - **fail-soft**: `weather=null` や本日以降の予報が 0 件なら帯ごと出さない（盤面を壊さない）。
+ */
+function Pattern3WeeklyWeather({
+  weather,
+  today,
+}: {
+  weather: SignageWeather | null;
+  today: string;
+}) {
+  const days = weather ? weather.days.slice(0, 7) : [];
+  if (days.length === 0) {
+    return null;
+  }
+  return (
+    // 非フォームの関連項目まとめ。<fieldset> はフォーム用で不適、<section aria-label> は region landmark を
+    // 増やし盤面 region ドリフトガード（SignageClient.test）を崩すため、landmark でない role="group" を使う。
+    // biome-ignore lint/a11y/useSemanticElements: 上記理由で <fieldset>/<section> ではなく role="group"
+    <div className={styles.p3WeeklyWx} role="group" aria-label="週間天気">
+      {days.map((day) => {
+        const { weekday, monthDay } = weeklyWeatherLabel(day.forecastDate, today);
+        const isToday = day.forecastDate === today;
+        return (
+          <div
+            key={day.forecastDate}
+            className={`${styles.p3WxCell} ${isToday ? styles.p3WxCellToday : ""}`}
+          >
+            <span className={styles.p3WxDow}>{weekday}</span>
+            <span className={styles.p3WxDate}>{monthDay}</span>
+            <span className={styles.p3WxIcon} aria-label={day.weatherText ?? day.iconLabel}>
+              <span aria-hidden="true">{WEATHER_ICON_GLYPH[day.icon]}</span>
+            </span>
+            <span className={styles.p3WxTemps}>
+              <span className={styles.p3WxHigh}>
+                {day.tempMax != null ? `${day.tempMax}°` : "—"}
+              </span>
+              <span className={styles.p3WxLow}>
+                {day.tempMin != null ? `${day.tempMin}°` : "—"}
+              </span>
+            </span>
+            {day.pop != null ? (
+              <span
+                className={`${styles.p3WxPop} ${day.pop >= 50 ? styles.p3WxPopHigh : ""}`}
+                aria-label={`降水確率 ${day.pop}％`}
+              >
+                <span aria-hidden="true">☂</span>
+                {day.pop}%
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -953,6 +1025,25 @@ function formatBoardDate(date: string): { dateText: string; dayText: string } {
   }
   const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
   return { dateText: `${y}年${m}月${d}日`, dayText: dow };
+}
+
+/**
+ * 週間天気帯（{@link Pattern3WeeklyWeather}）1 セルの曜日・日付ラベル。`date`（'YYYY-MM-DD'）から曜日（当日は
+ * 「今日」）と `M/D` を返す。TZ ドリフト回避に Date.UTC を使う（他の日付ヘルパーと同作法）。不正値は素返し。
+ */
+function weeklyWeatherLabel(date: string, today: string): { weekday: string; monthDay: string } {
+  const parts = date.split("-");
+  if (parts.length !== 3) {
+    return { weekday: "", monthDay: date };
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return { weekday: "", monthDay: date };
+  }
+  const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
+  return { weekday: date === today ? "今日" : dow, monthDay: `${m}/${d}` };
 }
 
 /** 実時計 HH:MM (JST)。 */

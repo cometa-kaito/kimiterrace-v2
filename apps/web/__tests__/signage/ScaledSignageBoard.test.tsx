@@ -138,9 +138,10 @@ describe("SignageBoardView（純粋な盤面描画層）", () => {
     expect(screen.getByRole("region", { name: "来校者一覧" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "鉄道" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
-    // 廊下版ヘッダーは当日の天気サマリ（気温）を時刻の隣に出す。気温表記はヘッダー固有（予定列の天気は
-    // アイコンのみで気温を出さない）なので、これがあれば pattern3 の大型ヘッダーが描かれたと言える。
-    expect(screen.getByText(/28°/)).toBeInTheDocument();
+    // 廊下版ヘッダーは当日の天気サマリ（気温）を時刻の隣に「最高° / 最低°」のスラッシュ表記で出す。週間天気帯
+    // も最高/最低を出すが帯側は別 span（"28°" と "21°" を分離）なので、スラッシュ連結はヘッダー固有＝これが
+    // あれば pattern3 の大型ヘッダーが描かれたと言える。
+    expect(screen.getByText(/28°\s*\/\s*21°/)).toBeInTheDocument();
   });
 
   // Approach A の behavior-preserving 保証: editRegions を渡さない（live TV / モニタの壁の経路）と、編集ボタンは
