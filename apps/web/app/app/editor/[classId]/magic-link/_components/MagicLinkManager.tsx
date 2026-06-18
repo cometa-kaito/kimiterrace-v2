@@ -1,24 +1,33 @@
 "use client";
 
-import { EXPIRES_DEFAULT_DAYS, EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
+import { EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 
 /**
- * F05 (#41): クラス magic link の発行 / 一覧 / 失効を行う client。
+ * F05 (#41) / ADR-042: クラス magic link の発行 / 一覧 / 再表示 / 失効を行う client。
  *
- * - 発行: `POST /api/magic-links` に `{classId, expiresInDays?}` を送り、返ってきた **1 回限りの
- *   平文 URL** を表示する (コピー可 / QR 表示・印刷可)。以降サーバーは hash しか持たず再表示不可 (ルール5)。
- * - QR: 発行直後の平文 URL を **クライアント側で** SVG にエンコードして掲示用に表示する。token は
- *   `issued.url` (既に画面表示済の値) と同一で外部送信しない (ルール4/5、URL コピーと同じ露出範囲)。
+ * - 発行: `POST /api/magic-links` に `{classId, expiresInDays?}` を送る。**ADR-042 D1: 既定は無期限**
+ *   （`expiresInDays` 省略）。返ってきた平文 URL を表示する (コピー可 / QR 表示・印刷可)。
+ * - 再表示 (ADR-042 D2): 一覧の各リンクは **平文 `token` を保持**するため、後から完全な URL
+ *   （生徒 `/s/<token>` / サイネージ `/signage/<token>`）を再表示・コピーできる。token を読めるのは
+ *   RLS スコープ済の system_admin（全校）/ school_admin（自校）のみ（API GET 側で保証）。
+ * - 旧リンク（PR2 以前発行で token 列が NULL）は再表示不可 → 「発行時のみ」とフォールバック表示する。
+ * - QR: 平文 URL を **クライアント側で** SVG にエンコードして掲示用に表示する（外部送信しない）。
  * - 失効: `POST /api/magic-links/{id}/revoke`。生きたリンクを誤って失効しないよう 2 段階確認。
- * - 一覧の token は表示しない (メタのみ)。期限は ISO を locale 表示する。
+ * - 期限は ISO を locale 表示。NULL（無期限）は「無期限」と表示する。
  */
 
-/** 一覧行 (server から ISO 文字列で受ける、token は含まない)。 */
+/** 一覧行 (server から ISO 文字列で受ける)。 */
 export type MagicLinkRow = {
   id: string;
-  expiresAt: string;
+  /**
+   * ADR-042 D2: 再表示用の平文トークン。これがあれば完全な URL を再構築・コピーできる。
+   * PR2 以前に発行された旧リンクは null（再表示不可・「発行時のみ」と表示）。
+   */
+  token?: string | null;
+  /** ADR-042 D1: NULL = 無期限（永続リンク）。有限期限は ISO 文字列。 */
+  expiresAt: string | null;
   createdAt: string;
   /** 非 null = 失効済 (失効履歴表示時のみ届く)。既定の一覧では失効済は除外され null。 */
   revokedAt?: string | null;
@@ -29,11 +38,21 @@ export type MagicLinkRow = {
  * - `signageUrl` (/signage/) … サイネージ表示端末で開く盤面 URL（本ページの主目的）
  * - `studentUrl` (/s/) … 生徒がスマホで開く生徒ショートリンク（→ /student）
  */
-type IssuedToken = { id: string; signageUrl: string; studentUrl: string; expiresAt: string };
+type IssuedToken = {
+  id: string;
+  signageUrl: string;
+  studentUrl: string;
+  expiresAt: string | null;
+};
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("ja-JP");
+}
+
+/** ADR-042 D1: 期限の表示。NULL（無期限）は「無期限」、有限期限は日時表示。 */
+function formatExpiry(iso: string | null): string {
+  return iso ? `期限 ${formatDate(iso)}` : "無期限";
 }
 
 export function MagicLinkManager({
@@ -49,6 +68,9 @@ export function MagicLinkManager({
   const [issued, setIssued] = useState<IssuedToken | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedWhich, setCopiedWhich] = useState<"signage" | "student" | null>(null);
+  // ADR-042 D2: 一覧の各リンク行で「どの URL をコピーしたか」を `${id}:${which}` で保持し、行ごとに
+  // 「コピーしました」を表示する（発行直後ブロックの copiedWhich とは独立）。
+  const [copiedRow, setCopiedRow] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [extendingId, setExtendingId] = useState<string | null>(null);
   const [extendDays, setExtendDays] = useState("");
@@ -134,6 +156,16 @@ export function MagicLinkManager({
       setCopiedWhich(which);
     } catch {
       setCopiedWhich(null);
+    }
+  }
+
+  // ADR-042 D2: 一覧の各リンク行から完全な URL を再表示・コピーする。`key` は `${id}:${which}`。
+  async function copyRowUrl(url: string, key: string) {
+    try {
+      await navigator.clipboard?.writeText(url);
+      setCopiedRow(key);
+    } catch {
+      setCopiedRow(null);
     }
   }
 
@@ -226,7 +258,7 @@ export function MagicLinkManager({
     <div>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
         <label style={{ fontSize: "0.9rem" }}>
-          有効期限(日、未指定で既定 {EXPIRES_DEFAULT_DAYS}日＝1年):{" "}
+          有効期限(日、未指定で無期限):{" "}
           <input
             type="number"
             inputMode="numeric"
@@ -234,7 +266,7 @@ export function MagicLinkManager({
             max={EXPIRES_MAX_DAYS}
             value={expiresInDays}
             onChange={(e) => setExpiresInDays(e.target.value)}
-            placeholder={String(EXPIRES_DEFAULT_DAYS)}
+            placeholder="無期限"
             style={inputStyle}
           />
         </label>
@@ -272,8 +304,8 @@ export function MagicLinkManager({
           }}
         >
           <p style={{ margin: "0 0 0.6rem", fontWeight: 600, color: "#1e3a8a" }}>
-            発行しました。以下の URL / QR は<strong>今だけ</strong>
-            表示されます（後から再表示できません）。
+            発行しました。以下の URL / QR は、下の「発行済みリンク」一覧から
+            <strong>いつでも再表示・コピー</strong>できます。
           </p>
 
           {/* サイネージ端末用（本ページの主目的）。教室の表示端末のブラウザでこの URL を開く。 */}
@@ -370,136 +402,220 @@ export function MagicLinkManager({
               key={link.id}
               style={{
                 display: "flex",
-                gap: "0.75rem",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0.5rem 0",
+                flexDirection: "column",
+                gap: "0.5rem",
+                padding: "0.6rem 0",
                 borderTop: "1px solid #e5e7eb",
                 fontSize: "0.9rem",
               }}
             >
-              <span style={{ color: link.revokedAt ? "#9ca3af" : "#374151" }}>
-                発行 {formatDate(link.createdAt)} /{" "}
-                {link.revokedAt
-                  ? `失効 ${formatDate(link.revokedAt)}`
-                  : `期限 ${formatDate(link.expiresAt)}`}
-              </span>
-              {link.revokedAt ? (
-                <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>失効済み</span>
-              ) : extendingId === link.id ? (
-                <span style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={EXPIRES_MIN_DAYS}
-                    max={EXPIRES_MAX_DAYS}
-                    value={extendDays}
-                    onChange={(e) => setExtendDays(e.target.value)}
-                    aria-label="新しい有効日数（今日から）"
-                    placeholder="90"
-                    style={{
-                      width: "4.5rem",
-                      padding: "0.3rem 0.4rem",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "0.3rem",
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => extend(link.id)}
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "none",
-                      background: "#2563eb",
-                      color: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    更新
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExtendingId(null);
-                      setExtendDays("");
-                    }}
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    やめる
-                  </button>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.75rem",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span style={{ color: link.revokedAt ? "#9ca3af" : "#374151" }}>
+                  発行 {formatDate(link.createdAt)} /{" "}
+                  {link.revokedAt
+                    ? `失効 ${formatDate(link.revokedAt)}`
+                    : formatExpiry(link.expiresAt)}
                 </span>
-              ) : confirmingId === link.id ? (
-                <span style={{ display: "flex", gap: "0.4rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => revoke(link.id)}
+                {link.revokedAt ? (
+                  <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>失効済み</span>
+                ) : extendingId === link.id ? (
+                  <span style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={EXPIRES_MIN_DAYS}
+                      max={EXPIRES_MAX_DAYS}
+                      value={extendDays}
+                      onChange={(e) => setExtendDays(e.target.value)}
+                      aria-label="新しい有効日数（今日から）"
+                      placeholder="90"
+                      style={{
+                        width: "4.5rem",
+                        padding: "0.3rem 0.4rem",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "0.3rem",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => extend(link.id)}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "none",
+                        background: "#2563eb",
+                        color: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      更新
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExtendingId(null);
+                        setExtendDays("");
+                      }}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "1px solid #d1d5db",
+                        background: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      やめる
+                    </button>
+                  </span>
+                ) : confirmingId === link.id ? (
+                  <span style={{ display: "flex", gap: "0.4rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => revoke(link.id)}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "none",
+                        background: "#dc2626",
+                        color: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      失効する
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(null)}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "1px solid #d1d5db",
+                        background: "#fff",
+                        cursor: "pointer",
+                      }}
+                    >
+                      やめる
+                    </button>
+                  </span>
+                ) : (
+                  <span style={{ display: "flex", gap: "0.4rem" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExtendingId(link.id);
+                        setExtendDays("");
+                      }}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "1px solid #93c5fd",
+                        background: "#fff",
+                        color: "#1d4ed8",
+                        cursor: "pointer",
+                      }}
+                    >
+                      期限更新
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(link.id)}
+                      style={{
+                        padding: "0.3rem 0.7rem",
+                        borderRadius: "0.3rem",
+                        border: "1px solid #fca5a5",
+                        background: "#fff",
+                        color: "#b91c1c",
+                        cursor: "pointer",
+                      }}
+                    >
+                      失効
+                    </button>
+                  </span>
+                )}
+              </div>
+
+              {/* ADR-042 D2: 再表示。token があれば完全な URL を表示・コピーできる。旧リンク(token=null)は
+                  発行時のみの取得だった旨をフォールバック表示する。失効済みは URL を出さない。 */}
+              {!link.revokedAt &&
+                (link.token ? (
+                  <div
                     style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "none",
-                      background: "#dc2626",
-                      color: "#fff",
-                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.4rem",
+                      padding: "0.4rem 0.6rem",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "0.4rem",
                     }}
                   >
-                    失効する
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingId(null)}
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
-                      cursor: "pointer",
-                    }}
-                  >
-                    やめる
-                  </button>
-                </span>
-              ) : (
-                <span style={{ display: "flex", gap: "0.4rem" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExtendingId(link.id);
-                      setExtendDays("");
-                    }}
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "1px solid #93c5fd",
-                      background: "#fff",
-                      color: "#1d4ed8",
-                      cursor: "pointer",
-                    }}
-                  >
-                    期限更新
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingId(link.id)}
-                    style={{
-                      padding: "0.3rem 0.7rem",
-                      borderRadius: "0.3rem",
-                      border: "1px solid #fca5a5",
-                      background: "#fff",
-                      color: "#b91c1c",
-                      cursor: "pointer",
-                    }}
-                  >
-                    失効
-                  </button>
-                </span>
-              )}
+                    {(
+                      [
+                        {
+                          which: "signage",
+                          label: "📺 サイネージ表示用",
+                          path: `/signage/${link.token}`,
+                        },
+                        { which: "student", label: "📱 生徒用", path: `/s/${link.token}` },
+                      ] as const
+                    ).map(({ which, label, path }) => {
+                      const url = `${typeof window !== "undefined" ? window.location.origin : ""}${path}`;
+                      const key = `${link.id}:${which}`;
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            display: "flex",
+                            gap: "0.5rem",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <span
+                            style={{ fontSize: "0.8rem", color: "#475569", minWidth: "7.5rem" }}
+                          >
+                            {label}
+                          </span>
+                          <code
+                            style={{
+                              flex: "1 1 14rem",
+                              wordBreak: "break-all",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {url}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => copyRowUrl(url, key)}
+                            style={{
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: "0.3rem",
+                              border: "1px solid #93c5fd",
+                              background: "#fff",
+                              color: "#1d4ed8",
+                              cursor: "pointer",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {copiedRow === key ? "コピーしました" : "コピー"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: "0.8rem", color: "#9ca3af" }}>
+                    このリンクは発行時のみ URL を表示できました（再発行すると再表示できます）。
+                  </p>
+                ))}
             </li>
           ))}
         </ul>

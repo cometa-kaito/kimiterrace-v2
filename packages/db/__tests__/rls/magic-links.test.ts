@@ -273,7 +273,7 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
 
   // --- 教員管理側 (RLS context 下) ---
 
-  it("createClassMagicLink: 自校 context で発行でき、デフォルト期限は約 90 日", async () => {
+  it("createClassMagicLink: 自校 context で発行でき、expiresAt 未指定は無期限 (NULL) + 平文 token を保存 (ADR-042)", async () => {
     // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
     const client = postgres(url!, { max: 1, onnotice: () => {} });
     try {
@@ -287,25 +287,70 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
           schoolId: fx.schoolA,
           classId: classA,
           tokenHash: "hash-created-A",
+          // ADR-042 D2: 再表示用の平文 token も保存する。
+          token: "plain-created-A",
           actor: { userId: fx.userA, identityUid: fx.userA },
+          // expiresAt は意図的に未指定 → ADR-042 D1: NULL (無期限) を明示 INSERT する (90 日に倒さない)。
         });
       });
       expect(issued.classId).toBe(classA);
       expect(issued.revokedAt).toBeNull();
-      // expiresAt は ADR-042 で Date | null。この発行は列デフォルト (90 日) で必ず non-null。
-      // biome-ignore lint/style/noNonNullAssertion: デフォルト期限発行のため実行時 non-null
-      const days = (issued.expiresAt!.getTime() - Date.now()) / 86_400_000;
-      expect(days).toBeGreaterThan(89);
-      expect(days).toBeLessThan(91);
+      // ADR-042 D1: expiresAt 未指定は NULL (無期限) で書かれる (旧: 列デフォルト 90 日には倒れない)。
+      expect(issued.expiresAt).toBeNull();
+      // ADR-042 D2: 平文 token が返り (再表示可)、DB の token 列に保存されている。
+      expect(issued.token).toBe("plain-created-A");
 
-      // 発行が audit_log に insert として残る (ルール1)。owner 接続で確認 (token は載らない)。
+      // 発行が audit_log に insert として残る (ルール1)。owner 接続で確認 (token / hash は載らない)。
       const audit = await sql<{ operation: string; diff: Record<string, unknown> }[]>`
         SELECT operation, diff FROM audit_log
         WHERE table_name = 'magic_links' AND record_id = ${issued.id}
       `;
       expect(audit).toHaveLength(1);
       expect(audit[0].operation).toBe("insert");
+      // 監査 diff には token_hash も平文 token も載せない (ルール5)。
       expect(JSON.stringify(audit[0].diff)).not.toContain("hash-created-A");
+      expect(JSON.stringify(audit[0].diff)).not.toContain("plain-created-A");
+      // 無期限のため diff の expiresAt は null。
+      expect(audit[0].diff).toMatchObject({ expiresAt: null });
+
+      // DB 列に平文 token が保存されている (owner 接続で直接確認)。
+      const [stored] = await sql<{ token: string | null; expires_at: string | null }[]>`
+        SELECT token, expires_at FROM magic_links WHERE id = ${issued.id}
+      `;
+      expect(stored.token).toBe("plain-created-A");
+      expect(stored.expires_at).toBeNull();
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("createClassMagicLink: expiresAt を明示指定すると有限期限になる (後方互換)", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      const explicit = new Date(Date.now() + 120 * 86_400_000);
+      const issued = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        return createClassMagicLink(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          tokenHash: "hash-created-finite",
+          token: "plain-created-finite",
+          expiresAt: explicit,
+          actor: { userId: fx.userA, identityUid: fx.userA },
+        });
+      });
+      // 明示指定はそのまま有限期限 (NULL に倒れない・後方互換)。
+      expect(issued.expiresAt).not.toBeNull();
+      // biome-ignore lint/style/noNonNullAssertion: 直前の not toBeNull で保証
+      const days = (issued.expiresAt!.getTime() - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(119);
+      expect(days).toBeLessThan(121);
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });
@@ -536,6 +581,50 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       expect(withRevoked.length).toBeGreaterThan(activeOnly.length);
       // どちらも自クラスのみ (RLS + classId 条件)。
       expect(withRevoked.every((r) => r.classId === classA)).toBe(true);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("listClassMagicLinks: 平文 token を返す (ADR-042 D2 再表示)・旧リンク (token 列 NULL) は null", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      // token 付きの新リンク (ADR-042 経路) を専用クラスへ発行し、混入を避けるため owner で旧リンク (token NULL) も入れる。
+      const listClassId = (
+        await sql<{ id: string }[]>`
+          INSERT INTO classes (school_id, name, grade)
+          VALUES (${fx.schoolA}, 'list-token-class', 2) RETURNING id
+        `
+      )[0].id;
+      // 旧リンク: token 列 NULL (PR2 以前発行相当)。
+      await sql`INSERT INTO magic_links (school_id, class_id, token_hash, token, expires_at)
+        VALUES (${fx.schoolA}, ${listClassId}, 'hash-list-legacy', NULL, now() + interval '30 days')`;
+
+      const rows = await db.transaction(async (tx) => {
+        await tx.execute(dsql`SET LOCAL ROLE kimiterrace_app`);
+        await tx.execute(dsql`SELECT set_config('app.current_school_id', ${fx.schoolA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_id', ${fx.userA}, true)`);
+        await tx.execute(dsql`SELECT set_config('app.current_user_role', 'teacher', true)`);
+        // ADR-042 経路で token 付きリンクを発行。
+        await createClassMagicLink(tx, {
+          schoolId: fx.schoolA,
+          classId: listClassId,
+          tokenHash: "hash-list-new",
+          token: "plain-list-new",
+          actor: { userId: fx.userA, identityUid: fx.userA },
+        });
+        return listClassMagicLinks(tx, listClassId);
+      });
+
+      const newRow = rows.find((r) => r.token === "plain-list-new");
+      const legacyRow = rows.find((r) => r.token === null);
+      // 新リンクは平文 token を返す (完全な URL を再構築できる)。
+      expect(newRow).toBeDefined();
+      // 旧リンクは token 列 NULL → 再表示不可 (UI フォールバック)。
+      expect(legacyRow).toBeDefined();
     } finally {
       await client.unsafe("RESET ROLE").catch(() => {});
       await client.end({ timeout: 5 });

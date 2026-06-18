@@ -96,19 +96,39 @@ export type CreateClassMagicLinkParams = {
    */
   schoolId: string;
   classId: string;
-  /** ハッシュ済 token。平文は渡さない。 */
+  /** ハッシュ済 token。resolve はこの hash 参照のまま。 */
   tokenHash: string;
-  /** 省略時は DB デフォルト (now() + 90 日)。発行 API は既定 1 年を明示算出して渡す。 */
+  /**
+   * ADR-042 D2: 再表示用の**平文トークン**。`magic_links.token` 列に保存し、後から完全な URL を
+   * 再表示できるようにする（system_admin + 自校 school_admin が RLS スコープで `listClassMagicLinks`
+   * 経由で読む）。**監査 diff・ログには載せない**（保存は列のみ・ルール5 の規律はログ/diff に維持）。
+   * 省略時は NULL（旧経路・後方互換）で、その行は再表示不可。
+   */
+  token?: string;
+  /**
+   * ADR-042 D1: **未指定 = NULL（無期限・永続リンク）を明示的に書く**。発行 API は既定で未指定とし
+   * 無期限で発行する。明示指定時のみ従来どおり有限期限（後方互換。発行者 UI の短縮/延長や明示 days）。
+   * 旧来の「省略時 DB 列デフォルト 90 日に倒れる」挙動は採らない（NULL を明示 INSERT する）。
+   */
   expiresAt?: Date;
   /** 発行者（監査カラム created_by/updated_by + audit_log actor）。system_admin は userId=null。 */
   actor: MagicLinkActor;
 };
 
-/** 発行されたクラスリンクの公開可能な属性 (token_hash は返さない)。 */
+/**
+ * 発行されたクラスリンクの公開可能な属性 (`token_hash` は返さない)。
+ *
+ * ADR-042 D2: 再表示用の平文 `token` を含む。PR2 以前に発行された行（`token` 列が NULL）は再表示不可なので
+ * `null`。呼び出し側（運用者の RLS スコープ＝system_admin / 自校 school_admin）は token があれば完全な URL を
+ * 再構築できる。`token` を含むのはこの管理側 (`createClassMagicLink` / `listClassMagicLink`) のみで、生徒匿名
+ * 解決 (`resolveMagicLink`) には含めない。
+ */
 export type IssuedMagicLink = {
   id: string;
   classId: string | null;
-  /** ADR-042: NULL = 無期限（永続リンク）。期限つきリンクは従来どおり Date。 */
+  /** ADR-042 D2: 再表示用の平文トークン。NULL = 旧リンク（PR2 以前発行）で再表示不可。 */
+  token: string | null;
+  /** ADR-042 D1: NULL = 無期限（永続リンク）。期限つきリンクは従来どおり Date。 */
   expiresAt: Date | null;
   revokedAt: Date | null;
   createdAt: Date;
@@ -117,6 +137,7 @@ export type IssuedMagicLink = {
 const ISSUED_COLUMNS = {
   id: magicLinks.id,
   classId: magicLinks.classId,
+  token: magicLinks.token,
   expiresAt: magicLinks.expiresAt,
   revokedAt: magicLinks.revokedAt,
   createdAt: magicLinks.createdAt,
@@ -185,7 +206,10 @@ export async function createClassMagicLink(
       schoolId: params.schoolId,
       classId: params.classId,
       tokenHash: params.tokenHash,
-      ...(params.expiresAt ? { expiresAt: params.expiresAt } : {}),
+      // ADR-042 D2: 再表示用の平文 token を列に保存（省略時は NULL = 旧リンク扱いで再表示不可）。
+      token: params.token ?? null,
+      // ADR-042 D1: 未指定 = NULL（無期限）を**明示的に書く**。DB 列デフォルト(90 日)には倒さない。
+      expiresAt: params.expiresAt ?? null,
       createdBy: params.actor.userId,
       updatedBy: params.actor.userId,
     })
@@ -303,6 +327,10 @@ export async function extendMagicLink(
  * 既定は **有効なリンクのみ** (失効済を除く)。`includeRevoked` を渡すと失効済も含めて返す
  * (F05: 漏洩失効フローの監査透明性 — 教員が「どのリンクをいつ失効したか」を確認できる)。
  * 失効済かどうかは戻り値の `revokedAt` (非 null = 失効済) で判別する。
+ *
+ * ADR-042 D2: 返却に**平文 `token`**（再表示用）を含む。本クエリは RLS の tenant_isolation 下で**自校の
+ * リンクのみ**返すため、平文 token を読めるのは system_admin（全校）/ school_admin（自校）に限られる
+ * （ADR-042 の再表示可の対象に一致）。PR2 以前発行の行は `token` が NULL で再表示不可。
  */
 export async function listClassMagicLinks(
   tx: TenantTx,
