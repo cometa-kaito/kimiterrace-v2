@@ -33,6 +33,8 @@ export * from "./weather-forecasts.js";
 export * from "./news-items.js";
 // ADR-044: サイネージ気象警報・注意報の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
 export * from "./weather-warnings.js";
+// ADR-044: サイネージ熱中症警戒アラート / 暑さ指数(WBGT) の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
+export * from "./heat-alerts.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";

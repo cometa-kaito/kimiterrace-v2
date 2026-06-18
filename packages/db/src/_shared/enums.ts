@@ -152,6 +152,64 @@ export const warningLevel = pgEnum("warning_level", ["none", "advisory", "warnin
  */
 export type WarningLevel = (typeof warningLevel.enumValues)[number];
 
+// ADR-044 (熱中症警戒アラート): 暑さ指数・熱中症アラートのデータソース。環境省「熱中症予防情報サイト」
+// (https://www.wbgt.env.go.jp/) の無料・keyless な電子情報提供サービスのみ。`heat_alerts.source` の値域を
+// DB レベルで固定する（ルール3: 値域の単一ソース化）。気象警報 (ADR-044, weather_warnings) は JMA 由来で
+// `weather_source` を使うが、熱中症アラートは **取得元が環境省（JMA ではない）** なので別 enum にする
+// （`weather_source` の 'jma' 専用色を熱中症に流用しない）。将来別ソースを足すなら末尾追加（ADD VALUE、非破壊）。
+//   env_moe … 環境省（Ministry of the Environment）熱中症予防情報サイトの電子情報提供サービス。
+export const heatSource = pgEnum("heat_source", ["env_moe"]);
+
+/**
+ * 熱中症アラートのデータソースの型（単一ソース）。アプリ層 (apps/web) は client-safe な
+ * `@kimiterrace/db/schema` から `import type` で引き込み、許可値・出典ラベルが enum とズレないことを
+ * `satisfies` でコンパイル時に強制する（`WarningLevel` / `NewsSource` と同方針）。型のみなので
+ * Next バンドルに enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type HeatSource = (typeof heatSource.enumValues)[number];
+
+// ADR-044 (熱中症警戒アラート): 都道府県単位・日次の熱中症（特別）警戒アラートの段階。`heat_alerts.alert_level`
+// の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。環境省の電子情報提供サービス（alert CSV の
+// FlagExplanation）は 0=発表無し / 1=熱中症警戒情報発表 / 2=熱中症特別警戒情報判定 / 3=熱中症特別警戒情報発表 /
+// 9=発表時間外。表示は「発表されたアラート」の 3 段階に正規化する（取得 Job のパーサで一元導出する単一ソース）:
+//   none      … アラートなし（CSV フラグ 0 / 2(判定のみで未発表) / 9(時間外) / 欠落、fail-soft）
+//   warning   … 熱中症警戒アラート（CSV フラグ 1）
+//   emergency … 熱中症特別警戒アラート（CSV フラグ 3、最上位）
+// 気象警報の `warning_level` とは段階体系が異なる（注意報相当が無い）ため別 enum にする（流用しない）。
+// 将来値を足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊）。
+export const heatAlertLevel = pgEnum("heat_alert_level", ["none", "warning", "emergency"]);
+
+/**
+ * 熱中症アラート段階の型（単一ソース）。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema`
+ * から `import type` で引き込み、盤面の段階表示・強調が enum とズレないことを `satisfies` でコンパイル時に
+ * 強制する（`WarningLevel` と同方針）。型のみなので Next バンドルに enum のランタイム値を持ち込まない。
+ */
+export type HeatAlertLevel = (typeof heatAlertLevel.enumValues)[number];
+
+// ADR-044 (熱中症警戒アラート): その日のピーク暑さ指数 WBGT の区分。`heat_alerts.wbgt_band` の値域を DB
+// レベルで固定する（ルール3）。日本生気象学会 / 環境省「日常生活に関する指針」の 5 区分（℃）に対応する:
+//   almost_safe … ほぼ安全（WBGT < 21）
+//   caution     … 注意（21 <= WBGT < 25）
+//   warning     … 警戒（25 <= WBGT < 28）
+//   severe      … 厳重警戒（28 <= WBGT < 31）
+//   danger      … 危険（31 <= WBGT）
+// WBGT が取得できない日は NULL（fail-soft、列は nullable）。`heat_alert_level` の 'warning' とは別概念
+// （アラート段階 vs 暑さ指数区分）なので英字値で衝突させない。将来値を足すなら末尾追加（ADD VALUE、非破壊）。
+export const wbgtBand = pgEnum("wbgt_band", [
+  "almost_safe",
+  "caution",
+  "warning",
+  "severe",
+  "danger",
+]);
+
+/**
+ * WBGT 区分の型（単一ソース）。アプリ層 (apps/web) は client-safe な `@kimiterrace/db/schema` から
+ * `import type` で引き込み、盤面の区分表示・色分けが enum とズレないことを `satisfies` でコンパイル時に
+ * 強制する（`HeatAlertLevel` と同方針）。型のみなので Next バンドルに enum のランタイム値を持ち込まない。
+ */
+export type WbgtBand = (typeof wbgtBand.enumValues)[number];
+
 // AI 抽出種別（F03）
 export const aiExtractionKind = pgEnum("ai_extraction_kind", [
   "schedule",
