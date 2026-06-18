@@ -22,7 +22,6 @@ vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 vi.mock("../../lib/auth/admin-mutations", () => ({
   deactivateIdpUser: vi.fn(),
   reactivateIdpUser: vi.fn(),
-  changeIdpUserRole: vi.fn(),
   createIdpUser: vi.fn(),
   deleteIdpUser: vi.fn(),
   isEmailAlreadyExistsError: (e: unknown) =>
