@@ -223,7 +223,16 @@ export const communicationChannel = pgEnum("communication_channel", [
 
 // F0 (V1 移植): 学校 → 学年 → クラス（→ 学科）階層スコープ。
 // ads / daily_data / school_configs が「どの階層に紐づくか」を判別する discriminator。
-export const hierarchyScope = pgEnum("hierarchy_scope", ["school", "grade", "class", "department"]);
+// monitor: 個別モニタ直指定（Phase5・運営整理 G）。grade/class/department を解決せず ads ↔ tv_devices を
+// ad_target_monitors 中間表で結ぶ。既存 effective_ads_per_class ビューは 'monitor' に一致しない＝クラス継承
+// では配信されない（モニタ単位の配信読取は別途・誤配信防止）。末尾追加（既存値の序は不変）。
+export const hierarchyScope = pgEnum("hierarchy_scope", [
+  "school",
+  "grade",
+  "class",
+  "department",
+  "monitor",
+]);
 
 // 学校設定の種別（V1 config sub-collection: display_settings / quiet_hours / schedule_templates）
 export const configKind = pgEnum("config_kind", [

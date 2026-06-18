@@ -100,6 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         v2SchoolId: a.v2SchoolId,
         scope: a.scope,
         scopeRef: a.scopeRef,
+        targetMonitorIds: a.targetMonitorIds,
         mediaType: a.mediaType,
         durationSec: a.durationSec,
         displayOrder: a.displayOrder,
