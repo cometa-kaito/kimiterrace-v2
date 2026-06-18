@@ -4,6 +4,7 @@ import {
   getDesignPatternFromUrl,
   isSignageDesignPattern,
   parseSignageDesignPattern,
+  resolveDesignPattern,
   stripDesignParam,
 } from "@/lib/signage/design-pattern";
 import { describe, expect, it } from "vitest";
@@ -56,6 +57,27 @@ describe("getDesignPatternFromUrl（signage_url の ?design 抽出）", () => {
     expect(getDesignPatternFromUrl("/signage/tok?design=pattern2")).toBeNull(); // 相対は parse 不能
     expect(getDesignPatternFromUrl("")).toBeNull();
     expect(getDesignPatternFromUrl(null)).toBeNull();
+  });
+});
+
+describe("resolveDesignPattern（端末別 ?design > 学校レベル既定 の解決・エディタ/壁の単一ソース）", () => {
+  it("URL に ?design があれば最優先で採用する（学校既定より端末別が勝つ）", () => {
+    expect(
+      resolveDesignPattern("https://app.example/signage/tok?design=pattern2", "pattern1"),
+    ).toBe("pattern2");
+    // 学校既定が pattern3 でも端末が pattern1 を明示していればそれを採る。
+    expect(
+      resolveDesignPattern("https://app.example/signage/tok?design=pattern1", "pattern3"),
+    ).toBe("pattern1");
+  });
+  it("?design 未指定・未知・パース不能・未設置（null）は学校レベル既定に倒す", () => {
+    expect(resolveDesignPattern("https://app.example/signage/tok", "pattern2")).toBe("pattern2");
+    expect(resolveDesignPattern("https://app.example/signage/tok?design=bogus", "pattern3")).toBe(
+      "pattern3",
+    );
+    expect(resolveDesignPattern("/relative?design=pattern2", "pattern1")).toBe("pattern1");
+    expect(resolveDesignPattern(undefined, "pattern2")).toBe("pattern2");
+    expect(resolveDesignPattern(null, "pattern1")).toBe("pattern1");
   });
 });
 
