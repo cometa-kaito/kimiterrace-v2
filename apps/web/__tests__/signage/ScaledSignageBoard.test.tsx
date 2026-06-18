@@ -62,6 +62,7 @@ function samplePayload(overrides: Partial<SignagePayload> = {}): SignagePayload 
     visitors: null,
     callouts: null,
     trainStatus: null,
+    news: null,
     blackout: false,
     ...overrides,
   };

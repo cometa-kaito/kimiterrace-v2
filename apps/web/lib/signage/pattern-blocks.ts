@@ -28,7 +28,7 @@ import { DEFAULT_SIGNAGE_DESIGN_PATTERN, type SignageDesignPattern } from "./des
 
 /**
  * サイネージ盤面に出る表示ブロックの種別（単一ソース）。`schedule`/`notice`/`assignment`/`callout`/
- * `visitor` は教員が日次入力する**編集対象**、`presence`/`train`/`weather`/`ad` はシステム供給の
+ * `visitor` は教員が日次入力する**編集対象**、`presence`/`train`/`news`/`weather`/`ad` はシステム供給の
  * **自動ブロック**（エディタ対象外）。静粛時間（quietHours）は盤面に出さない学校設定なので含めない。
  * 将来ブロックを増やす時はここに追加し {@link SIGNAGE_BLOCK_META} に対応エントリを足す。
  */
@@ -40,6 +40,7 @@ export type SignageBlockKind =
   | "visitor" // 来校者一覧
   | "presence" // 人感センサカウンタ
   | "train" // 鉄道
+  | "news" // 工学ニュース（外部取得キャッシュの見出し+出典・ADR-043）
   | "weather" // 天気（予定列ヘッダーに内包・独立リージョン無し）
   | "ad"; // 広告
 
@@ -76,6 +77,7 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
   visitor: { label: "来校者一覧", editable: true, hasRegion: true },
   presence: { label: "人感センサカウンタ", editable: false, hasRegion: true },
   train: { label: "鉄道", editable: false, hasRegion: true },
+  news: { label: "工学ニュース", editable: false, hasRegion: true },
   weather: { label: "天気", editable: false, hasRegion: false },
   ad: { label: "広告", editable: false, hasRegion: false },
 };
@@ -86,18 +88,21 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
  * 自動ブロック（weather／ad）は編集フローの末尾に置く。
  *
  * - **pattern1**（既定・v1 レイアウト）: 予定／連絡／提出物 ＋ 天気（予定内包）／広告。
- * - **pattern2**（掲示盤面）: 予定／生徒呼び出し／来校者一覧／鉄道／人感センサ ＋ 天気／広告。
+ * - **pattern2**（掲示盤面）: 予定／生徒呼び出し／来校者一覧／鉄道／人感センサ／工学ニュース ＋ 天気／広告。
  * - **pattern3**（廊下設置）: **pattern2 と同一ブロック・同一順序**（先方リクエストの確定コンテンツを維持）。
  *   違いは盤面レイアウトのみ＝廊下の「遠目・一瞥」に合わせた拡大タイポ／時刻主役ヘッダー／今日強調で、
  *   出すブロックは変えない（`PATTERN_BOARDS` の `Pattern3Board` がデザイン層だけ差し替える）。
+ *
+ * 工学ニュース（news・ADR-043）は鉄道（train）と同じシステム供給の自動ブロックで、pattern2/3 のみに出す
+ * （pattern1 は対象外）。
  *
  * 新パターンはここに 1 行追加するだけで全消費者が追従する（finding①「宣言的マッピングで一括駆動」）。
  */
 export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockKind[]> = {
   pattern1: ["schedule", "notice", "assignment", "weather", "ad"],
-  pattern2: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
+  pattern2: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
   // pattern3（廊下）は pattern2 と同一ブロック（内容据え置き・デザインのみ最適化）。
-  pattern3: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
+  pattern3: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
 };
 
 /**

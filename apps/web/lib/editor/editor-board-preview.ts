@@ -52,6 +52,7 @@ export type EditorBoardBase = Pick<
   | "visitors"
   | "callouts"
   | "trainStatus"
+  | "news"
   | "blackout"
 >;
 
@@ -94,6 +95,7 @@ export function buildEditorPreviewPayload(
     visitors: base.visitors,
     callouts: base.callouts,
     trainStatus: base.trainStatus,
+    news: base.news,
     blackout: base.blackout,
   };
 }

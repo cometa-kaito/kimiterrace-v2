@@ -164,6 +164,8 @@ export default async function ClassEditorPage({
         visitors: showVisitors ? visitors : null,
         callouts: showCallouts ? callouts : null,
         trainStatus: null,
+        // 工学ニュース（自動ブロック・ADR-043）は鉄道/センサと同じく編集プレビューでは出さない（null）。
+        news: null,
         blackout,
       }
     : null;

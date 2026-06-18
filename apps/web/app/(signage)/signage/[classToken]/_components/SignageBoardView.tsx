@@ -302,6 +302,7 @@ function Pattern2Board({
               <Pattern2Train train={data.trainStatus} />
               <Pattern2SensorCount count={data.presenceCount} />
             </div>
+            <Pattern2News news={data.news} />
           </div>
         </main>
         <AdAside
@@ -359,6 +360,7 @@ function Pattern3Board({
               <Pattern2Train train={data.trainStatus} />
               <Pattern2SensorCount count={data.presenceCount} />
             </div>
+            <Pattern2News news={data.news} />
           </div>
         </main>
         <AdAside
@@ -702,6 +704,75 @@ function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
       )}
     </section>
   );
+}
+
+/**
+ * パターン2/3 の工学ニュース（ADR-043）。外部取得キャッシュ（news_items）の最新見出しを**見出し + 発表元
+ * + 公開日 + 出典 URL**で 1 行ずつ出す。**本文は転載しない**（著作権方針・news_items 自体が本文を持たない）。
+ * **出典明記（発表元ラベル）は必須**（CC BY の条件かつ礼儀）。端末は閉域で、バックエンド取得 Job が更新した
+ * キャッシュを読むだけ（RSS 直叩きしない）。記事無し・取得失敗（`null` / `items` 空）はともに「ニュースを
+ * 取得できていません」（fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。
+ */
+function Pattern2News({ news }: { news: SignagePayload["news"] }) {
+  const items = news?.items ?? [];
+  return (
+    <section aria-label="工学ニュース" className={`${styles.card} ${styles.p2News}`}>
+      <h2 className={styles.cardTitle}>
+        工学ニュース
+        {news?.isStale ? (
+          <span className={styles.p2NewsStale} role="status">
+            （情報が古い可能性）
+          </span>
+        ) : null}
+      </h2>
+      {items.length === 0 ? (
+        <p className={styles.p2Muted}>ニュースを取得できていません</p>
+      ) : (
+        <ul className={styles.p2NewsList}>
+          {items.map((item) => (
+            <li key={item.id} className={styles.p2NewsItem}>
+              <span className={styles.p2NewsTitle}>{item.title}</span>
+              <span className={styles.p2NewsMeta}>
+                {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
+                <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
+                {item.publishedAt ? (
+                  <>
+                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                      ／
+                    </span>
+                    <span>{formatNewsDate(item.publishedAt)}</span>
+                  </>
+                ) : null}
+              </span>
+              {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
+              <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** ニュース公開日を `M/D` に整形（TZ ドリフト回避に JST 表示）。不正値は空文字。 */
+function formatNewsDate(d: Date): string {
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toLocaleDateString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+/** 出典 URL をホスト名（出典ドメイン）に短縮表示する。パース不可は素の URL を返す（fail-soft）。 */
+function formatNewsUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 /**
