@@ -62,6 +62,9 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       VALUES (${fx.schoolA}, ${classA}, 'hash-expired', now() - interval '1 day')`;
     await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
       VALUES (${fx.schoolB}, ${classB}, 'hash-valid-B', now() + interval '30 days')`;
+    // ADR-042: expires_at = NULL の無期限クラスリンク — resolve は無期限として 1 行返すべき。
+    await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
+      VALUES (${fx.schoolA}, ${classA}, 'hash-permanent', NULL)`;
     // 旧・保護者単回リンク (class_id NULL) — F05 の扉からは解決させない
     await sql`INSERT INTO magic_links (school_id, class_id, token_hash, expires_at)
       VALUES (${fx.schoolA}, NULL, 'hash-no-class', now() + interval '30 days')`;
@@ -85,6 +88,25 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       await client.unsafe("SET ROLE kimiterrace_app");
       // app.current_school_id を一切設定しない (生徒は未確定)
       const r = await resolveMagicLink(db, "hash-valid-A");
+      expect(r).not.toBeNull();
+      expect(r?.schoolId).toBe(fx.schoolA);
+      expect(r?.classId).toBe(classA);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
+  it("resolve: 無期限リンク (expires_at = NULL, ADR-042) は 1 行解決できる", async () => {
+    // ADR-042: NULL = 無期限。resolve_magic_link (migration 0027) は
+    // `expires_at IS NULL OR expires_at > now()` で NULL を無期限として通す。
+    // 失効 (hash-revoked) / 期限切れ (hash-expired) が 0 行であることは既存テストで担保済。
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    try {
+      const db = drizzle(client);
+      await client.unsafe("SET ROLE kimiterrace_app");
+      const r = await resolveMagicLink(db, "hash-permanent");
       expect(r).not.toBeNull();
       expect(r?.schoolId).toBe(fx.schoolA);
       expect(r?.classId).toBe(classA);
@@ -270,7 +292,9 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       });
       expect(issued.classId).toBe(classA);
       expect(issued.revokedAt).toBeNull();
-      const days = (issued.expiresAt.getTime() - Date.now()) / 86_400_000;
+      // expiresAt は ADR-042 で Date | null。この発行は列デフォルト (90 日) で必ず non-null。
+      // biome-ignore lint/style/noNonNullAssertion: デフォルト期限発行のため実行時 non-null
+      const days = (issued.expiresAt!.getTime() - Date.now()) / 86_400_000;
       expect(days).toBeGreaterThan(89);
       expect(days).toBeLessThan(91);
 
@@ -561,7 +585,9 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       });
       if (!updated) throw new Error("extendMagicLink が undefined を返した (更新できるはず)");
       // 返却の新期限が ~200 日後 (旧 30 日から延長された)。
-      const days = (updated.expiresAt.getTime() - Date.now()) / 86_400_000;
+      // expiresAt は ADR-042 で Date | null。明示日付で延長したため non-null。
+      // biome-ignore lint/style/noNonNullAssertion: 明示期限で延長したため実行時 non-null
+      const days = (updated.expiresAt!.getTime() - Date.now()) / 86_400_000;
       expect(days).toBeGreaterThan(199);
       expect(days).toBeLessThan(201);
 
@@ -573,7 +599,8 @@ describeOrSkip("F05: magic_links class link + anonymous resolve (#12)", () => {
       expect(audit).toHaveLength(1);
       const diff = audit[0].diff as { expiresAt?: { before?: string; after?: string } };
       expect(typeof diff.expiresAt?.before).toBe("string");
-      expect(diff.expiresAt?.after).toBe(updated.expiresAt.toISOString());
+      // biome-ignore lint/style/noNonNullAssertion: 明示期限で延長したため実行時 non-null
+      expect(diff.expiresAt?.after).toBe(updated.expiresAt!.toISOString());
       expect(diff.expiresAt?.before).not.toBe(diff.expiresAt?.after);
       // before は旧 ~30 日後の値。
       // biome-ignore lint/style/noNonNullAssertion: 直前の typeof string アサートで保証

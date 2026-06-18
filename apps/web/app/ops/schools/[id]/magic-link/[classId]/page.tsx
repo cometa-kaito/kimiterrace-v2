@@ -53,7 +53,11 @@ export default async function SystemSchoolClassMagicLinkPage({
         className: cls.name,
         links: links.map((l) => ({
           id: l.id,
-          expiresAt: l.expiresAt.toISOString(),
+          // ADR-042 PR1: expiresAt は型上 Date | null になったが、無期限リンクの発行 (NULL 書込) は
+          // PR2 で導入する。PR1 時点で存在するのは全て期限つきリンクのため実行時 non-null。
+          // NULL 無期限の UI 表示 (MagicLinkManager の型/表示) は PR3 で対応する。
+          // biome-ignore lint/style/noNonNullAssertion: PR1 時点の発行リンクは全て期限つき
+          expiresAt: l.expiresAt!.toISOString(),
           createdAt: l.createdAt.toISOString(),
         })),
       };
