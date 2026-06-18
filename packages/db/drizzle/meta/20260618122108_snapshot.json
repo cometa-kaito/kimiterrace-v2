@@ -1,6 +1,6 @@
 {
-  "id": "eb4a5c3b-03e9-44ab-b7f0-a342a087b98d",
-  "prevId": "e43d6570-771d-4ced-bd47-ee235ba262a7",
+  "id": "ec50090e-a6ac-4b21-9faf-7ab5189d4412",
+  "prevId": "75c1a8d5-41a2-44aa-8bc8-f7d14c7f4d57",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3118,6 +3118,547 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.heat_alerts": {
+      "name": "heat_alerts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "area_code": {
+          "name": "area_code",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_name": {
+          "name": "area_name",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "heat_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'env_moe'"
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "forecast_date": {
+          "name": "forecast_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_level": {
+          "name": "alert_level",
+          "type": "heat_alert_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "wbgt_max": {
+          "name": "wbgt_max",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wbgt_band": {
+          "name": "wbgt_band",
+          "type": "wbgt_band",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw": {
+          "name": "raw",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ux_heat_alerts_area_source_date": {
+          "name": "ux_heat_alerts_area_source_date",
+          "columns": [
+            {
+              "expression": "area_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "forecast_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.signage_snippets": {
+      "name": "signage_snippets",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "category": {
+          "name": "category",
+          "type": "snippet_category",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reading": {
+          "name": "reading",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "meaning": {
+          "name": "meaning",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attribution": {
+          "name": "attribution",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "month_day": {
+          "name": "month_day",
+          "type": "varchar(5)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ux_signage_snippets_category_body": {
+          "name": "ux_signage_snippets_category_body",
+          "columns": [
+            {
+              "expression": "category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "body",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.school_calendar_sources": {
+      "name": "school_calendar_sources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "school_id": {
+          "name": "school_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ics_url": {
+          "name": "ics_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "last_fetched_at": {
+          "name": "last_fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ux_school_calendar_sources_school": {
+          "name": "ux_school_calendar_sources_school",
+          "columns": [
+            {
+              "expression": "school_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ix_school_calendar_sources_enabled": {
+          "name": "ix_school_calendar_sources_enabled",
+          "columns": [
+            {
+              "expression": "enabled",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "school_calendar_sources_school_id_schools_id_fk": {
+          "name": "school_calendar_sources_school_id_schools_id_fk",
+          "tableFrom": "school_calendar_sources",
+          "tableTo": "schools",
+          "columnsFrom": [
+            "school_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.school_calendar_events": {
+      "name": "school_calendar_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "school_id": {
+          "name": "school_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "uid": {
+          "name": "uid",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "end_date": {
+          "name": "end_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_at": {
+          "name": "start_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "end_at": {
+          "name": "end_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "all_day": {
+          "name": "all_day",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "location": {
+          "name": "location",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw": {
+          "name": "raw",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ix_school_calendar_events_school_start": {
+          "name": "ix_school_calendar_events_school_start",
+          "columns": [
+            {
+              "expression": "school_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "start_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "school_calendar_events_school_id_schools_id_fk": {
+          "name": "school_calendar_events_school_id_schools_id_fk",
+          "tableFrom": "school_calendar_events",
+          "tableTo": "schools",
+          "columnsFrom": [
+            "school_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "school_calendar_events_source_id_school_calendar_sources_id_fk": {
+          "name": "school_calendar_events_source_id_school_calendar_sources_id_fk",
+          "tableFrom": "school_calendar_events",
+          "tableTo": "school_calendar_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "ux_school_calendar_events_school_uid": {
+          "name": "ux_school_calendar_events_school_uid",
+          "nullsNotDistinct": false,
+          "columns": [
+            "school_id",
+            "uid"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -6317,172 +6858,13 @@
       "checkConstraints": {
         "ck_ads_scope": {
           "name": "ck_ads_scope",
-          "value": "(\n        (\"ads\".\"scope\" = 'school' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'grade' AND \"ads\".\"grade_id\" IS NOT NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'department' AND \"ads\".\"department_id\" IS NOT NULL AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'class' AND \"ads\".\"class_id\" IS NOT NULL)\n        OR (\"ads\".\"scope\" = 'monitor' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n      )"
+          "value": "(\n        (\"ads\".\"scope\" = 'school' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'grade' AND \"ads\".\"grade_id\" IS NOT NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'department' AND \"ads\".\"department_id\" IS NOT NULL AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'class' AND \"ads\".\"class_id\" IS NOT NULL)\n      )"
         },
         "ck_ads_duration_positive": {
           "name": "ck_ads_duration_positive",
           "value": "\"ads\".\"duration_sec\" > 0"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.ad_target_monitors": {
-      "name": "ad_target_monitors",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "ad_id": {
-          "name": "ad_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "monitor_id": {
-          "name": "monitor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "school_id": {
-          "name": "school_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "ix_ad_target_monitors_ad_id": {
-          "name": "ix_ad_target_monitors_ad_id",
-          "columns": [
-            {
-              "expression": "ad_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ix_ad_target_monitors_monitor_id": {
-          "name": "ix_ad_target_monitors_monitor_id",
-          "columns": [
-            {
-              "expression": "monitor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ix_ad_target_monitors_school_id": {
-          "name": "ix_ad_target_monitors_school_id",
-          "columns": [
-            {
-              "expression": "school_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ad_target_monitors_ad_id_ads_id_fk": {
-          "name": "ad_target_monitors_ad_id_ads_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "ads",
-          "columnsFrom": [
-            "ad_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ad_target_monitors_monitor_id_tv_devices_id_fk": {
-          "name": "ad_target_monitors_monitor_id_tv_devices_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "tv_devices",
-          "columnsFrom": [
-            "monitor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ad_target_monitors_school_id_schools_id_fk": {
-          "name": "ad_target_monitors_school_id_schools_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "schools",
-          "columnsFrom": [
-            "school_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uq_ad_target_monitors_ad_monitor": {
-          "name": "uq_ad_target_monitors_ad_monitor",
-          "nullsNotDistinct": false,
-          "columns": [
-            "ad_id",
-            "monitor_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
@@ -6581,6 +6963,22 @@
         "presence"
       ]
     },
+    "public.heat_alert_level": {
+      "name": "heat_alert_level",
+      "schema": "public",
+      "values": [
+        "none",
+        "warning",
+        "emergency"
+      ]
+    },
+    "public.heat_source": {
+      "name": "heat_source",
+      "schema": "public",
+      "values": [
+        "env_moe"
+      ]
+    },
     "public.hierarchy_scope": {
       "name": "hierarchy_scope",
       "schema": "public",
@@ -6588,8 +6986,7 @@
         "school",
         "grade",
         "class",
-        "department",
-        "monitor"
+        "department"
       ]
     },
     "public.news_source": {
@@ -6631,6 +7028,16 @@
       "schema": "public",
       "values": [
         "switchbot"
+      ]
+    },
+    "public.snippet_category": {
+      "name": "snippet_category",
+      "schema": "public",
+      "values": [
+        "quote",
+        "idiom",
+        "word",
+        "on_this_day"
       ]
     },
     "public.teacher_input_status": {
@@ -6721,6 +7128,17 @@
         "advisory",
         "warning",
         "emergency"
+      ]
+    },
+    "public.wbgt_band": {
+      "name": "wbgt_band",
+      "schema": "public",
+      "values": [
+        "almost_safe",
+        "caution",
+        "warning",
+        "severe",
+        "danger"
       ]
     },
     "public.weather_source": {

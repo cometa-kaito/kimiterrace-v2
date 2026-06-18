@@ -267,6 +267,43 @@ export async function getClassSignageUrl(
 }
 
 /**
+ * エディタ着地「実画面モニタの壁」が **自校の全クラス分**まとめて読む、各クラスの代表 **公開サイネージ URL**。
+ * `getClassSignageUrl` の単一クラス版を **N+1 を避けて 1 クエリにバッチ**したもので、壁の 2 つの判断を 1 ソースで
+ * 駆動する: (1) **学科に実機モニタが紐づくか**（返却 Map にそのクラスが含まれるか＝`signage_url` を持つ未削除 TV
+ * が当該クラスに在るか）／(2) **端末別デザインパターン**（URL の `?design=patternN` を `getDesignPatternFromUrl`
+ * で抽出。未指定は学校レベル既定→`pattern1` に倒す。design-pattern.ts 参照）。
+ *
+ * - **選定**: `getClassSignageUrl` と同規約で、`signage_url` 非 null・未削除のうち**最も新しく更新された 1 件**を
+ *   各クラスの代表とする（複数 TV があっても表示内容は同一なので決定的に 1 件）。`signage_url` が null の
+ *   デバイス / ソフトデリート済デバイスは対象外（モニタ未紐づけ扱い）。
+ * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は `tenant_isolation`
+ *   （teacher / school_admin = 自校）が決める。非 BYPASSRLS 接続（kimiterrace_app）で RLS context 下で呼ぶこと。
+ * - 返り値は `Map<classId, signageUrl>`。設置 TV が無いクラスは**キーに現れない**（呼び出し側は「モニタ無し」と
+ *   判定できる）。
+ */
+export async function getClassSignageUrls(db: Selectable): Promise<Map<string, string>> {
+  // updated_at 降順で全件読み、各 class の最初（=最新）の 1 件を代表に採る（getClassSignageUrl と同選定規約）。
+  const rows = await db
+    .select({ classId: tvDevices.classId, signageUrl: tvDevices.signageUrl })
+    .from(tvDevices)
+    .where(
+      and(
+        isNotNull(tvDevices.classId),
+        isNull(tvDevices.deletedAt),
+        isNotNull(tvDevices.signageUrl),
+      ),
+    )
+    .orderBy(desc(tvDevices.updatedAt));
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (r.classId && r.signageUrl && !out.has(r.classId)) {
+      out.set(r.classId, r.signageUrl);
+    }
+  }
+  return out;
+}
+
+/**
  * 遠隔起動（「起こす」）が読む 1 デバイスの **送信宛先トークン**（F16 拡張）。`id`（行 PK）で取得する。
  * 可視範囲は RLS が決める（school_admin = 自校 / system_admin = 全校）。他校 / ソフトデリート済 / 不可視は
  * `undefined`（→ 呼び出し側 Action が not_found に写像）。手書きの `WHERE school_id` は書かない（ルール2、

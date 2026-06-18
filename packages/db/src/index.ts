@@ -97,5 +97,11 @@ export * from "./queries/weather-forecasts.js";
 export * from "./queries/news-items.js";
 // ADR-044: サイネージ気象警報・注意報キャッシュの upsert (取得 Job 相乗り) / 読み取り (匿名サイネージ) 層
 export * from "./queries/weather-warnings.js";
+// ADR-044: サイネージ熱中症警戒アラート / WBGT キャッシュの upsert (取得 Job 相乗り) / 読み取り (匿名サイネージ) 層
+export * from "./queries/heat-alerts.js";
+// サイネージ静的コンテンツ (名言/四字熟語/英単語/今日は何の日) の日付決定論ローテ選択 (純関数) + 読み取り (匿名サイネージ) 層
+export * from "./queries/signage-snippets.js";
+// ADR-045: 学校行事カレンダー iCal の設定 upsert/列挙 (取得 Job, system context) + イベント upsert/掃除/読み取り (tenant_isolation 委譲)
+export * from "./queries/school-calendar.js";
 // F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
 export * from "./_shared/jma-area-map.js";

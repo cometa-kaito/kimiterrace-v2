@@ -55,6 +55,10 @@ vi.mock("../../lib/editor/other-classes-queries", () => ({
 }));
 // 実画面 payload ビルダー: クラスごとに呼ばれる。中身は ScaledSignageBoard mock に渡るだけ。
 vi.mock("../../lib/signage/signage-display", () => ({ buildSignagePayloadForClass: vi.fn() }));
+// クラス→代表サイネージ URL + 学校レベル既定パターン取得層（`@kimiterrace/db` / signage-design を transitively
+// import するため apps/web vitest では mock 必須）。壁は (1) 学科にモニタが紐づくか / (2) 端末別パターン の
+// 判定に使う。`resolveDesignPattern`（design-pattern.ts・DB 非依存の純関数）は本物を使う。
+vi.mock("../../lib/editor/monitor-queries", () => ({ getClassMonitorInfo: vi.fn() }));
 // 着地日付は JST 今日。テストでは固定値に。
 vi.mock("../../lib/signage/rotation", () => ({ jstDateString: vi.fn(() => "2026-06-15") }));
 // 盤面サムネは payload の受け渡しだけ確認する軽量スタブに差し替える（CSS module / 実描画を避ける）。
@@ -83,6 +87,7 @@ vi.mock("next/navigation", () => ({
 import EditorIndexPage from "../../app/app/editor/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
+import { getClassMonitorInfo } from "../../lib/editor/monitor-queries";
 import { getOtherClasses } from "../../lib/editor/other-classes-queries";
 import { getSchoolHierarchy, getTodayDailyDataScopes } from "../../lib/school-admin/hub-queries";
 import { buildSignagePayloadForClass } from "../../lib/signage/signage-display";
@@ -93,6 +98,7 @@ const withSessionMock = vi.mocked(withSession);
 const getSchoolHierarchyMock = vi.mocked(getSchoolHierarchy);
 const getTodayDailyDataScopesMock = vi.mocked(getTodayDailyDataScopes);
 const getOtherClassesMock = vi.mocked(getOtherClasses);
+const getClassMonitorInfoMock = vi.mocked(getClassMonitorInfo);
 const buildSignagePayloadMock = vi.mocked(buildSignagePayloadForClass);
 const redirectMock = vi.mocked(redirect);
 
@@ -103,6 +109,8 @@ const OTHER_SCHOOL_CLASS_ID = "22222222-2222-4222-8222-222222222222";
 // 「その他」(grade_id NULL の非教室設置場所)。学校直下 (department_id NULL) と学科配下 (department_id 有) の 2 種。
 const OTHER_AT_SCHOOL_ID = "44444444-4444-4444-8444-444444444444";
 const OTHER_IN_DEPT_ID = "55555555-5555-4555-8555-555555555555";
+// CLASS_ID に実機モニタが紐づく既定（学科を壁に出すため）。?design 無し= pattern1 既定に倒れる。
+const SIGNAGE_URL = "https://app.school-signage.net/signage/tokA";
 
 const hierarchy = {
   departments: [{ id: DEPT_ID, name: "電気科", displayOrder: 0 }],
@@ -128,6 +136,12 @@ beforeEach(() => {
     Promise.resolve(fn({}))) as typeof withSession);
   getSchoolHierarchyMock.mockResolvedValue(hierarchy as never);
   getTodayDailyDataScopesMock.mockResolvedValue(emptyScopes as never);
+  // 既定: CLASS_ID に実機モニタが紐づく（→ 学科「電気科」は壁に出る）。学校レベル既定パターンは pattern1。
+  // モニタ未紐づけ / 端末別パターンの検証は各テストで上書きする。
+  getClassMonitorInfoMock.mockResolvedValue({
+    signageUrlByClass: new Map([[CLASS_ID, SIGNAGE_URL]]),
+    schoolDefaultPattern: "pattern1",
+  } as never);
   // 既定では「その他」(非教室) は無し。各テストで必要に応じて上書きする。
   getOtherClassesMock.mockResolvedValue([] as never);
   // payload は classId をタグ付けして返す（ScaledSignageBoard mock がどのクラスのものか判別できるように）。
@@ -161,8 +175,15 @@ describe("EditorIndexPage モニタの壁・scope 対象リンク", () => {
 
   it("各クラスの実画面サムネ (ScaledSignageBoard) を実機と同一ビルダーの payload で描く", async () => {
     render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
-    // クラス数ぶん payload ビルダーが呼ばれ、各クラスの classId で呼ばれる（単一ソース・実機一致）。
-    expect(buildSignagePayloadMock).toHaveBeenCalledWith({}, "s1", CLASS_ID, "2026-06-15");
+    // クラス数ぶん payload ビルダーが呼ばれ、各クラスの classId + 端末別パターンで呼ばれる（単一ソース・実機一致）。
+    // 既定 URL は ?design 無し → 学校レベル既定 pattern1 に解決される。
+    expect(buildSignagePayloadMock).toHaveBeenCalledWith(
+      {},
+      "s1",
+      CLASS_ID,
+      "2026-06-15",
+      "pattern1",
+    );
     // 盤面サムネが当該クラスの payload を受け取って描画される。
     const boards = screen.getAllByTestId("scaled-board");
     expect(boards.some((b) => b.getAttribute("data-class") === CLASS_ID)).toBe(true);
@@ -174,6 +195,90 @@ describe("EditorIndexPage モニタの壁・scope 対象リンク", () => {
     expect(screen.getAllByRole("link", { name: /全クラスに一斉表示/ })[0]).toHaveAttribute(
       "href",
       "/app/editor/scope/school",
+    );
+  });
+});
+
+/**
+ * 学科にモニタが紐づかない時の非表示（ユーザー指示 2026-06-18）。実機 TV（signage_url を持つ未削除デバイス）が
+ * 配下に 1 台も無い学科は、見出し・「この学科にまとめて出す」・配下タイルを**セクションごと**壁から隠す。
+ * 「実画面モニタの壁」なので、表示するモニタが無い学科は出さない。
+ */
+describe("EditorIndexPage 学科のモニタ紐づけ非表示", () => {
+  it("配下に実機モニタが無い学科は見出し・まとめ出し・タイルを丸ごと隠す", async () => {
+    // 既定 hierarchy（電気科 > 1年 > 1年A組）だが、モニタは 1 台も紐づかない（空 Map）。
+    getClassMonitorInfoMock.mockResolvedValue({
+      signageUrlByClass: new Map(),
+      schoolDefaultPattern: "pattern1",
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+
+    // 学科見出し・まとめ出しチップ・配下クラスタイルのいずれも出ない。
+    expect(screen.queryByRole("heading", { name: "電気科" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /この学科にまとめて出す/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /1年A組 を編集/ })).not.toBeInTheDocument();
+    // 学校全体の一斉リンクは学科に依存しないので残る。
+    expect(screen.getAllByRole("link", { name: /全クラスに一斉表示/ })[0]).toBeInTheDocument();
+  });
+
+  it("配下に実機モニタが 1 台でもあれば学科を出す（既定どおり）", async () => {
+    // 既定 mock（CLASS_ID にモニタ紐づけ）でそのまま検証。
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    expect(screen.getByRole("heading", { name: "電気科" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /この学科にまとめて出す/ })).toHaveAttribute(
+      "href",
+      `/app/editor/scope/department/${DEPT_ID}`,
+    );
+  });
+
+  it("ドロワーでもモニタの無い学科は出さない（壁と一致）", async () => {
+    getClassMonitorInfoMock.mockResolvedValue({
+      signageUrlByClass: new Map(),
+      schoolDefaultPattern: "pattern1",
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    fireEvent.click(screen.getByRole("button", { name: /メニュー/ }));
+    const dialog = screen.getByRole("dialog", { name: /モニタ一覧/ });
+    expect(
+      within(dialog).queryByRole("link", { name: /この学科にまとめて出す/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * 端末別デザインパターン（リクエスト2: 全パターン対応）。各モニタサムネは、そのクラスの実機 TV が出すパターン
+ * （`signage_url` の `?design=patternN`）で描画する。未指定は学校レベル既定 → pattern1 にフォールバックする。
+ */
+describe("EditorIndexPage 端末別デザインパターンでサムネを描く", () => {
+  it("端末の ?design=pattern2 を payload ビルダーへ渡す（実機と同じ盤面で描く）", async () => {
+    getClassMonitorInfoMock.mockResolvedValue({
+      signageUrlByClass: new Map([
+        [CLASS_ID, "https://app.school-signage.net/signage/tokA?design=pattern2"],
+      ]),
+      schoolDefaultPattern: "pattern1",
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    expect(buildSignagePayloadMock).toHaveBeenCalledWith(
+      {},
+      "s1",
+      CLASS_ID,
+      "2026-06-15",
+      "pattern2",
+    );
+  });
+
+  it("?design 未指定の端末は学校レベル既定パターンに倒す", async () => {
+    getClassMonitorInfoMock.mockResolvedValue({
+      signageUrlByClass: new Map([[CLASS_ID, "https://app.school-signage.net/signage/tokA"]]),
+      schoolDefaultPattern: "pattern3",
+    } as never);
+    render(await EditorIndexPage({ searchParams: Promise.resolve({}) }));
+    expect(buildSignagePayloadMock).toHaveBeenCalledWith(
+      {},
+      "s1",
+      CLASS_ID,
+      "2026-06-15",
+      "pattern3",
     );
   });
 });
