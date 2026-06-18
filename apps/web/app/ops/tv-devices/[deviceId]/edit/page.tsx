@@ -6,6 +6,7 @@ import { getTvDeviceConfig, listRecentTvCommands } from "@kimiterrace/db";
 import { notFound } from "next/navigation";
 import { TvCommandControl } from "./_components/TvCommandControl";
 import { TvConfigEditForm } from "./_components/TvConfigEditForm";
+import { TvDeviceDeleteButton } from "./_components/TvDeviceDeleteButton";
 
 /**
  * F15 §4.2 (ADR-022): TV デバイス設定編集（`/ops/tv-devices/[deviceId]/edit`）。**Server Component**。
@@ -91,6 +92,11 @@ export default async function TvDeviceEditPage({
           issuedAt: c.issuedAt.toISOString(),
           acknowledgedAt: c.acknowledgedAt ? c.acknowledgedAt.toISOString() : null,
         }))}
+      />
+      <TvDeviceDeleteButton
+        deviceRowId={device.id}
+        label={device.label}
+        deviceId={device.deviceId}
       />
     </section>
   );

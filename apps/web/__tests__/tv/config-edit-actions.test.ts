@@ -18,18 +18,20 @@ vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 
 const updateTvDeviceConfigMock = vi.fn();
+const softDeleteTvDeviceMock = vi.fn();
 vi.mock("@kimiterrace/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kimiterrace/db")>();
   return {
     ...actual,
     updateTvDeviceConfig: (...a: unknown[]) => updateTvDeviceConfigMock(...a),
+    softDeleteTvDevice: (...a: unknown[]) => softDeleteTvDeviceMock(...a),
   };
 });
 
 import { auditLog } from "@kimiterrace/db";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
-import { updateTvDeviceConfigAction } from "../../lib/tv/config-edit-actions";
+import { deleteTvDeviceAction, updateTvDeviceConfigAction } from "../../lib/tv/config-edit-actions";
 
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
@@ -73,6 +75,12 @@ beforeEach(() => {
   lastSessionOptions = undefined;
   requireRoleMock.mockResolvedValue(admin);
   updateTvDeviceConfigMock.mockResolvedValue({ id: ROW_ID, version: 6, schoolId: SCHOOL_ID });
+  softDeleteTvDeviceMock.mockResolvedValue({
+    id: ROW_ID,
+    schoolId: SCHOOL_ID,
+    deviceId: "73f65bf0-feeb-4864-90a7-b030a9713d98",
+    label: "進路指導室前",
+  });
   withSessionMock.mockImplementation(((
     fn: (tx: unknown, user: unknown) => unknown,
     options: unknown,
@@ -206,5 +214,74 @@ describe("updateTvDeviceConfigAction", () => {
     expect(callArg.patch).not.toHaveProperty("version");
     expect(callArg.patch).not.toHaveProperty("deviceId");
     expect(callArg.patch).not.toHaveProperty("schoolId");
+  });
+});
+
+describe("deleteTvDeviceAction", () => {
+  it("不正な行 id は invalid を返し、認可も DB も走らせない", async () => {
+    const res = await deleteTvDeviceAction("nope");
+    expect(res).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(requireRoleMock).not.toHaveBeenCalled();
+    expect(withSessionMock).not.toHaveBeenCalled();
+    expect(softDeleteTvDeviceMock).not.toHaveBeenCalled();
+  });
+
+  it("TV_CONFIG_EDIT_ROLES (school_admin/system_admin) のみ認可する", async () => {
+    await deleteTvDeviceAction(ROW_ID);
+    expect(requireRoleMock).toHaveBeenCalledWith(["school_admin", "system_admin"]);
+  });
+
+  it("正常系: ソフトデリート + audit operation=delete（tv_devices）、id を返す", async () => {
+    const res = await deleteTvDeviceAction(ROW_ID);
+    expect(res).toEqual({ ok: true, data: { id: ROW_ID } });
+    expect(softDeleteTvDeviceMock).toHaveBeenCalledTimes(1);
+    expect(softDeleteTvDeviceMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: ROW_ID, actorUserId: USER_ID }),
+    );
+    expect(auditInsertTable).toBe(auditLog);
+    expect(auditValues).toMatchObject({
+      tableName: "tv_devices",
+      operation: "delete",
+      recordId: ROW_ID,
+      schoolId: SCHOOL_ID,
+      actorUserId: USER_ID,
+      actorIdentityUid: USER_ID,
+    });
+    // 監査 diff は撤去デバイスの before-snapshot（device_id / label）を含む。
+    expect((auditValues as { diff: { before: unknown } }).diff).toMatchObject({
+      before: { deviceId: "73f65bf0-feeb-4864-90a7-b030a9713d98", label: "進路指導室前" },
+      deleted: true,
+    });
+  });
+
+  it("0 行（他校 / 不可視 / 既に削除済み）は not_found に写像し、audit を書かない", async () => {
+    softDeleteTvDeviceMock.mockResolvedValue(undefined);
+    const res = await deleteTvDeviceAction(ROW_ID);
+    expect(res).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(auditValues).toBeUndefined();
+  });
+
+  it("school 未所属 system_admin も削除できる（cross-tenant）: FK 列 null + actor_identity_uid に uid", async () => {
+    requireRoleMock.mockResolvedValue({ uid: USER_ID, role: "system_admin", schoolId: null });
+    const res = await deleteTvDeviceAction(ROW_ID);
+    expect(res).toEqual({ ok: true, data: { id: ROW_ID } });
+    expect(softDeleteTvDeviceMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: ROW_ID, actorUserId: null }),
+    );
+    expect(auditValues).toMatchObject({
+      tableName: "tv_devices",
+      operation: "delete",
+      actorUserId: null,
+      actorIdentityUid: USER_ID,
+      schoolId: SCHOOL_ID,
+    });
+  });
+
+  it("allowedRoles で role 境界を tx 層でも強制する（tenantScoped は使わない＝system_admin は cross-tenant）", async () => {
+    await deleteTvDeviceAction(ROW_ID);
+    expect(lastSessionOptions).toMatchObject({ allowedRoles: ["school_admin", "system_admin"] });
+    expect(lastSessionOptions).not.toHaveProperty("tenantScoped");
   });
 });

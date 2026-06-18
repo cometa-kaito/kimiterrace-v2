@@ -363,6 +363,55 @@ export async function updateTvDeviceConfig(
 }
 
 /**
+ * ソフトデリート（退役、F15 §4.2）: 指定 TV デバイスの `deleted_at` を now() に設定し、以後 read 経路
+ * （`listTvDevices` / `getTvDeviceConfig` / `pollTvConfig` 等、いずれも `deleted_at IS NULL` で絞る）から
+ * 不可視にする。物理行は残す（過去の死活/設定履歴・子参照 FK = tv_device_commands / tv_device_downtime の
+ * 保全）。`device_id` はグローバル UNIQUE（`tv_device_commands` / `tv_device_downtime` の `device_id` FK の
+ * 参照先・FK は非部分 UNIQUE を要求）のままなので、ソフト削除後も device_id は解放されず **同一 device_id での
+ * 再登録は不可**（撤去端末は別 device_id で再プロビジョニングする運用で対応する）。
+ *
+ * - **冪等**: `WHERE deleted_at IS NULL` のため、既に削除済み / 不可視 / 他校 / 不在は 0 行 →
+ *   `undefined`（呼び出し側で not_found 写像）。二重削除で `deleted_at` を上書きしない。
+ * - **version は触らない**: 削除済みは `pollTvConfig` が解決せず unknown 応答を返すため、版差分での
+ *   設定反映（ADR-022）は不要（端末は「未登録扱い」になり設定配信も死活計上もされない）。
+ * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は RLS が決める
+ *   （school_admin = 自校 `tenant_isolation` / system_admin = 全校 `system_admin_full_access`）。他校 /
+ *   不可視への UPDATE は 0 行になる。非 BYPASSRLS 接続（kimiterrace_app）を RLS context 下で使うこと。
+ * - **監査（ルール1）**: `updated_at` を明示的に進める（[[updatedat-explicit-on-update]]）。削除の
+ *   `audit_log` 追記（operation=delete）は呼び出し側 Action が同一 tx で行う。
+ *
+ * @returns 削除した行の `{ id, schoolId, deviceId, label }`（schoolId は監査の対象 school 記録用、
+ *          deviceId / label は監査 diff の before-snapshot 用）。0 行なら `undefined`。
+ */
+export type SoftDeleteTvDeviceParams = {
+  id: string;
+  /** 監査 actor（`updated_by` = users.id FK）。system_admin は `users` 行でないため **null**。 */
+  actorUserId: string | null;
+};
+
+type TvDeviceDeletedRef = Pick<TvDeviceRow, "id" | "schoolId" | "deviceId" | "label">;
+
+export async function softDeleteTvDevice(
+  db: Updatable,
+  params: SoftDeleteTvDeviceParams,
+): Promise<TvDeviceDeletedRef | undefined> {
+  const { id, actorUserId } = params;
+  // deleted_at と updated_at に同一時刻を打つ（監査の整合）。updated_by に actor を明示。
+  const now = new Date();
+  const rows = await db
+    .update(tvDevices)
+    .set({ deletedAt: now, updatedAt: now, updatedBy: actorUserId })
+    .where(and(eq(tvDevices.id, id), isNull(tvDevices.deletedAt)))
+    .returning({
+      id: tvDevices.id,
+      schoolId: tvDevices.schoolId,
+      deviceId: tvDevices.deviceId,
+      label: tvDevices.label,
+    });
+  return rows[0];
+}
+
+/**
  * 新規登録（オンボーディング、F15 §4.3）が INSERT する 1 デバイス分の正規化済み入力。
  *
  * `deviceId` / `schoolId` は **必須**（システム管理列だが登録時のみオペレーターが決める）。`deviceId` は
