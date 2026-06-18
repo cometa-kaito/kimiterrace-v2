@@ -530,7 +530,9 @@
   bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
-  display: flex;
+  /* 既定（サイネージ実機/デスクトップ）では非表示。モバイル(≤899px)でのみ表示する
+     （.mobileFooter と同じ手法）。広告ドットはタッチ操作のないサイネージ盤面では不要。 */
+  display: none;
   gap: 6px;
   z-index: 21;
 }
@@ -998,6 +1000,10 @@
     width: 100%;
     max-height: 100%;
     flex: 1;
+  }
+  /* 広告スライド位置ドットはモバイル（タッチ画面）でのみ表示する。 */
+  .adDots {
+    display: flex;
   }
   /* 予定 / 連絡 / 提出物 を縦に積む */
   .contentGrid {
