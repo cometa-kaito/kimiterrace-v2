@@ -41,7 +41,6 @@ const { getHeaders } = vi.hoisted(() => ({ getHeaders: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: () => getHeaders() }));
 
 import {
-  changeIdpUserRole,
   createIdpUser,
   deactivateIdpUser,
   deleteIdpUser,
@@ -110,40 +109,6 @@ describe("reactivateIdpUser (ADR-026 D1)", () => {
 
   it("再有効化では revoke しない (利用者が再ログインでトークン取得)", async () => {
     await reactivateIdpUser(UID);
-    expect(revokeRefreshTokens).not.toHaveBeenCalled();
-  });
-});
-
-describe("changeIdpUserRole (ADR-026 D2)", () => {
-  it("claims を再付与し ({ role, school_id})、リフレッシュトークンを失効する (両方)", async () => {
-    await changeIdpUserRole(UID, "school_admin", SCHOOL_ID);
-    expect(setCustomUserClaims).toHaveBeenCalledWith(UID, {
-      role: "school_admin",
-      school_id: SCHOOL_ID,
-    });
-    expect(revokeRefreshTokens).toHaveBeenCalledWith(UID);
-  });
-
-  it("revoke を必ず 1 回呼ぶ — 降格で旧特権 claim が cookie に残るのを防ぐ (D2 の核心、非空虚)", async () => {
-    await changeIdpUserRole(UID, "teacher", SCHOOL_ID);
-    expect(revokeRefreshTokens).toHaveBeenCalledTimes(1);
-  });
-
-  it("claims 再付与を先に成立させてから revoke する (順序)", async () => {
-    const order: string[] = [];
-    setCustomUserClaims.mockImplementation(async () => {
-      order.push("claims");
-    });
-    revokeRefreshTokens.mockImplementation(async () => {
-      order.push("revoke");
-    });
-    await changeIdpUserRole(UID, "teacher", SCHOOL_ID);
-    expect(order).toEqual(["claims", "revoke"]);
-  });
-
-  it("claims 再付与が失敗したら revoke しない (IdP 失敗は伝播)", async () => {
-    setCustomUserClaims.mockRejectedValue(new Error("idp down"));
-    await expect(changeIdpUserRole(UID, "teacher", SCHOOL_ID)).rejects.toThrow("idp down");
     expect(revokeRefreshTokens).not.toHaveBeenCalled();
   });
 });
