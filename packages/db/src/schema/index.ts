@@ -29,6 +29,8 @@ export * from "./tv-device-commands.js";
 export * from "./tv-provisioning-jobs.js";
 // F14 (#128, ADR-021): サイネージ天気予報の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
 export * from "./weather-forecasts.js";
+// pattern2/3 サイネージ「工学ニュース」: 外部 RSS の見出しキャッシュ（公開・非PII・ADR-043・read_all RLS）
+export * from "./news-items.js";
 export * from "./ai-extractions.js";
 export * from "./ai-chat-sessions.js";
 export * from "./ai-chat-messages.js";
