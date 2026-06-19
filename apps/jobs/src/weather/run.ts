@@ -21,7 +21,7 @@ import {
 } from "@kimiterrace/db";
 import { type ParsedCalendarEvent, parseIcs } from "../calendar/ical.js";
 import { type DnsResolver, fetchPublicIcs } from "../calendar/safe-fetch.js";
-import { type ParsedAirQuality, parseSoramameAir } from "./env-air.js";
+import { type ParsedAirQuality, parseSoramameNoudoAllCsv } from "./env-air.js";
 import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
@@ -134,7 +134,7 @@ export interface WeatherFetchDeps {
   fetchHeat?(areaCode: string): Promise<FetchedHeat>;
   /** ADR-044: パース済み熱中症アラート 1 地域ぶんを heat_alerts に upsert する（実体は system_admin context）。 */
   saveHeat?(areaCode: string, heat: FetchedHeat): Promise<void>;
-  /** ADR-046: 1 地域の大気質（PM2.5 等）を取得・パースする（実体は HTTP fetch + `parseSoramameAir`）。失敗は throw。 */
+  /** ADR-046: 1 地域の大気質（PM2.5 等）を取得・パースする（実体は HTTP fetch + `parseSoramameNoudoAllCsv`）。失敗は throw。 */
   fetchAir?(areaCode: string): Promise<FetchedAir>;
   /** ADR-046: パース済み大気質 1 地域ぶんを air_quality_index に upsert する（実体は system_admin context）。 */
   saveAir?(areaCode: string, air: FetchedAir): Promise<void>;
@@ -557,34 +557,64 @@ export async function fetchHeatFromEnv(
 }
 
 /**
- * ADR-046: 環境省「そらまめくん」大気質エンドポイント URL を組む（純関数、テスト容易）。
- *
- * ★ ソースの脆さ（ADR-046 §残存リスク①）: そらまめくんは **正規の公開 API 契約が確認できない JS SPA**。
- * 確証点として `https://soramame.env.go.jp/` 配下の地域別データ参照（測定局コードベース）が keyless である
- * ことは確認したが、府県コードを直接キーにできる安定 JSON エンドポイントは確認できなかった。本関数は府県予報区
- * コードを用いた地域別プレビュー JSON への **想定 URL** を組む（固定ホスト = soramame.env.go.jp）。形式が想定外でも
- * 取得・パースは fail-soft なので、合わなければその地域は skip（last-known-good 維持）→ follow-up で実 URL を確定する。
- *
- * ★ SSRF（ADR-045 §SSRF）非対象: ホストは **固定**（soramame.env.go.jp）で半信頼入力に由来しないため、
- * カレンダー（school_admin 登録の可変 URL）のような SSRF ガード（`fetchPublicIcs`）は不要。JMA / 環境省 alert CSV と
- * 同じ固定 URL 扱い。
+ * ADR-046: 環境省「そらまめくん」全国 1 時間値 CSV の鮮度メタ JSON の URL（純関数 / 定数、テスト容易）。
+ * `{"latest":"YYYY/MM/DD HH:00:00","oldest":"...","interval":"3600"}` を返す実エンドポイント（2026-06-19 確認）。
+ * 最新公開時刻（latest）を取得して時刻欠落を避けるために使う（未公開時刻を当てに行くと SPA の HTML fallback を
+ * 掴むため、必ず latest を先に読む）。
  */
-export function soramameAirUrl(areaCode: string): string {
-  // 府県予報区コードの上 2 桁が都道府県コードに対応する（例 '210000' → 岐阜 '21'）。そらまめくんの地域別参照は
-  // 都道府県単位に近いため、想定 URL は都道府県コードでスコープする（不確実なため形式変化は parser が吸収）。
-  const prefCode = encodeURIComponent(areaCode.slice(0, 2));
-  return `https://soramame.env.go.jp/data/sokutei/code/${prefCode}.json`;
+export function soramameAirMetadataUrl(): string {
+  return "https://soramame.env.go.jp/data/sokutei/noudoAll/metadata.json";
 }
 
 /**
- * ADR-046: 1 地域の大気質（PM2.5 等）をそらまめくんから HTTP 取得しパースする（実 I/O）。`fetchHeatFromEnv` に倣う
+ * ADR-046: そらまめくん全国 1 時間値 CSV（**全測定局 1 ファイル**）の URL を組む（純関数、テスト容易）。
+ * 形式（SPA バンドル `calDataOptions.rule = "{YYYY}/{MM}/{DD}/{HH}.csv"` と一致、2026-06-19 実取得で確証）:
+ * `https://soramame.env.go.jp/data/sokutei/noudoAll/{YYYY}/{MM}/{DD}/{HH}.csv`。
+ *
+ * ★ SSRF（ADR-045 §SSRF）非対象: ホストは **固定**（soramame.env.go.jp）で半信頼入力に由来しないため、
+ * カレンダー（school_admin 登録の可変 URL）のような SSRF ガードは不要。JMA / 環境省 alert CSV と同じ固定 URL 扱い。
+ */
+export function soramameNoudoAllUrl(yyyy: string, mm: string, dd: string, hh: string): string {
+  return `https://soramame.env.go.jp/data/sokutei/noudoAll/${encodeURIComponent(yyyy)}/${encodeURIComponent(mm)}/${encodeURIComponent(dd)}/${encodeURIComponent(hh)}.csv`;
+}
+
+/**
+ * ADR-046: そらまめくん metadata の `latest`（"YYYY/MM/DD HH:00:00"）を CSV URL の日付次元に分解する純関数。
+ * 形式が想定外（マッチしない）なら null（呼び出し側が取得を諦めて throw → 地域単位 fail-soft）。
+ */
+export function parseSoramameLatest(
+  latest: unknown,
+): { yyyy: string; mm: string; dd: string; hh: string } | null {
+  if (typeof latest !== "string") return null;
+  // "2026/06/19 09:00:00" 形式。区切りは / と空白と :（防御的に厳密マッチ）。
+  const m = latest.match(/^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):/);
+  if (!m) return null;
+  const [, yyyy, mm, dd, hh] = m;
+  if (!yyyy || !mm || !dd || !hh) return null;
+  return { yyyy, mm, dd, hh };
+}
+
+/**
+ * ADR-046: 全国 1 時間値 CSV から指定地域（府県）の PM2.5 を取得・パースする（実 I/O）。`fetchHeatFromEnv` に倣う
  * （timeout / 明示 User-Agent / 固定ホスト）。
  *
- * ★ 最も脆いソース: そらまめくんは正規 API 契約が不確実な JS SPA（実質スクレイプ相当）。本関数は想定 JSON を
- * 取得し、レスポンスから「該当地域の代表測定値らしきオブジェクト」を素朴に取り出して `parseSoramameAir` に渡す。
- * フィールド名・構造は parser 側で完全防御的に当てる（取れなければ全 null・throw しない）。非 2xx・タイムアウト・
- * JSON パース不能は throw（`runWeatherFetch` が地域単位で捕捉し、天気・警報・熱中症を巻き込まずその地域の大気質
- * だけ skip する）。`forecastDate` は **当日（JST 暦日）**（熱中症と同じ日付次元の組み立てを再利用）。
+ * ★ 実 keyless エンドポイント確定（本 fix の核）: 旧実装の想定 URL（`/data/sokutei/code/{prefCode}.json`）は
+ * **実在せず SPA の index.html（HTTP 200 / text/html）を返す**ため `res.json()` が throw し、本番で `airFailed=1` に
+ * 倒れていた。本関数は SPA 自身が使う実 URL に切替える:
+ *   1. `metadata.json` を取得し `latest` から **最新公開時刻**を得る（未公開の時刻 CSV は HTML fallback を返すため
+ *      時刻を当てに行かず必ず latest を読む）。
+ *   2. その時刻の全国 CSV（`noudoAll/{YYYY}/{MM}/{DD}/{HH}.csv`、全測定局 1 ファイル）を取得する。
+ *   3. CSV 全文を `parseSoramameNoudoAllCsv(areaCode, csvText)` に渡し、府県（area_code 上 2 桁 = 都道府県コード）の
+ *      測定局の PM2.5 を中央値に畳む。
+ *
+ * 全測定局が 1 ファイルなので、府県数（dedup 後 1〜数件）が増えても CSV は **1 サイクル 1 回取得して使い回す**のが
+ * 本来は最適だが、PoC 規模（低頻度起動・15 分鮮度）では地域ごとに再取得しても許容（熱中症 CSV と同じ判断）。地域数が
+ * 増えたら 1 サイクル 1 取得への最適化を検討する（follow-up、ADR-046）。
+ *
+ * 非 2xx・タイムアウト・JSON/CSV パース不能・latest 解析不能は throw（`runWeatherFetch` が地域単位で捕捉し、
+ * 天気・警報・熱中症を巻き込まずその地域の大気質だけ skip する）。該当府県の PM2.5 が CSV に無い場合は parser が
+ * 全 null を返す（throw しない・fail-soft / last-known-good 維持）。`forecastDate` は **当日（JST 暦日）**。
+ * metadata / CSV は別々の `AbortController` で timeout を独立計測する（既定 10s）。
  */
 export async function fetchAirFromEnv(
   areaCode: string,
@@ -594,24 +624,50 @@ export async function fetchAirFromEnv(
   // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
   const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
   const { isoDate } = jstHeatDateParts();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // 1) 鮮度メタを取得して最新公開時刻を得る（未公開時刻 CSV の HTML fallback を掴まないため）。
+  const metaController = new AbortController();
+  const metaTimer = setTimeout(() => metaController.abort(), timeoutMs);
+  let parts: { yyyy: string; mm: string; dd: string; hh: string } | null;
   try {
-    const res = await fetchImpl(soramameAirUrl(areaCode), {
+    const metaRes = await fetchImpl(soramameAirMetadataUrl(), {
       method: "GET",
       headers: { "User-Agent": config.userAgent, Accept: "application/json" },
-      signal: controller.signal,
+      signal: metaController.signal,
+    });
+    if (!metaRes.ok) {
+      throw new Error(`soramame metadata 取得失敗: areaCode=${areaCode} status=${metaRes.status}`);
+    }
+    const meta: unknown = await metaRes.json();
+    const latest =
+      meta != null && typeof meta === "object"
+        ? (meta as Record<string, unknown>).latest
+        : undefined;
+    parts = parseSoramameLatest(latest);
+  } finally {
+    clearTimeout(metaTimer);
+  }
+  if (parts == null) {
+    throw new Error(`soramame metadata latest 解析不能: areaCode=${areaCode}`);
+  }
+
+  // 2) 最新公開時刻の全国 CSV を取得する（全測定局 1 ファイル）。
+  const csvController = new AbortController();
+  const csvTimer = setTimeout(() => csvController.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(soramameNoudoAllUrl(parts.yyyy, parts.mm, parts.dd, parts.hh), {
+      method: "GET",
+      headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
+      signal: csvController.signal,
     });
     if (!res.ok) {
-      throw new Error(`soramame air 取得失敗: areaCode=${areaCode} status=${res.status}`);
+      throw new Error(`soramame air CSV 取得失敗: areaCode=${areaCode} status=${res.status}`);
     }
-    const raw: unknown = await res.json();
-    // レスポンスから「該当地域の代表測定値らしきオブジェクト」を素朴に取り出す（配列なら先頭、object ならそのまま）。
-    // 構造不確実のため parser 側で完全防御的に当てる（ここでの抽出ミスも parser が全 null に倒す）。
-    const record: unknown = Array.isArray(raw) ? raw[0] : raw;
-    return { parsed: parseSoramameAir(areaCode, record), forecastDate: isoDate };
+    const csvText: string = await res.text();
+    // 3) CSV 全文を府県フィルタ + 中央値集計で正規化（HTML fallback を掴んでも該当行なしで全 null に倒れる）。
+    return { parsed: parseSoramameNoudoAllCsv(areaCode, csvText), forecastDate: isoDate };
   } finally {
-    clearTimeout(timer);
+    clearTimeout(csvTimer);
   }
 }
 

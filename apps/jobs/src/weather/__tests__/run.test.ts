@@ -24,8 +24,10 @@ import {
   jmaForecastUrl,
   jmaWarningUrl,
   jstHeatDateParts,
+  parseSoramameLatest,
   runWeatherFetch,
-  soramameAirUrl,
+  soramameAirMetadataUrl,
+  soramameNoudoAllUrl,
   stableEventUid,
 } from "../run.js";
 
@@ -567,13 +569,13 @@ describe("fetchHeatFromEnv", () => {
 function fakeAir(areaCode: string, forecastDate = "2026-07-15"): FetchedAir {
   const parsed: ParsedAirQuality = {
     areaCode,
-    areaName: "テスト県",
+    areaName: null,
     pm25: 18,
     pm25Band: "moderate",
     oxidant: null,
     uvIndex: null,
     uvBand: null,
-    raw: { areaCode, areaName: "テスト県", pm25: 18, oxidant: null, source: { pm25: 18 } },
+    raw: { areaCode, areaName: null, pm25: 18, oxidant: null, stationCount: 1, pm25Samples: [18] },
   };
   return { parsed, forecastDate };
 }
@@ -654,10 +656,33 @@ describe("runWeatherFetch（ADR-046 大気質相乗り）", () => {
   });
 });
 
-describe("soramameAirUrl", () => {
-  it("府県予報区コードの上 2 桁（都道府県コード）でスコープした想定 URL を組む（固定ホスト）", () => {
-    expect(soramameAirUrl("210000")).toBe("https://soramame.env.go.jp/data/sokutei/code/21.json");
-    expect(soramameAirUrl("130000")).toBe("https://soramame.env.go.jp/data/sokutei/code/13.json");
+describe("soramameAirMetadataUrl / soramameNoudoAllUrl", () => {
+  it("鮮度メタ URL は固定（noudoAll/metadata.json）", () => {
+    expect(soramameAirMetadataUrl()).toBe(
+      "https://soramame.env.go.jp/data/sokutei/noudoAll/metadata.json",
+    );
+  });
+  it("全国 1 時間値 CSV URL を {YYYY}/{MM}/{DD}/{HH}.csv 形式で組む（SPA rule と一致）", () => {
+    expect(soramameNoudoAllUrl("2026", "06", "19", "09")).toBe(
+      "https://soramame.env.go.jp/data/sokutei/noudoAll/2026/06/19/09.csv",
+    );
+  });
+});
+
+describe("parseSoramameLatest", () => {
+  it("'YYYY/MM/DD HH:00:00' を日付次元に分解する", () => {
+    expect(parseSoramameLatest("2026/06/19 09:00:00")).toEqual({
+      yyyy: "2026",
+      mm: "06",
+      dd: "19",
+      hh: "09",
+    });
+  });
+  it("形式不一致 / 非文字列は null（呼び出し側が取得を諦めて fail-soft）", () => {
+    expect(parseSoramameLatest("not a date")).toBeNull();
+    expect(parseSoramameLatest(undefined)).toBeNull();
+    expect(parseSoramameLatest(123)).toBeNull();
+    expect(parseSoramameLatest("2026-06-19T09:00")).toBeNull();
   });
 });
 
@@ -668,36 +693,64 @@ describe("fetchAirFromEnv", () => {
     fetchImpl,
   });
 
-  it("2xx の JSON を取得し代表値をパースする。明示 User-Agent を付ける。forecastDate は当日(JST)", async () => {
-    const body = [{ pm25: 24, ox: 31, prefName: "岐阜県" }];
+  // そらまめくん全国 CSV のヘッダ（実レスポンス）+ 岐阜（21）の代表 2 局（PM2.5 10/9）。
+  const CSV_HEADER =
+    "測定局コード,SO2,NO,NO2,NOX,CO,OX,NMHC,CH4,THC,SPM,PM2.5,SP,WD,WS,TEMP,HUM,測定局名称,住所,問い合わせ先,局種別,地域コード,都道府県コード,市区町村名";
+  const CSV_BODY = [
+    CSV_HEADER,
+    "21201010,0,0,0,0,  ,0,  ,  ,  ,0.010,10,  ,  ,  ,  ,  ,岐阜中央,住所,岐阜市,一般局,4,21,岐阜市",
+    "21201020,0,0,0,0,  ,0,  ,  ,  ,0.013,9,  ,  ,  ,  ,  ,岐阜南部,住所,岐阜市,一般局,4,21,岐阜市",
+  ].join("\n");
+
+  it("metadata → 全国 CSV を取得し府県中央値をパースする。明示 User-Agent。forecastDate は当日(JST)", async () => {
+    const seen: string[] = [];
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      expect(String(url)).toContain("soramame.env.go.jp");
+      const u = String(url);
+      seen.push(u);
+      expect(u).toContain("soramame.env.go.jp");
       expect((init?.headers as Record<string, string>)["User-Agent"]).toBe("test-ua/1.0");
-      return new Response(JSON.stringify(body), { status: 200 });
+      if (u.endsWith("metadata.json")) {
+        return new Response(JSON.stringify({ latest: "2026/06/19 09:00:00", interval: "3600" }), {
+          status: 200,
+        });
+      }
+      return new Response(CSV_BODY, { status: 200 });
     }) as unknown as typeof fetch;
     const air: FetchedAir = await fetchAirFromEnv("210000", config(fetchImpl));
     expect(air.parsed.areaCode).toBe("210000");
-    expect(air.parsed.pm25).toBe(24);
-    expect(air.parsed.pm25Band).toBe("moderate"); // 12..<35
+    // PM2.5 10 / 9 → 中央値（下側中央）= 9。
+    expect(air.parsed.pm25).toBe(9);
+    expect(air.parsed.pm25Band).toBe("good"); // < 12
     // UV は本 PR 未取得（常に null）。
     expect(air.parsed.uvIndex).toBeNull();
     expect(air.forecastDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // metadata → CSV の順で 2 本叩き、CSV URL は latest 時刻で組む。
+    expect(seen[0]).toBe("https://soramame.env.go.jp/data/sokutei/noudoAll/metadata.json");
+    expect(seen[1]).toBe("https://soramame.env.go.jp/data/sokutei/noudoAll/2026/06/19/09.csv");
   });
 
-  it("object（非配列）レスポンスもそのまま代表値として防御的にパースする", async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response(JSON.stringify({ PM25: "8" }), { status: 200 }),
-    ) as unknown as typeof fetch;
-    const air = await fetchAirFromEnv("210000", config(fetchImpl));
-    expect(air.parsed.pm25).toBe(8);
-    expect(air.parsed.pm25Band).toBe("good"); // < 12
-  });
-
-  it("非 2xx は throw する（runWeatherFetch が地域単位で捕捉して他指標を巻き込まず skip）", async () => {
+  it("metadata が非 2xx は throw（runWeatherFetch が地域単位で捕捉して他指標を巻き込まず skip）", async () => {
     const fetchImpl = vi.fn(
       async () => new Response("not found", { status: 404 }),
     ) as unknown as typeof fetch;
     await expect(fetchAirFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
+  });
+
+  it("metadata の latest が想定外形式は throw（latest 解析不能）", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ latest: "garbage" }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    await expect(fetchAirFromEnv("210000", config(fetchImpl))).rejects.toThrow(/latest 解析不能/);
+  });
+
+  it("CSV が非 2xx は throw（その地域の大気質だけ skip）", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("metadata.json")) {
+        return new Response(JSON.stringify({ latest: "2026/06/19 09:00:00" }), { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    await expect(fetchAirFromEnv("210000", config(fetchImpl))).rejects.toThrow(/CSV 取得失敗.*404/);
   });
 });
 
