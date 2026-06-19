@@ -48,19 +48,36 @@ JMA bosai JSON（天気・警報）や 環境省 熱中症 alert CSV は URL/形
 
 - ✅ **確証**: そらまめくんは **keyless・公開**であり、API マニュアルページ（`https://soramame.env.go.jp/apiManual`）と地域別データ参照（測定局コードベース、例 `/preview/chart/01108010/7day/PM25/-`）が存在する。
 - ✅ **確証**: そらまめくんの公開ページは **JS SPA で、サーバサイド fetch では中身（API 契約・JSON フィールド名）を確認できなかった**（WebFetch は title のみ取得）。よって **エンドポイント形式・JSON フィールド名は不確実**。
-- ⚠️ **想定**: 取得 URL（`soramameAirUrl`）・PM2.5 のフィールド名は **想定値**。形式が想定外でもパーサが全 null に倒し、その地域は skip（last-known-good 維持）。実エンドポイント確定は **follow-up**（その際は `soramameAirUrl` と候補キーを実形式に合わせるだけで済む構造にした）。
+- ⚠️ **想定（初版・2026-06-18 PR #1060）**: 取得 URL（`soramameAirUrl`）・PM2.5 のフィールド名は **想定値**。形式が想定外でもパーサが全 null に倒し、その地域は skip（last-known-good 維持）。実エンドポイント確定は **follow-up**。
+- ✅ **確証（fix・2026-06-19）**: 実 keyless エンドポイントを確定した（後述「実エンドポイント確定」節）。想定 URL（`/data/sokutei/code/{prefCode}.json`）は **実在せず SPA の index.html（HTTP 200 / `text/html`）を返す**ため `res.json()` が throw し、本番 weather Job が `airFailed=1` に倒れていた。SPA バンドル解析で **実データ URL** を確認し、`soramameAirUrl`（想定 URL）を撤去して metadata→全国 CSV 経路に切替えた。
 - ✅ **確証**: 気象庁 UV は **GRIB2 バイナリ配信**が中心で、keyless で府県単位 JSON/CSV を取れる経路が無い → **UV は本 PR 未取得・列予約 + follow-up**。
+
+## 実エンドポイント確定（2026-06-19 fix）
+
+初版の想定 URL（`/data/sokutei/code/{prefCode}.json`）は実在せず SPA の HTML を返していた（本番 `airFailed=1`）。SPA バンドル（`/js/app.*.js`）の `calDataOptions` を解析し、SPA 自身が叩く **実データ URL** を実取得（HTTP 200 + パース可能）で確証した:
+
+1. **鮮度メタ**: `GET https://soramame.env.go.jp/data/sokutei/noudoAll/metadata.json`
+   → `{"latest":"2026/06/19 09:00:00","oldest":"2021/01/25 00:00:00","interval":"3600"}`（`Content-Type: application/json`）。
+2. **全国 1 時間値 CSV（全測定局 1 ファイル）**: `GET …/noudoAll/{YYYY}/{MM}/{DD}/{HH}.csv`（SPA の `rule:"{YYYY}/{MM}/{DD}/{HH}.csv"` と一致、`Content-Type: text/csv`、約 1626 行 / 約 260KB）。
+   ヘッダ: `測定局コード,SO2,NO,NO2,NOX,CO,OX,NMHC,CH4,THC,SPM,PM2.5,SP,WD,WS,TEMP,HUM,測定局名称,住所,問い合わせ先,局種別,地域コード,都道府県コード,市区町村名`。
+   1 行 = 1 測定局・当該 1 時間の実測値。`PM2.5` 列（idx 11, µg/m³）・`都道府県コード`列（idx 22, JIS 2 桁）を使う。**全 47 都道府県に PM2.5 値が存在**することを実取得で確認（例: 岐阜 '21' で PM2.5 を持つ局 18 / 24）。
+
+決定:
+- **未公開時刻の CSV は 404 ではなく HTTP 200 + HTML を返す**（SPA fallback）。よって時刻を当てに行かず、**必ず `metadata.json` の `latest` を読んでから**その時刻の CSV URL を組む（多層防御として、HTML を掴んでもパーサが該当府県行を見つけられず全 null に倒れる）。
+- 取得 Job は CSV を府県（area_code 上 2 桁）でフィルタし **PM2.5 中央値**を `air_quality_index` に upsert する（残存リスク② 決着）。
+- OX（光化学オキシダント）は ppm 配信（ppb 換算・代表値選定が別途必要）のため本 fix も取得しない（列予約のまま）。UV も引き続き未取得（GRIB2、列予約）。
+- schema / RLS / Terraform は不変（取得層のパース・URL のみ変更）。
 
 ## 残存リスク
 
-- ① **そらまめくんは非公式・無保証（最も脆い）**: API 契約が確認できない。→ 完全防御的パーサ + raw 保全 + fail-soft（壊れても last-known-good・他指標・盤面は維持）。実エンドポイントが想定と違えば PM2.5 は当面 null のまま（盤面は大気質ウィジェットを出さない）→ follow-up で実 URL/形式を確定。
-- ② **PM2.5 は測定局単位 ⇄ 本キャッシュは府県単位**: 府県内の代表局をどう選ぶか（最大値 / 県庁所在地局 / 平均）は未確定。現状は取得層が渡した代表値を素朴に使う。代表局選定ポリシーは follow-up。
+- ① **そらまめくんは非公式・無保証（最も脆い）**: 実 URL は確定（後述）したが、列順・公開時刻・配信形式は依然予告なく変わりうる。→ 完全防御的パーサ（定数列インデックス + 欠測/列ずれ/HTML fallback 耐性）+ raw 保全 + fail-soft（壊れても last-known-good・他指標・盤面は維持）。実形式が変われば PM2.5 は当面 null（盤面は大気質ウィジェットを出さない）。
+- ② **PM2.5 は測定局単位 ⇄ 本キャッシュは府県単位（決着済）**: 全国 CSV を府県（area_code 上 2 桁＝都道府県コード）でフィルタし、府県内観測局の **PM2.5 中央値**を代表値に採る（中央値は自排局の高め値・欠測の歪みに平均より頑健）。集計に用いた局数・サンプルは `raw` に保全して後追い解析できる。
 - ③ **UV 未取得**: 盤面 UV は出せない（列は null）。GRIB2 デコード or 別 keyless 経路の確立が follow-up。
 - ④ 相乗りで天気 Job の 1 サイクルが地域あたり HTTP 1 本増（ADR-044 §残存リスク② と同じ。低頻度・地域 dedup 済で許容）。
 
 ## 再検討トリガ
 
-- そらまめくんの実 API 契約を確認できた / 商用 keyless AQI が使える → `soramameAirUrl` + 候補キーを実形式へ確定（パーサ・schema は不変で済む構造）。
+- ~~そらまめくんの実 API 契約を確認できた / 商用 keyless AQI が使える → `soramameAirUrl` + 候補キーを実形式へ確定~~ → **2026-06-19 fix で実エンドポイント確定済**（noudoAll 全国 CSV、上記節）。今後そらまめくんが列順・配信形式を変えた場合は `parseSoramameNoudoAllCsv` の列定数・`fetchAirFromEnv` の URL 経路を実形式へ追従（schema は不変で済む構造）。
 - UV の keyless 府県取得経路が確立した（または GRIB2 デコードを別 Job で行う判断）→ `jma_uv` ソースで `uv_index` / `uv_band` を upsert。
 - 大気質の即時性 / 精度が SLA 化した → 商用 API（キー方式）への移行を ADR で再評価。
 
