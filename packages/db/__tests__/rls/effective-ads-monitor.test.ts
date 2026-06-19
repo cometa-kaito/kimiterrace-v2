@@ -31,6 +31,7 @@ describeOrSkip(
     let classA: string;
     let monA: string; // school A の端末（クラス継承 + 直指定）
     let monAEmpty: string; // school A の端末（直指定なし = クラス継承のみ / 空）
+    let monActiveAdv: string; // school A・クラス無し端末（稼働広告主のモニタ直指定 = 配信される検証用）
     // School B（テナント分離検証用）
     let classB: string;
     let monB: string;
@@ -40,6 +41,7 @@ describeOrSkip(
     const CLASS_AD = "https://ex.com/a-class.png";
     const MONITOR_AD = "https://ex.com/a-monitor.png";
     const MONITOR_AD_PAUSED = "https://ex.com/a-monitor-paused.png";
+    const MONITOR_AD_ACTIVE = "https://ex.com/a-monitor-active.png";
     const MONITOR_AD_B = "https://ex.com/b-monitor.png";
 
     const ctxA = () => ({ userId: fx.userA, schoolId: fx.schoolA, role: "school_admin" as const });
@@ -97,6 +99,15 @@ describeOrSkip(
         VALUES ('休止広告主', 'paused', false) RETURNING id`
       )[0].id;
       await seedMonitorAd(fx.schoolA, MONITOR_AD_PAUSED, monA, advPaused);
+      // 稼働広告主のモニタ直指定（配信される＝休止除外の逆方向を別端末で pin）。advertiser_id 非 NULL の
+      // 正経路（advertiser_is_deliverable=true）をモニタ枝で直接踏む。
+      const advActive = (
+        await raw<{ id: string }[]>`
+        INSERT INTO advertisers (company_name, status, is_active)
+        VALUES ('稼働広告主', 'active', true) RETURNING id`
+      )[0].id;
+      monActiveAdv = await seedMonitor(fx.schoolA, "mon-a-active", null);
+      await seedMonitorAd(fx.schoolA, MONITOR_AD_ACTIVE, monActiveAdv, advActive);
 
       // --- School B: テナント分離検証用 ---
       const gradeB = (
@@ -143,6 +154,18 @@ describeOrSkip(
       expect(rows.map((r) => r.mediaUrl)).toEqual([MONITOR_AD]);
       expect(rows[0].sourceScope).toBe("monitor");
       expect(rows[0].scopeRank).toBe(4);
+    });
+
+    it("稼働広告主のモニタ直指定は配信される（advertiser_id 非 NULL の正経路）", async () => {
+      const rows = await withTenantContext(
+        db,
+        ctxA(),
+        (tx) => getEffectiveAdsForMonitor(tx, null, monActiveAdv),
+        APP,
+      );
+      // 休止は除外（既存テスト）／稼働は配信、で advertiser_is_deliverable の両方向をモニタ枝で pin。
+      expect(rows.map((r) => r.mediaUrl)).toEqual([MONITOR_AD_ACTIVE]);
+      expect(rows[0].sourceScope).toBe("monitor");
     });
 
     it("直指定なし端末はクラス継承のみ（モニタ直指定は空）", async () => {
