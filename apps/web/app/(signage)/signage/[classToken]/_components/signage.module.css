@@ -1130,7 +1130,8 @@
 }
 .safetyArea {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  /* 安全帯の淡色背景(--urgent-weak/--heat-weak)上でも AA 4.5:1 を満たす muted（白地用 --text-muted より一段濃く）。 */
+  color: #57606e;
   font-weight: 600;
   font-size: 0.85em;
 }
@@ -1144,7 +1145,8 @@
 .safetyStale {
   flex: 0 0 auto;
   margin-left: auto;
-  color: var(--text-muted);
+  /* 淡色背景上でも AA 4.5:1（白地用 --text-muted より一段濃く）。 */
+  color: #57606e;
   font-weight: 600;
   font-size: 0.78em;
   white-space: nowrap;
