@@ -65,6 +65,8 @@ function base(): EditorBoardBase {
     callouts: null,
     trainStatus: null,
     news: null,
+    weatherWarnings: null,
+    heatAlerts: null,
     blackout: false,
   };
 }
