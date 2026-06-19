@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "c2faf56" # +#1063 熱中症取得を公開時刻(HH)非依存化(複数候補fallback・ADR-044)。warnings/heat/calendar/大気 relay(ADR-044/045/046・#1048/1056/1059/1060)+news(dist/news)継続・railway/tv-liveness は同コードで image のみ更新
+  jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続・railway/tv-liveness は同コードで image のみ更新
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "98cc9d8" # staging deploy 98cc9d8（内容は PR/commit に記述）
+  web_image_tag = "90878a3" # +#1066 pattern1 に気象警報・熱中症の安全帯表示(条件付き・fail-soft・pattern2/3無改修)。疎通 /api/health 200 + /login private,no-cache
 }
 
 module "network" {
