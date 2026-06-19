@@ -1,16 +1,18 @@
 import { hashToken } from "@/lib/magic-link/token";
 import {
   type ClassVisitor,
-  type EffectiveAd,
+  type EffectiveAdForMonitor,
   type SignageClassContext,
   type StudentCallout,
   type TenantTx,
   getCalloutsForClass,
   getEffectiveAdsForClass,
+  getEffectiveAdsForMonitor,
   getSignageClassContext,
   getTodayPresenceCount,
   getVisitorsForClass,
   resolveMagicLink,
+  resolveTvDeviceByDeviceId,
   withTenantContext,
 } from "@kimiterrace/db";
 import { getDb } from "../db";
@@ -20,6 +22,7 @@ import {
   type ScheduleDay,
   getEffectiveDailyData,
   getEffectiveScheduleDays,
+  mergeDailySections,
 } from "./effective-daily-data";
 import { type SignageNews, getSignageNews } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
@@ -85,7 +88,12 @@ export type SignagePayload = {
    * 実効「予定」セクション。連絡/課題/静粛時間は当日のみで足りるので `daily` 側に持つ (本配列は予定専用)。
    */
   scheduleDays: ScheduleDay[];
-  ads: EffectiveAd[];
+  /**
+   * 実効広告。クラス継承（`getEffectiveAdsForClass`）に加え、モニタ起点表示ではモニタ直指定も合成した
+   * `EffectiveAdForMonitor`（= `EffectiveAd` から `classId` を除いた形）を持つ。クラス専用表示でも
+   * `EffectiveAd[]` は構造的に代入可能（classId を盤面が使わないため型を広げても無影響・Phase5 v2-PR3）。
+   */
+  ads: EffectiveAdForMonitor[];
   /**
    * F14 (#128, ADR-021): 自校地域の天気予報（本日以降）。**バックエンド Job が `weather_forecasts` に
    * キャッシュした行を自社 DB から SELECT しただけ**で、端末・本経路とも JMA を直叩きしない（閉域維持、
@@ -193,6 +201,8 @@ export async function getSignageDisplayData(
  * @param classId     表示対象クラス id（自校・RLS スコープ内であること）。
  * @param date        YYYY-MM-DD (JST)。
  * @param designParam 端末別デザイン上書き（`?design=patternN` 相当）。未指定/未知は学校レベル既定→pattern1。
+ * @param monitorId   （Phase5 v2-PR3）指定すると、クラス継承広告に加え当該モニタへの**直指定広告**も合成して
+ *                    返す（`getEffectiveAdsForMonitor`＝追加モード）。未指定はクラス専用（従来挙動・完全互換）。
  * @returns           クラス可視なら `SignagePayload`、不可視なら null。
  */
 export async function buildSignagePayloadForClass(
@@ -201,6 +211,7 @@ export async function buildSignagePayloadForClass(
   classId: string,
   date: string,
   designParam?: unknown,
+  monitorId?: string,
 ): Promise<SignagePayload | null> {
   const daily = await getEffectiveDailyData(tx, classId, date);
   if (!daily) {
@@ -219,7 +230,10 @@ export async function buildSignagePayloadForClass(
   const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
     ? designParam
     : await getSignageDesignPattern(tx);
-  const ads = await getEffectiveAdsForClass(tx, classId);
+  // 広告: monitorId 指定時はクラス継承 ∪ モニタ直指定（追加モード）、未指定はクラス継承のみ（従来）。
+  const ads = monitorId
+    ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
+    : await getEffectiveAdsForClass(tx, classId);
   // 予定グリッド (今後 3 平日)。`date` を起点に土日を飛ばした 3 平日ぶんの schedules を 1 クエリで取得
   // (v1 ScheduleGrid の nextThreeWeekdays 移植)。同一 tx 内なので追加コネクションは増やさない。
   const scheduleDays = await getEffectiveScheduleDays(tx, classId, signageScheduleDates(date, 3));
@@ -275,5 +289,95 @@ export async function buildSignagePayloadForClass(
     trainStatus,
     news,
     blackout,
+  } satisfies SignagePayload;
+}
+
+/**
+ * モニタ起点（`device_id` 解決）のサイネージ表示データを取得する（Phase5 v2-PR3）。
+ *
+ * `getSignageDisplayData`（classToken 起点）の姉妹。端末の `signage_url` が classToken でなく device_id を
+ * 持つ経路（廊下等クラス無し端末／自端末への直指定広告を上乗せ表示する端末）で使う。device_id を **cross-tenant
+ * に解決**し（`resolveTvDeviceByDeviceId`・system_admin 文脈・read 専用）、得た `schoolId` だけで改めて
+ * **自校テナント文脈**を開いて payload を組む（system_admin 文脈は表示読取に持ち越さない＝ルール2）。
+ *
+ * - クラス所属端末: クラス payload（時間割/連絡/…）＋ **クラス継承 ∪ 自端末直指定** の広告（追加モード）。
+ * - クラス無し端末（廊下）: クラス系セクションは空・広告は **自端末直指定のみ**（ads-only 盤面）。
+ *
+ * device_id は credential ではないが推測不能 UUID（ADR-022）なので、ログには出さない方針を踏襲する。
+ *
+ * @returns 解決でき可視なら `SignagePayload`、未登録/退役/不可視なら null（呼び出し側が無効表示にする）。
+ */
+export async function getSignageDisplayDataForMonitor(
+  deviceId: string,
+  date: string,
+  designParam?: unknown,
+): Promise<SignagePayload | null> {
+  const dev = await resolveTvDeviceByDeviceId(getDb(), deviceId);
+  if (!dev) {
+    return null;
+  }
+  // 解決した school のみを載せた匿名テナント文脈で payload を組む（classToken 経路と同じ単一ソースの盤面ビルダー）。
+  return await withTenantContext(getDb(), { schoolId: dev.schoolId }, (tx: TenantTx) =>
+    dev.classId
+      ? buildSignagePayloadForClass(tx, dev.schoolId, dev.classId, date, designParam, dev.monitorId)
+      : buildSignagePayloadForMonitorOnly(
+          tx,
+          dev.schoolId,
+          dev.monitorId,
+          dev.label,
+          date,
+          designParam,
+        ),
+  );
+}
+
+/**
+ * クラスに属さないモニタ（廊下等・classId 無し）の **ads-only** サイネージ payload を組む（Phase5 v2-PR3）。
+ *
+ * クラス系セクション（時間割/連絡/課題/来校者/呼び出し/センサ/黒画面）は持てない（クラスが無い）ため空にし、
+ * 広告は当該モニタへの**直指定のみ**（`getEffectiveAdsForMonitor(tx, null, monitorId)`）。学校レベルのウィジェット
+ * （天気/ニュース/鉄道）は classToken 版と同規約（天気は常時・他はパターン該当時）で fail-soft に読む。盤面の識別
+ * ラベルにはモニタの設置場所名（`monitorLabel`・例「廊下」）を使う。`buildSignagePayloadForClass` が `daily` 不在で
+ * null を返す挙動とは異なり、ads-only でも**必ず payload を返す**（廊下の広告表示が成立する）。
+ *
+ * tx は呼び出し側が `schoolId` の RLS 文脈を確立済みであること（ルール2）。
+ */
+async function buildSignagePayloadForMonitorOnly(
+  tx: TenantTx,
+  schoolId: string,
+  monitorId: string,
+  monitorLabel: string | null,
+  date: string,
+  designParam?: unknown,
+): Promise<SignagePayload> {
+  const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
+    ? designParam
+    : await getSignageDesignPattern(tx);
+  const ads = await getEffectiveAdsForMonitor(tx, null, monitorId);
+  // 天気は学校地域単位（クラス非依存）。fail-soft（取得失敗は null で枠だけ落とす）。
+  const weather = await getSignageWeather(tx, schoolId, date).catch(() => null);
+  // 鉄道/ニュースは学校横断の公開キャッシュ（read_all・クラス非依存）。パターン該当時のみ・fail-soft。
+  const trainStatus = patternIncludesBlock(designPattern, "train")
+    ? await getSignageRailwayStatus(tx).catch(() => null)
+    : null;
+  const news = patternIncludesBlock(designPattern, "news")
+    ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
+    : null;
+  return {
+    date,
+    designPattern,
+    // クラスが無いので日次は空（mergeDailySections([]) が全セクション空の EffectiveDailyData を返す）。
+    daily: mergeDailySections(date, []),
+    scheduleDays: [],
+    ads,
+    weather,
+    // クラス文脈は無いので設置場所名を識別ラベルに充てる（学年/学科は null）。
+    classContext: { className: monitorLabel, gradeName: null, departmentName: null },
+    presenceCount: null,
+    visitors: null,
+    callouts: null,
+    trainStatus,
+    news,
+    blackout: false,
   } satisfies SignagePayload;
 }

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDbClient, withTenantContext } from "../../src/client.js";
-import { listTvDevices, pollTvConfig } from "../../src/queries/tv-devices.js";
+import {
+  listTvDevices,
+  pollTvConfig,
+  resolveTvDeviceByDeviceId,
+} from "../../src/queries/tv-devices.js";
 import { createSql, getConnectionUrl, seedBaseFixture } from "../_setup/db.js";
 
 const url = getConnectionUrl();
@@ -225,5 +229,50 @@ describeOrSkip("RLS: F15/F16 tv_devices", () => {
       SELECT fcm_token FROM tv_devices WHERE device_id = ${DEV_KEEP}
     `;
     expect(after[0].fcm_token).toBe("tok-keep-existing");
+  });
+
+  // ── resolveTvDeviceByDeviceId（Phase5 v2-PR3・モニタ起点サイネージの device_id 解決）─────────────
+  it("resolveTvDeviceByDeviceId: device_id を cross-tenant 解決（schoolId/label・appRole 降格で RLS 実効）", async () => {
+    const ref = await resolveTvDeviceByDeviceId(db, DEV_A, APP);
+    expect(ref).not.toBeNull();
+    if (ref) {
+      expect(ref.schoolId).toBe(fx.schoolA);
+      expect(ref.label).toBe("電子工学科 1年");
+      // フィクスチャ DEV_A はクラス未割当（廊下等）→ classId は null（ads-only 経路の対象）。
+      expect(ref.classId).toBeNull();
+      expect(typeof ref.monitorId).toBe("string");
+    }
+  });
+
+  it("resolveTvDeviceByDeviceId: クラス割当端末は classId を返す（クラス継承∪直指定 経路の対象）", async () => {
+    const CLS = (
+      await sql<{ id: string }[]>`
+        INSERT INTO classes (school_id, name, grade)
+        VALUES (${fx.schoolA}, '解決テスト', 1) RETURNING id
+      `
+    )[0].id;
+    const DEV_CLS = "66666666-6666-4666-8666-666666666666";
+    await sql`
+      INSERT INTO tv_devices (school_id, device_id, class_id, label)
+      VALUES (${fx.schoolA}, ${DEV_CLS}, ${CLS}, '1-A 教室')
+    `;
+    const ref = await resolveTvDeviceByDeviceId(db, DEV_CLS, APP);
+    expect(ref?.classId).toBe(CLS);
+    expect(ref?.schoolId).toBe(fx.schoolA);
+  });
+
+  it("resolveTvDeviceByDeviceId: 未登録 device_id は null", async () => {
+    const ref = await resolveTvDeviceByDeviceId(db, "00000000-0000-4000-8000-000000000abc", APP);
+    expect(ref).toBeNull();
+  });
+
+  it("resolveTvDeviceByDeviceId: ソフトデリート済は null（退役端末は表示も無効）", async () => {
+    const DEV_DEL2 = "77777777-7777-4777-8777-777777777777";
+    await sql`
+      INSERT INTO tv_devices (school_id, device_id, label, deleted_at)
+      VALUES (${fx.schoolA}, ${DEV_DEL2}, '退役 TV2', now())
+    `;
+    const ref = await resolveTvDeviceByDeviceId(db, DEV_DEL2, APP);
+    expect(ref).toBeNull();
   });
 });

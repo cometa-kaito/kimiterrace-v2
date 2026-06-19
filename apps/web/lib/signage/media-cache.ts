@@ -1,4 +1,4 @@
-import type { EffectiveAd } from "@kimiterrace/db";
+import type { EffectiveAdForMonitor } from "@kimiterrace/db";
 
 /**
  * 公開サイネージ (#48-E / `/signage/{classToken}`) の広告画像・動画を **Service Worker +
@@ -86,7 +86,7 @@ function isSameOriginUrl(url: string, selfOrigin: string): boolean {
  * 広告配列から prefetch すべき media URL を抽出する。falsy 除外 + 重複排除 (出現順を保つ)。
  * 入力順を保つことで「先に表示される広告から温める」挙動になる。
  */
-export function selectPrefetchUrls(ads: readonly EffectiveAd[]): string[] {
+export function selectPrefetchUrls(ads: readonly EffectiveAdForMonitor[]): string[] {
   const seen = new Set<string>();
   const urls: string[] = [];
   for (const ad of ads) {
