@@ -182,7 +182,7 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "f25b610" # weather Job relay に警報/熱中症/カレンダー/大気の keyless 取得同梱(ADR-044/045/046・#1048/1056/1059/1060)+news(dist/news)継続。weather/news/railway/tv-liveness は同コードで image のみ更新
+  jobs_image_tag = "c2faf56" # +#1063 熱中症取得を公開時刻(HH)非依存化(複数候補fallback)。warnings/heat/calendar/大気 relay(ADR-044/045/046・#1048/1056/1059/1060)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   web_image_tag = "98cc9d8" # prod deploy: #1052 工学ニュース盤面(pattern2/3・見出し+出典・ADR-043)。範囲 4b9ff70..98cc9d8（apps/web は news 盤面のみ・#1048 は web 非変更）。要: migrate 0028(news_items)+0029(weather_warnings) を web 前に適用。疎通 /api/health 200 + /login private,no-cache
