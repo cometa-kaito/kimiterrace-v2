@@ -456,22 +456,67 @@ export function jstHeatDateParts(at: Date = new Date()): {
 /**
  * ADR-044: 環境省「熱中症予防情報サイト」alert CSV の URL を組む（純関数、テスト容易）。
  * 形式（確認済 2026 シーズン）: `https://www.wbgt.env.go.jp/alert/dl/{YYYY}/alert_{YYYYMMDD}_{HH}.csv`。
- * `{HH}` は発表時刻（環境省は前日 17 時 / 当日 5 時に翌日・当日アラートを発表）。本スライスは前日 17 時発表
- * （当日 + 翌日を含む）を既定に用いる。CSV は **全国 1 ファイル**（地域コードは URL に含めない）。
+ * `{HH}` は発表時刻（環境省は **05:00 / 17:00 JST** に当日・翌日アラートを発表）。`hour` 既定は `"17"`
+ * （後方互換）。実取得は `heatAlertCandidates` が時刻非依存に最新候補を組むので、本関数の既定値には依存しない。
+ * CSV は **全国 1 ファイル**（地域コードは URL に含めない）。
  */
 export function envHeatAlertUrl(yyyy: string, yyyymmdd: string, hour = "17"): string {
   return `https://www.wbgt.env.go.jp/alert/dl/${encodeURIComponent(yyyy)}/alert_${encodeURIComponent(yyyymmdd)}_${encodeURIComponent(hour)}.csv`;
+}
+
+/** ADR-044: 環境省 alert CSV の URL 候補（年・日付・発表時刻の 3 次元。最新順に並ぶ）。 */
+export interface HeatAlertCandidate {
+  /** 発表日の西暦（URL の `/dl/{yyyy}/` 部分）。 */
+  yyyy: string;
+  /** 発表日（`YYYYMMDD`、URL の `alert_{yyyymmdd}_` 部分）。 */
+  yyyymmdd: string;
+  /** 発表時刻（`"17"` / `"05"`、URL の `_{hour}.csv` 部分）。 */
+  hour: string;
+}
+
+/**
+ * ADR-044: 環境省 alert CSV の取得候補を **最新順**で組み立てる純関数（テスト容易）。
+ *
+ * ★ 取得時刻(HH)非依存化（本 fix の核）: 環境省は **05:00 と 17:00 JST** に当日・翌日アラートを発表し、
+ * ファイル名は `alert_{発表日YYYYMMDD}_{HH}.csv`（HH∈{05,17}）。従来は「今日 17 時ファイル」固定で取りに行くため、
+ * Job が 17 時前に走るとその日の 17 時ファイルがまだ無く 404 → 熱中症だけ fail-soft 失敗していた（prod 実測）。
+ * そこで取得時刻に依存せず **最新の利用可能ファイルを最新順に試行し、最初の 2xx を採用**できるよう候補を返す。
+ *
+ * 返す候補（最新順）: `今日_17 → 今日_05 → 昨日_17`。これで:
+ * - now ≥ 17 時 JST → 今日 17 が存在し先頭で当たる。
+ * - 05〜17 時 JST → 今日 17 はまだ無く 404、今日 05 で当たる。
+ * - 05 時前 JST → 今日 17/05 とも無く 404、昨日 17 で当たる（昨日 17 時発表は当日分アラートを含むので当日表示で正）。
+ *
+ * 日付ロールオーバー（昨日）は **UTC+9 基準**で算出する（サーバ TZ 非依存。`jstHeatDateParts` の +9h 流儀を再利用）。
+ */
+export function heatAlertCandidates(at: Date = new Date()): HeatAlertCandidate[] {
+  const today = jstHeatDateParts(at);
+  // 昨日（JST 暦日）: 24h 前の同時刻を JST 換算する（+9h 流儀は jstHeatDateParts に委譲、二重補正しない）。
+  const yesterday = jstHeatDateParts(new Date(at.getTime() - 24 * 60 * 60 * 1000));
+  return [
+    { yyyy: today.yyyy, yyyymmdd: today.yyyymmdd, hour: "17" },
+    { yyyy: today.yyyy, yyyymmdd: today.yyyymmdd, hour: "05" },
+    { yyyy: yesterday.yyyy, yyyymmdd: yesterday.yyyymmdd, hour: "17" },
+  ];
 }
 
 /**
  * ADR-044: 1 地域の熱中症アラートを環境省 alert CSV から HTTP 取得しパースする（実 I/O）。`fetchWarningFromJma`
  * に倣う（timeout / 明示 User-Agent）。
  *
- * 環境省 CSV は **全国 1 ファイル**（地域コードは URL に含まれない）なので、本関数は CSV 全文を取得して
+ * ★ 公開時刻(HH)非依存（本 fix）: 環境省は 05:00 / 17:00 JST に発表し、ファイル名は `alert_{発表日}_{HH}.csv`。
+ * 従来は「今日 17 時ファイル」固定で取りに行き、Job が 17 時前に走るとそのファイルがまだ無く 404 → 熱中症だけ
+ * fail-soft 失敗していた（prod 実測 heatFailed=1）。本関数は `heatAlertCandidates` が返す **最新順候補**
+ * （今日17 → 今日05 → 昨日17）を順に GET し、**最初の 2xx を採用**して取得時刻に依存せず常に最新を当てる。
+ *
+ * 環境省 CSV は **全国 1 ファイル**（地域コードは URL に含まれない）なので、採用した CSV 全文を取得して
  * `parseEnvHeatAlert(areaCode, csvText)` で該当地域行だけを抜き出す。PoC 規模（dedup 後 1〜数地域）では同一 CSV を
  * 地域ごとに再取得しても許容（15 分キャッシュ・低頻度起動）。地域数が増えたら 1 サイクル 1 取得への最適化を
- * 検討する（follow-up、ADR-044 §再検討トリガ）。非 2xx・タイムアウトは throw（`runWeatherFetch` が地域単位で
- * 捕捉し、天気・警報を巻き込まずその地域の熱中症だけ skip する）。`forecastDate` は **当日（JST 暦日）**。
+ * 検討する（follow-up、ADR-044 §再検討トリガ）。
+ *
+ * **全候補が非 2xx / 失敗なら throw**（`runWeatherFetch` が地域単位で捕捉し、天気・警報を巻き込まずその地域の
+ * 熱中症だけ skip する＝fail-soft / last-known-good 維持）。各候補は個別の `AbortController` で timeout を独立に
+ * 計測する（既定 10s）。`forecastDate` は **当日（JST 暦日）**（昨日 17 時ファイルでも当日分アラートを含むため当日で正）。
  */
 export async function fetchHeatFromEnv(
   areaCode: string,
@@ -480,23 +525,35 @@ export async function fetchHeatFromEnv(
   const fetchImpl = config.fetchImpl ?? fetch;
   // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
   const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
-  const { yyyy, yyyymmdd, isoDate } = jstHeatDateParts();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetchImpl(envHeatAlertUrl(yyyy, yyyymmdd), {
-      method: "GET",
-      headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`env heat alert 取得失敗: areaCode=${areaCode} status=${res.status}`);
+  const { isoDate } = jstHeatDateParts();
+  const candidates = heatAlertCandidates();
+  // 最後に観測した失敗の要約（全候補不発時に投げる例外メッセージ用。生レスポンス・PII は載せない）。
+  let lastFailure = "no candidates";
+  for (const { yyyy, yyyymmdd, hour } of candidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl(envHeatAlertUrl(yyyy, yyyymmdd, hour), {
+        method: "GET",
+        headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // 非 2xx はこの候補を諦めて次の候補へ（今日 17 が未発表で 404 等は想定内）。
+        lastFailure = `${yyyymmdd}_${hour} status=${res.status}`;
+        continue;
+      }
+      const csvText: string = await res.text();
+      return { parsed: parseEnvHeatAlert(areaCode, csvText), forecastDate: isoDate };
+    } catch (err) {
+      // タイムアウト / ネットワーク失敗もこの候補を諦めて次の候補へ。
+      lastFailure = `${yyyymmdd}_${hour} ${err instanceof Error ? err.name : "fetch failed"}`;
+    } finally {
+      clearTimeout(timer);
     }
-    const csvText: string = await res.text();
-    return { parsed: parseEnvHeatAlert(areaCode, csvText), forecastDate: isoDate };
-  } finally {
-    clearTimeout(timer);
   }
+  // 全候補が非 2xx / 失敗 → throw（呼び出し側が地域単位で捕捉し fail-soft）。
+  throw new Error(`env heat alert 取得失敗: areaCode=${areaCode} lastFailure=${lastFailure}`);
 }
 
 /**
