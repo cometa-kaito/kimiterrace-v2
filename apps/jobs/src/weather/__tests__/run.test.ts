@@ -20,6 +20,7 @@ import {
   fetchHeatFromEnv,
   fetchIcs,
   fetchWarningFromJma,
+  heatAlertCandidates,
   jmaForecastUrl,
   jmaWarningUrl,
   jstHeatDateParts,
@@ -461,6 +462,42 @@ describe("envHeatAlertUrl", () => {
   });
 });
 
+describe("heatAlertCandidates", () => {
+  // ★ 公開時刻(HH)非依存（本 fix）: 最新順候補 `今日17 → 今日05 → 昨日17` を返すことを固定する。
+  // `at` は UTC で渡し、+9h の JST 換算（jstHeatDateParts 流儀）を検証する。
+  it("now=JST 18:00 → [今日17, 今日05, 昨日17] を最新順で返す", () => {
+    // 2026-07-15T09:00:00Z = 2026-07-15T18:00 JST。
+    const cands = heatAlertCandidates(new Date("2026-07-15T09:00:00Z"));
+    expect(cands).toEqual([
+      { yyyy: "2026", yyyymmdd: "20260715", hour: "17" },
+      { yyyy: "2026", yyyymmdd: "20260715", hour: "05" },
+      { yyyy: "2026", yyyymmdd: "20260714", hour: "17" },
+    ]);
+  });
+
+  it("now=JST 10:00 → 先頭は今日17（最新順の定義どおり今日17→今日05→昨日17）", () => {
+    // 2026-07-15T01:00:00Z = 2026-07-15T10:00 JST。
+    const cands = heatAlertCandidates(new Date("2026-07-15T01:00:00Z"));
+    expect(cands[0]).toEqual({ yyyy: "2026", yyyymmdd: "20260715", hour: "17" });
+    expect(cands[1]).toEqual({ yyyy: "2026", yyyymmdd: "20260715", hour: "05" });
+    expect(cands[2]).toEqual({ yyyy: "2026", yyyymmdd: "20260714", hour: "17" });
+  });
+
+  it("now=JST 03:00 → 昨日へロールオーバーした yyyymmdd を末尾候補に含む", () => {
+    // 2026-07-14T18:00:00Z = 2026-07-15T03:00 JST。今日=7/15, 昨日=7/14。
+    const cands = heatAlertCandidates(new Date("2026-07-14T18:00:00Z"));
+    expect(cands[0]?.yyyymmdd).toBe("20260715"); // 今日17（05 時前なので存在せず 404 想定だが候補としては先頭）
+    expect(cands[2]).toEqual({ yyyy: "2026", yyyymmdd: "20260714", hour: "17" }); // 昨日17 が当たる想定
+  });
+
+  it("月初の JST 03:00 → 昨日が前月末日に正しくロールオーバーする（UTC+9 基準）", () => {
+    // 2026-07-31T18:00:00Z = 2026-08-01T03:00 JST。今日=8/1, 昨日=7/31。
+    const cands = heatAlertCandidates(new Date("2026-07-31T18:00:00Z"));
+    expect(cands[0]?.yyyymmdd).toBe("20260801");
+    expect(cands[2]?.yyyymmdd).toBe("20260731");
+  });
+});
+
 describe("fetchHeatFromEnv", () => {
   const config = (fetchImpl: typeof fetch): HttpFetchConfig => ({
     userAgent: "test-ua/1.0",
@@ -468,16 +505,17 @@ describe("fetchHeatFromEnv", () => {
     fetchImpl,
   });
 
+  const csvBody = [
+    "府県予報区,a,b,府県予報区等コード,都道府県名,e,TargetDate1フラグ,TargetDate2フラグ,日最高WBGT（10:00）,日最高WBGT（17:00）,日最高WBGT（5:00）",
+    "岐阜県,52,0,210000,岐阜,21,1,0,岐阜:33,,",
+  ].join("\n");
+
   it("2xx の CSV を text で取得し該当地域行をパースする。明示 User-Agent を付ける。forecastDate は当日(JST)", async () => {
-    const body = [
-      "府県予報区,a,b,府県予報区等コード,都道府県名,e,TargetDate1フラグ,TargetDate2フラグ,日最高WBGT（10:00）,日最高WBGT（17:00）,日最高WBGT（5:00）",
-      "岐阜県,52,0,210000,岐阜,21,1,0,岐阜:33,,",
-    ].join("\n");
     const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toContain("/alert/dl/");
       expect(String(url)).toContain("/alert_");
       expect((init?.headers as Record<string, string>)["User-Agent"]).toBe("test-ua/1.0");
-      return new Response(body, { status: 200 });
+      return new Response(csvBody, { status: 200 });
     }) as unknown as typeof fetch;
     const heat: FetchedHeat = await fetchHeatFromEnv("210000", config(fetchImpl));
     expect(heat.parsed.areaCode).toBe("210000");
@@ -487,11 +525,38 @@ describe("fetchHeatFromEnv", () => {
     expect(heat.forecastDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("非 2xx は throw する（runWeatherFetch が地域単位で捕捉して天気・警報を巻き込まず skip）", async () => {
+  it("★ 公開時刻非依存: 今日17=404・今日05=200 なら今日05 を採用しパース成功（forecastDate=当日）", async () => {
+    // 候補は最新順（今日17 → 今日05 → 昨日17）。1 件目を 404 にして 2 件目で 200 を返す。
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("_17.csv")) return new Response("not found", { status: 404 });
+      if (u.includes("_05.csv")) return new Response(csvBody, { status: 200 });
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    const heat = await fetchHeatFromEnv("210000", config(fetchImpl));
+    expect(heat.parsed.areaCode).toBe("210000");
+    expect(heat.parsed.wbgtMax).toBe(33);
+    expect(heat.forecastDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // 今日17(404) → 今日05(200) の 2 試行（昨日17 までは行かない）。
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("★ 全候補 404 なら throw（fail-soft / runWeatherFetch が地域単位で捕捉して他指標を巻き込まず skip）", async () => {
     const fetchImpl = vi.fn(
       async () => new Response("not found", { status: 404 }),
     ) as unknown as typeof fetch;
-    await expect(fetchHeatFromEnv("210000", config(fetchImpl))).rejects.toThrow(/status=404/);
+    await expect(fetchHeatFromEnv("210000", config(fetchImpl))).rejects.toThrow(/取得失敗/);
+    // 全候補（3 件）を試したうえで throw。
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("★ 最小試行: 1 件目（今日17）が 200 なら追加 fetch を呼ばない", async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(csvBody, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const heat = await fetchHeatFromEnv("210000", config(fetchImpl));
+    expect(heat.parsed.wbgtMax).toBe(33);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
 
