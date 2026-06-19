@@ -99,6 +99,8 @@ function payload(
     callouts: null,
     trainStatus: null,
     news: null,
+    weatherWarnings: null,
+    heatAlerts: null,
     blackout: false,
   };
 }

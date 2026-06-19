@@ -1067,6 +1067,91 @@
   color: var(--accent-color);
 }
 
+/* ===================== 防災・安全帯（pattern1・条件付き・ADR-044） ===================== */
+/* 予定の直上（infoArea 先頭）に出る安全情報帯。アクティブな警報/熱中症がある時だけ描画されるため、
+   既定（無アラート）では DOM に存在せず予定以下のレイアウトは不変。flex 子として高さを取り過ぎないよう
+   0 0 auto で内容ぶんだけ。NFR05: 色だけに依らず段階ラベル/アイコン/テキストを必ず併記。 */
+.safetyBand {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vmin;
+  min-height: 0;
+}
+.safetyRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6vmin;
+  padding: 0.5vmin 1vmin;
+  border-radius: var(--radius-md);
+  /* 遠距離視認用に大きめタイポ（サイネージ）。scale-factor 連動でフル HD / 4K でも比例拡大。 */
+  font-size: clamp(0.95rem, 1.7vw, 1.5rem);
+  line-height: 1.2;
+  min-width: 0;
+}
+/* 気象警報: アラート赤系（白地で AA 4.5:1 超の --urgent-color）+ 左の太アクセント線（色のみに頼らない）。 */
+.safetyRowWarning {
+  background-color: var(--urgent-weak);
+  color: var(--urgent-color);
+  border-left: 6px solid var(--urgent-color);
+}
+/* 熱中症: 暖色系（白地で AA 4.5:1 超の --temp-high-color）+ 左の太アクセント線。 */
+.safetyRowHeat {
+  background-color: #fff4ed;
+  color: var(--temp-high-color);
+  border-left: 6px solid var(--temp-high-color);
+}
+.safetyIcon {
+  flex: 0 0 auto;
+  font-size: 1.2em;
+  line-height: 1;
+}
+/* 段階ラベル（注意報/警報/特別警報・警戒/特別警戒）。色非依存の主表示なので太字で明確に。 */
+.safetyLabel {
+  flex: 0 0 auto;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* 個別警報名 / 行動喚起テキスト。横幅が足りなければ省略（盤面を縦に膨らませない）。 */
+.safetyBody {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5vmin;
+  min-width: 0;
+  color: var(--text-color);
+  font-weight: 600;
+}
+.safetyBodyText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.safetyArea {
+  flex: 0 0 auto;
+  /* 安全帯の淡色背景(--urgent-weak/--heat-weak)上でも AA 4.5:1 を満たす muted（白地用 --text-muted より一段濃く）。 */
+  color: #57606e;
+  font-weight: 600;
+  font-size: 0.85em;
+}
+.safetyWbgt {
+  flex: 0 0 auto;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--temp-high-color);
+}
+/* 鮮度注記「○時時点」。本文より控えめ（muted）で右端に。 */
+.safetyStale {
+  flex: 0 0 auto;
+  margin-left: auto;
+  /* 淡色背景上でも AA 4.5:1（白地用 --text-muted より一段濃く）。 */
+  color: #57606e;
+  font-weight: 600;
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
 /* パターン3 のモバイル（縦長・小型画面）: 大型ヘッダーは sticky に倒して上部固定、ブランドは省く。
    --header-height を 0 にして .container の上余白二重を避ける（pattern2 と同じ縦積みは p2Grid 側が担う）。 */
 @media (max-width: 899px) {
