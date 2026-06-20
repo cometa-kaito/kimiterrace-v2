@@ -2,6 +2,7 @@ import { type InferSelectModel, and, asc, desc, eq, isNotNull, isNull, sql } fro
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { KimiterraceDb } from "../client.js";
 import { withTenantContext } from "../client.js";
+import { magicLinks } from "../schema/magic-links.js";
 import { type TvSchedule, tvDevices } from "../schema/tv-devices.js";
 
 /**
@@ -293,23 +294,73 @@ export async function getTvDeviceConfig(
 }
 
 /**
- * クラスエディタの「このクラスのサイネージを開く」導線が読む、当該クラスに紐づく TV デバイスの
- * **公開サイネージ URL**（`tv_devices.signage_url` = `/signage/{token}` の絶対 URL）。教員が編集中の
- * クラスが実機 TV で実際にどう映るかを、公開ページ（旧「全画面プレビュー」の代替）で確認する read 専用導線。
+ * `signage_url`（classToken 経路 `{origin}/signage/{token}` 形式）から magic link の **トークン**を取り出す
+ * 純関数。実機サイネージはこのトークンを `resolve_magic_link` で school_id / class_id に解決して表示する
+ * （ADR-019）。エディタ / モニタの壁が端末↔クラスを**実機と同じトークンで**解決するための補助。
  *
- * - **選定**: 1 クラスに複数 TV があっても表示内容は同一（同一クラスのサイネージ）なので、`signage_url` が
- *   設定済み（非 null）で未削除のデバイスのうち**最も新しく更新された 1 件**を決定的に返す。設置 TV が無い
- *   クラスは `undefined`（呼び出し側はリンク自体を出さない＝死リンク防止）。
+ * - モニタ起点（`/signage/monitor/{deviceId}`・2 セグメント）・classToken でない URL・パース不能は `null`。
+ * - `?design=patternN` 等のクエリは URL パースで自然に除外される（pathname のみ見る）。
+ */
+export function extractSignageClassToken(signageUrl: string | null | undefined): string | null {
+  if (!signageUrl) return null;
+  let pathname: string;
+  try {
+    pathname = new URL(signageUrl).pathname;
+  } catch {
+    return null;
+  }
+  // 単一セグメント `/signage/{token}` のみ classToken。`/signage/monitor/{deviceId}` は 2 セグメントで対象外。
+  const seg = pathname.match(/^\/signage\/([^/]+)\/?$/)?.[1];
+  if (!seg) return null;
+  const token = decodeURIComponent(seg);
+  return token === "monitor" ? null : token;
+}
+
+/**
+ * クラスに有効（`revoked_at IS NULL`）な signage magic link の**平文トークン**を集める（端末↔クラスの
+ * トークン解決用）。平文 `token` は ADR-042 PR2 以降の発行分のみ非 null（旧リンクは hash のみ＝NULL で
+ * 本フォールバックの対象外）。RLS は呼び出し元のテナント文脈に委譲（`tenant_isolation` で自校に限定）。
+ */
+async function getClassSignageTokens(db: Selectable, classId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ token: magicLinks.token })
+    .from(magicLinks)
+    .where(
+      and(
+        eq(magicLinks.classId, classId),
+        isNotNull(magicLinks.token),
+        isNull(magicLinks.revokedAt),
+      ),
+    );
+  const tokens = new Set<string>();
+  for (const r of rows) {
+    if (r.token) tokens.add(r.token);
+  }
+  return tokens;
+}
+
+/**
+ * クラスエディタの「このクラスのサイネージを開く」導線兼**端末別デザインパターン解決**が読む、当該クラスに
+ * 紐づく TV デバイスの **公開サイネージ URL**（`tv_devices.signage_url` = `/signage/{token}` の絶対 URL）。
+ *
+ * - **端末↔クラスの解決（二段・実機と一致）**: (1) `tv_devices.class_id` 列（明示紐付け。`class` モードで作成
+ *   された端末）→ (2) それで見つからなければ `signage_url` の magic link トークンが当該クラスの有効 token に
+ *   一致する端末（`class_id` 列が NULL でも、実機がトークンで解決して表示しているクラスを拾う）。手貼り URL 等で
+ *   `class_id` 列が未設定の端末でもエディタが実機どおりのパターンを解決できるようにするための是正
+ *   （schema の「signage_url から class_id を自動抽出」未実装スライスの読取側補完）。
+ * - **選定**: いずれも `signage_url` 非 null・未削除のうち**最も新しく更新された 1 件**を決定的に返す。設置 TV が
+ *   無いクラスは `undefined`（呼び出し側はリンク自体を出さない＝死リンク防止）。
  * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は `tenant_isolation`
  *   （teacher / school_admin = 自校）/ `system_admin_full_access` が決める。非 BYPASSRLS 接続で呼ぶこと。
- * - **token は read 専用の表示 URL**: `signage_url` は magic link の hash で保護される匿名 read トークンを
- *   含む（provisioning-actions の設計）。自校クラスの公開 URL を当該校の教員に見せるのは想定内。
+ * - **token は read 専用の表示 URL**: `signage_url` は magic link の匿名 read トークンを含む。自校クラスの
+ *   公開 URL を当該校の教員に見せるのは想定内。
  */
 export async function getClassSignageUrl(
   db: Selectable,
   classId: string,
 ): Promise<string | undefined> {
-  const rows = await db
+  // (1) 明示紐付け（class_id 列）の最新 1 件（従来の高速パス）。
+  const direct = await db
     .select({ signageUrl: tvDevices.signageUrl })
     .from(tvDevices)
     .where(
@@ -321,41 +372,80 @@ export async function getClassSignageUrl(
     )
     .orderBy(desc(tvDevices.updatedAt))
     .limit(1);
-  return rows[0]?.signageUrl ?? undefined;
+  if (direct[0]?.signageUrl) {
+    return direct[0].signageUrl;
+  }
+
+  // (2) フォールバック: class_id 列が未設定でも、`signage_url` のトークンが当該クラスを指す端末を実機と同じ
+  //     解決で拾う。当該クラスの有効 signage トークン集合を作り、最新更新の端末から最初に一致したものを返す。
+  const tokens = await getClassSignageTokens(db, classId);
+  if (tokens.size === 0) {
+    return undefined;
+  }
+  const devRows = await db
+    .select({ signageUrl: tvDevices.signageUrl })
+    .from(tvDevices)
+    .where(and(isNull(tvDevices.deletedAt), isNotNull(tvDevices.signageUrl)))
+    .orderBy(desc(tvDevices.updatedAt));
+  for (const r of devRows) {
+    const token = extractSignageClassToken(r.signageUrl);
+    if (token && tokens.has(token)) {
+      return r.signageUrl ?? undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
  * エディタ着地「実画面モニタの壁」が **自校の全クラス分**まとめて読む、各クラスの代表 **公開サイネージ URL**。
- * `getClassSignageUrl` の単一クラス版を **N+1 を避けて 1 クエリにバッチ**したもので、壁の 2 つの判断を 1 ソースで
- * 駆動する: (1) **学科に実機モニタが紐づくか**（返却 Map にそのクラスが含まれるか＝`signage_url` を持つ未削除 TV
- * が当該クラスに在るか）／(2) **端末別デザインパターン**（URL の `?design=patternN` を `getDesignPatternFromUrl`
- * で抽出。未指定は学校レベル既定→`pattern1` に倒す。design-pattern.ts 参照）。
+ * `getClassSignageUrl` の単一クラス版をバッチしたもので、壁の 2 つの判断を 1 ソースで駆動する:
+ * (1) **学科に実機モニタが紐づくか**（返却 Map にそのクラスが含まれるか）／(2) **端末別デザインパターン**
+ * （URL の `?design=patternN` を `getDesignPatternFromUrl` で抽出。未指定は学校レベル既定→`pattern1`）。
  *
- * - **選定**: `getClassSignageUrl` と同規約で、`signage_url` 非 null・未削除のうち**最も新しく更新された 1 件**を
- *   各クラスの代表とする（複数 TV があっても表示内容は同一なので決定的に 1 件）。`signage_url` が null の
- *   デバイス / ソフトデリート済デバイスは対象外（モニタ未紐づけ扱い）。
+ * - **端末↔クラスの解決（二段・実機と一致）**: `getClassSignageUrl` と同規約で、(1) `class_id` 列を優先し、
+ *   無ければ (2) `signage_url` の magic link トークン → `magic_links.class_id` で解決する（`class_id` 列が
+ *   NULL の端末も実機が表示するクラスへ寄せる）。曖昧時は明示列（(1)）を優先。
+ * - **選定**: `signage_url` 非 null・未削除のうち**最も新しく更新された 1 件**を各クラスの代表とする。
  * - **RLS 委譲（ルール2）**: 手書きの `WHERE school_id` は書かない。可視範囲は `tenant_isolation`
  *   （teacher / school_admin = 自校）が決める。非 BYPASSRLS 接続（kimiterrace_app）で RLS context 下で呼ぶこと。
  * - 返り値は `Map<classId, signageUrl>`。設置 TV が無いクラスは**キーに現れない**（呼び出し側は「モニタ無し」と
  *   判定できる）。
  */
 export async function getClassSignageUrls(db: Selectable): Promise<Map<string, string>> {
-  // updated_at 降順で全件読み、各 class の最初（=最新）の 1 件を代表に採る（getClassSignageUrl と同選定規約）。
-  const rows = await db
-    .select({ classId: tvDevices.classId, signageUrl: tvDevices.signageUrl })
-    .from(tvDevices)
-    .where(
-      and(
-        isNotNull(tvDevices.classId),
-        isNull(tvDevices.deletedAt),
-        isNotNull(tvDevices.signageUrl),
+  // updated_at 降順で「signage_url を持つ未削除端末（class_id 列の有無を問わず）」と、自校の有効 signage
+  // トークン→class_id を 1 往復ずつ読む。class_id 列を優先し、無ければトークンで解決して各 class の最新 1 件を採る。
+  const [devRows, mlRows] = await Promise.all([
+    db
+      .select({ classId: tvDevices.classId, signageUrl: tvDevices.signageUrl })
+      .from(tvDevices)
+      .where(and(isNull(tvDevices.deletedAt), isNotNull(tvDevices.signageUrl)))
+      .orderBy(desc(tvDevices.updatedAt)),
+    db
+      .select({ token: magicLinks.token, classId: magicLinks.classId })
+      .from(magicLinks)
+      .where(
+        and(
+          isNotNull(magicLinks.token),
+          isNotNull(magicLinks.classId),
+          isNull(magicLinks.revokedAt),
+        ),
       ),
-    )
-    .orderBy(desc(tvDevices.updatedAt));
+  ]);
+  const classByToken = new Map<string, string>();
+  for (const r of mlRows) {
+    if (r.token && r.classId) {
+      classByToken.set(r.token, r.classId);
+    }
+  }
   const out = new Map<string, string>();
-  for (const r of rows) {
-    if (r.classId && r.signageUrl && !out.has(r.classId)) {
-      out.set(r.classId, r.signageUrl);
+  for (const r of devRows) {
+    if (!r.signageUrl) {
+      continue;
+    }
+    const token = extractSignageClassToken(r.signageUrl);
+    const classId = r.classId ?? (token ? (classByToken.get(token) ?? null) : null);
+    if (classId && !out.has(classId)) {
+      out.set(classId, r.signageUrl);
     }
   }
   return out;
