@@ -158,6 +158,64 @@ export async function pollTvConfig(
 }
 
 /**
+ * サイネージのモニタ起点表示（Phase5 v2-PR3）が読む、`device_id` → 表示文脈の **cross-tenant 解決**。
+ *
+ * `pollTvConfig`（ADR-022）と同じ二層 RLS パターン（`system_admin` role context・**BYPASSRLS 不使用**）で、
+ * グローバル UNIQUE な `device_id` を 1 行に解決する。匿名のモニタ起点サイネージ（`classToken` を持たない
+ * 廊下等の端末や、自端末への直指定広告を上乗せ表示する端末）が「自分が何校・どのクラス・どのモニタか」を
+ * 引くための入口。**read 専用**で心拍（last_seen_at）は更新しない（pollTvConfig が心拍の単一ソース）。
+ * ソフトデリート済（`deleted_at`）は解決しない（退役端末は表示も無効＝null）。
+ *
+ * 呼び出し側はこの戻り値の `schoolId` だけで改めて `withTenantContext({ schoolId })` を開き、表示データを
+ * 自校 RLS 下で組む（本関数の system_admin 文脈を表示の読取まで持ち越さない）。
+ *
+ * @param db       非 BYPASSRLS の Drizzle クライアント（本番 `getDb()`）。
+ * @param deviceId TV が報告する device_id（グローバル一意で 1 行に解決）。
+ * @param options  `appRole`: テスト superuser 接続を `kimiterrace_app` へ降格させ RLS を効かせる用。
+ * @returns        解決できた端末の `{ monitorId(=id), schoolId, classId(null 可), label }`。未登録/退役は null。
+ */
+export type SignageMonitorRef = {
+  monitorId: string;
+  schoolId: string;
+  classId: string | null;
+  label: string | null;
+};
+
+export async function resolveTvDeviceByDeviceId(
+  db: KimiterraceDb,
+  deviceId: string,
+  options?: { appRole?: string },
+): Promise<SignageMonitorRef | null> {
+  return await withTenantContext(
+    db,
+    { role: "system_admin" },
+    async (tx): Promise<SignageMonitorRef | null> => {
+      const rows = await tx
+        .select({
+          id: tvDevices.id,
+          schoolId: tvDevices.schoolId,
+          classId: tvDevices.classId,
+          label: tvDevices.label,
+        })
+        .from(tvDevices)
+        .where(and(eq(tvDevices.deviceId, deviceId), isNull(tvDevices.deletedAt)))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        return null;
+      }
+      return {
+        monitorId: row.id,
+        schoolId: row.schoolId,
+        classId: row.classId,
+        label: row.label,
+      };
+    },
+    options,
+  );
+}
+
+/**
  * 管理一覧: TV デバイスを取得する。可視範囲は RLS が決める（system_admin=全校 / テナント=自校のみ）。
  * ソフトデリート済（`deleted_at IS NOT NULL`）は一覧から除外する。ラベル → device_id の順で決定的に
  * 並べる（同一ラベルでも順序が安定）。
