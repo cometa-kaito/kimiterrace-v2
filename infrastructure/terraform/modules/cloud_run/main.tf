@@ -46,6 +46,19 @@ resource "google_secret_manager_secret_iam_member" "runtime_tv_poll_secret" {
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# SWITCHBOT_WEBHOOK_SECRET secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
+# F13/ADR-020: 人感センサ presence 受信 /api/sensors/switchbot/webhook の共有シークレット。
+# cutover 設計で値は TV_POLL_SECRET と同値ゆえ prod は同じ secret を流用する。その場合 accessor は
+# runtime_tv_poll_secret が既に付与済みのため**重複付与を避けて配線しない**（別 secret を指す時のみ付与）。
+resource "google_secret_manager_secret_iam_member" "runtime_switchbot_webhook_secret" {
+  count = var.enabled && var.switchbot_webhook_secret_id != "" && var.switchbot_webhook_secret_id != var.tv_poll_secret_id ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.switchbot_webhook_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # PROVISION_AGENT_SECRET secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
 # C方式 TV プロビジョニング: /api/tv/provisioning/* の agent 認証用 専用 secret（PR4）。空文字なら配線しない。
 resource "google_secret_manager_secret_iam_member" "runtime_provision_agent_secret" {
@@ -146,6 +159,22 @@ resource "google_cloud_run_v2_service" "web" {
           value_source {
             secret_key_ref {
               secret  = var.tv_poll_secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # SWITCHBOT_WEBHOOK_SECRET = 人感センサ presence 受信の共有シークレット（Secret Manager 注入、ルール5）。
+      # F13/ADR-020: /api/sensors/switchbot/webhook の認証。未設定なら webhook route は fail-closed(401)＝
+      # presence を一切記録しない。値は cutover 設計上 TV_POLL_SECRET と同値（prod は同じ secret を流用）。
+      dynamic "env" {
+        for_each = var.switchbot_webhook_secret_id != "" ? [1] : []
+        content {
+          name = "SWITCHBOT_WEBHOOK_SECRET"
+          value_source {
+            secret_key_ref {
+              secret  = var.switchbot_webhook_secret_id
               version = "latest"
             }
           }

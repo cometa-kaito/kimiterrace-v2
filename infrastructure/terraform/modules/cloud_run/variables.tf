@@ -68,6 +68,20 @@ variable "tv_poll_secret_legacy_version" {
   default     = ""
 }
 
+variable "switchbot_webhook_secret_id" {
+  description = <<-EOT
+    SWITCHBOT_WEBHOOK_SECRET を保持する Secret Manager secret の ID（ルール5、F13/ADR-020）。
+    人感センサ presence 受信 /api/sensors/switchbot/webhook の共有シークレット。値は cutover 設計上
+    TV_POLL_SECRET（tv_poll_secret_id）と**同値**のため、prod は同じ secret を流用して配線する
+    （docs/runbooks/prod-bringup-cutover.md「prod-tv-poll-secret = 旧 LP の SWITCHBOT_WEBHOOK_SECRET と同値」）。
+    空文字なら env / accessor を配線しない（その場合 webhook route は fail-closed の 401＝presence を記録しない）。
+    accessor IAM は tv_poll_secret_id と同一 secret を指す場合は既存付与で足りる（追加付与しない）。別 secret を
+    指す時のみ本モジュールが accessor を追加する（重複バインディング回避）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "provision_agent_secret_id" {
   description = <<-EOT
     PROVISION_AGENT_SECRET を保持する Secret Manager secret の ID（ルール5、C方式 TV プロビジョニング）。

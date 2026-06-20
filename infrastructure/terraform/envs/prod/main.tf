@@ -478,10 +478,14 @@ module "cloud_run" {
   database_url_secret_id        = local.db_url_app_secret_id
   tv_poll_secret_id             = local.tv_poll_secret_id
   tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
-  provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
-  partner_api_secret_id         = local.partner_api_secret_id         # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
-  vpc_connector                 = module.network.vpc_connector_id
-  vertex_location               = var.region
+  # F13/ADR-020: 人感センサ presence 受信 /api/sensors/switchbot/webhook の認証。cutover 設計で値は TV_POLL_SECRET と
+  # 同値（prod-tv-poll-secret = 旧 LP の SWITCHBOT_WEBHOOK_SECRET）ゆえ**同一 secret を流用**する＝追加 secret/値投入/IAM 不要。
+  # これが未配線の間は webhook が fail-closed(401) で presence を一切記録しない（全校 sensor が未検知のままになる真因）。
+  switchbot_webhook_secret_id = local.tv_poll_secret_id
+  provision_agent_secret_id   = local.provision_agent_secret_id # C方式/PR4: /api/tv/provisioning/* agent 認証
+  partner_api_secret_id       = local.partner_api_secret_id     # 効果還元K1: portal↔v2 /api/partner/* 共有シークレット
+  vpc_connector               = module.network.vpc_connector_id
+  vertex_location             = var.region
 
   # 実 Vertex 呼び出し kill-switch（#289、ルール4 / ADR-030）。PII マスキング設計 + aiplatform API 有効化の
   # 検証が済むまで OFF を維持する（既定 false = AI OFF・fail-safe）。bring-up 後に検証を経て true へ flip。
