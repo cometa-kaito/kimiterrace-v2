@@ -114,9 +114,25 @@ export async function GET(request: Request): Promise<NextResponse> {
   // 失効済も含めるか (F05 失効履歴の監査表示)。既定は有効リンクのみ。
   const includeRevoked = params.get("includeRevoked") === "true";
 
-  const links = await withTenantContext(getDb(), tenantContextForIssuer(auth.issuer), (tx) =>
-    listClassMagicLinks(tx, classId, { includeRevoked }),
+  const links = await withTenantContext(
+    getDb(),
+    tenantContextForIssuer(auth.issuer),
+    async (tx) => {
+      // 発行 (POST / createClassMagicLink の classBelongsToTenant) と対称化: 対象クラスが自テナントで可視か
+      // 先に検証し、非可視（別テナント / 不存在）は class_not_found。RLS が listClassMagicLinks で漏洩自体は
+      // 遮断する（他校リンクは返らない）が、他校 classId に「空一覧」でなく明示 404 を返して発行側と防御の
+      // 対称性を揃える（hardening・school_admin は自校のみ可視 / system_admin は cross-tenant 可視）。
+      const schoolId = await getVisibleClassSchoolId(tx, classId);
+      if (!schoolId) {
+        return null;
+      }
+      return listClassMagicLinks(tx, classId, { includeRevoked });
+    },
   );
+  // 非可視クラス（別テナント / 不存在）は発行 POST と同じく class_not_found。
+  if (!links) {
+    return NextResponse.json({ error: "class_not_found" }, { status: 404 });
+  }
 
   // ADR-042 D2: 再表示のため**平文 `token` を含めて返す**。これは RLS の tenant_isolation 下で自校のリンク
   // のみが返る（system_admin は全校・school_admin は自校）ため、再表示できる人は ADR-042 の対象に一致する。
