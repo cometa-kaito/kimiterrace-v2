@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "f48b86f" # 2026-06-20: pattern4 のエディタ↔実機パターン不一致を是正（#1093 エディタのモニタ↔クラス解決を signage_url の magic_link トークン経由にも対応・class_id 列 NULL の手貼り端末でも実機どおりのパターンを解決）＋ 時事ニュース/連絡を縦オートスクロール（#1094）。土台 2b5d7c1 込み。表示層(apps/web)/packages/db query のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
+  web_image_tag = "2cd6d03" # 2026-06-21: サイネージ pattern4 刷新 — 時事ニュース1記事横スライドカルーセル（#1097）＋見出し/出典の見切れ修正（#1098）＋表示間隔6→12秒（#1099）＋見出し/要約を「…」なしで切る（#1100）＋要約長文時に見出し/出典が flex-shrink で潰れる不具合の修正（#1103 見出し・出典を flex:0 0 auto 固定）。連絡=左縦長/鉄道・人感センサ=右、要約は先頭2文の抽出（AI不使用）。pattern1/2/3 無改修。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。prod 公開 pattern4 URL で全記事の見出し・出典・要約表示を実機確認済。staging も同 sha 反映済
 }
 
 module "network" {
