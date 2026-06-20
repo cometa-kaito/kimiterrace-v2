@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "f48b86f" # 2026-06-20: pattern4 のエディタ↔実機パターン不一致を是正（#1093 エディタのモニタ↔クラス解決を signage_url の magic_link トークン経由にも対応）＋ 時事ニュース/連絡を縦オートスクロール（#1094）。土台 2b5d7c1 込み。表示層(apps/web)/packages/db query のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
+  web_image_tag = "2cd6d03" # 2026-06-21: サイネージ pattern4 刷新 — 時事ニュース1記事横スライドカルーセル（#1097）＋見切れ修正（#1098）＋表示間隔6→12秒（#1099）＋見出し/要約を「…」なしで切る（#1100）＋要約長文時の見出し/出典 flex-shrink 潰れ修正（#1103）。連絡=左縦長/鉄道・人感センサ=右、要約は先頭2文抽出（AI不使用）。pattern1/2/3 無改修。表示層のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
