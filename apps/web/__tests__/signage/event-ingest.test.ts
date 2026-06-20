@@ -6,20 +6,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * RLS 文脈 (schoolId 強制) と PII allowlist・不正入力の倒し方を検証する。
  */
 
-const { resolveMagicLink, withTenantContext, getEffectiveAdsForClass, hashToken, eq } = vi.hoisted(
-  () => ({
-    resolveMagicLink: vi.fn(),
-    withTenantContext: vi.fn(),
-    getEffectiveAdsForClass: vi.fn(),
-    hashToken: vi.fn((t: string) => `HASH(${t})`),
-    eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
-  }),
-);
+const {
+  resolveMagicLink,
+  resolveTvDeviceByDeviceId,
+  withTenantContext,
+  getEffectiveAdsForClass,
+  getEffectiveAdsForMonitor,
+  hashToken,
+  eq,
+} = vi.hoisted(() => ({
+  resolveMagicLink: vi.fn(),
+  resolveTvDeviceByDeviceId: vi.fn(),
+  withTenantContext: vi.fn(),
+  getEffectiveAdsForClass: vi.fn(),
+  getEffectiveAdsForMonitor: vi.fn(),
+  hashToken: vi.fn((t: string) => `HASH(${t})`),
+  eq: vi.fn((col: unknown, val: unknown) => ({ col, val })),
+}));
 
 vi.mock("@kimiterrace/db", () => ({
   resolveMagicLink,
+  resolveTvDeviceByDeviceId,
   withTenantContext,
   getEffectiveAdsForClass,
+  getEffectiveAdsForMonitor,
   events: { __table: "events" },
   contents: { id: "contents.id" },
 }));
@@ -30,6 +40,7 @@ vi.mock("@/lib/magic-link/token", () => ({ hashToken }));
 import {
   type EventIngestInput,
   recordSignageEvent,
+  recordSignageEventForMonitor,
   validateEventInput,
 } from "../../lib/signage/event-ingest";
 
@@ -243,5 +254,96 @@ describe("recordSignageEvent", () => {
     expect(eq).not.toHaveBeenCalled();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ contentId: null });
+  });
+});
+
+describe("recordSignageEventForMonitor (Phase5 v2-PR4・モニタ起点)", () => {
+  const DEVICE_ID = "device-uuid-abc";
+  const MONITOR_ID = "33333333-3333-4333-8333-333333333333";
+
+  it("正常系: device_id を解決し schoolId 強制の tenant 文脈で events に INSERT", async () => {
+    resolveTvDeviceByDeviceId.mockResolvedValue({
+      monitorId: MONITOR_ID,
+      schoolId: SCHOOL_ID,
+      classId: "c1",
+      label: "廊下",
+    });
+    const res = await recordSignageEventForMonitor(DEVICE_ID, {
+      type: "view",
+      clientId: CLIENT_ID,
+      slotIndex: 0,
+    });
+    expect(res).toEqual({ ok: true });
+    expect(resolveTvDeviceByDeviceId).toHaveBeenCalledWith(expect.anything(), DEVICE_ID);
+    // RLS 文脈は解決した schoolId のみ（client 由来でない）。classToken 版と同じ withTenantContext 経路。
+    expect(lastCtx).toEqual({ schoolId: SCHOOL_ID });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      schoolId: SCHOOL_ID,
+      type: "view",
+      payload: { clientId: CLIENT_ID, slotIndex: 0 },
+    });
+    expect(captured[0]).not.toHaveProperty("occurredAt");
+  });
+
+  it("入力不正は invalid で、device 解決も INSERT もしない", async () => {
+    const res = await recordSignageEventForMonitor(DEVICE_ID, { type: "dwell" });
+    expect(res).toEqual({ ok: false, reason: "invalid" });
+    expect(resolveTvDeviceByDeviceId).not.toHaveBeenCalled();
+    expect(captured).toHaveLength(0);
+  });
+
+  it("未登録/退役 device（resolve null）は gone で INSERT しない", async () => {
+    resolveTvDeviceByDeviceId.mockResolvedValue(null);
+    const res = await recordSignageEventForMonitor(DEVICE_ID, { type: "view" });
+    expect(res).toEqual({ ok: false, reason: "gone" });
+    expect(captured).toHaveLength(0);
+  });
+
+  it("空 deviceId は解決を試みず gone", async () => {
+    const res = await recordSignageEventForMonitor("", { type: "view" });
+    expect(res).toEqual({ ok: false, reason: "gone" });
+    expect(resolveTvDeviceByDeviceId).not.toHaveBeenCalled();
+  });
+
+  it("adId 実在照合はモニタの実効広告（getEffectiveAdsForMonitor・classId+monitorId）で行う", async () => {
+    resolveTvDeviceByDeviceId.mockResolvedValue({
+      monitorId: MONITOR_ID,
+      schoolId: SCHOOL_ID,
+      classId: "c1",
+      label: null,
+    });
+    getEffectiveAdsForMonitor.mockResolvedValue([{ adId: AD_ID }]);
+    const res = await recordSignageEventForMonitor(DEVICE_ID, { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: true });
+    expect(getEffectiveAdsForMonitor).toHaveBeenCalledWith(expect.anything(), "c1", MONITOR_ID);
+    expect(captured[0]).toMatchObject({ payload: { adId: AD_ID } });
+  });
+
+  it("廊下（classId=null）端末でもモニタ直指定広告で adId 照合し INSERT", async () => {
+    resolveTvDeviceByDeviceId.mockResolvedValue({
+      monitorId: MONITOR_ID,
+      schoolId: SCHOOL_ID,
+      classId: null,
+      label: "昇降口",
+    });
+    getEffectiveAdsForMonitor.mockResolvedValue([{ adId: AD_ID }]);
+    const res = await recordSignageEventForMonitor(DEVICE_ID, { type: "tap", adId: AD_ID });
+    expect(res).toEqual({ ok: true });
+    expect(getEffectiveAdsForMonitor).toHaveBeenCalledWith(expect.anything(), null, MONITOR_ID);
+    expect(captured).toHaveLength(1);
+  });
+
+  it("実効広告に無い adId は invalid で INSERT しない（水増し防止）", async () => {
+    resolveTvDeviceByDeviceId.mockResolvedValue({
+      monitorId: MONITOR_ID,
+      schoolId: SCHOOL_ID,
+      classId: null,
+      label: null,
+    });
+    getEffectiveAdsForMonitor.mockResolvedValue([{ adId: "99999999-9999-4999-8999-999999999999" }]);
+    const res = await recordSignageEventForMonitor(DEVICE_ID, { type: "view", adId: AD_ID });
+    expect(res).toEqual({ ok: false, reason: "invalid" });
+    expect(captured).toHaveLength(0);
   });
 });

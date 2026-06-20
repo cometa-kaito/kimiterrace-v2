@@ -44,14 +44,17 @@ export type SignageEventBeacon = {
 /**
  * 行動イベントを 1 件ベストエフォートで送る。ページ遷移・タブクローズ時もロスしないよう
  * `navigator.sendBeacon` を優先し、未対応環境は `fetch(keepalive)` にフォールバックする。
- * 送信失敗は表示に影響させない (テレメトリのため握りつぶす)。`classToken` は credential なので
- * URL 以外に出さない (route 側で no-store、ログ非反射)。
+ * 送信失敗は表示に影響させない (テレメトリのため握りつぶす)。
+ *
+ * @param eventsUrl 送信先 events エンドポイント（`/signage/<classToken>/events` または
+ *   `/signage/monitor/<deviceId>/events`・Phase5 v2-PR4）。呼び出し側（SignageClient）が `${basePath}/events`
+ *   で組んで渡す。classToken/device_id は credential 扱いゆえ URL 以外に出さない（route 側で no-store・ログ非反射）。
  */
-export function sendSignageEvent(classToken: string, event: SignageEventBeacon): void {
-  if (!classToken) {
+export function sendSignageEvent(eventsUrl: string, event: SignageEventBeacon): void {
+  if (!eventsUrl) {
     return;
   }
-  const url = `/signage/${encodeURIComponent(classToken)}/events`;
+  const url = eventsUrl;
   const body = JSON.stringify(event);
   try {
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {

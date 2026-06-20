@@ -44,5 +44,7 @@ export default async function SignagePage({
     return <SignageInvalid />;
   }
 
-  return <SignageClient classToken={classToken} initial={payload} />;
+  return (
+    <SignageClient basePath={`/signage/${encodeURIComponent(classToken)}`} initial={payload} />
+  );
 }

@@ -45,7 +45,7 @@ describe("sendSignageEvent", () => {
   it("sendBeacon があれば URL + application/json Blob で送る", () => {
     const beacon = vi.fn((_url: string, _data?: BodyInit | null) => true);
     Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });
-    sendSignageEvent(TOKEN, { type: "view", adId: "a1", slotIndex: 0 });
+    sendSignageEvent(URL, { type: "view", adId: "a1", slotIndex: 0 });
     expect(beacon).toHaveBeenCalledTimes(1);
     const call = beacon.mock.calls[0];
     expect(call?.[0]).toBe(URL);
@@ -59,14 +59,14 @@ describe("sendSignageEvent", () => {
     Reflect.deleteProperty(navigator, "sendBeacon");
     const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal("fetch", fetchMock);
-    sendSignageEvent(TOKEN, { type: "tap" });
+    sendSignageEvent(URL, { type: "tap" });
     expect(fetchMock).toHaveBeenCalledWith(
       URL,
       expect.objectContaining({ method: "POST", keepalive: true }),
     );
   });
 
-  it("classToken 空なら何も送らない", () => {
+  it("eventsUrl 空なら何も送らない", () => {
     const beacon = vi.fn(() => true);
     Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });
     sendSignageEvent("", { type: "view" });
@@ -81,7 +81,7 @@ describe("sendSignageEvent", () => {
       },
       configurable: true,
     });
-    expect(() => sendSignageEvent(TOKEN, { type: "view" })).not.toThrow();
+    expect(() => sendSignageEvent(URL, { type: "view" })).not.toThrow();
     Reflect.deleteProperty(navigator, "sendBeacon");
   });
 });

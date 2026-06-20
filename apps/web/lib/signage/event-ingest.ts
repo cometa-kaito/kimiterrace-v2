@@ -4,7 +4,9 @@ import {
   events,
   type TenantTx,
   getEffectiveAdsForClass,
+  getEffectiveAdsForMonitor,
   resolveMagicLink,
+  resolveTvDeviceByDeviceId,
   withTenantContext,
 } from "@kimiterrace/db";
 import { eq } from "drizzle-orm";
@@ -188,6 +190,74 @@ export async function recordSignageEvent(
       contentId,
       type: v.value.type,
       // occurred_at は DB 既定 now() に委ねる (クライアント時刻を信用しない)。
+      payload: v.value.payload,
+    });
+    return { ok: true } as const;
+  });
+}
+
+/** device_id を {schoolId, classId, monitorId} に解決。未登録/退役なら null（recordSignageEvent の resolveTenant のモニタ版）。 */
+async function resolveMonitorTenant(
+  deviceId: string,
+): Promise<{ schoolId: string; classId: string | null; monitorId: string } | null> {
+  if (!deviceId) {
+    return null;
+  }
+  const dev = await resolveTvDeviceByDeviceId(getDb(), deviceId);
+  return dev ? { schoolId: dev.schoolId, classId: dev.classId, monitorId: dev.monitorId } : null;
+}
+
+/**
+ * モニタ起点サイネージ（`/signage/monitor/{deviceId}/events`・Phase5 v2-PR4）の行動イベントを 1 件記録する。
+ * `recordSignageEvent`（classToken 版）の姉妹。テナント解決を `resolveTvDeviceByDeviceId`（device_id→school、
+ * system_admin 文脈で cross-tenant 解決）に差し替え、adId の実在照合をモニタの実効広告
+ * （`getEffectiveAdsForMonitor` = クラス継承∪モニタ直指定）で行う以外は同一（同じ匿名テナント INSERT・PII 最小・
+ * occurred_at は DB now()・越境 content は不可視化）。`device_id` は credential 扱いゆえログ・例外に出さない。
+ *
+ * @returns `{ok:true}` 記録成功 / `{reason:"invalid"}` 入力不正・spoof adId / `{reason:"gone"}` 端末未登録・退役。
+ */
+export async function recordSignageEventForMonitor(
+  deviceId: string,
+  raw: EventIngestInput,
+): Promise<EventIngestResult> {
+  const v = validateEventInput(raw);
+  if (!v.ok) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  const tenant = await resolveMonitorTenant(deviceId);
+  if (!tenant) {
+    return { ok: false, reason: "gone" };
+  }
+
+  const adId = typeof v.value.payload.adId === "string" ? v.value.payload.adId : null;
+
+  return await withTenantContext(getDb(), { schoolId: tenant.schoolId }, async (tx: TenantTx) => {
+    if (adId !== null) {
+      // 当該モニタの実効広告（クラス継承∪自端末直指定）に実在する adId のみ採用（到達数水増し防止）。
+      const ads = await getEffectiveAdsForMonitor(tx, tenant.classId, tenant.monitorId);
+      if (!ads.some((ad) => ad.adId === adId)) {
+        return { ok: false, reason: "invalid" } as const;
+      }
+    }
+
+    // contentId は自テナント可視な content のみ採用（越境参照を残さない・recordSignageEvent と同方針）。
+    let contentId = v.value.contentId;
+    if (contentId !== null) {
+      const found = await tx
+        .select({ id: contents.id })
+        .from(contents)
+        .where(eq(contents.id, contentId))
+        .limit(1);
+      if (found.length === 0) {
+        contentId = null;
+      }
+    }
+
+    await tx.insert(events).values({
+      schoolId: tenant.schoolId,
+      contentId,
+      type: v.value.type,
       payload: v.value.payload,
     });
     return { ok: true } as const;
