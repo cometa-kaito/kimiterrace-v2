@@ -258,6 +258,20 @@ describe("POST /api/magic-links (発行)", () => {
 });
 
 describe("GET /api/magic-links (一覧)", () => {
+  // 一覧も発行と対称に、対象クラスが自テナントで可視であることを先に検証する（S1 hardening）。
+  // 既定は可視（自校クラス）を返すよう mock し、非可視ケースは個別に null を設定する。
+  beforeEach(() => {
+    getVisibleClassSchoolId.mockResolvedValue(SCHOOL_ADMIN.schoolId);
+  });
+
+  it("対象クラスが自テナントで非可視（学校解決 null）は class_not_found (404)・一覧は引かない", async () => {
+    getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
+    getVisibleClassSchoolId.mockResolvedValue(null);
+    const res = await GET(new Request(`http://test/api/magic-links?classId=${CLASS_ID}`));
+    expect(res.status).toBe(404);
+    expect(listClassMagicLinks).not.toHaveBeenCalled();
+  });
+
   it("ADR-042 D2: 平文 token は再表示のため返すが、token_hash は決して返さない", async () => {
     getCurrentUser.mockResolvedValue(SCHOOL_ADMIN);
     listClassMagicLinks.mockResolvedValue([
