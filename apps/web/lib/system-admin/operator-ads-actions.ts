@@ -112,6 +112,12 @@ export async function createOperatorAdAction(raw: {
     return invalid(v.message);
   }
   const user = await requireRole(SYSTEM_ADMIN_ROLES);
+  // system_admin は users 行を持たない（system_admins で別管理）。ads.created_by/updated_by は users(id) への
+  // FK（migration 0006）なので uid を入れると **23505 でなく 23503 FK 違反**になり、isConstraintViolation で
+  // 握られ "他の操作と競合しました" (conflict) に化けて **運営広告入稿が本番で必ず失敗**する。監査(writeAudit)と
+  // 同じく null 化する（school-admin/ads-actions の actor.userRef=null・TV の toTvConfigEditActor と同型・
+  // [[system-admin-not-in-users-table]]）。本人追跡は監査の actor_identity_uid で担保される。
+  const actorRef: string | null = user.role === "system_admin" ? null : user.uid;
 
   try {
     const data = await withSession(async (tx) => {
@@ -135,8 +141,8 @@ export async function createOperatorAdAction(raw: {
           caption: v.value.caption,
           captionFontScale: v.value.captionFontScale,
           displayOrder: v.value.displayOrder,
-          createdBy: user.uid,
-          updatedBy: user.uid,
+          createdBy: actorRef,
+          updatedBy: actorRef,
         })
         .returning({ id: ads.id });
       const newId = row?.id;
