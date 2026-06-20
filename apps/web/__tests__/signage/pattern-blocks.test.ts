@@ -62,7 +62,7 @@ describe("編集対象ブロックの出し分け", () => {
     expect(editableBlocksForPattern("pattern2")).toEqual(["schedule", "callout", "visitor"]);
   });
 
-  it("pattern3（廊下）は pattern2 から工学ニュースを除いたブロック（廊下運用はニュース枠を外す・2026-06-20）", () => {
+  it("pattern3（廊下）は pattern2 から時事ニュースを除いたブロック（廊下運用はニュース枠を外す・2026-06-20）", () => {
     // 廊下運用ではニュース枠を外し予定・人物情報に集中させる（ユーザー確定）。それ以外は pattern2 と同一順序。
     expect(PATTERN_BLOCKS.pattern3).toEqual(PATTERN_BLOCKS.pattern2.filter((b) => b !== "news"));
     expect(patternIncludesBlock("pattern3", "news")).toBe(false);
@@ -99,7 +99,7 @@ describe("編集対象ブロックの出し分け", () => {
 });
 
 describe("patternIncludesBlock（データ層の取得ゲート）", () => {
-  it("pattern1 は来校者 / 呼び出し / センサ / 鉄道 / 工学ニュースを出さない（無駄クエリを省く）", () => {
+  it("pattern1 は来校者 / 呼び出し / センサ / 鉄道 / 時事ニュースを出さない（無駄クエリを省く）", () => {
     expect(patternIncludesBlock("pattern1", "visitor")).toBe(false);
     expect(patternIncludesBlock("pattern1", "callout")).toBe(false);
     expect(patternIncludesBlock("pattern1", "presence")).toBe(false);
@@ -119,7 +119,7 @@ describe("patternIncludesBlock（データ層の取得ゲート）", () => {
     expect(patternIncludesBlock("pattern3", "safety_alert")).toBe(false);
   });
 
-  it("pattern2 は来校者 / 呼び出し / センサ / 鉄道 / 工学ニュースを出し、連絡 / 提出物は出さない", () => {
+  it("pattern2 は来校者 / 呼び出し / センサ / 鉄道 / 時事ニュースを出し、連絡 / 提出物は出さない", () => {
     expect(patternIncludesBlock("pattern2", "visitor")).toBe(true);
     expect(patternIncludesBlock("pattern2", "callout")).toBe(true);
     expect(patternIncludesBlock("pattern2", "presence")).toBe(true);
@@ -163,7 +163,7 @@ describe("SIGNAGE_BLOCK_META のラベルは盤面 aria-label と一致（クロ
       visitor: "来校者一覧",
       presence: "人感センサカウンタ",
       train: "鉄道",
-      news: "工学ニュース",
+      news: "時事ニュース",
       safety_alert: "防災・安全",
       weather: "天気",
       ad: "広告",
