@@ -165,8 +165,9 @@ export default async function ClassEditorPage({
         initialAssignments={assignments.items}
       />
 
-      {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで盤面の
-          下に出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
+      {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
+          パターンのときだけ 2 カラムで盤面の下に出す（含まないパターンでは盤面に出ないので編集セクションも
+          出さない＝死セクション防止・finding①。将来パターン追加にも単一ソースで自動追従）。
           key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。 */}
       {showVisitors || showCallouts ? (
         <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
