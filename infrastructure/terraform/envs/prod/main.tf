@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "f25b610" # migration 0028-0033 (#1049/1048/1056/1057/1059/1060): news_items/weather_warnings/heat_alerts/signage_snippets/school_calendar_*/air_quality_index + 公開型&tenant_isolation RLS + 監査FK（ADR-043/044/045/046・全 additive/後方互換）。staging Job 適用成功(0030-0033 applied・0028/0029 skip)。prod Job 実行は人間専任
+  migrate_image_tag = "ea93c5f" # 2026-06-20: news_items.summary 列追加（#1087・ALTER TABLE ADD COLUMN IF NOT EXISTS summary text・additive/後方互換・RLS監査不変・resolve_magic_link 無関係）。0028-0033（news/weather/heat/snippets/calendar/air_quality・ADR-043/044/045/046）も同梱し migrate-runner が未適用分のみ冪等適用。prod Job 実行は人間専任ゲート（summary 列は適用済・prod 実 Job image=ea93c5f）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -182,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
+  jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "d0eff93" # 2026-06-20: エディタの浮遊AIチャットをドラッグ/矢印キー/ダブルクリック/Homeでリサイズ可能に（#1085）。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
+  web_image_tag = "2b5d7c1" # 2026-06-20: 時事ニュース表示で要約付き(METI/CC BY)項目を上位に並べ替え（#1091・getLatestNews を summary 優先順に・文科省見出しの直近大量公開が METI 要約を limit 外へ押し出す事象の修正）。土台 ea93c5f(#1087 METI 公式要約) + 中間 #1085(浮遊AIチャットresize)/#1086(エディタ盤面プレビュー統一) 込み。表示層(apps/web/packages/db query)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
 }
 
 module "network" {
