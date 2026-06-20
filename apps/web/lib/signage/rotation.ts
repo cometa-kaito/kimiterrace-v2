@@ -85,6 +85,30 @@ export function jitteredPollMs(
   return Math.max(MIN_AD_MS, Math.round(baseMs + delta));
 }
 
+/** ISO 8601 の日時文字列 (日付に時刻 `T...` が付くもの) にマッチ。`YYYY-MM-DD` 単体 (日付のみ) は対象外。 */
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/**
+ * `JSON.parse` 用の reviver。サイネージ payload の **Date 型フィールド** (`fetchedAt` / `publishedAt` 等、
+ * ISO 8601 日時文字列) を `Date` に復元する。
+ *
+ * **なぜ必要か**: 初期描画 (SSR→hydration) は RSC が `Date` をそのまま `Date` として復元するが、自動更新
+ * **ポーリング応答は JSON** なので `Date` が文字列化する。これを復元せず `setData` すると、盤面が `Date` を
+ * 前提に呼ぶ箇所 (例: ニュース日付 `formatNewsDate` の `publishedAt.getTime()`) が**文字列に対して実行され
+ * `TypeError: ...getTime is not a function`** を投げ、error boundary が盤面ごと「問題が発生しました」に倒れる
+ * (pattern2/3 のニュース帯で実害。pattern1 は同フィールドを描画せず無傷だった)。poll 応答をこの reviver で
+ * パースし、payload の「Date は Date」という不変条件を初期描画と一致させる。
+ *
+ * 日付のみの文字列 (`YYYY-MM-DD`: `date` / `forecastDate` / 課題 `deadline` 等、型上 `string`) は `T` を
+ * 含まずマッチしないので**文字列のまま**残す (Date 化しない＝既存の文字列前提描画を壊さない)。
+ */
+export function reviveSignageDate(_key: string, value: unknown): unknown {
+  if (typeof value === "string" && ISO_DATETIME_RE.test(value)) {
+    return new Date(value);
+  }
+  return value;
+}
+
 /**
  * JST (Asia/Tokyo) の YYYY-MM-DD。端末のブラウザ TZ に依存せず日本時間の「今日」を出す
  * (深夜 0 時を跨いだら翌日分へ自動で切り替わる)。`now` 注入でテスト可能。
