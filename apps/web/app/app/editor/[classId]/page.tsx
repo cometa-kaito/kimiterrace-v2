@@ -7,23 +7,11 @@ import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
-import { getClassSignageBlackout } from "@/lib/signage/blackout";
 import { resolveDesignPattern } from "@/lib/signage/design-pattern";
-import {
-  getEffectiveDailyData,
-  getEffectiveScheduleDays,
-} from "@/lib/signage/effective-daily-data";
 import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
-import { signageScheduleDates } from "@/lib/signage/rotation";
 import { getSignageDesignPattern } from "@/lib/signage/signage-design";
-import { getSignageWeather } from "@/lib/signage/weather";
-import {
-  getCalloutsForClass,
-  getClassSignageUrl,
-  getEffectiveAdsForClass,
-  getSignageClassContext,
-  getVisitorsForClass,
-} from "@kimiterrace/db";
+import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
+import { getClassSignageUrl } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -76,6 +64,8 @@ export default async function ClassEditorPage({
     if (!schedule) {
       return null;
     }
+    // 編集フォームの初期値は**クラス直の**当日セクション（編集対象＝raw）。盤面プレビューの基底（下記 `board`）は
+    // class>grade>dept>school のマージ結果なので、編集フォーム用にはこちらを別途引く（用途が違う）。
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
     // 「このクラスのサイネージを開く」導線兼**端末別デザインパターン解決**用に、当該クラスの TV デバイスの公開
@@ -83,50 +73,30 @@ export default async function ClassEditorPage({
     const liveSignageUrl = await getClassSignageUrl(tx, classId);
     // サイネージデザインパターンを解決（**端末別 `?design` > 学校レベル既定 > pattern1**）。実機 TV / モニタの壁と
     // 同じ優先順位（`resolveDesignPattern` 単一ソース）で、このクラスの実機が実際に出すパターンでプレビュー・編集
-    // セクションを出し分ける（学校既定が pattern1 でも端末が pattern2/3 なら追従＝旧「学校既定のみ参照」を是正）。
-    // 来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS` 上 pattern2/3 専用ブロックなので、パターンに含まれる時だけ
-    // 取得・描画する（含まないパターンでは取得もしない＝不要セクションの無条件描画を解消・指摘ログ finding①。
-    // 単一ソース `patternIncludesBlock` で駆動し `=== "pattern2"` のハードコード分岐を作らない＝将来パターン追加に
-    // 自動追従）。
+    // セクションを出し分ける（学校既定が pattern1 でも端末が pattern2/3/4 なら追従＝旧「学校既定のみ参照」を是正）。
     const pattern = resolveDesignPattern(liveSignageUrl, await getSignageDesignPattern(tx));
+    // WYSIWYG（盤面を編集タブ）のライブプレビュー基底は、**実機サイネージと完全に同一の payload builder**
+    // （`buildSignagePayloadForClass`）から組む。これにより自動コンテンツ系ブロック（時事ニュース / 鉄道 /
+    // 人感センサ / 防災・安全帯）も実機と同じ取得ゲート（`PATTERN_BLOCKS`）・同じ fail-soft で取得・描画され、
+    // エディタの盤面と実機 TV の見た目が一致する。旧実装は base を手組みして自動ブロックを `null` 固定していたため
+    // pattern2/3/4 でニュース等が空欄になり「エディタのパターンと実機の表示が合わない」ズレが出ていた（本修正の主眼・
+    // ユーザー報告 2026-06-20）。`pattern` を designParam として渡すので builder 内の二重パターン解決は起きない。
+    // schoolId 不明時は null（盤面を出さず WysiwygBoardEditor が従来の縦積みフォームへ fail-soft フォールバック）。
+    const board = user.schoolId
+      ? await buildSignagePayloadForClass(tx, user.schoolId, classId, date, pattern)
+      : null;
+    // 来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS` 上 pattern2/3 専用の**編集対象**ブロック。盤面下の編集欄を
+    // 出すかの判定に使う（実機と同じ取得結果は `board.visitors` / `board.callouts` に載る）。`patternIncludesBlock`
+    // 単一ソース駆動で `=== "pattern2"` のハードコード分岐を作らない（将来パターン追加に自動追従）。
     const showVisitors = patternIncludesBlock(pattern, "visitor");
     const showCallouts = patternIncludesBlock(pattern, "callout");
-    const visitors = showVisitors ? await getVisitorsForClass(tx, classId, date) : null;
-    const callouts = showCallouts ? await getCalloutsForClass(tx, classId, date) : null;
-    // プレビュー / WYSIWYG 用: 教室のサイネージに実際どう出るか（class>grade>dept>school のマージ結果 + 実効広告）。
-    const previewDaily = await getEffectiveDailyData(tx, classId, date);
-    const previewAds = await getEffectiveAdsForClass(tx, classId);
-    // プレビュータブの黒画面トグル初期値（class スコープ display_settings.blackout）。同一 tx・RLS 自校限定。
-    const blackout = await getClassSignageBlackout(tx, classId);
-    // WYSIWYG（盤面を編集タブ）の実機ライブプレビュー用に、実機 `getSignageDisplayData` と同じ基底データを
-    // **同一 tx・RLS 自校限定**で取得する（盤面 `SignageBoardView` を実機と一致させるため・重複実装しない）。
-    // 予定は今後 3 平日の 3 列（実機と同じ），クラス文脈（ヘッダー識別ラベル），天気は予定列ヘッダーのアイコン。
-    const previewScheduleDays = await getEffectiveScheduleDays(
-      tx,
-      classId,
-      signageScheduleDates(date, 3),
-    );
-    const previewClassContext = await getSignageClassContext(tx, classId);
-    // 天気は fail-soft（取得失敗・地域未解決でも盤面の他要素は壊さない）。実機経路と同思想で null に倒す。
-    const previewWeather = user.schoolId
-      ? await getSignageWeather(tx, user.schoolId, date).catch(() => null)
-      : null;
-    // liveSignageUrl は上で取得済み（パターン解決と「このクラスのサイネージを開く」導線で共用）。
     return {
       schedule,
       notices,
       assignments,
       showVisitors,
       showCallouts,
-      visitors,
-      callouts,
-      previewDaily,
-      previewAds,
-      blackout,
-      pattern,
-      previewScheduleDays,
-      previewClassContext,
-      previewWeather,
+      board,
       liveSignageUrl,
     };
   });
@@ -134,52 +104,17 @@ export default async function ClassEditorPage({
   if (!data || !data.notices || !data.assignments) {
     notFound();
   }
-  const {
-    schedule,
-    notices,
-    assignments,
-    showVisitors,
-    showCallouts,
-    visitors,
-    callouts,
-    previewDaily,
-    previewAds,
-    blackout,
-    pattern,
-    previewScheduleDays,
-    previewClassContext,
-    previewWeather,
-    liveSignageUrl,
-  } = data;
+  const { schedule, notices, assignments, showVisitors, showCallouts, board, liveSignageUrl } =
+    data;
 
-  // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`previewDaily` が取れた時だけ盤面を出す
-  // （取れない時は WysiwygBoardEditor 側がプレビューを畳んで従来フォームのみにフォールバック＝盤面を壊さない）。
-  // `designPattern` はこのクラスの実機が出すパターン（端末別 `?design` 解決済み）。pattern2/3 のクラスでは盤面が
-  // Pattern2/3 レイアウトで描かれ、来校者 / 生徒呼び出しは取得済みスナップショット（`showVisitors`/`showCallouts`）
-  // を渡して実機どおりに表示する（編集連動は予定のみ・来校者/呼び出しの編集欄は盤面下に出す）。人感センサ / 鉄道は
-  // 自動ブロック（編集対象外）なので null 渡しで fail-soft（ウィジェットは不在表示）。
-  const boardBase: EditorBoardBase | null = previewDaily
-    ? {
-        date,
-        designPattern: pattern,
-        daily: previewDaily,
-        scheduleDays: previewScheduleDays,
-        ads: previewAds,
-        weather: previewWeather,
-        classContext: previewClassContext,
-        presenceCount: null,
-        visitors: showVisitors ? visitors : null,
-        callouts: showCallouts ? callouts : null,
-        trainStatus: null,
-        // 時事ニュース（自動ブロック・ADR-043）は鉄道/センサと同じく編集プレビューでは出さない（null）。
-        news: null,
-        // 防災・安全（自動ブロック・ADR-044）も編集プレビューでは出さない（null＝帯ごと非表示）。pattern1 でも
-        // 編集中の盤面には警報/熱中症を描かない（実機の live 表示でのみ出す）。
-        weatherWarnings: null,
-        heatAlerts: null,
-        blackout,
-      }
-    : null;
+  // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass`
+  // の出力（`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。盤面は
+  // このクラスの実機が出すパターン（`board.designPattern`＝端末別 `?design` 解決済み）の `PATTERN_BLOCKS` レイアウトで
+  // 描かれ、予定 / 連絡 / 提出物 / 来校者 / 呼び出しに加え、自動コンテンツ（ニュース / 鉄道 / 人感センサ / 防災帯）も
+  // **実機とまったく同じデータ**で出る（編集連動は予定/連絡/提出物のみ・来校者/呼び出しの編集欄は盤面下に出す）。
+  // 取得不能（クラス不可視 / schoolId 不明）は `null` で、WysiwygBoardEditor が盤面を畳んで従来フォームのみに
+  // フォールバックする（盤面を壊さない・編集は引き続き可能）。
+  const boardBase: EditorBoardBase | null = board;
 
   return (
     <>
@@ -230,16 +165,27 @@ export default async function ClassEditorPage({
         initialAssignments={assignments.items}
       />
 
-      {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで盤面の
-          下に出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
+      {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
+          パターンのときだけ 2 カラムで盤面の下に出す（含まないパターンでは盤面に出ないので編集セクションも
+          出さない＝死セクション防止・finding①。将来パターン追加にも単一ソースで自動追従）。
           key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。 */}
       {showVisitors || showCallouts ? (
         <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-          {showVisitors && visitors ? (
-            <VisitorsEditor key={date} classId={classId} date={date} initialItems={visitors} />
+          {showVisitors && board?.visitors ? (
+            <VisitorsEditor
+              key={date}
+              classId={classId}
+              date={date}
+              initialItems={board.visitors}
+            />
           ) : null}
-          {showCallouts && callouts ? (
-            <CalloutsEditor key={date} classId={classId} date={date} initialItems={callouts} />
+          {showCallouts && board?.callouts ? (
+            <CalloutsEditor
+              key={date}
+              classId={classId}
+              date={date}
+              initialItems={board.callouts}
+            />
           ) : null}
         </div>
       ) : null}
@@ -268,7 +214,7 @@ export default async function ClassEditorPage({
         <h2 id="blackout-heading" style={blackoutHeadingStyle}>
           サイネージを黒画面にする
         </h2>
-        <BlackoutToggle classId={classId} initialBlackout={blackout} />
+        <BlackoutToggle classId={classId} initialBlackout={board?.blackout ?? false} />
       </section>
 
       <RememberLastClass classId={classId} />
