@@ -1332,12 +1332,23 @@
 }
 /* カルーセルは 1 記事を 1 枠に収める。見出しは約 2 行で「いい感じに切る」が、**末尾に「…」を出さない**
    （2026-06-21 ユーザー指示）。`-webkit-line-clamp` は自動で「…」を付けるため使わず、`max-height` +
-   `overflow:hidden` で行数を抑えて「…」なしにきれいに切る。要約（本文）も同様にクランプ（=「…」）を外し、
-   全文折り返しでスライドに収まらない分はスライド下端で「…」なしに切れる（出典は見出し直後にあり保護される）。 */
+   `overflow:hidden` で行数を抑えて「…」なしにきれいに切る。
+   ★ 見出し・出典は `flex: 0 0 auto` で**縮ませない**（要約を「…」なし全文折り返しにした結果、要約が縦に
+   伸びて column の flex-shrink で見出し・出典まで潰れ消える不具合の修正・2026-06-21）。要約だけが残りスペースを
+   占有し、収まらない分はスライド下端で「…」なしに切れる（見出し・出典は常に全文表示）。 */
 .p4Root .newsCarouselSlide .p2NewsTitle {
   display: block;
   white-space: normal;
   max-height: 2.6em; /* line-height 1.3 × 2 行ぶん。3 行目以降は overflow で「…」なしに切る。 */
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.p4Root .newsCarouselSlide .p2NewsMeta {
+  flex: 0 0 auto;
+}
+.p4Root .newsCarouselSlide .p2NewsSummary {
+  flex: 1 1 0;
+  min-height: 0;
   overflow: hidden;
 }
 /* 何記事目かを示すドット（現在位置を横長・濃色で）。装飾なので aria-hidden（件数は読み上げ対象外）。 */
