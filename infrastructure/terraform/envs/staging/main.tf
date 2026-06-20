@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "90878a3" # +#1066 pattern1 に気象警報・熱中症の安全帯表示(条件付き・fail-soft・pattern2/3無改修)。疎通 /api/health 200 + /login private,no-cache
+  web_image_tag = "3dd9334" # 2026-06-20: サイネージ pattern4 追加（教員入力最小・天気/ニュース主役・連絡のみ編集 #1081）＋ pattern3 から工学ニュース撤去（#1080）。表示層+CSS+テスト+ADR-048 のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
