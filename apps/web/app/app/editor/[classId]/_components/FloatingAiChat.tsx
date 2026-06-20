@@ -20,6 +20,13 @@ const MIN_H = 360;
 const KEY_STEP = 32;
 /** リサイズ後のサイズを次回起動へ引き継ぐ localStorage キー。 */
 const SIZE_STORAGE_KEY = "kt:floating-ai-chat:size";
+/** 矢印キー → [幅Δ, 高さΔ]（px）。向きはドラッグと一致（左/上で拡大）。再生成しないよう module スコープに置く。 */
+const RESIZE_KEY_DELTAS: Record<string, [number, number]> = {
+  ArrowLeft: [KEY_STEP, 0], // 左 = 幅を広げる
+  ArrowRight: [-KEY_STEP, 0], // 右 = 幅を狭める
+  ArrowUp: [0, KEY_STEP], // 上 = 高さを伸ばす
+  ArrowDown: [0, -KEY_STEP], // 下 = 高さを縮める
+};
 
 /**
  * パネルは右下固定なので、ビューポートに収まる最大幅/高さへクランプする
@@ -63,6 +70,8 @@ export function FloatingAiChat({
   const panelId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
+  // ドラッグ中フラグ。マルチタッチ等の二重 pointerdown で listener を多重登録しないための再入ガード。
+  const resizingRef = useRef(false);
   // null = CSS 既定サイズ。ドラッグ/矢印キーで上書きしたときだけ {width,height} を持つ。
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   // モバイル幅（≤640px）はボトムシート固定。inline サイズを当てず CSS に委ねる（リサイズも無効）。
@@ -113,10 +122,20 @@ export function FloatingAiChat({
     }
   }, []);
 
+  // ハンドルのダブルクリック / Home キーで既定サイズへ戻す。
+  const onResetSize = useCallback(() => {
+    setSize(null);
+    try {
+      window.localStorage.removeItem(SIZE_STORAGE_KEY);
+    } catch {
+      // 無視。
+    }
+  }, []);
+
   // 左上角ハンドルのドラッグでリサイズ。パネルは右下固定なので「左/上へ動かすほど大きく」なる。
   const onResizePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLButtonElement>) => {
-      if (e.button !== 0) {
+      if (e.button !== 0 || resizingRef.current) {
         return;
       }
       e.preventDefault();
@@ -124,6 +143,7 @@ export function FloatingAiChat({
       if (!rect) {
         return;
       }
+      resizingRef.current = true;
       const startX = e.clientX;
       const startY = e.clientY;
       const startW = rect.width;
@@ -143,6 +163,7 @@ export function FloatingAiChat({
         document.body.style.userSelect = prevUserSelect;
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        resizingRef.current = false;
         persistSize(latest);
       };
       window.addEventListener("pointermove", onMove);
@@ -152,15 +173,15 @@ export function FloatingAiChat({
   );
 
   // キーボードでもリサイズ（ハンドルは focusable）。矢印の向き = ドラッグの向きに合わせる。
+  // Home で既定サイズに戻す（マウス無し利用者も復帰できるよう onDoubleClick と対にする）。
   const onResizeKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLButtonElement>) => {
-      const deltas: Record<string, [number, number]> = {
-        ArrowLeft: [KEY_STEP, 0], // 左 = 幅を広げる
-        ArrowRight: [-KEY_STEP, 0], // 右 = 幅を狭める
-        ArrowUp: [0, KEY_STEP], // 上 = 高さを伸ばす
-        ArrowDown: [0, -KEY_STEP], // 下 = 高さを縮める
-      };
-      const delta = deltas[e.key];
+      if (e.key === "Home") {
+        e.preventDefault();
+        onResetSize();
+        return;
+      }
+      const delta = RESIZE_KEY_DELTAS[e.key];
       if (!delta) {
         return;
       }
@@ -172,18 +193,8 @@ export function FloatingAiChat({
       setSize(next);
       persistSize(next);
     },
-    [size, persistSize],
+    [size, persistSize, onResetSize],
   );
-
-  // ハンドルのダブルクリックで既定サイズへ戻す。
-  const onResetSize = useCallback(() => {
-    setSize(null);
-    try {
-      window.localStorage.removeItem(SIZE_STORAGE_KEY);
-    } catch {
-      // 無視。
-    }
-  }, []);
 
   // 開いたらパネル内の最初の操作対象（閉じるボタン）へフォーカスを移す（キーボード/SR 利用者が迷子にならない）。
   useEffect(() => {
@@ -279,8 +290,8 @@ export function FloatingAiChat({
           onPointerDown={onResizePointerDown}
           onKeyDown={onResizeKeyDown}
           onDoubleClick={onResetSize}
-          aria-label="AI チャットの大きさを変える（ドラッグまたは矢印キー、ダブルクリックで既定に戻す）"
-          title="ドラッグで大きさを変える（ダブルクリックで既定に戻す）"
+          aria-label="AI チャットの大きさを変える（ドラッグまたは矢印キー、ダブルクリックまたは Home キーで既定に戻す）"
+          title="ドラッグで大きさを変える（ダブルクリックまたは Home キーで既定に戻す）"
         >
           <span aria-hidden="true" className={styles.resizeGrip} />
         </button>

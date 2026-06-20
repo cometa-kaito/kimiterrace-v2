@@ -130,4 +130,24 @@ describe("FloatingAiChat", () => {
     expect(dialog.style.height).toBe("");
     expect(window.localStorage.getItem("kt:floating-ai-chat:size")).toBeNull();
   });
+
+  it("Home キーでも既定サイズに戻す（マウス無し利用者の復帰経路）", () => {
+    render(
+      <FloatingAiChat>
+        <button type="button">中身ボタン</button>
+      </FloatingAiChat>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "AIで作る" }));
+    const dialog = screen.getByRole("dialog") as HTMLElement;
+    const handle = screen.getByRole("button", { name: /大きさを変える/ });
+
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(dialog.style.height).not.toBe("");
+    expect(window.localStorage.getItem("kt:floating-ai-chat:size")).not.toBeNull();
+
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(dialog.style.width).toBe("");
+    expect(dialog.style.height).toBe("");
+    expect(window.localStorage.getItem("kt:floating-ai-chat:size")).toBeNull();
+  });
 });
