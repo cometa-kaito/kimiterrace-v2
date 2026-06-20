@@ -1,7 +1,7 @@
 import { type TenantTx, getLatestNews } from "@kimiterrace/db";
 
 /**
- * pattern2/3「工学ニュース」サイネージ読み取り（ADR-043）。weather / railway と同じく **キャッシュ
+ * pattern2/3「時事ニュース」サイネージ読み取り（ADR-043）。weather / railway と同じく **キャッシュ
  * （news_items）を読むだけ**で外部 RSS を直叩きしない（端末閉域・ADR-021 / ADR-035 の先例）。
  * 取得 Job（backend）が政府系 / JST の公開 RSS を upsert し、本層はそれを公開日降順で SELECT する。
  * RLS は `news_items_read_all`（USING true）なので匿名サイネージでも読める（school_id 非保持の公開・非 PII）。
@@ -45,7 +45,7 @@ export type SignageNews = {
 };
 
 /**
- * 最新の工学ニュース（見出し + 出典）を取得する。記事無し・取得失敗は空リスト（fail-soft、盤面を壊さない）。
+ * 最新の時事ニュース（見出し + 出典）を取得する。記事無し・取得失敗は空リスト（fail-soft、盤面を壊さない）。
  *
  * @param tx  テナント context tx（匿名サイネージ可・RLS read_all で読める）。
  * @param now 鮮度判定の基準時刻（既定は現在時刻）。

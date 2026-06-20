@@ -171,7 +171,7 @@ export default async function ClassEditorPage({
         visitors: showVisitors ? visitors : null,
         callouts: showCallouts ? callouts : null,
         trainStatus: null,
-        // 工学ニュース（自動ブロック・ADR-043）は鉄道/センサと同じく編集プレビューでは出さない（null）。
+        // 時事ニュース（自動ブロック・ADR-043）は鉄道/センサと同じく編集プレビューでは出さない（null）。
         news: null,
         // 防災・安全（自動ブロック・ADR-044）も編集プレビューでは出さない（null＝帯ごと非表示）。pattern1 でも
         // 編集中の盤面には警報/熱中症を描かない（実機の live 表示でのみ出す）。

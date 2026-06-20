@@ -133,7 +133,7 @@ export type SignagePayload = {
    */
   trainStatus: SignageRailwayStatus | null;
   /**
-   * パターン2/4「工学ニュース」用、外部取得キャッシュ（news_items）の最新見出し（見出し+発表元+公開日+出典 URL）。
+   * パターン2/4「時事ニュース」用、外部取得キャッシュ（news_items）の最新見出し（見出し+発表元+公開日+出典 URL）。
    * pattern1/pattern3 は使わない（pattern3 は 2026-06-20 にニュース枠を撤去）。**端末は閉域**で、バックエンド取得
    * Job が `news_items` にキャッシュした行を読むだけ（政府系/JST の公開 RSS を直叩きしない・ADR-043）。RLS read_all
    * で匿名でも読める。**本文は持たず転載しない**（著作権方針）。記事無し・取得失敗は `items: []`（ウィジェットは
@@ -285,7 +285,7 @@ export async function buildSignagePayloadForClass(
   const trainStatus = patternIncludesBlock(designPattern, "train")
     ? await getSignageRailwayStatus(tx).catch(() => null)
     : null;
-  // 「工学ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
+  // 「時事ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
   // の RSS 直叩きしない・ADR-043）。RLS read_all で匿名でも読める。取得失敗は空リスト（fail-soft）に倒す。
   // パターン非該当（pattern1/pattern3）は引かず null（盤面でも出さない）。pattern2/pattern4 が取得・表示。
   const news = patternIncludesBlock(designPattern, "news")

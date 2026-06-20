@@ -130,7 +130,7 @@ describe("サイネージ poll 応答の日付復元（本番障害回帰）", (
     ) as SignagePayload;
     render(<SignageBoardView {...boardProps(revived)} />);
     // ニュース帯が描かれ、公開日が JST M/D（6/19）で整形される。
-    const news = screen.getByRole("region", { name: "工学ニュース" });
+    const news = screen.getByRole("region", { name: "時事ニュース" });
     expect(news).toHaveTextContent("松本洋平文部科学大臣記者会見録");
     expect(news).toHaveTextContent("6/19");
   });
