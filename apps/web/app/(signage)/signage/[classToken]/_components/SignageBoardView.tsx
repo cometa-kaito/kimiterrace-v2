@@ -11,8 +11,11 @@ import {
   parseAssignmentRow,
   parseScheduleRow,
 } from "@/lib/signage/section-format";
+import type { HeatAlertLevel, WarningLevel } from "@kimiterrace/db/schema";
+import type { SignageHeatAlert } from "@/lib/signage/heat-alerts";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
+import type { SignageWeatherWarning } from "@/lib/signage/weather-warnings";
 import {
   BoardRegionEditButton,
   type EditRegion,
@@ -232,6 +235,12 @@ function Pattern1Board({
       <BoardHeader data={data} now={now} />
       <div className={styles.container}>
         <main className={styles.infoArea}>
+          {/* 防災・安全帯（ADR-044）: アクティブな警報/熱中症がある時だけ予定の直上（最上部）に出す。
+              無アラート時は SafetyAlertBand が null を返し帯ごと出ない＝予定以下の既存レイアウトは不変。 */}
+          <SafetyAlertBand
+            warning={data.weatherWarnings ?? null}
+            heatAlert={data.heatAlerts ?? null}
+          />
           <div className={styles.contentGrid}>
             <ScheduleGrid
               days={data.scheduleDays}
@@ -482,6 +491,144 @@ function Pattern3WeeklyWeather({
       })}
     </div>
   );
+}
+
+/**
+ * pattern1（既定盤面）専用の**防災・安全帯**（ADR-044）。自校地域の **気象警報・注意報**（JMA）と **熱中症
+ * 警戒アラート**（環境省）を、**アクティブな時だけ**予定の直上（最も目立つ位置）に 1 帯で出す。
+ *
+ * ## 設計上の不変条件
+ * - **条件付き表示（fail-soft）**: 警報 `maxLevel='none'`／熱中症 `alertLevel='none'`／両方 null（地域未解決・
+ *   キャッシュ無し・取得失敗）のときは **帯ごと出さない**（`return null`）。安全情報なので「無いのに枠だけ出す」
+ *   ことはせず、盤面の他要素（予定/連絡/提出物/広告）を壊さない。アクティブな時だけ目立たせる。
+ * - **pattern1 のみ**: pattern2/3 はデータ層が `weatherWarnings`/`heatAlerts` を取得せず null を渡すため自動的に
+ *   描画されない（盤面コード上も pattern1 の `Pattern1Board` だけが本帯を呼ぶ）。pattern2/3 は無改修。
+ * - **region landmark を作らない**: safety_alert は {@link SIGNAGE_BLOCK_META} で `hasRegion=false`。盤面 region
+ *   ドリフトガード（描画 region 集合 ↔ hasRegion ブロック集合の一致）を崩さぬよう、本帯は `<section aria-label>`
+ *   ではなく `role="group"` でまとめる（pattern3 週間天気帯と同じ作法）。`aria-label` は本 label「防災・安全」と
+ *   一致させる（ドリフトガードと整合）。
+ * - **NFR05（色だけに依存しない）**: 段階は色に加え必ず**段階ラベル（注意報/警報/特別警報・警戒/特別警戒）と
+ *   アイコン・テキスト**を併記する。サイネージは遠距離視認なので大きめタイポ。AA コントラストはトークン
+ *   （`--urgent-color`/`--accent-color` 等、いずれも白地で 4.5:1 超）で担保。
+ * - **鮮度**: キャッシュが古い時は「○時時点」注記（天気/鉄道/ニュースと同作法）。
+ */
+function SafetyAlertBand({
+  warning,
+  heatAlert,
+}: {
+  warning: SignageWeatherWarning | null;
+  heatAlert: SignageHeatAlert | null;
+}) {
+  // アクティブ判定: 警報は maxLevel≠'none'、熱中症は alertLevel≠'none' のときだけ目立たせる（要件）。
+  const warningActive = warning != null && warning.maxLevel !== "none";
+  const heatActive = heatAlert != null && heatAlert.alertLevel !== "none";
+  if (!warningActive && !heatActive) {
+    // 両方とも非アクティブ（または両 null）→ 帯ごと出さない（fail-soft、盤面を壊さない）。
+    return null;
+  }
+  return (
+    // region landmark は作らない（safety_alert は hasRegion=false／ドリフトガード不変）→ group でまとめる。
+    // biome-ignore lint/a11y/useSemanticElements: 盤面 region ドリフトガードを崩さぬため role="group" を使う
+    <div className={styles.safetyBand} role="group" aria-label="防災・安全">
+      {warningActive && warning ? <SafetyWarningRow warning={warning} /> : null}
+      {heatActive && heatAlert ? <SafetyHeatRow heatAlert={heatAlert} /> : null}
+    </div>
+  );
+}
+
+/** 気象警報・注意報の 1 行（最大段階バッジ + 個別警報名 + 鮮度注記）。色非依存に段階ラベルを必ず添える。 */
+function SafetyWarningRow({ warning }: { warning: SignageWeatherWarning }) {
+  // 表示する個別警報名（解除済みは読取層で除外済み・名前が解決できたものだけ）。重複名は畳む。
+  const names = Array.from(
+    new Set(
+      warning.warnings
+        .map((w) => w.name)
+        .filter((n): n is string => typeof n === "string" && n.length > 0),
+    ),
+  );
+  return (
+    <div className={`${styles.safetyRow} ${styles.safetyRowWarning}`}>
+      <span className={styles.safetyIcon} aria-hidden="true">
+        ⚠
+      </span>
+      <span className={styles.safetyLabel}>気象{WARNING_LEVEL_LABEL[warning.maxLevel]}</span>
+      <span className={styles.safetyBody}>
+        {names.length > 0 ? (
+          <span className={styles.safetyBodyText}>{names.join("・")}</span>
+        ) : warning.headline ? (
+          <span className={styles.safetyBodyText}>{warning.headline}</span>
+        ) : null}
+        {warning.areaName ? (
+          <span className={styles.safetyArea}>（{warning.areaName}）</span>
+        ) : null}
+      </span>
+      {warning.isStale ? (
+        <span className={styles.safetyStale} role="status">
+          {formatSafetyStale(warning.fetchedAt)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** 熱中症警戒アラートの 1 行（段階バッジ + WBGT 値 + 鮮度注記）。色非依存に段階ラベル・WBGT 数値を必ず添える。 */
+function SafetyHeatRow({ heatAlert }: { heatAlert: SignageHeatAlert }) {
+  return (
+    <div className={`${styles.safetyRow} ${styles.safetyRowHeat}`}>
+      <span className={styles.safetyIcon} aria-hidden="true">
+        🌡
+      </span>
+      <span className={styles.safetyLabel}>熱中症{HEAT_LEVEL_LABEL[heatAlert.alertLevel]}</span>
+      <span className={styles.safetyBody}>
+        <span className={styles.safetyBodyText}>適切な水分・塩分補給と休憩を</span>
+        {heatAlert.wbgtMax != null ? (
+          <span className={styles.safetyWbgt} aria-label={`暑さ指数 WBGT ${heatAlert.wbgtMax}`}>
+            <span aria-hidden="true">WBGT {heatAlert.wbgtMax}</span>
+          </span>
+        ) : null}
+      </span>
+      {heatAlert.isStale ? (
+        <span className={styles.safetyStale} role="status">
+          {formatSafetyStale(heatAlert.fetchedAt)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * 気象警戒段階 → 色非依存の段階ラベル（NFR05）。`satisfies Record<WarningLevel, string>` で enum とのズレを
+ * コンパイル時に固定する（段階を足したらここで型エラー＝表示漏れを機械的に検知）。`none` は帯を出さないので
+ * 実際には使わないが、網羅性のため空でない安全側ラベルにしておく。
+ */
+const WARNING_LEVEL_LABEL = {
+  none: "情報",
+  advisory: "注意報",
+  warning: "警報",
+  emergency: "特別警報",
+} satisfies Record<WarningLevel, string>;
+
+/**
+ * 熱中症警戒段階 → 色非依存の段階ラベル（NFR05）。`satisfies Record<HeatAlertLevel, string>` で enum との
+ * ズレをコンパイル時に固定する。`none` は帯を出さないので実際には使わない。
+ */
+const HEAT_LEVEL_LABEL = {
+  none: "情報",
+  warning: "警戒アラート",
+  emergency: "特別警戒アラート",
+} satisfies Record<HeatAlertLevel, string>;
+
+/** 鮮度注記「○時時点」を JST 時刻で組む（天気/鉄道/ニュースと同思想）。fetchedAt 不明は汎用注記に倒す。 */
+function formatSafetyStale(fetchedAt: Date | null): string {
+  if (fetchedAt == null || Number.isNaN(fetchedAt.getTime())) {
+    return "（情報が古い可能性）";
+  }
+  const hh = fetchedAt.toLocaleTimeString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `（${hh}時点）`;
 }
 
 /**

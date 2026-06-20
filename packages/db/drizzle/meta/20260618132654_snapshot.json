@@ -1,6 +1,6 @@
 {
-  "id": "b1948dcc-891b-4a63-881d-68c7576a1483",
-  "prevId": "e6a9a978-02d0-419d-8570-b6601fd10496",
+  "id": "e6a9a978-02d0-419d-8570-b6601fd10496",
+  "prevId": "ec50090e-a6ac-4b21-9faf-7ab5189d4412",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3224,6 +3224,150 @@
       "indexes": {
         "ux_heat_alerts_area_source_date": {
           "name": "ux_heat_alerts_area_source_date",
+          "columns": [
+            {
+              "expression": "area_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "forecast_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.air_quality_index": {
+      "name": "air_quality_index",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "area_code": {
+          "name": "area_code",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_name": {
+          "name": "area_name",
+          "type": "varchar(120)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "air_quality_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'env_soramame'"
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "forecast_date": {
+          "name": "forecast_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pm25": {
+          "name": "pm25",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pm25_band": {
+          "name": "pm25_band",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oxidant": {
+          "name": "oxidant",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uv_index": {
+          "name": "uv_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uv_band": {
+          "name": "uv_band",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw": {
+          "name": "raw",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "ux_air_quality_index_area_source_date": {
+          "name": "ux_air_quality_index_area_source_date",
           "columns": [
             {
               "expression": "area_code",
@@ -6858,172 +7002,13 @@
       "checkConstraints": {
         "ck_ads_scope": {
           "name": "ck_ads_scope",
-          "value": "(\n        (\"ads\".\"scope\" = 'school' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'grade' AND \"ads\".\"grade_id\" IS NOT NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'department' AND \"ads\".\"department_id\" IS NOT NULL AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'class' AND \"ads\".\"class_id\" IS NOT NULL)\n        OR (\"ads\".\"scope\" = 'monitor' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n      )"
+          "value": "(\n        (\"ads\".\"scope\" = 'school' AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL AND \"ads\".\"department_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'grade' AND \"ads\".\"grade_id\" IS NOT NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'department' AND \"ads\".\"department_id\" IS NOT NULL AND \"ads\".\"grade_id\" IS NULL AND \"ads\".\"class_id\" IS NULL)\n        OR (\"ads\".\"scope\" = 'class' AND \"ads\".\"class_id\" IS NOT NULL)\n      )"
         },
         "ck_ads_duration_positive": {
           "name": "ck_ads_duration_positive",
           "value": "\"ads\".\"duration_sec\" > 0"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.ad_target_monitors": {
-      "name": "ad_target_monitors",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "ad_id": {
-          "name": "ad_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "monitor_id": {
-          "name": "monitor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "school_id": {
-          "name": "school_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updated_by": {
-          "name": "updated_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "ix_ad_target_monitors_ad_id": {
-          "name": "ix_ad_target_monitors_ad_id",
-          "columns": [
-            {
-              "expression": "ad_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ix_ad_target_monitors_monitor_id": {
-          "name": "ix_ad_target_monitors_monitor_id",
-          "columns": [
-            {
-              "expression": "monitor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ix_ad_target_monitors_school_id": {
-          "name": "ix_ad_target_monitors_school_id",
-          "columns": [
-            {
-              "expression": "school_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ad_target_monitors_ad_id_ads_id_fk": {
-          "name": "ad_target_monitors_ad_id_ads_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "ads",
-          "columnsFrom": [
-            "ad_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ad_target_monitors_monitor_id_tv_devices_id_fk": {
-          "name": "ad_target_monitors_monitor_id_tv_devices_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "tv_devices",
-          "columnsFrom": [
-            "monitor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "ad_target_monitors_school_id_schools_id_fk": {
-          "name": "ad_target_monitors_school_id_schools_id_fk",
-          "tableFrom": "ad_target_monitors",
-          "tableTo": "schools",
-          "columnsFrom": [
-            "school_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "uq_ad_target_monitors_ad_monitor": {
-          "name": "uq_ad_target_monitors_ad_monitor",
-          "nullsNotDistinct": false,
-          "columns": [
-            "ad_id",
-            "monitor_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
@@ -7062,6 +7047,14 @@
         "success",
         "retry",
         "failed"
+      ]
+    },
+    "public.air_quality_source": {
+      "name": "air_quality_source",
+      "schema": "public",
+      "values": [
+        "env_soramame",
+        "jma_uv"
       ]
     },
     "public.audit_op": {
@@ -7145,8 +7138,7 @@
         "school",
         "grade",
         "class",
-        "department",
-        "monitor"
+        "department"
       ]
     },
     "public.news_source": {

@@ -12,6 +12,7 @@ import {
   listSchools,
   resolveJmaAreaCode,
   updateCalendarSourceStatus,
+  upsertAirQuality,
   upsertCalendarEvent,
   upsertHeatAlert,
   upsertWeatherForecast,
@@ -20,6 +21,7 @@ import {
 } from "@kimiterrace/db";
 import { type ParsedCalendarEvent, parseIcs } from "../calendar/ical.js";
 import { type DnsResolver, fetchPublicIcs } from "../calendar/safe-fetch.js";
+import { type ParsedAirQuality, parseSoramameNoudoAllCsv } from "./env-air.js";
 import { type ParsedHeatAlert, parseEnvHeatAlert } from "./env-heat.js";
 import { type ParsedForecast, parseJmaForecast } from "./jma.js";
 import { type ParsedWarningSet, parseJmaWarning } from "./jma-warning.js";
@@ -91,6 +93,15 @@ export interface FetchedHeat {
 }
 
 /**
+ * 1 地域・1 日ぶんの大気質取得結果（パース済み + 対象日。ADR-046 相乗り 5 例目）。
+ * `forecastDate` は取得対象日（JST 暦日 'YYYY-MM-DD'）。upsert キーの一部。
+ */
+export interface FetchedAir {
+  parsed: ParsedAirQuality;
+  forecastDate: string;
+}
+
+/**
  * ADR-045: 1 校ぶんの公開 iCal 取得結果（パース済みイベント群 + 由来ソース）。per-school フェーズで使う。
  */
 export interface FetchedCalendar {
@@ -123,6 +134,10 @@ export interface WeatherFetchDeps {
   fetchHeat?(areaCode: string): Promise<FetchedHeat>;
   /** ADR-044: パース済み熱中症アラート 1 地域ぶんを heat_alerts に upsert する（実体は system_admin context）。 */
   saveHeat?(areaCode: string, heat: FetchedHeat): Promise<void>;
+  /** ADR-046: 1 地域の大気質（PM2.5 等）を取得・パースする（実体は HTTP fetch + `parseSoramameNoudoAllCsv`）。失敗は throw。 */
+  fetchAir?(areaCode: string): Promise<FetchedAir>;
+  /** ADR-046: パース済み大気質 1 地域ぶんを air_quality_index に upsert する（実体は system_admin context）。 */
+  saveAir?(areaCode: string, air: FetchedAir): Promise<void>;
   /** ADR-045: 有効な学校カレンダーソースを列挙する（実体は system_admin context の `listEnabledCalendarSources`）。 */
   listCalendarSources?(): Promise<EnabledCalendarSource[]>;
   /** ADR-045: 1 校の公開 iCal を取得・パースする（実体は HTTP fetch + `parseIcs`）。失敗は throw（呼び出し側が捕捉）。 */
@@ -163,6 +178,12 @@ export interface WeatherFetchSummary {
   heatFailed: number;
   /** ADR-044: 熱中症アラート取得に失敗した地域コード（公開コード、PII でない）。 */
   heatFailedAreaCodes: string[];
+  /** ADR-046: 大気質（PM2.5 等）の取得・保存に成功した地域数（fetchAir 未指定なら 0）。 */
+  airFetched: number;
+  /** ADR-046: 大気質の取得・保存に失敗した地域数（天気・警報・熱中症は壊さない / last-known-good 維持）。0 が正常。 */
+  airFailed: number;
+  /** ADR-046: 大気質取得に失敗した地域コード（公開コード、PII でない）。 */
+  airFailedAreaCodes: string[];
   /** ADR-045: 取得対象の有効なカレンダーソース数（per-school、listCalendarSources 未指定なら 0）。 */
   calendarSources: number;
   /** ADR-045: 取得・保存に成功した学校数。 */
@@ -190,6 +211,11 @@ export interface WeatherFetchSummary {
  * upsert する（`fetchHeat` / `saveHeat` が注入されている場合のみ）。天気・警報・熱中症は **互いに独立した
  * try/catch** で、いずれかの失敗が他を巻き込まない（fail-soft / last-known-good 維持）。
  *
+ * ADR-046（5 例目）: さらに同じ地域コードで **大気質（PM2.5 等）も相乗り取得**して air_quality_index に upsert
+ * する（`fetchAir` / `saveAir` が注入されている場合のみ）。これは **最も脆いソース**（そらまめくん = 正規 API
+ * 契約不確実の JS SPA）だが、取得層・パーサが完全防御的なため、他指標と同じく独立 try/catch で **大気質の失敗が
+ * 天気・警報・熱中症を壊さない**（fail-soft / last-known-good 維持）。
+ *
  * ADR-045: 地域ループの **後** に、独立した **per-school カレンダーフェーズ**を回す（`listCalendarSources` /
  * `fetchCalendar` / `saveCalendar` が揃っている場合のみ）。各校の公開 iCal を取得 → 行事を upsert する。1 校の
  * 失敗は **その校だけ skip** し、他校・天気系を壊さない（独立 try/catch・fail-soft）。これは地域コード単位の
@@ -207,6 +233,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
   let heatFetched = 0;
   const heatFailedAreaCodes: string[] = [];
   const heatEnabled = deps.fetchHeat != null && deps.saveHeat != null;
+  let airFetched = 0;
+  const airFailedAreaCodes: string[] = [];
+  const airEnabled = deps.fetchAir != null && deps.saveAir != null;
 
   for (const areaCode of areaCodes) {
     try {
@@ -244,6 +273,21 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
       } catch {
         // 熱中症の取得/保存失敗はその地域のみ skip（既存の熱中症キャッシュは last-known-good として残す）。
         heatFailedAreaCodes.push(areaCode);
+      }
+    }
+
+    // ADR-046（5 例目）: 大気質（PM2.5 等）を相乗り取得。天気・警報・熱中症の成否とは独立に試行する。
+    // 最も脆いソース（そらまめくん）だが、取得層・パーサが防御的なので失敗してもここで吸収して他を巻き込まない。
+    if (airEnabled) {
+      try {
+        // biome-ignore lint/style/noNonNullAssertion: airEnabled で両者の存在を確認済み
+        const air = await deps.fetchAir!(areaCode);
+        // biome-ignore lint/style/noNonNullAssertion: airEnabled で両者の存在を確認済み
+        await deps.saveAir!(areaCode, air);
+        airFetched += 1;
+      } catch {
+        // 大気質の取得/保存失敗はその地域のみ skip（既存の大気質キャッシュは last-known-good として残す）。
+        airFailedAreaCodes.push(areaCode);
       }
     }
   }
@@ -298,6 +342,9 @@ export async function runWeatherFetch(deps: WeatherFetchDeps): Promise<WeatherFe
     heatFetched,
     heatFailed: heatFailedAreaCodes.length,
     heatFailedAreaCodes,
+    airFetched,
+    airFailed: airFailedAreaCodes.length,
+    airFailedAreaCodes,
     calendarSources,
     calendarFetched,
     calendarRowsUpserted,
@@ -409,22 +456,67 @@ export function jstHeatDateParts(at: Date = new Date()): {
 /**
  * ADR-044: 環境省「熱中症予防情報サイト」alert CSV の URL を組む（純関数、テスト容易）。
  * 形式（確認済 2026 シーズン）: `https://www.wbgt.env.go.jp/alert/dl/{YYYY}/alert_{YYYYMMDD}_{HH}.csv`。
- * `{HH}` は発表時刻（環境省は前日 17 時 / 当日 5 時に翌日・当日アラートを発表）。本スライスは前日 17 時発表
- * （当日 + 翌日を含む）を既定に用いる。CSV は **全国 1 ファイル**（地域コードは URL に含めない）。
+ * `{HH}` は発表時刻（環境省は **05:00 / 17:00 JST** に当日・翌日アラートを発表）。`hour` 既定は `"17"`
+ * （後方互換）。実取得は `heatAlertCandidates` が時刻非依存に最新候補を組むので、本関数の既定値には依存しない。
+ * CSV は **全国 1 ファイル**（地域コードは URL に含めない）。
  */
 export function envHeatAlertUrl(yyyy: string, yyyymmdd: string, hour = "17"): string {
   return `https://www.wbgt.env.go.jp/alert/dl/${encodeURIComponent(yyyy)}/alert_${encodeURIComponent(yyyymmdd)}_${encodeURIComponent(hour)}.csv`;
+}
+
+/** ADR-044: 環境省 alert CSV の URL 候補（年・日付・発表時刻の 3 次元。最新順に並ぶ）。 */
+export interface HeatAlertCandidate {
+  /** 発表日の西暦（URL の `/dl/{yyyy}/` 部分）。 */
+  yyyy: string;
+  /** 発表日（`YYYYMMDD`、URL の `alert_{yyyymmdd}_` 部分）。 */
+  yyyymmdd: string;
+  /** 発表時刻（`"17"` / `"05"`、URL の `_{hour}.csv` 部分）。 */
+  hour: string;
+}
+
+/**
+ * ADR-044: 環境省 alert CSV の取得候補を **最新順**で組み立てる純関数（テスト容易）。
+ *
+ * ★ 取得時刻(HH)非依存化（本 fix の核）: 環境省は **05:00 と 17:00 JST** に当日・翌日アラートを発表し、
+ * ファイル名は `alert_{発表日YYYYMMDD}_{HH}.csv`（HH∈{05,17}）。従来は「今日 17 時ファイル」固定で取りに行くため、
+ * Job が 17 時前に走るとその日の 17 時ファイルがまだ無く 404 → 熱中症だけ fail-soft 失敗していた（prod 実測）。
+ * そこで取得時刻に依存せず **最新の利用可能ファイルを最新順に試行し、最初の 2xx を採用**できるよう候補を返す。
+ *
+ * 返す候補（最新順）: `今日_17 → 今日_05 → 昨日_17`。これで:
+ * - now ≥ 17 時 JST → 今日 17 が存在し先頭で当たる。
+ * - 05〜17 時 JST → 今日 17 はまだ無く 404、今日 05 で当たる。
+ * - 05 時前 JST → 今日 17/05 とも無く 404、昨日 17 で当たる（昨日 17 時発表は当日分アラートを含むので当日表示で正）。
+ *
+ * 日付ロールオーバー（昨日）は **UTC+9 基準**で算出する（サーバ TZ 非依存。`jstHeatDateParts` の +9h 流儀を再利用）。
+ */
+export function heatAlertCandidates(at: Date = new Date()): HeatAlertCandidate[] {
+  const today = jstHeatDateParts(at);
+  // 昨日（JST 暦日）: 24h 前の同時刻を JST 換算する（+9h 流儀は jstHeatDateParts に委譲、二重補正しない）。
+  const yesterday = jstHeatDateParts(new Date(at.getTime() - 24 * 60 * 60 * 1000));
+  return [
+    { yyyy: today.yyyy, yyyymmdd: today.yyyymmdd, hour: "17" },
+    { yyyy: today.yyyy, yyyymmdd: today.yyyymmdd, hour: "05" },
+    { yyyy: yesterday.yyyy, yyyymmdd: yesterday.yyyymmdd, hour: "17" },
+  ];
 }
 
 /**
  * ADR-044: 1 地域の熱中症アラートを環境省 alert CSV から HTTP 取得しパースする（実 I/O）。`fetchWarningFromJma`
  * に倣う（timeout / 明示 User-Agent）。
  *
- * 環境省 CSV は **全国 1 ファイル**（地域コードは URL に含まれない）なので、本関数は CSV 全文を取得して
+ * ★ 公開時刻(HH)非依存（本 fix）: 環境省は 05:00 / 17:00 JST に発表し、ファイル名は `alert_{発表日}_{HH}.csv`。
+ * 従来は「今日 17 時ファイル」固定で取りに行き、Job が 17 時前に走るとそのファイルがまだ無く 404 → 熱中症だけ
+ * fail-soft 失敗していた（prod 実測 heatFailed=1）。本関数は `heatAlertCandidates` が返す **最新順候補**
+ * （今日17 → 今日05 → 昨日17）を順に GET し、**最初の 2xx を採用**して取得時刻に依存せず常に最新を当てる。
+ *
+ * 環境省 CSV は **全国 1 ファイル**（地域コードは URL に含まれない）なので、採用した CSV 全文を取得して
  * `parseEnvHeatAlert(areaCode, csvText)` で該当地域行だけを抜き出す。PoC 規模（dedup 後 1〜数地域）では同一 CSV を
  * 地域ごとに再取得しても許容（15 分キャッシュ・低頻度起動）。地域数が増えたら 1 サイクル 1 取得への最適化を
- * 検討する（follow-up、ADR-044 §再検討トリガ）。非 2xx・タイムアウトは throw（`runWeatherFetch` が地域単位で
- * 捕捉し、天気・警報を巻き込まずその地域の熱中症だけ skip する）。`forecastDate` は **当日（JST 暦日）**。
+ * 検討する（follow-up、ADR-044 §再検討トリガ）。
+ *
+ * **全候補が非 2xx / 失敗なら throw**（`runWeatherFetch` が地域単位で捕捉し、天気・警報を巻き込まずその地域の
+ * 熱中症だけ skip する＝fail-soft / last-known-good 維持）。各候補は個別の `AbortController` で timeout を独立に
+ * 計測する（既定 10s）。`forecastDate` は **当日（JST 暦日）**（昨日 17 時ファイルでも当日分アラートを含むため当日で正）。
  */
 export async function fetchHeatFromEnv(
   areaCode: string,
@@ -433,22 +525,149 @@ export async function fetchHeatFromEnv(
   const fetchImpl = config.fetchImpl ?? fetch;
   // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
   const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
-  const { yyyy, yyyymmdd, isoDate } = jstHeatDateParts();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { isoDate } = jstHeatDateParts();
+  const candidates = heatAlertCandidates();
+  // 最後に観測した失敗の要約（全候補不発時に投げる例外メッセージ用。生レスポンス・PII は載せない）。
+  let lastFailure = "no candidates";
+  for (const { yyyy, yyyymmdd, hour } of candidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl(envHeatAlertUrl(yyyy, yyyymmdd, hour), {
+        method: "GET",
+        headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // 非 2xx はこの候補を諦めて次の候補へ（今日 17 が未発表で 404 等は想定内）。
+        lastFailure = `${yyyymmdd}_${hour} status=${res.status}`;
+        continue;
+      }
+      const csvText: string = await res.text();
+      return { parsed: parseEnvHeatAlert(areaCode, csvText), forecastDate: isoDate };
+    } catch (err) {
+      // タイムアウト / ネットワーク失敗もこの候補を諦めて次の候補へ。
+      lastFailure = `${yyyymmdd}_${hour} ${err instanceof Error ? err.name : "fetch failed"}`;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  // 全候補が非 2xx / 失敗 → throw（呼び出し側が地域単位で捕捉し fail-soft）。
+  throw new Error(`env heat alert 取得失敗: areaCode=${areaCode} lastFailure=${lastFailure}`);
+}
+
+/**
+ * ADR-046: 環境省「そらまめくん」全国 1 時間値 CSV の鮮度メタ JSON の URL（純関数 / 定数、テスト容易）。
+ * `{"latest":"YYYY/MM/DD HH:00:00","oldest":"...","interval":"3600"}` を返す実エンドポイント（2026-06-19 確認）。
+ * 最新公開時刻（latest）を取得して時刻欠落を避けるために使う（未公開時刻を当てに行くと SPA の HTML fallback を
+ * 掴むため、必ず latest を先に読む）。
+ */
+export function soramameAirMetadataUrl(): string {
+  return "https://soramame.env.go.jp/data/sokutei/noudoAll/metadata.json";
+}
+
+/**
+ * ADR-046: そらまめくん全国 1 時間値 CSV（**全測定局 1 ファイル**）の URL を組む（純関数、テスト容易）。
+ * 形式（SPA バンドル `calDataOptions.rule = "{YYYY}/{MM}/{DD}/{HH}.csv"` と一致、2026-06-19 実取得で確証）:
+ * `https://soramame.env.go.jp/data/sokutei/noudoAll/{YYYY}/{MM}/{DD}/{HH}.csv`。
+ *
+ * ★ SSRF（ADR-045 §SSRF）非対象: ホストは **固定**（soramame.env.go.jp）で半信頼入力に由来しないため、
+ * カレンダー（school_admin 登録の可変 URL）のような SSRF ガードは不要。JMA / 環境省 alert CSV と同じ固定 URL 扱い。
+ */
+export function soramameNoudoAllUrl(yyyy: string, mm: string, dd: string, hh: string): string {
+  return `https://soramame.env.go.jp/data/sokutei/noudoAll/${encodeURIComponent(yyyy)}/${encodeURIComponent(mm)}/${encodeURIComponent(dd)}/${encodeURIComponent(hh)}.csv`;
+}
+
+/**
+ * ADR-046: そらまめくん metadata の `latest`（"YYYY/MM/DD HH:00:00"）を CSV URL の日付次元に分解する純関数。
+ * 形式が想定外（マッチしない）なら null（呼び出し側が取得を諦めて throw → 地域単位 fail-soft）。
+ */
+export function parseSoramameLatest(
+  latest: unknown,
+): { yyyy: string; mm: string; dd: string; hh: string } | null {
+  if (typeof latest !== "string") return null;
+  // "2026/06/19 09:00:00" 形式。区切りは / と空白と :（防御的に厳密マッチ）。
+  const m = latest.match(/^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}):/);
+  if (!m) return null;
+  const [, yyyy, mm, dd, hh] = m;
+  if (!yyyy || !mm || !dd || !hh) return null;
+  return { yyyy, mm, dd, hh };
+}
+
+/**
+ * ADR-046: 全国 1 時間値 CSV から指定地域（府県）の PM2.5 を取得・パースする（実 I/O）。`fetchHeatFromEnv` に倣う
+ * （timeout / 明示 User-Agent / 固定ホスト）。
+ *
+ * ★ 実 keyless エンドポイント確定（本 fix の核）: 旧実装の想定 URL（`/data/sokutei/code/{prefCode}.json`）は
+ * **実在せず SPA の index.html（HTTP 200 / text/html）を返す**ため `res.json()` が throw し、本番で `airFailed=1` に
+ * 倒れていた。本関数は SPA 自身が使う実 URL に切替える:
+ *   1. `metadata.json` を取得し `latest` から **最新公開時刻**を得る（未公開の時刻 CSV は HTML fallback を返すため
+ *      時刻を当てに行かず必ず latest を読む）。
+ *   2. その時刻の全国 CSV（`noudoAll/{YYYY}/{MM}/{DD}/{HH}.csv`、全測定局 1 ファイル）を取得する。
+ *   3. CSV 全文を `parseSoramameNoudoAllCsv(areaCode, csvText)` に渡し、府県（area_code 上 2 桁 = 都道府県コード）の
+ *      測定局の PM2.5 を中央値に畳む。
+ *
+ * 全測定局が 1 ファイルなので、府県数（dedup 後 1〜数件）が増えても CSV は **1 サイクル 1 回取得して使い回す**のが
+ * 本来は最適だが、PoC 規模（低頻度起動・15 分鮮度）では地域ごとに再取得しても許容（熱中症 CSV と同じ判断）。地域数が
+ * 増えたら 1 サイクル 1 取得への最適化を検討する（follow-up、ADR-046）。
+ *
+ * 非 2xx・タイムアウト・JSON/CSV パース不能・latest 解析不能は throw（`runWeatherFetch` が地域単位で捕捉し、
+ * 天気・警報・熱中症を巻き込まずその地域の大気質だけ skip する）。該当府県の PM2.5 が CSV に無い場合は parser が
+ * 全 null を返す（throw しない・fail-soft / last-known-good 維持）。`forecastDate` は **当日（JST 暦日）**。
+ * metadata / CSV は別々の `AbortController` で timeout を独立計測する（既定 10s）。
+ */
+export async function fetchAirFromEnv(
+  areaCode: string,
+  config: HttpFetchConfig,
+): Promise<FetchedAir> {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  // 非数値（NaN）は素通りで即 abort になるため、有限値でなければ既定 10s に倒す（`fetchAreaFromJma` と同じ）。
+  const timeoutMs = Number.isFinite(config.timeoutMs) ? (config.timeoutMs as number) : 10_000;
+  const { isoDate } = jstHeatDateParts();
+
+  // 1) 鮮度メタを取得して最新公開時刻を得る（未公開時刻 CSV の HTML fallback を掴まないため）。
+  const metaController = new AbortController();
+  const metaTimer = setTimeout(() => metaController.abort(), timeoutMs);
+  let parts: { yyyy: string; mm: string; dd: string; hh: string } | null;
   try {
-    const res = await fetchImpl(envHeatAlertUrl(yyyy, yyyymmdd), {
+    const metaRes = await fetchImpl(soramameAirMetadataUrl(), {
+      method: "GET",
+      headers: { "User-Agent": config.userAgent, Accept: "application/json" },
+      signal: metaController.signal,
+    });
+    if (!metaRes.ok) {
+      throw new Error(`soramame metadata 取得失敗: areaCode=${areaCode} status=${metaRes.status}`);
+    }
+    const meta: unknown = await metaRes.json();
+    const latest =
+      meta != null && typeof meta === "object"
+        ? (meta as Record<string, unknown>).latest
+        : undefined;
+    parts = parseSoramameLatest(latest);
+  } finally {
+    clearTimeout(metaTimer);
+  }
+  if (parts == null) {
+    throw new Error(`soramame metadata latest 解析不能: areaCode=${areaCode}`);
+  }
+
+  // 2) 最新公開時刻の全国 CSV を取得する（全測定局 1 ファイル）。
+  const csvController = new AbortController();
+  const csvTimer = setTimeout(() => csvController.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(soramameNoudoAllUrl(parts.yyyy, parts.mm, parts.dd, parts.hh), {
       method: "GET",
       headers: { "User-Agent": config.userAgent, Accept: "text/csv,text/plain" },
-      signal: controller.signal,
+      signal: csvController.signal,
     });
     if (!res.ok) {
-      throw new Error(`env heat alert 取得失敗: areaCode=${areaCode} status=${res.status}`);
+      throw new Error(`soramame air CSV 取得失敗: areaCode=${areaCode} status=${res.status}`);
     }
     const csvText: string = await res.text();
-    return { parsed: parseEnvHeatAlert(areaCode, csvText), forecastDate: isoDate };
+    // 3) CSV 全文を府県フィルタ + 中央値集計で正規化（HTML fallback を掴んでも該当行なしで全 null に倒れる）。
+    return { parsed: parseSoramameNoudoAllCsv(areaCode, csvText), forecastDate: isoDate };
   } finally {
-    clearTimeout(timer);
+    clearTimeout(csvTimer);
   }
 }
 
@@ -579,6 +798,16 @@ export async function runWeatherFetchBatch(
           (tx: TenantTx) => saveHeatRow(tx, heat),
           appRoleOptions,
         ),
+      // ADR-046（5 例目）: 大気質（PM2.5 等）の相乗り取得。天気・警報・熱中症と同じ httpConfig / system context を再利用する。
+      fetchAir: (areaCode) => fetchAirFromEnv(areaCode, httpConfig),
+      // 大気質 upsert も system_admin context（air_quality_index_write_system policy が書込みを system に限定）。
+      saveAir: (_areaCode, air) =>
+        withTenantContext(
+          db,
+          { role: "system_admin" },
+          (tx: TenantTx) => saveAirRow(tx, air),
+          appRoleOptions,
+        ),
       // ADR-045: per-school カレンダーフェーズ。列挙・upsert・掃除・状態記録すべて system_admin context
       // （school_calendar_* の system_admin_full_access policy が cross-tenant 書込みを許す。BYPASSRLS 不使用）。
       // 列挙は RLS の全校 SELECT、書込みは各校の school_id を明示する（tenant_isolation テーブル、ルール2）。
@@ -672,6 +901,29 @@ async function saveHeatRow(tx: TenantTx, heat: FetchedHeat): Promise<void> {
     wbgtMax: parsed.wbgtMax,
     wbgtBand: parsed.wbgtBand satisfies WbgtBand | null,
     // 原文（環境省 CSV の該当地域行を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
+    raw: parsed.raw,
+  });
+}
+
+/**
+ * ADR-046: パース済み 1 地域・1 日の大気質を air_quality_index に upsert する（ON CONFLICT
+ * (area_code, source, forecast_date)）。パーサ出力（`ParsedAirQuality`）の数値・区分をそのまま upsert 入力へ
+ * パススルーする（ルール3: 手書きドメイン型を作らない）。UV は本 PR 未取得なので uvIndex / uvBand は null のまま。
+ */
+async function saveAirRow(tx: TenantTx, air: FetchedAir): Promise<void> {
+  const { parsed } = air;
+  await upsertAirQuality(tx, {
+    areaCode: parsed.areaCode,
+    areaName: parsed.areaName,
+    source: "env_soramame",
+    forecastDate: air.forecastDate,
+    pm25: parsed.pm25,
+    pm25Band: parsed.pm25Band,
+    oxidant: parsed.oxidant,
+    // UV は本 PR では取得しない（GRIB2 のみ・follow-up）。パーサ出力も常に null。
+    uvIndex: parsed.uvIndex,
+    uvBand: parsed.uvBand,
+    // 原文（そらまめくんの代表値を正規化したオブジェクト）を保全（非公式・無保証、後追い解析用）。
     raw: parsed.raw,
   });
 }

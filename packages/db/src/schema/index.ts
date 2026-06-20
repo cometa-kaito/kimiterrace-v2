@@ -35,6 +35,8 @@ export * from "./news-items.js";
 export * from "./weather-warnings.js";
 // ADR-044: サイネージ熱中症警戒アラート / 暑さ指数(WBGT) の地域単位キャッシュ（school_id 非保持の公開参照テーブル）
 export * from "./heat-alerts.js";
+// ADR-046: サイネージ大気質(PM2.5)/UV指数 の地域単位キャッシュ（school_id 非保持の公開参照テーブル・最も脆いソース）
+export * from "./air-quality.js";
 // サイネージ静的コンテンツ（名言/四字熟語/英単語/今日は何の日）の共有マスタ（school_id 非保持の公開型・外部依存ゼロ）
 export * from "./signage-snippets.js";
 // ADR-045: 学校行事カレンダーの公開 iCal/ICS ソース設定（per-school・tenant_isolation）
