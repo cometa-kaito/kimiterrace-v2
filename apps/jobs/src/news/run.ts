@@ -25,21 +25,25 @@ import { type ParsedNewsItem, parseNewsFeed } from "./news-parse.js";
 export interface NewsFeed {
   /** news_items.source の enum 値（"jst" | "mext" | "meti"）。型は UpsertNewsItemInput から借りる。 */
   source: UpsertNewsItemInput["source"];
-  /** 出典明記用の表示名（例「JST サイエンスポータル」「文部科学省」）。 */
+  /** 出典明記用の表示名（例「経済産業省」「JST サイエンスポータル」「文部科学省」）。 */
   sourceLabel: string;
-  /** フィード URL（RSS 2.0 または RDF）。 */
+  /** フィード URL（RSS 2.0 / RDF / Atom）。 */
   url: string;
 }
 
 /**
- * 確定フィード（デフォルト 2 本、ADR-043 §決定）。env `NEWS_FEEDS_JSON` で上書き可（鉄道の RAILWAY_STATUS_URL
- * 方式・URL 変化や追加に追従）。
- *   - jst  = JST サイエンスポータル（RSS 2.0・本命・工学/科学技術・日次更新）
- *   - mext = 文部科学省 news/index.rdf（RDF・CC BY 互換・補助）
- * meti（経済産業省）は **URL 未確定のためデフォルトに入れない**（enum 値 "meti" は存在するので、確定後に
- *   NEWS_FEEDS_JSON で追加できる。例: [{"source":"meti","sourceLabel":"経済産業省","url":"https://..."}]）。
+ * 確定フィード（デフォルト 3 本、ADR-043 §2026-06-20 改訂）。env `NEWS_FEEDS_JSON` で上書き可（鉄道の
+ * RAILWAY_STATUS_URL 方式・URL 変化や追加に追従）。配列順 = 表示の優先順（meti を主役に先頭）。
+ *   - meti = 経済産業省 ml_index_release_atom.xml（Atom・**主役**・CC BY = PDL1.0・公式要約 <summary> 付き）
+ *   - jst  = JST サイエンスポータル（RSS 2.0・工学/科学技術・要許諾＝要約は破棄し見出しのみ）
+ *   - mext = 文部科学省 news/index.rdf（RDF・CC BY 互換だがフィードに説明文なし＝summary 自然に null・補助）
  */
 export const DEFAULT_NEWS_FEEDS: readonly NewsFeed[] = [
+  {
+    source: "meti",
+    sourceLabel: "経済産業省",
+    url: "https://www.meti.go.jp/ml_index_release_atom.xml",
+  },
   {
     source: "jst",
     sourceLabel: "JST サイエンスポータル",
@@ -51,6 +55,22 @@ export const DEFAULT_NEWS_FEEDS: readonly NewsFeed[] = [
     url: "https://www.mext.go.jp/b_menu/news/index.rdf",
   },
 ];
+
+/**
+ * **要約（summary）を保存・表示してよいソースか**（ADR-043 §2026-06-20 改訂の法的 gate）。
+ *
+ * CC BY（PDL1.0 / 政府標準利用規約 = 出典明記で複製・公衆送信可）のソースに限り、公式配信の要約を保持・表示する。
+ *   - `meti`（経済産業省）= PDL1.0。要約を採用（盤面の主役）。
+ *   - `mext`（文部科学省）= CC BY 互換。許可はするがフィードに説明文が無く自然に null（見出しのみになる）。
+ *   - `jst`（JST サイエンスポータル）= 独自 All Rights Reserved・要約は要許諾 → **false**（パースで description が
+ *     取れても run.ts が破棄し、見出しのみ保存する）。
+ *
+ * 「保存しない」を **取得直後（DB 保存前）に強制**することで、要許諾ソースの要約が news_items に一切入らないことを
+ * 物理的に担保する（後段の表示層は gate を持たない＝単一の関所）。export して単体テスト可能にする。
+ */
+export function isSummaryAllowedSource(source: NewsFeed["source"]): boolean {
+  return source === "meti" || source === "mext";
+}
 
 /** 1 フィードあたり最新何件を upsert するか（ADR-043 §決定: 10〜15 件程度）。 */
 export const MAX_ITEMS_PER_FEED = 15;
@@ -95,11 +115,15 @@ export async function runNewsFetch(deps: NewsFetchDeps): Promise<NewsFetchSummar
   for (const feed of feeds) {
     try {
       const parsed = await deps.fetchFeed(feed);
+      // 要約は CC BY ソース（meti/mext）のみ採用。要許諾ソース（jst）は parse で取れても破棄して null に倒す
+      // （ADR-043 §2026-06-20 改訂の法的 gate。DB 保存前の単一の関所）。
+      const allowSummary = isSummaryAllowedSource(feed.source);
       const items: UpsertNewsItemInput[] = parsed.map((p) => ({
         source: feed.source,
         sourceLabel: feed.sourceLabel,
         title: p.title,
         url: p.url,
+        summary: allowSummary ? p.summary : null,
         publishedAt: p.publishedAt,
       }));
       const rows = await deps.saveItems(items);

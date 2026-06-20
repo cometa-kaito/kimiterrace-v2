@@ -76,6 +76,7 @@ function newsBearingPayload(): SignagePayload {
           title: "松本洋平文部科学大臣記者会見録",
           sourceLabel: "文部科学省",
           url: "https://www.mext.go.jp/b_menu/daijin/detail/mext_00705.html",
+          summary: null,
           publishedAt: new Date("2026-06-19T10:57:00.000Z"),
         },
       ],

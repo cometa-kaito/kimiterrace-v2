@@ -2,7 +2,8 @@ import { env, exit } from "node:process";
 import { type RunNewsFetchConfig, parseFeedsEnv, runNewsFetchBatch } from "./run.js";
 
 /**
- * pattern2/3 サイネージ「工学ニュース」見出し取得 Cloud Run Job エントリ（ADR-043）。
+ * pattern2/4 サイネージ「時事ニュース」取得 Cloud Run Job エントリ（ADR-043）。CC BY ソース（経産省 METI）は
+ * 公式要約付き、要許諾ソース（JST 等）は見出しのみ（要約 gate は run.ts の `isSummaryAllowedSource`）。
  *
  * 使い方: `node dist/news/news-job.js`（Cloud Run Job のコンテナ起動コマンド）。Cloud Scheduler から
  * 30 分間隔で起動する想定（各機関フィードへの礼儀・低頻度取得、ADR-043 §決定）。ロジックは `run.ts`
@@ -16,7 +17,7 @@ import { type RunNewsFetchConfig, parseFeedsEnv, runNewsFetchBatch } from "./run
  * - `NEWS_FETCH_USER_AGENT`: 各機関への明示 User-Agent（連絡先含む、ADR-043 §礼儀）。既定は連絡先付き UA。
  * - `NEWS_FETCH_TIMEOUT_MS`: HTTP タイムアウト（既定 10000）。
  * - `NEWS_FEEDS_JSON`: フィード定義の上書き（JSON 配列 [{source,sourceLabel,url}]）。未設定 / 不正なら
- *   DEFAULT_NEWS_FEEDS（jst / mext）にフォールバック。meti は URL 確定後に本 env で追加する。
+ *   DEFAULT_NEWS_FEEDS（meti / jst / mext）にフォールバック。
  *
  * ## fail-soft
  * 1 フィードの取得 / パース失敗は last-known-good を維持（既存キャッシュを消さない）。**部分失敗は終了

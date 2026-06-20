@@ -3,6 +3,39 @@
 - 状態: Accepted（2026-06-18、ユーザー判断）
 - 日付: 2026-06-18（Proposed / Accepted 同日。pattern2/3 盤面「工学ニュース」ブロック実装と同時）
 - 更新（2026-06-20）: **表示パターンを pattern2/3 → pattern2/pattern4 に変更**。pattern3（廊下）はニュース枠を撤去（[#1080](https://github.com/cometa-kaito/kimiterrace-v2/pull/1080)）、pattern4（教員入力最小・[ADR-048](048-signage-pattern4-teacher-input-minimal.md)）でニュースを主役の自動コンテンツとして採用。取得 Job / `news_items` / RLS は無改修（読む盤面パターンが変わっただけ）。以下本文の「pattern2/3」表記は当時の決定で、現在は **pattern2/pattern4** が表示パターン。
+- 更新（2026-06-20・追補）: **CC BY（PDL1.0 / 政府標準利用規約）ソースに限り、公式が配信する要約を出典明記で表示する方針へ更新**（§2026-06-20 改訂を参照）。当初の「見出し + 出典のみ（本文非転載）」を**置き換えるのではなく追補**する（見出しのみ表示は全ソースで引き続き合法のベースライン。要約は CC BY ソースに上乗せ）。
+
+## 2026-06-20 改訂: CC BY ソースの公式要約を表示する
+
+### 背景（ユーザー判断 2026-06-20）
+
+pattern4 の「時事ニュース」枠に、見出しだけでなく**ニュースの要約（2〜3 文）を出典明記で表示**したい。著作権調査の確定結論として、要約を**合法に公衆送信（= サイネージ表示）できるのは経産省 METI のみ**である:
+
+- **経産省 METI** = 政府標準利用規約（PDL1.0・**CC BY 4.0 互換**）。出典明記で複製・公衆送信が可能。かつ Atom フィード（`https://www.meti.go.jp/ml_index_release_atom.xml`）の各 `<entry>` に `<summary>`（2〜3 文の本文要約・約 180 字）を持つ。**要約を表示してよい**（pattern4 の主役）。
+- **文科省 mext** = CC BY 互換だが RDF フィードに説明文（description）が無い → 要約は**自然に null**（見出しのみ）。
+- **JST jst** = 独自 All Rights Reserved（要許諾）。要約（description）が技術的に取れても**保存・表示しない（null）= 見出しのみ**。
+
+ユーザーは「**METI 中心**」を選択（経産省＝産業・技術政策ニュースを主役にし、ほぼ全表示項目に要約が付く。jst/mext は見出しのみ併用）。当初の「見出しの著作物性」回避（§残存リスク①）に加え、CC BY ソースは正規に**事実の言い換えでない一次配信要約**まで使える点が新しい。
+
+### 決定（差分）
+
+1. `news_items` に `summary text`（nullable）列を追加。**CC BY ソースのみ非 null**、要許諾ソースは null。RLS は既存の `read_all` / `write_system` のままで不変（summary は同じ行の一部）。監査列も既存のまま。
+2. **ソース別 gating（法的な単一の関所）** を取得 Job（`apps/jobs/src/news/run.ts` の `isSummaryAllowedSource`）が DB 保存**直前**に強制する。表示層は gate を持たない（要許諾ソースの要約は news_items に一切入らないことを物理担保）:
+
+   | source | 規約 | フィードに要約 | summary を保存 | 盤面表示 |
+   |---|---|---|---|---|
+   | `meti` 経産省 | PDL1.0（CC BY 互換） | あり（Atom `<summary>`） | **する** | **要約を箇条書き表示**（pattern4） |
+   | `mext` 文科省 | CC BY 互換 | なし（RDF に description なし） | 許可するが自然に null | 見出しのみ |
+   | `jst` JST | 独自 All Rights Reserved（要許諾） | あり（description） | **しない（破棄）** | 見出しのみ |
+
+3. **取得 Job は Atom（`<feed><entry>`）を新たに解析**（既存 RSS2.0 / RDF に加え）。entry の title=`<title>`、url=`<link rel="alternate" href>`、publishedAt=`<updated>`、summary=`<summary>`。要約は HTML タグ除去・trim・最大長で丸める。DEFAULT フィードは **meti / jst / mext** の順（meti を主役に先頭）。
+4. **表示は pattern4 のみ**（`Pattern2News showSummary`）。pattern2 は従来どおり見出しのみ（出力不変）。要約は見出しの下に「。」で文分割した**最大 4 文の箇条書き**で出す（ユーザー指示「箇条書きで3〜4文」）。出典明記は既存の発表元ラベルが担う（CC BY の出典明記要件・必須）。
+5. **本文の生転載はしない**ことは不変。要約は「公式が配信する短い説明文」に限り、生 PII 本文の保存はしない。
+
+### 再検討トリガ（追補）
+
+- METI が PDL1.0 を変更し要約の公衆送信を制限した → meti の要約表示を停止（見出しのみへ）。`isSummaryAllowedSource` から meti を外すだけで全層が見出しのみに戻る。
+- 他の CC BY 府省フィードに要約が増えた → `isSummaryAllowedSource` に追加して対象拡大。
 - 関連: [ADR-021 サイネージ天気（閉域パターンの先例）](021-weather-data-source-jma.md), [ADR-035 鉄道運行情報（外部取得2例目の先例）](035-railway-operation-status-scraping.md), [ADR-019 RLS 二層 + 公開参照マスタ特例](019-rls-two-layer-tenant-isolation.md), [ADR-009 Terraform / 単一 egress](009-terraform.md), [ADR-030 authoring-time PII gate（将来のAI要約拡張時に関係）](030-authoring-time-pii-gate.md), CLAUDE.md ルール1/2/5/6/8, docs/STATUS.md「外部システム自動取込みは現フェーズで実装しない（2026-05-28 ユーザー判断）」, Issue #1046
 
 ## 文脈
