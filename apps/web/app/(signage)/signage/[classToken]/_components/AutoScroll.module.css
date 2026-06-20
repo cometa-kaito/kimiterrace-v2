@@ -1,0 +1,15 @@
+/* 縦オートスクロール（{@link AutoScroll}）。親 flex の残り高さを占有するビューポート（はみ出しを隠す）と、
+   自然高さで縦に積むトラック（JS で translateY アニメーション）。コンテンツが収まる時は JS 側が距離 0 と判定し
+   トラックは原点のまま＝静的（サムネ／jsdom／reduced-motion／非対応 WebView も安全に静的描画）。 */
+.viewport {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.track {
+  display: flex;
+  flex-direction: column;
+  /* GPU 合成で滑らかに（盤面は常時表示なので will-change を明示）。 */
+  will-change: transform;
+}

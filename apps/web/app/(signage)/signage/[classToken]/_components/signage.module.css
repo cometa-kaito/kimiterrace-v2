@@ -361,6 +361,23 @@
   font-size: clamp(0.85rem, 1.2vw, 1.05rem);
   padding: 0.4rem 0;
 }
+/* 連絡のフロー版（pattern4・NoticeList scroll）。5 行固定グリッドをやめ、全連絡を自然高さで縦に積む。各行は
+   折り返して全文を出し（clip しない）、枠に収まらない分は親の AutoScroll が縦スクロールで順に見せる。
+   pattern1/2/3 の `.listGroup`（5 行固定）は無改修。 */
+.noticeFlow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.noticeFlow .listItem {
+  /* 自然高さで全文折り返し（固定行高でないので clip しない）。 */
+  overflow: visible;
+  justify-content: flex-start;
+  padding: 0.12rem 0;
+}
 
 /* ===================== 10. 提出物（右下・表・5行） ===================== */
 .tableWrapper {
@@ -816,11 +833,12 @@
   color: var(--text-muted);
   margin-left: 0.4rem;
 }
+/* ニュース一覧。高さ確保・はみ出し制御は親の AutoScroll ビューポートが担うので、ここは自然高さで縦に積むだけ
+   （全件 DOM 保持＝オートスクロールで順に見せる）。 */
 .p2NewsList {
   list-style: none;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -885,11 +903,8 @@
   font-size: clamp(0.66rem, 0.95vw, 0.86rem);
   line-height: 1.35;
   color: var(--text-color);
-  /* 各文は最大 2 行で省略（盤面を膨らませ過ぎない）。 */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+  /* 全文を折り返して表示する（行クランプ廃止）。枠に収まらない分は親の AutoScroll が縦スクロールで見せる
+     （旧: 2 行クランプで要約が途中で切れていた・2026-06-20 ユーザー報告の解消）。 */
 }
 .p2NewsSummary li::before {
   content: "・";
@@ -1147,13 +1162,17 @@
 .p4Root .cardTitle {
   font-size: clamp(1.15rem, 1.75vw, 1.55rem);
 }
+/* pattern4 はニュースが主役。見出しは 1 行省略せず全文を折り返す（オートスクロールで縦の溢れを見せる）。 */
 .p4Root .p2NewsTitle {
   font-size: clamp(1.05rem, 1.7vw, 1.5rem);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 .p4Root .p2NewsMeta {
   font-size: clamp(0.78rem, 1.1vw, 1rem);
 }
-/* pattern4 は枠なし主役なので要約も少し大きめ。各文 2 行クランプは基底のまま（高さ破綻を防ぐ）。 */
+/* pattern4 は枠なし主役なので要約も少し大きめ（全文折り返し・縦溢れは AutoScroll が見せる）。 */
 .p4Root .p2NewsSummary li {
   font-size: clamp(0.82rem, 1.2vw, 1.1rem);
   line-height: 1.4;

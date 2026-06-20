@@ -16,6 +16,7 @@ import type { SignageHeatAlert } from "@/lib/signage/heat-alerts";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import type { SignageWeatherWarning } from "@/lib/signage/weather-warnings";
+import { AutoScroll } from "./AutoScroll";
 import {
   BoardRegionEditButton,
   type EditRegion,
@@ -428,8 +429,9 @@ function Pattern4Board({
             {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。pattern4 では
                 CC BY ソース（経産省 METI）の公式要約を箇条書きで添える（showSummary）。 */}
             <Pattern2News news={data.news} showSummary />
-            {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。 */}
-            <NoticeList section={data.daily.notices} editRegions={editRegions} />
+            {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。
+                scroll で 5 行固定をやめ、長文連絡を切らずにオートスクロールで全文見せる（2026-06-20）。 */}
+            <NoticeList section={data.daily.notices} editRegions={editRegions} scroll />
             {/* ステータス帯（自動）: 鉄道 + 人感センサを小さく 2 列。 */}
             <div className={styles.p4Status}>
               <Pattern2Train train={data.trainStatus} />
@@ -1023,40 +1025,44 @@ function Pattern2News({
       {items.length === 0 ? (
         <p className={styles.p2Muted}>ニュースを取得できていません</p>
       ) : (
-        <ul className={styles.p2NewsList}>
-          {items.map((item) => {
-            // 要約は pattern4（showSummary）かつ CC BY ソースで要約がある記事だけ。「。」で文分割し最大 4 文。
-            const summarySentences =
-              showSummary && item.summary ? splitNewsSummary(item.summary) : [];
-            return (
-              <li key={item.id} className={styles.p2NewsItem}>
-                <span className={styles.p2NewsTitle}>{item.title}</span>
-                {summarySentences.length > 0 ? (
-                  <ul className={styles.p2NewsSummary}>
-                    {summarySentences.map((s, i) => (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <span className={styles.p2NewsMeta}>
-                  {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
-                  <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
-                  {item.publishedAt ? (
-                    <>
-                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                        ／
-                      </span>
-                      <span>{formatNewsDate(item.publishedAt)}</span>
-                    </>
+        // 全記事を枠に詰め込むと下が切れて要約が読めない（2026-06-20 ユーザー報告）。全件を DOM に保持したまま
+        // 縦オートスクロールで順に見せる（収まる時は静的＝回帰なし）。
+        <AutoScroll>
+          <ul className={styles.p2NewsList}>
+            {items.map((item) => {
+              // 要約は pattern4（showSummary）かつ CC BY ソースで要約がある記事だけ。「。」で文分割し最大 4 文。
+              const summarySentences =
+                showSummary && item.summary ? splitNewsSummary(item.summary) : [];
+              return (
+                <li key={item.id} className={styles.p2NewsItem}>
+                  <span className={styles.p2NewsTitle}>{item.title}</span>
+                  {summarySentences.length > 0 ? (
+                    <ul className={styles.p2NewsSummary}>
+                      {summarySentences.map((s, i) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
                   ) : null}
-                </span>
-                {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
-                <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
-              </li>
-            );
-          })}
-        </ul>
+                  <span className={styles.p2NewsMeta}>
+                    {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
+                    <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
+                    {item.publishedAt ? (
+                      <>
+                        <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                          ／
+                        </span>
+                        <span>{formatNewsDate(item.publishedAt)}</span>
+                      </>
+                    ) : null}
+                  </span>
+                  {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
+                  <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );
@@ -1203,21 +1209,58 @@ function ScheduleRow({ row }: { row: SignageScheduleRow }) {
   );
 }
 
-/** 連絡事項（左下・5行）。重要マーク(isHighlight)は赤強調 + 【重要】。空きはプレースホルダーで 5 行を保つ。 */
+/**
+ * 連絡事項。重要マーク(isHighlight)は赤強調 + 【重要】。
+ *
+ * - **既定（pattern1・グリッド）**: 左下・5 行固定。提出物表と行を揃えるため空きはプレースホルダーで 5 行を保つ。
+ * - **`scroll`（pattern4・フロー）**: 5 行固定をやめ全連絡を自然高さで縦に積み、枠に収まらなければ {@link AutoScroll}
+ *   で縦オートスクロールして全文を順に見せる（教員が入れた長文が切れて一部見えなくなる事象の解消・2026-06-20
+ *   ユーザー報告）。編集モード（`editRegions`）では動かさず静的（クリック編集を妨げない）。
+ */
 function NoticeList({
   section,
   editRegions,
+  scroll = false,
 }: {
   section: MergedSection;
   editRegions?: EditRegionsProps;
+  /** pattern4: 5 行固定をやめフロー＋オートスクロールで全連絡を切らずに見せる。既定 false（従来のグリッド）。 */
+  scroll?: boolean;
 }) {
   const lines = section.items.map((item) => formatSignageItem("notices", item));
-  const placeholders = Math.max(0, MIN_ROWS - lines.length);
+  // フロー（scroll）はプレースホルダーで詰めない（自然高さで積みオートスクロールに委ねる）。
+  const placeholders = scroll ? 0 : Math.max(0, MIN_ROWS - lines.length);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "notices",
     styles.card,
     "連絡",
     editRegions,
+  );
+  const list = (
+    <ul className={scroll ? styles.noticeFlow : styles.listGroup}>
+      {lines.length === 0 ? (
+        <li className={styles.empty}>連絡事項はありません</li>
+      ) : (
+        <>
+          {lines.map((line, i) => {
+            const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+              <li key={i} className={cls}>
+                {line.emphasis ? "【重要】" : ""}
+                {line.text}
+              </li>
+            );
+          })}
+          {Array.from({ length: placeholders }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+            <li key={`ph-${i}`} className={styles.noticePlaceholder}>
+              &nbsp;
+            </li>
+          ))}
+        </>
+      )}
+    </ul>
   );
   return (
     <section {...sectionProps}>
@@ -1230,30 +1273,7 @@ function NoticeList({
         連絡
         <SourceBadge source={section.source} />
       </h2>
-      <ul className={styles.listGroup}>
-        {lines.length === 0 ? (
-          <li className={styles.empty}>連絡事項はありません</li>
-        ) : (
-          <>
-            {lines.map((line, i) => {
-              const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                <li key={i} className={cls}>
-                  {line.emphasis ? "【重要】" : ""}
-                  {line.text}
-                </li>
-              );
-            })}
-            {Array.from({ length: placeholders }, (_, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-              <li key={`ph-${i}`} className={styles.noticePlaceholder}>
-                &nbsp;
-              </li>
-            ))}
-          </>
-        )}
-      </ul>
+      {scroll ? <AutoScroll play={!editRegions}>{list}</AutoScroll> : list}
     </section>
   );
 }
