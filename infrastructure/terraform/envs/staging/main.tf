@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "f25b610" # migration 0029-0033 (#1048/#1056/#1057/#1059/#1060): weather_warnings/heat_alerts/signage_snippets/school_calendar_*/air_quality_index + 公開型&tenant_isolation RLS + 監査FK（サイネージ自動コンテンツ・ADR-044/045/046・additive/後方互換。0028 news 含む既適用分は migrate-runner が冪等 skip）。staging Job 実行予定
+  migrate_image_tag = "ea93c5f" # 2026-06-20: news_items.summary 列追加（#1087・ALTER TABLE ADD COLUMN IF NOT EXISTS summary text・additive/後方互換・RLS監査不変）。0029-0033（weather/heat/snippets/calendar/air_quality・ADR-044/045/046）+0028 news も同梱し migrate-runner が未適用分のみ冪等適用。staging Job 適用済（staging 実 Job image=ea93c5f）
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続・railway/tv-liveness は同コードで image のみ更新
+  jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。staging 実 Job image=ea93c5f
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "d0eff93" # 2026-06-20: エディタの浮遊AIチャットをドラッグ/矢印キー/ダブルクリック/Homeでリサイズ可能に（#1085）。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
+  web_image_tag = "2b5d7c1" # 2026-06-20: 時事ニュース表示で要約付き(METI/CC BY)項目を上位に並べ替え（#1091・getLatestNews を summary 優先順に）。土台 ea93c5f(#1087 METI 公式要約) + 中間 #1085(浮遊AIチャットresize)/#1086(エディタ盤面プレビュー統一) 込み。表示層(apps/web/packages/db query)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
