@@ -109,7 +109,7 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
   it("scheduleDays に対応する天気日があるとき予定列ヘッダーにアイコンを出し、文字は出さない", () => {
     render(
       <SignageClient
-        classToken={TOKEN}
+        basePath={TOKEN}
         initial={payload(weather({}), [scheduleDay("2026-06-02")])}
       />,
     );
@@ -128,7 +128,7 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
   it("weatherText が無ければ aria-label にアイコンラベルを入れる (色非依存のフォールバック)", () => {
     render(
       <SignageClient
-        classToken={TOKEN}
+        basePath={TOKEN}
         initial={payload(
           weather({ days: [day({ weatherText: null, icon: "cloudy", iconLabel: "くもり" })] }),
           [scheduleDay("2026-06-02")],
@@ -145,7 +145,7 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
   it("isStale のとき鮮度劣化を色だけでなくテキストで明示する (F14 §3 / NFR05)", () => {
     render(
       <SignageClient
-        classToken={TOKEN}
+        basePath={TOKEN}
         initial={payload(
           weather({ isStale: true, fetchedAt: new Date("2026-06-01T08:00:00+09:00") }),
           [scheduleDay("2026-06-02")],
@@ -158,9 +158,7 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
   });
 
   it("weather=null なら天気を出さない (fail-soft) が、本体 (予定等) は描画され続ける", () => {
-    render(
-      <SignageClient classToken={TOKEN} initial={payload(null, [scheduleDay("2026-06-02")])} />,
-    );
+    render(<SignageClient basePath={TOKEN} initial={payload(null, [scheduleDay("2026-06-02")])} />);
     // 天気アイコンは存在しない。
     expect(screen.queryByText(GLYPH_SUNNY)).toBeNull();
     // 画面の他要素 (予定セクション等) は壊れず出る。
@@ -175,7 +173,7 @@ describe("SignageClient 予定列ヘッダー天気 (#128 / F14)", () => {
     ];
     render(
       <SignageClient
-        classToken={TOKEN}
+        basePath={TOKEN}
         initial={payload(weather({ days: manyWeatherDays }), [
           scheduleDay("2026-06-02"),
           scheduleDay("2026-06-03"),

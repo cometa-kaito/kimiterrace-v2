@@ -34,10 +34,15 @@ import styles from "./signage.module.css";
  */
 
 export function SignageClient({
-  classToken,
+  basePath,
   initial,
 }: {
-  classToken: string;
+  /**
+   * ポーリング/イベント送信の URL 接頭辞。`/signage/<classToken>`（クラス起点）または
+   * `/signage/monitor/<deviceId>`（モニタ起点・Phase5 v2-PR4）。`${basePath}/data` を poll し、
+   * `${basePath}/events` へ行動イベントを送る。値は呼び出し側（page）が encode 済みで渡す。
+   */
+  basePath: string;
   initial: SignagePayload;
 }) {
   const [data, setData] = useState<SignagePayload>(initial);
@@ -60,7 +65,7 @@ export function SignageClient({
     }
     try {
       const res = await fetch(
-        `/signage/${encodeURIComponent(classToken)}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}`,
+        `${basePath}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}`,
         { cache: "no-store" },
       );
       if (res.status === 410) {
@@ -77,7 +82,7 @@ export function SignageClient({
     } catch {
       // ネットワークエラーは握りつぶし、最後に成功した表示を維持する。
     }
-  }, [classToken, designParam]);
+  }, [basePath, designParam]);
 
   useEffect(() => {
     if (invalid) {
@@ -135,7 +140,7 @@ export function SignageClient({
         return;
       }
       const clientId = getClientId();
-      sendSignageEvent(classToken, {
+      sendSignageEvent(`${basePath}/events`, {
         type: "view",
         adId: currentAdId,
         slotIndex: safeIndex,
@@ -145,20 +150,20 @@ export function SignageClient({
     sendView();
     const id = setInterval(sendView, VIEW_HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [currentAdId, safeIndex, classToken]);
+  }, [currentAdId, safeIndex, basePath]);
 
   // --- 広告タップ (click-through) テレメトリ (#43 / F07)。linkUrl 付き広告のタップで tap を 1 件送る。 ---
   const handleAdTap = useCallback(
     (adId: string, slotIndex: number) => {
       const clientId = getClientId();
-      sendSignageEvent(classToken, {
+      sendSignageEvent(`${basePath}/events`, {
         type: "tap",
         adId,
         slotIndex,
         ...(clientId ? { clientId } : {}),
       });
     },
-    [classToken],
+    [basePath],
   );
 
   // --- Service Worker 登録 (#48-G)。マウント時に 1 度だけ。失敗しても表示はブロックしない。 ---
