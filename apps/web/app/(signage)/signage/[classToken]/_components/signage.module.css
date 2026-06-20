@@ -1330,7 +1330,7 @@
   overflow: hidden;
   padding-right: 0.4rem;
 }
-/* カルーセルは 1 記事を 1 枠に収めるため、見出しは最大 2 行・要約各文は最大 3 行でクランプ（収まり優先・
+/* カルーセルは 1 記事を 1 枠に収めるため、見出しは最大 2 行・要約各文は最大 2 行でクランプ（収まり優先・
    pattern4 一覧時の全文折り返し上書きより内側で効かせる）。 */
 .p4Root .newsCarouselSlide .p2NewsTitle {
   display: -webkit-box;
