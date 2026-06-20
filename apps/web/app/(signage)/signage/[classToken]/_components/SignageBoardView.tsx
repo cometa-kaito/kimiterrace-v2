@@ -124,8 +124,10 @@ const PATTERN_BOARDS: Record<
 > = {
   pattern1: Pattern1Board,
   pattern2: Pattern2Board,
-  // pattern3 = pattern2 の掲示盤面を「廊下設置」向けにデザイン最適化した版（表示ブロック・データは同一）。
+  // pattern3 = pattern2 の掲示盤面を「廊下設置」向けにデザイン最適化した版（pattern2 から工学ニュースを除く）。
   pattern3: Pattern3Board,
+  // pattern4 = 教員入力最小（連絡のみ編集）・天気/ニュースを主役にした自動寄りの盤面。
+  pattern4: Pattern4Board,
 };
 
 /**
@@ -381,6 +383,153 @@ function Pattern3Board({
           onAdTap={onAdTap}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン4: **教員入力を最小化した自動寄りの盤面**（pattern3 の対）。天気・ニュースを主役の自動コンテンツに
+ * 据え、教員が入力するのは**連絡（フリーワード）のみ**。それ以外は全自動／API（防災・安全＝条件付き帯／鉄道／
+ * 人感センサ／広告）で教員入力ゼロ（2026-06-20 ユーザー確定）。**予定・呼び出し・来校者・提出物は出さない**
+ * （`PATTERN_BLOCKS.pattern4` に含めない＝`editableBlocksForPattern` は `[notice]` のみ）。
+ *
+ * 盤面の各リージョン（連絡／工学ニュース／鉄道／人感センサ）・防災帯・広告は **既存部品をそのまま再利用**し、
+ * region aria-label・fail-soft・ドリフトガード（SignageClient.test）・データ取得ゲートを共有する（DRY。pattern1/2/3
+ * は無改修）。差分はラッパ `p4Root` クラス・縦積みの `p4Grid` レイアウト・天気ヒーロー（{@link Pattern4WeatherHero}）
+ * のみ。連絡だけ `editRegions` を渡す（WYSIWYG「盤面を編集」で連絡のみクリック編集可・他は自動で非編集）。
+ */
+function Pattern4Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
+  return (
+    <div className={`${styles.signageRoot} ${styles.p4Root}`}>
+      <BoardHeader data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p4Grid}>
+            {/* 防災・安全帯（ADR-044）: アクティブな警報/熱中症がある時だけ最上部に出す（無い時は帯ごと出ない）。 */}
+            <SafetyAlertBand
+              warning={data.weatherWarnings ?? null}
+              heatAlert={data.heatAlerts ?? null}
+            />
+            {/* 主役①: 天気ヒーロー（今日の天気を大きく + 週間）。weather=null は帯ごと出さない（fail-soft）。 */}
+            <Pattern4WeatherHero weather={data.weather ?? null} today={data.date} />
+            {/* 主役②: 工学ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。 */}
+            <Pattern2News news={data.news} />
+            {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。 */}
+            <NoticeList section={data.daily.notices} editRegions={editRegions} />
+            {/* ステータス帯（自動）: 鉄道 + 人感センサを小さく 2 列。 */}
+            <div className={styles.p4Status}>
+              <Pattern2Train train={data.trainStatus} />
+              <Pattern2SensorCount count={data.presenceCount} />
+            </div>
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン4 専用の**天気ヒーロー**（主役）。`data.weather.days` の本日を大きく（単色グリフ + 最高/最低気温 +
+ * 天気テキスト + 降水確率）、続けて本日以降（最大 6 日）を週間ストリップで横並びに出す。天気を「基本の重要情報」
+ * として最大化する狙い（2026-06-20 ユーザー確定）。
+ *
+ * ## 設計上の不変条件
+ * - **region landmark を作らない**: weather は {@link SIGNAGE_BLOCK_META} で `hasRegion=false`。盤面 region
+ *   ドリフトガード（描画 region 集合 ↔ hasRegion ブロック集合の一致）を崩さぬよう、`<section aria-label>` では
+ *   なく `role="group"` でまとめる（pattern1 防災帯 / pattern3 週間天気帯と同作法）。aria-label は「天気」。
+ * - **pattern3 週間天気帯（"週間天気" group）とは別物**: 本ヒーローは "天気" group で、pattern3 専用の
+ *   `Pattern3WeeklyWeather`（"週間天気" group）とは名前で区別する（テストの取り違え防止）。
+ * - **NFR05（色非依存）**: 気温は色だけでなく必ず数値を添え、天気グリフは `aria-label` で意味を担保。
+ * - **fail-soft**: `weather=null` や本日以降の予報が 0 件なら帯ごと出さない（盤面を壊さない）。
+ */
+function Pattern4WeatherHero({
+  weather,
+  today,
+}: {
+  weather: SignageWeather | null;
+  today: string;
+}) {
+  const days = weather ? weather.days.slice(0, 7) : [];
+  if (days.length === 0) {
+    return null;
+  }
+  const todayDay = days.find((d) => d.forecastDate === today) ?? days[0];
+  if (!todayDay) {
+    return null;
+  }
+  const restDays = days.filter((d) => d !== todayDay).slice(0, 6);
+  return (
+    // 非フォームの関連項目まとめ。region landmark を増やさぬよう <section aria-label> でなく role="group"。
+    // biome-ignore lint/a11y/useSemanticElements: 盤面 region ドリフトガードを崩さぬため role="group" を使う
+    <div className={styles.p4Weather} role="group" aria-label="天気">
+      <div className={styles.p4WxToday}>
+        <span className={styles.p4WxTodayLabel}>今日の天気</span>
+        <span className={styles.p4WxTodayMain}>
+          <span
+            className={styles.p4WxTodayIcon}
+            aria-label={todayDay.weatherText ?? todayDay.iconLabel}
+          >
+            <span aria-hidden="true">{WEATHER_ICON_GLYPH[todayDay.icon]}</span>
+          </span>
+          {todayDay.tempMax != null ? (
+            <span className={styles.p4WxTodayTemp}>
+              <span className={styles.p4WxTodayHigh}>{todayDay.tempMax}°</span>
+              {todayDay.tempMin != null ? (
+                <span className={styles.p4WxTodayLow}>{todayDay.tempMin}°</span>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
+        <span className={styles.p4WxTodayMeta}>
+          {todayDay.weatherText ? (
+            <span className={styles.p4WxTodayText}>{todayDay.weatherText}</span>
+          ) : null}
+          {todayDay.pop != null ? (
+            <span className={styles.p4WxTodayPop} aria-label={`降水確率 ${todayDay.pop}％`}>
+              <span aria-hidden="true">☂</span>
+              {todayDay.pop}%
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <div className={styles.p4WxWeek}>
+        {restDays.map((day) => {
+          const { weekday } = weeklyWeatherLabel(day.forecastDate, today);
+          return (
+            <div key={day.forecastDate} className={styles.p4WxCell}>
+              <span className={styles.p4WxDow}>{weekday}</span>
+              <span className={styles.p4WxIcon} aria-label={day.weatherText ?? day.iconLabel}>
+                <span aria-hidden="true">{WEATHER_ICON_GLYPH[day.icon]}</span>
+              </span>
+              <span className={styles.p4WxTemps}>
+                <span className={styles.p4WxHigh}>
+                  {day.tempMax != null ? `${day.tempMax}°` : "—"}
+                </span>
+                <span className={styles.p4WxLow}>
+                  {day.tempMin != null ? `${day.tempMin}°` : "—"}
+                </span>
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

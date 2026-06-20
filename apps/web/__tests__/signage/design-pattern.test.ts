@@ -17,10 +17,11 @@ import { describe, expect, it } from "vitest";
  */
 
 describe("isSignageDesignPattern", () => {
-  it("既知パターン（pattern1 / pattern2 / pattern3）のみ true", () => {
+  it("既知パターン（pattern1 / pattern2 / pattern3 / pattern4）のみ true", () => {
     expect(isSignageDesignPattern("pattern1")).toBe(true);
     expect(isSignageDesignPattern("pattern2")).toBe(true);
     expect(isSignageDesignPattern("pattern3")).toBe(true);
+    expect(isSignageDesignPattern("pattern4")).toBe(true);
     expect(isSignageDesignPattern("pattern999")).toBe(false);
     expect(isSignageDesignPattern("")).toBe(false);
     expect(isSignageDesignPattern(null)).toBe(false);

@@ -99,9 +99,15 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
  *   人感センサ ＋ 天気／広告）。廊下運用ではニュース枠を外して予定・人物情報に集中させる（2026-06-20 ユーザー
  *   確定）。違いは盤面レイアウト（廊下の「遠目・一瞥」向けの拡大タイポ／時刻主役ヘッダー／今日強調／週間天気帯）と
  *   このニュース除去のみ（`PATTERN_BOARDS` の `Pattern3Board` がデザイン層を差し替える）。
+ * - **pattern4**（教員入力最小）: **天気・ニュースを主役**の自動コンテンツに据え、教員が入力するのは
+ *   **連絡（フリーワード）のみ**。それ以外は全自動／API（防災・安全＝条件付き／鉄道／人感センサ／広告）で
+ *   教員入力ゼロ（2026-06-20 ユーザー確定）。**予定・呼び出し・来校者・提出物は持たない**（教員入力を要する
+ *   ブロックは連絡を除き載せない）＝pattern4 だけは「全パターン共通の主役 schedule」を持たない例外
+ *   （`Pattern4Board` がレイアウトを担う）。pattern3（教員入力前提の廊下運用）と対になる「自動寄り」の盤面。
  *
- * 工学ニュース（news・ADR-043）は鉄道（train）と同じシステム供給の自動ブロックで、**pattern2 のみ**に出す
- * （pattern1／pattern3 は対象外）。
+ * 工学ニュース（news・ADR-043）は鉄道（train）と同じシステム供給の自動ブロックで、**pattern2／pattern4** に
+ * 出す（pattern1／pattern3 は対象外）。防災・安全（safety_alert・ADR-044）は **pattern1／pattern4** が出す
+ * （いずれもアクティブ時のみ条件付き描画）。
  *
  * 新パターンはここに 1 行追加するだけで全消費者が追従する（finding①「宣言的マッピングで一括駆動」）。
  */
@@ -113,6 +119,10 @@ export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockK
   // pattern3（廊下）は pattern2 から工学ニュース（news）を除いたブロック（廊下運用ではニュースを外す・
   // 2026-06-20 ユーザー確定）。デザイン層（拡大タイポ／週間天気帯）は Pattern3Board が担う。
   pattern3: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
+  // pattern4（教員入力最小）: 天気・ニュースを主役に、教員入力は連絡（notice・フリーワード）のみ。防災・安全は
+  // 条件付きで先頭、その後 天気→ニュース→連絡→鉄道→人感センサ、広告は末尾。schedule/callout/visitor/assignment
+  // は教員入力を要するため**載せない**（editableBlocksForPattern→[notice] のみ。2026-06-20 ユーザー確定）。
+  pattern4: ["safety_alert", "weather", "news", "notice", "train", "presence", "ad"],
 };
 
 /**
