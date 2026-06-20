@@ -328,15 +328,16 @@ function Pattern2Board({
 }
 
 /**
- * パターン3: 廊下設置に最適化した掲示盤面。**表示ブロック・データ・順序・広告は pattern2 と完全に同一**
- * （先方リクエストの確定コンテンツを変えない）で、廊下の「通り過ぎながら遠目で一瞥」に効く**デザイン層だけ**を
- * 足す版（2026-06-17 ユーザー確定）:
+ * パターン3: 廊下設置に最適化した掲示盤面。**表示ブロック・データ・順序・広告は pattern2 から工学ニュースを
+ * 除いたもの**（廊下運用ではニュース枠を外し予定・人物情報に集中・2026-06-20 ユーザー確定）で、廊下の
+ * 「通り過ぎながら遠目で一瞥」に効く**デザイン層**を足す版（2026-06-17 ベース）:
  *   (1) 時刻を主役にした大型ヘッダー（{@link Pattern3Header}）— 通行者が最も見る情報を最大化。
  *   (2) 主要テキスト（予定／氏名／鉄道／センサ）を遠距離可読まで拡大（CSS `.p3Root` の上書き）。
- *   (3) 「今日」列を枠で面強調。
+ *   (3) 「今日」列を枠で面強調 ＋ 週間天気帯（{@link Pattern3WeeklyWeather}）。
  * 盤面の各リージョン（予定／呼び出し／来校者／鉄道／センサ）と広告は **pattern2 の部品をそのまま再利用**し、
  * region aria-label・fail-soft・編集配線・ドリフトガード（SignageClient.test）・データ取得ゲートを共有する
- * （DRY。pattern2 は無改修＝既存教室端末は不変）。差分はラッパの `p3Root` クラスと専用ヘッダーのみ。
+ * （DRY。pattern2 は無改修＝既存教室端末は不変）。差分はラッパの `p3Root` クラス・専用ヘッダー・週間天気帯・
+ * 工学ニュース非表示（`PATTERN_BLOCKS.pattern3` から news を外したので {@link Pattern2News} を呼ばない）。
  */
 function Pattern3Board({
   data,
@@ -369,7 +370,7 @@ function Pattern3Board({
               <Pattern2Train train={data.trainStatus} />
               <Pattern2SensorCount count={data.presenceCount} />
             </div>
-            <Pattern2News news={data.news} />
+            {/* 工学ニュースは廊下版（pattern3）では出さない（2026-06-20 ユーザー確定・PATTERN_BLOCKS から除去）。 */}
           </div>
         </main>
         <AdAside
