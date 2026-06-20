@@ -271,24 +271,30 @@ export async function respondWithAssistantChat(
             if (typeof partial.reply === "string") {
               const end = safeEmitEnd(partial.reply, emittedReplyLen);
               if (end > emittedReplyLen) {
-                const delta = unmaskPII(partial.reply.slice(emittedReplyLen, end), dictionary);
-                // 逆マスク後の delta に PII 残存（モデルが生の電話/メールを書いた等）なら中止（ルール4）。
-                if (findUnmaskedPii(delta, []).length > 0) {
+                const maskedSlice = partial.reply.slice(emittedReplyLen, end);
+                // 逆マスク**前**（マスク空間）で leak 検査する。辞書由来の正規 PII は token 化済みでここでは PII
+                // 形に見えないため、検出されるのは「モデルが生成した辞書に無い生 PII」(= 真のリーク) のみ。逆マスク
+                // 後に検査すると辞書由来の復元値（教員が連絡に書いた電話/メール等）まで誤検知し、正しい入力なのに
+                // 毎ターン pii_leak でターンが中断する（ルール4・マスクが取りこぼした生 PII の echo も masked 側に
+                // 生のまま現れるので本検査で同様に捕捉でき、検出力は落ちない）。
+                if (findUnmaskedPii(maskedSlice, []).length > 0) {
                   sendError(send, 422, "pii_leak");
                   return;
                 }
+                const delta = unmaskPII(maskedSlice, dictionary);
                 send(ASSISTANT_CHAT_EVENTS.message, { delta });
                 emittedReplyLen = end;
               }
             }
 
-            // 構造化下書き: 検証（sanitize）→ 許可セクション絞り → 逆マスク → fail-closed → 変化時のみ emit。
+            // 構造化下書き: 検証（sanitize）→ 許可セクション絞り → マスク空間で fail-closed → 逆マスク → 変化時のみ emit。
             const sanitized = filterDraftToSections(sanitizeDraft(partial), args.allowedSections);
-            const unmaskedDraft = unmaskDeep(sanitized, dictionary);
-            if (findUnmaskedPii(JSON.stringify(unmaskedDraft), []).length > 0) {
+            // reply と同理由でマスク空間（逆マスク前）で leak 検査する（辞書由来の正規復元値を誤検知しない・ルール4）。
+            if (findUnmaskedPii(JSON.stringify(sanitized), []).length > 0) {
               sendError(send, 422, "pii_leak");
               return;
             }
+            const unmaskedDraft = unmaskDeep(sanitized, dictionary);
             const draftJson = JSON.stringify(unmaskedDraft);
             if (draftJson !== lastDraftJson) {
               lastDraft = unmaskedDraft;
