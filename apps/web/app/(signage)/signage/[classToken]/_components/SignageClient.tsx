@@ -14,6 +14,7 @@ import {
   jitteredPollMs,
   jstDateString,
   nextIndex,
+  reviveSignageDate,
 } from "@/lib/signage/rotation";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -67,7 +68,11 @@ export function SignageClient({
         return;
       }
       if (res.ok) {
-        setData((await res.json()) as SignagePayload);
+        // ⚠️ res.json() ではなく text→JSON.parse(reviver) で **Date 型フィールドを Date に復元**する。
+        // res.json() は fetchedAt / publishedAt 等を文字列のまま返し、盤面の Date 利用 (formatNewsDate の
+        // getTime 等) が文字列に対して走り TypeError で盤面が落ちる (初期 hydration は RSC が Date 復元する
+        // ので無傷、poll だけが壊れていた)。rotation.reviveSignageDate で初期描画と同じ「Date は Date」に揃える。
+        setData(JSON.parse(await res.text(), reviveSignageDate) as SignagePayload);
       }
     } catch {
       // ネットワークエラーは握りつぶし、最後に成功した表示を維持する。
