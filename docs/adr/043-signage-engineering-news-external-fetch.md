@@ -2,6 +2,7 @@
 
 - 状態: Accepted（2026-06-18、ユーザー判断）
 - 日付: 2026-06-18（Proposed / Accepted 同日。pattern2/3 盤面「工学ニュース」ブロック実装と同時）
+- 更新（2026-06-20）: **表示パターンを pattern2/3 → pattern2/pattern4 に変更**。pattern3（廊下）はニュース枠を撤去（[#1080](https://github.com/cometa-kaito/kimiterrace-v2/pull/1080)）、pattern4（教員入力最小・[ADR-048](048-signage-pattern4-teacher-input-minimal.md)）でニュースを主役の自動コンテンツとして採用。取得 Job / `news_items` / RLS は無改修（読む盤面パターンが変わっただけ）。以下本文の「pattern2/3」表記は当時の決定で、現在は **pattern2/pattern4** が表示パターン。
 - 関連: [ADR-021 サイネージ天気（閉域パターンの先例）](021-weather-data-source-jma.md), [ADR-035 鉄道運行情報（外部取得2例目の先例）](035-railway-operation-status-scraping.md), [ADR-019 RLS 二層 + 公開参照マスタ特例](019-rls-two-layer-tenant-isolation.md), [ADR-009 Terraform / 単一 egress](009-terraform.md), [ADR-030 authoring-time PII gate（将来のAI要約拡張時に関係）](030-authoring-time-pii-gate.md), CLAUDE.md ルール1/2/5/6/8, docs/STATUS.md「外部システム自動取込みは現フェーズで実装しない（2026-05-28 ユーザー判断）」, Issue #1046
 
 ## 文脈

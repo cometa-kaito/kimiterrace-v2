@@ -868,13 +868,9 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* pattern3（廊下版）: ニュース見出しを遠距離可読まで拡大（鉄道/センサと同じ .p3Root 配下の上書き）。 */
-.p3Root .p2NewsTitle {
-  font-size: clamp(1rem, 1.7vw, 1.45rem);
-}
-
 /* ===================== 11c. パターン3 盤面（廊下設置・最適化） =====================
-   表示ブロック・データ・順序・広告は pattern2 と同一（先方確定コンテンツを変えない）。盤面の各部品
+   表示ブロック・データ・順序・広告は pattern2 から工学ニュースを除いたもの（廊下運用はニュース枠を外す・
+   2026-06-20）。盤面の各部品
    （Pattern2Schedule/Callouts/Visitors/Train/SensorCount）と広告（AdAside）を再利用し、ここは廊下の
    「遠目・一瞥」に効くデザイン層だけを `.p3Root` 配下で上書きする（pattern2 のクラスには触れない）:
      (1) 時刻を主役にした大型ヘッダー（.p3Header）
@@ -1067,7 +1063,197 @@
   color: var(--accent-color);
 }
 
-/* ===================== 防災・安全帯（pattern1・条件付き・ADR-044） ===================== */
+/* ===================== 11d. パターン4 盤面（教員入力最小・天気/ニュース主役） =====================
+   pattern3 の対。教員入力は連絡（NoticeList）のみ、それ以外は全自動。盤面は縦積み（.p4Grid）で:
+     先頭   = 防災・安全帯（条件付き・既存 .safetyBand を共有）
+     主役①  = 天気ヒーロー（.p4Weather: 今日を大きく + 週間 6 日）
+     主役②  = 工学ニュース（既存 Pattern2News / .card.p2News を再利用・見出し拡大）
+     連絡   = 唯一の編集（既存 NoticeList / .card を再利用・WYSIWYG でクリック編集）
+     ステータス = 鉄道 + 人感センサ（既存 .p2StatusTile を再利用）
+   右の広告（.adArea 9:16）とヘッダー帯（.adHeader）は pattern1 と共有。既存クラスは触らず .p4* を足すだけ。 */
+.p4Grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--content-gap);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 主役の 2 カード（ニュース・連絡）は縦に伸びる。ニュースを一段大きく（天気と並ぶ主役）。 */
+.p4Grid > .card {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.p4Grid > .card.p2News {
+  flex: 1.8 1 0;
+}
+/* 連絡（pattern4 唯一の編集ブロック）は主役なので本文を一段大きく見せる。 */
+.p4Root .listItem {
+  font-size: clamp(1.05rem, 1.6vw, 1.55rem);
+}
+.p4Root .cardTitle {
+  font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+}
+/* ニュース見出しを遠目可読まで拡大（pattern4 のニュースは主役・本文非転載の見出しのみ・ADR-043）。 */
+.p4Root .p2NewsTitle {
+  font-size: clamp(1rem, 1.6vw, 1.4rem);
+}
+
+/* 天気ヒーロー（主役①）。左に「今日」を大きく（暗色タイル）、右に本日以降 6 日の週間ストリップ。
+   region landmark は作らない（weather は hasRegion=false／role="group" aria-label="天気"）。 */
+.p4Weather {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--content-gap);
+  align-items: stretch;
+  min-height: 0;
+}
+/* 今日タイル: 暗色で主役感。アイコン + 最高/最低気温 + 天気テキスト + 降水確率。 */
+.p4WxToday {
+  flex: 0 0 30%;
+  background: var(--ad-bg);
+  color: #fff;
+  border-radius: var(--radius-md);
+  padding: 0.5vmin 1.2vmin;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow: hidden;
+}
+.p4WxTodayLabel {
+  font-size: clamp(0.62rem, 0.9vw, 0.85rem);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+}
+.p4WxTodayMain {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.p4WxTodayIcon {
+  font-size: clamp(1.6rem, 3vw, 2.6rem);
+  line-height: 1;
+  flex-shrink: 0;
+}
+.p4WxTodayTemp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+/* 暗色タイル上で AA 充足の暖色（白地用 --temp-high-color より明るい橙）。 */
+.p4WxTodayHigh {
+  font-size: clamp(1.4rem, 2.6vw, 2.2rem);
+  font-weight: 800;
+  color: #fb923c;
+  letter-spacing: -0.02em;
+}
+/* 暗色タイル上で AA 充足の寒色（明るい青）。 */
+.p4WxTodayLow {
+  font-size: clamp(0.95rem, 1.6vw, 1.4rem);
+  font-weight: 700;
+  color: #93c5fd;
+}
+.p4WxTodayMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.7rem;
+  font-size: clamp(0.66rem, 1vw, 0.92rem);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  min-width: 0;
+}
+.p4WxTodayPop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+/* 週間ストリップ: 本日以降 6 日を 1 行で。各日 = 曜日 + 単色グリフ + 最高(暖)/最低(寒)気温。 */
+.p4WxWeek {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.5vmin;
+  min-width: 0;
+}
+.p4WxCell {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.3vmin 0.2vmin;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+.p4WxDow {
+  font-size: clamp(0.7rem, 1.05vw, 0.98rem);
+  font-weight: 700;
+  color: var(--primary-color);
+  line-height: 1.1;
+}
+.p4WxIcon {
+  font-size: clamp(1.1rem, 1.9vw, 1.7rem);
+  line-height: 1.15;
+}
+.p4WxTemps {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.p4WxHigh {
+  font-size: clamp(0.82rem, 1.3vw, 1.15rem);
+  font-weight: 800;
+  color: var(--temp-high-color);
+}
+.p4WxLow {
+  font-size: clamp(0.7rem, 1.05vw, 0.95rem);
+  font-weight: 700;
+  color: var(--accent-color);
+}
+/* ステータス帯（鉄道 + 人感センサ）。pattern2 と同じ 2 列・既存 .p2StatusTile を再利用。 */
+.p4Status {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--content-gap);
+  min-height: 0;
+}
+/* パターン4 のモバイル（縦長・小型画面）: 縦積みの flex 比を解除し各カードを自然高さでスクロール、
+   天気ヒーローは今日タイルと週間を縦積みにする（p2Grid モバイルと同作法）。 */
+@media (max-width: 899px) {
+  .p4Grid {
+    overflow: visible;
+  }
+  .p4Grid > .card,
+  .p4Grid > .card.p2News {
+    flex: none;
+    overflow: visible;
+  }
+  .p4Weather {
+    flex-direction: column;
+  }
+  .p4WxToday {
+    flex: none;
+  }
+  .p4Status {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===================== 防災・安全帯（pattern1 / pattern4・条件付き・ADR-044） ===================== */
 /* 予定の直上（infoArea 先頭）に出る安全情報帯。アクティブな警報/熱中症がある時だけ描画されるため、
    既定（無アラート）では DOM に存在せず予定以下のレイアウトは不変。flex 子として高さを取り過ぎないよう
    0 0 auto で内容ぶんだけ。NFR05: 色だけに依らず段階ラベル/アイコン/テキストを必ず併記。 */
