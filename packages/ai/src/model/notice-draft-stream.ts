@@ -65,7 +65,11 @@ export interface NoticeDraftStreamResult {
 
 /** 連絡ドラフト構造化ストリームの抽象境界。 */
 export interface VertexNoticeStreamClient {
-  stream(req: { system: string; user: string }): NoticeDraftStreamResult;
+  /**
+   * `signal` は無応答/ストール時に handler（apps/web の SSE）が Vertex 呼び出しを能動的に中断するための
+   * AbortSignal（任意）。未指定なら付与せず既定挙動を変えない（`assistant-chat-stream.ts` と同契約・#987）。
+   */
+  stream(req: { system: string; user: string; signal?: AbortSignal }): NoticeDraftStreamResult;
 }
 
 /** 既定モデル。F03/F06/F08 と揃える（ADR-017 / #289 ④: 旧 1.5 Pro retired → Flash tier に更新）。 */
@@ -102,7 +106,7 @@ export function createVertexNoticeStreamClient(
   const genOptions = toGenerationOptions(mergeTuning(DEFAULT_TUNING, config.tuning));
 
   return {
-    stream(req: { system: string; user: string }): NoticeDraftStreamResult {
+    stream(req: { system: string; user: string; signal?: AbortSignal }): NoticeDraftStreamResult {
       // streamObject(array) は同期に StreamObjectResult を返す（elementStream は逐次、usage は完了後に
       // 解決する Promise）。await しない。output:"array" + 要素スキーマで「連絡の配列」を 1 件ずつ流す。
       const result = streamObject({
@@ -111,6 +115,9 @@ export function createVertexNoticeStreamClient(
         schema: noticeElementSchema,
         system: req.system,
         prompt: req.user,
+        // 無応答/ストール時に handler が中断できるよう abort を配線（notice-draft-sse のストール監視・#987）。
+        // 未指定なら付与しない（既定挙動を変えない・assistant-chat-stream と同方針）。
+        ...(req.signal ? { abortSignal: req.signal } : {}),
         // 生成パラメータ（temperature / maxOutputTokens / providerOptions.thinkingConfig）。創作抑制・
         // 暴走防止・レイテンシ調整（generation-tuning）。未指定キーは生やさず SDK 既定を尊重。
         ...genOptions,
@@ -125,6 +132,10 @@ export function createVertexNoticeStreamClient(
           tokenCount: usage?.outputTokens ?? 0,
         };
       })();
+      // 中断（abortSignal）や mid-stream 障害では `result.usage` が reject する。handler が elementStream の
+      // throw で先に catch へ抜け `done` を await しない経路（ストール中断等）でも unhandledRejection を出さない
+      // よう no-op handler を 1 つ付ける（戻り値 `done` は引き続き呼び出し側が await して値を取れる）。
+      done.catch(() => {});
 
       return { elementStream: result.elementStream, done };
     },

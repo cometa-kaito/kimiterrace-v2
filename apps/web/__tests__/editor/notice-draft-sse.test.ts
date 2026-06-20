@@ -57,7 +57,7 @@ function req(body: unknown, rawBody?: string): Request {
 
 /** 注入する stream client。elements を順に yield（"THROW" は途中失敗を模す）。 */
 function fakeStreamClient(elements: (NoticeDraftElement | "THROW")[]) {
-  const stream = vi.fn((_req: { system: string; user: string }) => ({
+  const stream = vi.fn((_req: { system: string; user: string; signal?: AbortSignal }) => ({
     elementStream: (async function* () {
       for (const e of elements) {
         if (e === "THROW") throw new Error("boom");
@@ -65,6 +65,22 @@ function fakeStreamClient(elements: (NoticeDraftElement | "THROW")[]) {
       }
     })(),
     done: Promise.resolve({ modelVersion: "fake", tokenCount: 3 }),
+  }));
+  return { stream };
+}
+
+/**
+ * 要素を一切 yield せず signal.abort まで待つ stream client（実 streamObject の無応答ハング + 中断挙動を模す）。
+ * handler のストール監視（streamStallMs 経過 → stallController.abort）で reject → for-await が throw する。
+ */
+function hangingStreamClient() {
+  const stream = vi.fn((reqArg: { system: string; user: string; signal?: AbortSignal }) => ({
+    elementStream: (async function* (): AsyncGenerator<NoticeDraftElement> {
+      await new Promise<void>((_resolve, reject) => {
+        reqArg.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    })(),
+    done: Promise.resolve({ modelVersion: "fake", tokenCount: 0 }),
   }));
   return { stream };
 }
@@ -285,6 +301,27 @@ describe("respondWithNoticeDraftStream", () => {
     });
     expect(evs[1]?.event).toBe("error");
     expect(evs[1]?.data?.reason).toBe("stream_failed");
+    expect(h.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("初回要素が来ない無応答ストールは streamStallMs 経過で中断し stream_failed（#987・audit しない）", async () => {
+    const d = {
+      streamClient: hangingStreamClient(),
+      rateLimiter: { tryAcquire: vi.fn().mockReturnValue(true) },
+      nowMs: 1000,
+      streamStallMs: 20, // 小さい値で無応答ストール中断を誘発。
+    };
+    const res = await respondWithNoticeDraftStream(ARGS, req({ text: "メモ" }), d);
+    const evs = await collectSse(res);
+    expect(d.streamClient.stream).toHaveBeenCalledOnce();
+    // signal を stream client に渡している（ストール時に handler が Vertex を能動中断できる）。
+    expect(d.streamClient.stream.mock.calls[0]?.[0]?.signal).toBeInstanceOf(AbortSignal);
+    expect(evs).toEqual([
+      {
+        event: "error",
+        data: { status: 500, reason: "stream_failed", message: "応答の生成に失敗しました。" },
+      },
+    ]);
     expect(h.insertValues).not.toHaveBeenCalled();
   });
 });
