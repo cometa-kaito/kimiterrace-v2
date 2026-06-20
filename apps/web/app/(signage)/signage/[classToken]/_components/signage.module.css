@@ -868,6 +868,35 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
+/* CC BY ソース（経産省 METI）の公式要約の箇条書き（pattern4 = showSummary のときのみ）。控えめ・行間広めで、
+   各文を 2 行までにクランプし 1 記事の高さが破綻しないようにする（pattern2 では描画されない）。 */
+.p2NewsSummary {
+  list-style: none;
+  margin: 0.1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.06rem;
+  min-width: 0;
+}
+.p2NewsSummary li {
+  position: relative;
+  padding-left: 0.8em;
+  font-size: clamp(0.66rem, 0.95vw, 0.86rem);
+  line-height: 1.35;
+  color: var(--text-color);
+  /* 各文は最大 2 行で省略（盤面を膨らませ過ぎない）。 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.p2NewsSummary li::before {
+  content: "・";
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+}
 /* ===================== 11c. パターン3 盤面（廊下設置・最適化） =====================
    表示ブロック・データ・順序・広告は pattern2 から時事ニュースを除いたもの（廊下運用はニュース枠を外す・
    2026-06-20）。盤面の各部品
@@ -1123,6 +1152,11 @@
 }
 .p4Root .p2NewsMeta {
   font-size: clamp(0.78rem, 1.1vw, 1rem);
+}
+/* pattern4 は枠なし主役なので要約も少し大きめ。各文 2 行クランプは基底のまま（高さ破綻を防ぐ）。 */
+.p4Root .p2NewsSummary li {
+  font-size: clamp(0.82rem, 1.2vw, 1.1rem);
+  line-height: 1.4;
 }
 .p4Root .p2StatusLabel {
   font-size: clamp(0.82rem, 1.2vw, 1.1rem);

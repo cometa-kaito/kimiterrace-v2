@@ -288,6 +288,13 @@
       "when": 1781790412398,
       "tag": "20260618134652_ad_target_monitors",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1781950166459,
+      "tag": "20260620100926_news_items_summary",
+      "breakpoints": true
     }
   ]
 }

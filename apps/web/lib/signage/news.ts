@@ -6,10 +6,10 @@ import { type TenantTx, getLatestNews } from "@kimiterrace/db";
  * 取得 Job（backend）が政府系 / JST の公開 RSS を upsert し、本層はそれを公開日降順で SELECT する。
  * RLS は `news_items_read_all`（USING true）なので匿名サイネージでも読める（school_id 非保持の公開・非 PII）。
  *
- * ## 著作権（ADR-043 の物理的担保）
- * 表示するのは **見出し（title）+ 発表元（sourceLabel）+ 公開日（publishedAt）+ 出典 URL（url）** のみ。
- * **本文は持たない**（news_items 自体が本文列を持たない）ので転載リスクは無いが、**出典明記（発表元ラベル）は
- * 必須**（CC BY の条件かつ礼儀）。
+ * ## 著作権（ADR-043 §2026-06-20 改訂）
+ * 表示するのは **見出し（title）+ 発表元（sourceLabel）+ 公開日（publishedAt）+ 出典 URL（url）**、加えて
+ * **CC BY ソースの公式要約（summary・経産省 METI のみ非 null）**。要約の合法 gate は取得 Job（CC BY のみ保存）が
+ * 済ませており、本層は読むだけ。**出典明記（発表元ラベル）は必須**（CC BY の条件かつ礼儀）。本文の転載はしない。
  *
  * ## 鮮度（railway-status.ts に倣う）
  * 取得 Job が一定時間更新していないと last-known-good が古くなりうる。盤面に「情報が古い可能性」を注記できる
@@ -32,6 +32,11 @@ export type SignageNewsItem = {
   sourceLabel: string;
   /** 出典 URL（記事原文へのリンク / QR 生成元）。 */
   url: string;
+  /**
+   * 公式が配信する要約（CC BY ソース = 経産省 METI のみ非 null・要許諾ソースは null）。盤面の pattern4 でのみ
+   * 出典明記の上で箇条書き表示する（pattern2 は見出しのみ。ADR-043 §2026-06-20 改訂・gate は取得 Job 側）。
+   */
+  summary: string | null;
   /** 公開日時（RSS の pubDate）。無ければ null。 */
   publishedAt: Date | null;
 };
@@ -67,6 +72,7 @@ export async function getSignageNews(tx: TenantTx, now: Date = new Date()): Prom
       title: r.title,
       sourceLabel: r.sourceLabel,
       url: r.url,
+      summary: r.summary,
       publishedAt: r.publishedAt,
     })),
     isStale,

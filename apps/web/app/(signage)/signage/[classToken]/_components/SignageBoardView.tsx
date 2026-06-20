@@ -425,8 +425,9 @@ function Pattern4Board({
             />
             {/* 主役①: 天気ヒーロー（日付/曜日/天気マークを主・気温/降水を従に・本日以降7日）。fail-soft で null。 */}
             <Pattern4WeatherHero weather={data.weather ?? null} today={data.date} />
-            {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。 */}
-            <Pattern2News news={data.news} />
+            {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。pattern4 では
+                CC BY ソース（経産省 METI）の公式要約を箇条書きで添える（showSummary）。 */}
+            <Pattern2News news={data.news} showSummary />
             {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。 */}
             <NoticeList section={data.daily.notices} editRegions={editRegions} />
             {/* ステータス帯（自動）: 鉄道 + 人感センサを小さく 2 列。 */}
@@ -995,8 +996,19 @@ function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
  * ラベル）は必須**（CC BY の条件かつ礼儀）。端末は閉域で、バックエンド取得 Job が更新したキャッシュを読むだけ
  * （RSS 直叩きしない）。記事無し・取得失敗（`null` / `items` 空）はともに「ニュースを取得できていません」
  * （fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。pattern3 は news 非表示（#1080）。
+ *
+ * `showSummary`（pattern4 のみ true）が立つと、**CC BY ソースの公式要約**（`item.summary`・経産省 METI のみ非
+ * null・gate は取得 Job 済）を見出しの下に **箇条書き（最大 4 文）** で添える（ADR-043 §2026-06-20 改訂・ユーザー
+ * 指示「箇条書きで3〜4文」）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。要約の出典は既存の
+ * 発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
  */
-function Pattern2News({ news }: { news: SignagePayload["news"] }) {
+function Pattern2News({
+  news,
+  showSummary = false,
+}: {
+  news: SignagePayload["news"];
+  showSummary?: boolean;
+}) {
   const items = news?.items ?? [];
   return (
     <section aria-label="時事ニュース" className={`${styles.card} ${styles.p2News}`}>
@@ -1012,29 +1024,55 @@ function Pattern2News({ news }: { news: SignagePayload["news"] }) {
         <p className={styles.p2Muted}>ニュースを取得できていません</p>
       ) : (
         <ul className={styles.p2NewsList}>
-          {items.map((item) => (
-            <li key={item.id} className={styles.p2NewsItem}>
-              <span className={styles.p2NewsTitle}>{item.title}</span>
-              <span className={styles.p2NewsMeta}>
-                {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
-                <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
-                {item.publishedAt ? (
-                  <>
-                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                      ／
-                    </span>
-                    <span>{formatNewsDate(item.publishedAt)}</span>
-                  </>
+          {items.map((item) => {
+            // 要約は pattern4（showSummary）かつ CC BY ソースで要約がある記事だけ。「。」で文分割し最大 4 文。
+            const summarySentences =
+              showSummary && item.summary ? splitNewsSummary(item.summary) : [];
+            return (
+              <li key={item.id} className={styles.p2NewsItem}>
+                <span className={styles.p2NewsTitle}>{item.title}</span>
+                {summarySentences.length > 0 ? (
+                  <ul className={styles.p2NewsSummary}>
+                    {summarySentences.map((s, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
                 ) : null}
-              </span>
-              {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
-              <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
-            </li>
-          ))}
+                <span className={styles.p2NewsMeta}>
+                  {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
+                  <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
+                  {item.publishedAt ? (
+                    <>
+                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                        ／
+                      </span>
+                      <span>{formatNewsDate(item.publishedAt)}</span>
+                    </>
+                  ) : null}
+                </span>
+                {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
+                <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
   );
+}
+
+/**
+ * 要約（公式配信の説明文）を「。」で文分割し、各文末に「。」を付け直して**最大 4 文**返す（ユーザー指示
+ * 「箇条書きで3〜4文」）。空要素は捨てる。「。」を含まない 1 文だけの要約はその 1 件を返す（末尾「。」付与）。
+ */
+function splitNewsSummary(summary: string): string[] {
+  return summary
+    .split("。")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .slice(0, 4)
+    .map((s) => `${s}。`);
 }
 
 /** ニュース公開日を `M/D` に整形（TZ ドリフト回避に JST 表示）。不正値は空文字。 */
