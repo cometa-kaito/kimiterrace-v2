@@ -1131,13 +1131,14 @@
   min-height: 0;
   overflow: hidden;
 }
-/* 主役の 2 カード（ニュース・連絡）は縦に伸びる。ニュースを一段大きく（天気と並ぶ主役）。 */
+/* 主役カードは縦に伸びる。ニュースは 1 記事カルーセルなので過大な余白を避けて控えめに、連絡（下段）に縦の
+   余裕を回す（2026-06-20 レイアウト変更）。 */
 .p4Grid > .card {
   flex: 1 1 0;
   min-height: 0;
 }
 .p4Grid > .card.p2News {
-  flex: 1.8 1 0;
+  flex: 1.2 1 0;
 }
 
 /* (1) 枠（カード罫線・タイル背景）を外して無駄なスペースを無くし文字を拡大する（2026-06-20 ユーザー指示）。
@@ -1269,13 +1270,100 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
-/* ステータス帯（鉄道 + 人感センサ）。pattern2 と同じ 2 列・既存 .p2StatusTile を再利用。 */
-.p4Status {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* (3) 下段の 2 カラム（2026-06-20 ユーザー指示）: 連絡は横長だと読みにくいので**左に縦長で大きく**、鉄道・
+   人感センサは**右に縦積みで小さく**。連絡は唯一の教員入力で主役なので幅を広く取る。 */
+.p4Bottom {
+  flex: 1.8 1 0;
+  display: flex;
   gap: var(--content-gap);
   min-height: 0;
+}
+/* 連絡（左・縦長・主役）。一定数を超えたら中身が AutoScroll でスクロールする（NoticeList scroll）。 */
+.p4Bottom > .card {
+  flex: 1.9 1 0;
+  min-height: 0;
+}
+/* 鉄道 + 人感センサ（右・縦積み・従）。既存 .p2StatusTile を再利用。 */
+.p4SideStatus {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--content-gap);
+  min-height: 0;
+}
+.p4SideStatus > .p2StatusTile {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+/* (4) 時事ニュース カルーセル（pattern4・{@link NewsCarousel}）。**1 記事だけ縦に収め**、一定間隔で次の記事が
+   横から「しゅん」とスライドして差し替わる。ビューポートで 1 枠を切り出し、トラックを translateX で送る
+   （全スライドは DOM に残す＝アクセシビリティ/テスト不変）。 */
+.newsCarousel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.newsCarouselViewport {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.newsCarouselTrack {
+  display: flex;
+  height: 100%;
+  /* 「しゅん」と差し替わる横スライド。 */
+  transition: transform 0.42s cubic-bezier(0.45, 0, 0.15, 1);
+}
+.newsCarouselSlide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  padding-right: 0.4rem;
+}
+/* カルーセルは 1 記事を 1 枠に収めるため、見出しは最大 2 行・要約各文は最大 3 行でクランプ（収まり優先・
+   pattern4 一覧時の全文折り返し上書きより内側で効かせる）。 */
+.p4Root .newsCarouselSlide .p2NewsTitle {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.p4Root .newsCarouselSlide .p2NewsSummary li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+/* 何記事目かを示すドット（現在位置を横長・濃色で）。装飾なので aria-hidden（件数は読み上げ対象外）。 */
+.newsCarouselDots {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+  align-items: center;
+  padding-top: 0.3rem;
+  flex-shrink: 0;
+}
+.newsCarouselDot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--border-color);
+  transition:
+    width 0.3s,
+    background 0.3s;
+}
+.newsCarouselDotActive {
+  width: 1.1rem;
+  background: var(--primary-color);
 }
 /* パターン4 のモバイル（縦長・小型画面）: 縦積みの flex 比を解除し各カードを自然高さでスクロール、
    天気ヒーローは 7 日を 4 列に折り返す（p2Grid モバイルと同作法）。大型ヘッダーは下のレスポンシブ節で sticky 化。 */
@@ -1291,8 +1379,25 @@
   .p4Weather {
     grid-template-columns: repeat(4, 1fr);
   }
-  .p4Status {
-    grid-template-columns: 1fr;
+  /* 下段は縦長画面では 1 カラムに（連絡 → 鉄道/センサ の順で縦積み）。 */
+  .p4Bottom {
+    flex: none;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .p4Bottom > .card {
+    flex: none;
+  }
+  .p4SideStatus {
+    flex: none;
+  }
+  /* カルーセルはモバイルでも 1 記事ずつ（自然高さ）。 */
+  .newsCarousel {
+    flex: none;
+  }
+  .newsCarouselViewport {
+    flex: none;
+    min-height: 9rem;
   }
 }
 
