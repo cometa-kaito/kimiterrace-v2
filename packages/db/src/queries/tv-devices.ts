@@ -1,4 +1,15 @@
-import { type InferSelectModel, and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  type InferSelectModel,
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { KimiterraceDb } from "../client.js";
 import { withTenantContext } from "../client.js";
@@ -317,9 +328,12 @@ export function extractSignageClassToken(signageUrl: string | null | undefined):
 }
 
 /**
- * クラスに有効（`revoked_at IS NULL`）な signage magic link の**平文トークン**を集める（端末↔クラスの
- * トークン解決用）。平文 `token` は ADR-042 PR2 以降の発行分のみ非 null（旧リンクは hash のみ＝NULL で
- * 本フォールバックの対象外）。RLS は呼び出し元のテナント文脈に委譲（`tenant_isolation` で自校に限定）。
+ * クラスに**有効な** signage magic link の**平文トークン**を集める（端末↔クラスのトークン解決用）。
+ * 「有効」の条件は実機の `resolve_magic_link` と完全一致させる: `revoked_at IS NULL` かつ
+ * `(expires_at IS NULL[=無期限] OR expires_at > now())`。これにより、期限切れ/失効リンクに紐づく端末は
+ * エディタでも解決されない（実機は 410 で表示できない＝表示一貫性を保つ）。平文 `token` は ADR-042 PR2
+ * 以降の発行分のみ非 null（旧リンクは hash のみ＝NULL で本フォールバックの対象外）。RLS は呼び出し元の
+ * テナント文脈に委譲（`tenant_isolation` で自校に限定）。
  */
 async function getClassSignageTokens(db: Selectable, classId: string): Promise<Set<string>> {
   const rows = await db
@@ -330,6 +344,7 @@ async function getClassSignageTokens(db: Selectable, classId: string): Promise<S
         eq(magicLinks.classId, classId),
         isNotNull(magicLinks.token),
         isNull(magicLinks.revokedAt),
+        or(isNull(magicLinks.expiresAt), gt(magicLinks.expiresAt, sql`now()`)),
       ),
     );
   const tokens = new Set<string>();
@@ -428,6 +443,8 @@ export async function getClassSignageUrls(db: Selectable): Promise<Map<string, s
           isNotNull(magicLinks.token),
           isNotNull(magicLinks.classId),
           isNull(magicLinks.revokedAt),
+          // 実機 `resolve_magic_link` と同じ有効性条件（無期限=NULL 許容 / 期限内）。期限切れ/失効は解決しない。
+          or(isNull(magicLinks.expiresAt), gt(magicLinks.expiresAt, sql`now()`)),
         ),
       ),
   ]);
