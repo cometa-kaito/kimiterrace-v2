@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "f25b610" # migration 0028-0033 (#1049/1048/1056/1057/1059/1060): news_items/weather_warnings/heat_alerts/signage_snippets/school_calendar_*/air_quality_index + 公開型&tenant_isolation RLS + 監査FK（ADR-043/044/045/046・全 additive/後方互換）。staging Job 適用成功(0030-0033 applied・0028/0029 skip)。prod Job 実行は人間専任
+  migrate_image_tag = "fe4de5b" # +#1061 ad_target_monitors（広告⇄個別モニタ中間表 + 二層RLS tenant_isolation/system_admin_full_access + 監査FK + hierarchy_scope enum 'monitor' + ck_ads_scope 再定義）。Phase5 個別モニタ配信(#1073/#1075)の読取が依存。2026-06-20 prod 適用済(Job exec 4gfjf: hierarchy_scope_monitor/ad_target_monitors=skip[手動先行作成分を _schema_migrations 補記]・0030_ad_target_monitors_rls=applied・migration complete)。state/Job も fe4de5b。0028-0033 は f25b610 で適用済(冪等 skip)
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
