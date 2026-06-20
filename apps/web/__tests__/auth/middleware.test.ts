@@ -122,6 +122,23 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/api/partner-admin")).toBe(true);
   });
 
+  it("F13 SwitchBot 人感センサ webhook /api/sensors/switchbot/webhook はゲート対象外 (除外)", () => {
+    // TV ブリッジは `__session` を持たない外部 origin の POST。除外しないと /login に 307 で弾かれ
+    // presence が一切記録されない (本バグ)。認可は route handler の共有シークレット検証
+    // (SWITCHBOT_WEBHOOK_SECRET, `?key=`/`x-webhook-key`) が担う (ADR-020 §5)。
+    // matcher は pathname のみに当たる (query string は含まない)。bridge は `?key=` 付きで叩くが
+    // middleware が見る pathname は末尾境界 `$` に一致して除外される。
+    expect(gated.test("/api/sensors/switchbot/webhook")).toBe(false);
+    expect(gated.test("/api/sensors/switchbot/webhook/")).toBe(false);
+  });
+
+  it("api/sensors/switchbot/webhook 除外は (?:/|$) 境界で厳格、他の /api/sensors/* は過剰除外しない (保護のまま)", () => {
+    // 現状 webhook のみだが、将来 /api/sensors 配下に保護ルートが増えても静かにバイパスしないよう境界化。
+    expect(gated.test("/api/sensors")).toBe(true);
+    expect(gated.test("/api/sensors/switchbot")).toBe(true);
+    expect(gated.test("/api/sensors/switchbot/webhook-admin")).toBe(true);
+  });
+
   it("guide 除外は guide(?:/|$) で厳格、/guidelines 等は過剰除外しない (保護のまま)", () => {
     // `guide` 単体だと /guidelines も巻き込み静かな保護バイパスになる (PR #227 Reviewer Low-1)。
     expect(gated.test("/guidelines")).toBe(true);
