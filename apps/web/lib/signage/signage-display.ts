@@ -393,6 +393,14 @@ async function buildSignagePayloadForMonitorOnly(
   const news = patternIncludesBlock(designPattern, "news")
     ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
     : null;
+  // 防災・安全帯（気象警報/熱中症）は学校地域単位（クラス非依存）。クラス版と同規約で safety_alert
+  // パターン該当時のみ・fail-soft。廊下端末でも防災情報は出す価値があるため同様に読む。
+  const weatherWarnings = patternIncludesBlock(designPattern, "safety_alert")
+    ? await getSignageWeatherWarnings(tx, schoolId).catch(() => null)
+    : null;
+  const heatAlerts = patternIncludesBlock(designPattern, "safety_alert")
+    ? await getSignageHeatAlerts(tx, schoolId, date).catch(() => null)
+    : null;
   return {
     date,
     designPattern,
@@ -408,6 +416,8 @@ async function buildSignagePayloadForMonitorOnly(
     callouts: null,
     trainStatus,
     news,
+    weatherWarnings,
+    heatAlerts,
     blackout: false,
   } satisfies SignagePayload;
 }
