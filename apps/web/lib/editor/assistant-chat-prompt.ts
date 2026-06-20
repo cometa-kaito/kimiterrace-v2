@@ -28,8 +28,12 @@ const SECTION_LABEL: Record<DraftSectionKind, string> = {
  * 各例は「ルールの実演」であり新しい規則を足さない。**許可セクションを populate する例だけ**を返す
  * （許可外を埋める例を見せると finding① のパターン準拠に反する誘導になるため）。
  * - schedules: 既存下書きの**部分編集 → 全体返却**（1限を残し2限だけ直す）。最頻出の編集挙動。
- * - assignments: 期限が曖昧なら**創作せず聞き返す**（該当セクションは空のまま）。
- * - notices: 時限に乗らない事項（朝の会等）を**予定でなく連絡へ**振り分ける。
+ * - assignments: 期限が曖昧なら**創作せず聞き返す**（該当セクションは空のまま）＋既存提出物の**部分修正 → 全体返却**。
+ * - notices: 時限に乗らない事項（朝の会等）を**予定でなく連絡へ**＋既存連絡の**部分修正 → 全体返却**。
+ *
+ * 「○○を○○に修正して」の編集指示は全セクション共通の最頻出挙動なので、schedules だけでなく notices /
+ * assignments にも「既存の 1 件だけ直し他は残して全体を返す」例を用意し、忠実性を上げる（該当箇所だけ変え、
+ * 触れていない項目・他セクションは現状のまま返す）。
  */
 function buildExampleLines(allowed: readonly DraftSectionKind[]): string[] {
   const ex: string[] = [];
@@ -42,10 +46,16 @@ function buildExampleLines(allowed: readonly DraftSectionKind[]): string[] {
     ex.push(
       '例（曖昧なら創作せず聞き返す）: 教員「数学の宿題を出して」（期限の発話なし）→ {"reply":"数学の宿題ですね。提出期限はいつにしますか？","schedules":[],"notices":[],"assignments":[]}',
     );
+    ex.push(
+      '例（既存提出物の部分修正は全体を返す）: 現在の下書きの提出物が 数学・ドリルp10・期限6/20 で、教員「数学の期限を6/25に修正して」→ 期限だけ直し他は残す → {"reply":"数学の提出期限を6月25日に修正しました。この内容で反映してよいですか？","schedules":[],"notices":[],"assignments":[{"deadline":"2026-06-25","subject":"数学","task":"ドリルp10"}]}',
+    );
   }
   if (allowed.includes("notices")) {
     ex.push(
       '例（時限に乗らない事項は連絡へ）: 教員「朝の会で表彰します」→ 朝の会は時限外なので予定でなく連絡にする → {"reply":"朝の会の表彰を連絡に入れました。よろしいですか？","schedules":[],"notices":[{"text":"朝の会で表彰を行います。"}],"assignments":[]}',
+    );
+    ex.push(
+      '例（既存連絡の部分修正は全体を返す）: 現在の下書きの連絡が「運動会は5月20日です」で、教員「運動会を体育祭に修正して」→ その連絡だけ書き換え他は残す → {"reply":"連絡を「体育祭は5月20日です」に修正しました。この内容で反映してよいですか？","schedules":[],"notices":[{"text":"体育祭は5月20日です。"}],"assignments":[]}',
     );
   }
   return ex;

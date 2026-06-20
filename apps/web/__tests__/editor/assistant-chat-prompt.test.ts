@@ -39,7 +39,7 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain("曖昧なまま埋めない");
   });
 
-  it("few-shot 例を含む（曖昧→聞き返し / 既存下書きの部分編集→全体返却 / 時限外→連絡）", () => {
+  it("few-shot 例を含む（曖昧→聞き返し / 既存下書きの部分編集→全体返却 / 時限外→連絡 / 連絡・提出物の修正）", () => {
     const sys = buildAssistantChatSystem(
       ["schedules", "notices", "assignments"],
       "2026年6月13日（土）",
@@ -52,6 +52,10 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain('"period":1,"subject":"数学"');
     // 例3: 朝の会など時限に乗らない事項は予定でなく連絡へ。
     expect(sys).toContain("朝の会で表彰を行います。");
+    // 例4: 既存連絡の部分修正（運動会→体育祭）も該当だけ直して全体を返す。
+    expect(sys).toContain("体育祭は5月20日です。");
+    // 例5: 既存提出物の部分修正（期限だけ 6/25 に）も該当だけ直して全体を返す。
+    expect(sys).toContain('"deadline":"2026-06-25","subject":"数学","task":"ドリルp10"');
   });
 
   it("pattern2 相当（schedules のみ許可）= 予定だけを許可ラベルに出す", () => {
@@ -69,6 +73,9 @@ describe("buildAssistantChatSystem", () => {
     // notices/assignments を populate する例は出さない（許可外を埋める誤誘導を避ける）。
     expect(sys).not.toContain("提出期限はいつにしますか？");
     expect(sys).not.toContain("朝の会で表彰を行います。");
+    // 連絡・提出物の修正例も許可外では出さない。
+    expect(sys).not.toContain("体育祭は5月20日です。");
+    expect(sys).not.toContain('"deadline":"2026-06-25"');
   });
 
   it("手入力セクション（来校者/呼び出し）があれば、AIで作らず手入力フォームへ誘導させる（ADR-034）", () => {
