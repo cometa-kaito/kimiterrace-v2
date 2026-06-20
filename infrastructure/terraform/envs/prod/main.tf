@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "6cb0561" # 2026-06-20: サイネージ pattern4 表示改善（大型ヘッダー/天気を日付・曜日・マーク主体に再配置/ニュース・鉄道・人感の枠撤去で拡大 #1083）＋「工学ニュース」→「時事ニュース」全体改称（pattern2 教室盤面の見出しも変化）＋鉄道タイトル「名鉄・笠松駅の運行状況」。表示層+CSS+テストのみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
+  web_image_tag = "d0eff93" # 2026-06-20: エディタの浮遊AIチャットをドラッグ/矢印キー/ダブルクリック/Homeでリサイズ可能に（#1085）。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
 }
 
 module "network" {
