@@ -1072,16 +1072,9 @@ function NewsItemBody({
   return (
     <>
       <span className={styles.p2NewsTitle}>{item.title}</span>
-      {summarySentences.length > 0 ? (
-        <ul className={styles.p2NewsSummary}>
-          {summarySentences.map((s, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
-            <li key={i}>{s}</li>
-          ))}
-        </ul>
-      ) : null}
+      {/* 出典明記（発表元ラベル）は ADR-043 で必須。**見出し直後**に置き、要約が長くてカルーセルのスライドから
+          溢れても出典・公開日が必ず見える位置にする（2026-06-21 修正・旧: 要約の下で見切れていた）。 */}
       <span className={styles.p2NewsMeta}>
-        {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
         <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
         {item.publishedAt ? (
           <>
@@ -1091,9 +1084,20 @@ function NewsItemBody({
             <span>{formatNewsDate(item.publishedAt)}</span>
           </>
         ) : null}
+        {/* 出典 URL（記事原文）の出典ドメイン。QR の生成元にもなる。出典明記の一部として発表元の隣に置く。 */}
+        <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+          ／
+        </span>
+        <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
       </span>
-      {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
-      <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+      {summarySentences.length > 0 ? (
+        <ul className={styles.p2NewsSummary}>
+          {summarySentences.map((s, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
+            <li key={i}>{s}</li>
+          ))}
+        </ul>
+      ) : null}
     </>
   );
 }
