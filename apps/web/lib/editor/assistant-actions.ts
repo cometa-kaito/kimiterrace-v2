@@ -336,20 +336,23 @@ async function runSectionDraft<T>(
     if (!proposal || proposal.length === 0) {
       return { ok: false, reason: "no_result" };
     }
+    // 逆マスク**前**（マスク空間）で fail-closed 再チェック（ルール4・全文字列フィールド）。辞書由来の正規 PII は
+    // token 化済みでここでは PII 形に見えず、検出されるのは「モデルが生成した辞書に無い生 PII」(= 真のリーク) のみ。
+    // 逆マスク後に検査すると、辞書由来の復元値（教員が連絡/予定に書いた電話/メール等）まで誤検知して**正しい下書きを
+    // 丸ごと pii_leak で落とす**（会話AIチャット #1105 と同型の是正）。マスクが取りこぼした生 PII も masked 側に生の
+    // まま現れるので本検査で同様に捕捉でき検出力は落ちない。
+    for (const it of proposal) {
+      for (const field of spec.strings(it)) {
+        if (findUnmaskedPii(field, []).length > 0) {
+          return { ok: false, reason: "pii_leak" };
+        }
+      }
+    }
     // 逆マスクして元の表記に戻す（セクションごとの対象列）。
     items = proposal.map((it) => spec.unmask(it, dictionary));
   } catch {
     // モデル/通信障害。本文は出さない。
     return { ok: false, reason: "error" };
-  }
-
-  // 逆マスク後の出力にも PII 残存が無いか fail-closed で再チェック（ルール4・全文字列フィールド）。
-  for (const it of items) {
-    for (const field of spec.strings(it)) {
-      if (findUnmaskedPii(field, []).length > 0) {
-        return { ok: false, reason: "pii_leak" };
-      }
-    }
   }
 
   // ルール1/4: LLM 呼び出しを audit_log に記録（本文は残さず件数のみ）。override 件数も。
