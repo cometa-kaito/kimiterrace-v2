@@ -62,6 +62,8 @@ function samplePayload(overrides: Partial<SignagePayload> = {}): SignagePayload 
     callouts: null,
     trainStatus: null,
     news: null,
+    weatherWarnings: null,
+    heatAlerts: null,
     blackout: false,
     ...overrides,
   };

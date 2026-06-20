@@ -101,6 +101,12 @@ describe("patternIncludesBlock（データ層の取得ゲート）", () => {
     expect(patternIncludesBlock("pattern1", "assignment")).toBe(true);
   });
 
+  it("防災・安全（safety_alert）は pattern1 だけが取得する（pattern2/3 は無改修・出さない・ADR-044）", () => {
+    expect(patternIncludesBlock("pattern1", "safety_alert")).toBe(true);
+    expect(patternIncludesBlock("pattern2", "safety_alert")).toBe(false);
+    expect(patternIncludesBlock("pattern3", "safety_alert")).toBe(false);
+  });
+
   it("pattern2 は来校者 / 呼び出し / センサ / 鉄道 / 工学ニュースを出し、連絡 / 提出物は出さない", () => {
     expect(patternIncludesBlock("pattern2", "visitor")).toBe(true);
     expect(patternIncludesBlock("pattern2", "callout")).toBe(true);
@@ -131,11 +137,26 @@ describe("SIGNAGE_BLOCK_META のラベルは盤面 aria-label と一致（クロ
       presence: "人感センサカウンタ",
       train: "鉄道",
       news: "工学ニュース",
+      safety_alert: "防災・安全",
       weather: "天気",
       ad: "広告",
     };
     for (const kind of Object.keys(expected) as SignageBlockKind[]) {
       expect(SIGNAGE_BLOCK_META[kind].label).toBe(expected[kind]);
     }
+  });
+});
+
+describe("safety_alert ブロックのメタ（条件付き帯・region landmark なし）", () => {
+  it("自動ブロック（編集対象外）かつ hasRegion=false（条件付き描画 ↔ ドリフトガード両立）", () => {
+    // weather / pattern3 週間天気帯と同じく、条件付き描画と盤面 region ドリフトガードを両立するため
+    // region landmark を持たない（role=group でまとめる）。editable=false（教員入力でなく自動取得）。
+    expect(isEditableBlock("safety_alert")).toBe(false);
+    expect(SIGNAGE_BLOCK_META.safety_alert.hasRegion).toBe(false);
+    expect(SIGNAGE_BLOCK_META.safety_alert.label).toBe("防災・安全");
+  });
+
+  it("safety_alert は編集対象ブロックに含めない（pattern1 の編集欄は 予定/連絡/提出物 のまま）", () => {
+    expect(editableBlocksForPattern("pattern1")).not.toContain("safety_alert");
   });
 });

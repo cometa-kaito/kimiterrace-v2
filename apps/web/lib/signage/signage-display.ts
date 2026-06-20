@@ -24,6 +24,7 @@ import {
   getEffectiveScheduleDays,
   mergeDailySections,
 } from "./effective-daily-data";
+import { type SignageHeatAlert, getSignageHeatAlerts } from "./heat-alerts";
 import { type SignageNews, getSignageNews } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
@@ -34,6 +35,7 @@ import {
   isSignageDesignPattern,
 } from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
+import { type SignageWeatherWarning, getSignageWeatherWarnings } from "./weather-warnings";
 
 /**
  * 公開サイネージ表示の**データアクセス層** (#48-E / F12)。`/signage/{classToken}` の Server
@@ -138,6 +140,22 @@ export type SignagePayload = {
    * fail-soft）。`null` はパターン非該当（pattern1）で取得していないことを表す。
    */
   news: SignageNews | null;
+  /**
+   * pattern1「防災・安全」帯用、自校地域の**気象警報・注意報**（ADR-044）。pattern2/3 は使わない（null）。
+   * **端末は閉域**で、バックエンド天気 Job が `weather_warnings` にキャッシュした行（公開・非 PII の地域警報）を
+   * 読むだけ（JMA bosai を直叩きしない）。RLS read_all で匿名でも読める。地域未解決・キャッシュ無し・取得失敗は
+   * `null`（帯ごと非表示＝fail-soft、盤面の他要素は壊さない）。`maxLevel='none'`（行はあるが警報なし）は非 null で
+   * 返り、**帯を目立たせるか否か（アクティブ判定）は表示側**が `maxLevel≠'none'` で決める。
+   */
+  weatherWarnings: SignageWeatherWarning | null;
+  /**
+   * pattern1「防災・安全」帯用、自校地域の**熱中症警戒アラート / WBGT**（ADR-044）。pattern2/3 は使わない（null）。
+   * **端末は閉域**で、バックエンド天気 Job が `heat_alerts` にキャッシュした行（公開・非 PII の地域アラート）を
+   * 読むだけ（環境省を直叩きしない）。RLS read_all で匿名でも読める。地域未解決・キャッシュ無し・取得失敗は
+   * `null`（帯ごと非表示＝fail-soft）。`alertLevel='none'`（行はあるがアラートなし）は非 null で返り、**帯を
+   * 目立たせるか否か（アクティブ判定）は表示側**が `alertLevel≠'none'` で決める。
+   */
+  heatAlerts: SignageHeatAlert | null;
   /**
    * このクラスのサイネージ「黒画面」状態（per-class 運用トグル・web のみ・パターン非依存）。`true` のとき
    * `SignageClient` が盤面の代わりに全画面の黒画面を描く（夜間/イベント等で一時的に画面を消す用途）。保存先は
@@ -272,6 +290,16 @@ export async function buildSignagePayloadForClass(
   const news = patternIncludesBlock(designPattern, "news")
     ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
     : null;
+  // 「防災・安全」= 自校地域の気象警報・注意報 + 熱中症警戒アラートをキャッシュ（weather_warnings / heat_alerts）
+  // から読む。端末は閉域（JMA / 環境省を直叩きしない・ADR-044）。RLS read_all で匿名でも読める。pattern1 のみ取得
+  // （pattern2/3 は無改修＝null で盤面に出さない）。取得失敗・地域未解決・行無しは null に倒し帯ごと出さない
+  // （fail-soft、安全情報でも盤面の他要素は壊さない）。同一 tx・天気と同じ prefecture 解決を使う。
+  const weatherWarnings = patternIncludesBlock(designPattern, "safety_alert")
+    ? await getSignageWeatherWarnings(tx, schoolId).catch(() => null)
+    : null;
+  const heatAlerts = patternIncludesBlock(designPattern, "safety_alert")
+    ? await getSignageHeatAlerts(tx, schoolId, date).catch(() => null)
+    : null;
   // 黒画面トグル（per-class・パターン非依存）。class スコープ display_settings.blackout を読む。同一 tx・
   // RLS 自校限定（ルール2）。読み取り失敗は false に倒し盤面を出す（fail-soft、黒画面で覆い隠さない）。
   const blackout = await getClassSignageBlackout(tx, classId).catch(() => false);
@@ -288,6 +316,8 @@ export async function buildSignagePayloadForClass(
     callouts,
     trainStatus,
     news,
+    weatherWarnings,
+    heatAlerts,
     blackout,
   } satisfies SignagePayload;
 }
