@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "297f8fd" # Phase5 個別モニタ配信 完成反映: PR2/PR3 読取・表示データ層(#1073)＋PR4 表示ルート配線(#1075 /signage/monitor/[deviceId])。schema 変更なし(migration は PR1 #1061 で適用済 ad_target_monitors)。疎通 /api/health=200・/signage/monitor/<未登録>/data=410(ルート稼働)・既存 classToken=410(非回帰)
+  web_image_tag = "23a4c73" # 2026-06-20 #1077: SwitchBot presence webhook を auth middleware 公開許可に追加（307→/login 遮断の解消＝F13 presence 記録の真因）。#1074 の SWITCHBOT_WEBHOOK_SECRET env 配線と併せ presence 記録が稼働。schema/secret 変更なし。疎通 /api/health 200・webhook 誤キー401（ハンドラ到達）・実機 presence 🟢
 }
 
 module "network" {
