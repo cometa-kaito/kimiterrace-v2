@@ -46,6 +46,10 @@ const CHOKEPOINT_MODULE = "lib/db.ts";
  *   越境防止は解決キー `device_mac` の**グローバル UNIQUE**で担保（system_admin_full_access policy）。
  * - `pollTvConfig` / `pollPendingTvCommands` / `ackTvCommand`: TV デバイス poll（ADR-022）。device_id→school を
  *   **system_admin 文脈**で解決し BYPASSRLS 不使用。共有シークレット検証は route 側（poll-secret.ts）。
+ * - `resolveTvDeviceByDeviceId`: モニタ起点サイネージ表示（Phase5 v2-PR3）の device_id→{school,class,monitor}
+ *   解決。内部で **system_admin role 文脈**（withTenantContext）を張り BYPASSRLS 不使用・**read 専用**（心拍は
+ *   更新せず pollTvConfig が単一ソース）。越境不能は device_id の**グローバル UNIQUE**で担保（pollTvConfig と同型）。
+ *   呼び出し側は得た schoolId で改めて自校テナント文脈を開き表示を組む（system_admin 文脈は読取に持ち越さない）。
  * - `claimNextProvisioningJob` / `reportProvisioningStatus`: C方式 TV プロビジョニングのエージェント API
  *   （セッション無し、PR4）。内部で **system_admin role 文脈**（withTenantContext）を張り BYPASSRLS 不使用
  *   （pollTvConfig と同型）。claim は最古 pending を FOR UPDATE SKIP LOCKED、status 報告は `claimed_by`
@@ -64,6 +68,7 @@ const RLS_DOOR_FUNCTIONS = [
   "pollTvConfig",
   "pollPendingTvCommands",
   "ackTvCommand",
+  "resolveTvDeviceByDeviceId",
   "claimNextProvisioningJob",
   "reportProvisioningStatus",
   "isTeacherLoginEnabled",
