@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "2b5d7c1" # 2026-06-20: 時事ニュース表示で要約付き(METI/CC BY)項目を上位に並べ替え（#1091・getLatestNews を summary 優先順に・文科省見出しの直近大量公開が METI 要約を limit 外へ押し出す事象の修正）。土台 ea93c5f(#1087 METI 公式要約) + 中間 #1085(浮遊AIチャットresize)/#1086(エディタ盤面プレビュー統一) 込み。表示層(apps/web/packages/db query)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
+  web_image_tag = "f48b86f" # 2026-06-20: 時事ニュース・連絡(pattern4)を縦オートスクロール化し長文/要約の文字切れを解消（#1094・AutoScroll/要約クランプ廃止/連絡フロー）。中間 #1093（エディタのモニタ解決を signage_url トークンでも・tv-devices クエリ層）も同梱。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）。staging も同 sha 反映済
 }
 
 module "network" {
