@@ -1003,9 +1003,10 @@ function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
  * （fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。pattern3 は news 非表示（#1080）。
  *
  * `showSummary`（pattern4 のみ true）が立つと、**CC BY ソースの公式要約**（`item.summary`・経産省 METI のみ非
- * null・gate は取得 Job 済）を見出しの下に **箇条書き（最大 4 文）** で添える（ADR-043 §2026-06-20 改訂・ユーザー
- * 指示「箇条書きで3〜4文」）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。要約の出典は既存の
- * 発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
+ * null・gate は取得 Job 済）を見出しの下に **箇条書きで先頭最大 2 文**添える（`splitNewsSummary`・①抽出/AI 不使用・
+ * 2026-06-20 ユーザー指示）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。`carousel`（pattern4）
+ * では一覧の縦スクロールでなく 1 記事ずつ横スライドのカルーセル（{@link NewsCarousel}）で見せる。要約の出典は
+ * 既存の発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
  */
 function Pattern2News({
   news,
