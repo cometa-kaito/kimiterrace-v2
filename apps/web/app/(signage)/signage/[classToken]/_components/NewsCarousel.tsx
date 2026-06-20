@@ -3,8 +3,9 @@
 import { Children, useEffect, useState } from "react";
 import styles from "./signage.module.css";
 
-/** 1 記事を見せる秒数（この間隔で次の記事へ横スライド）。遠目で見出し＋要約を読み切れる長さ。 */
-const ADVANCE_MS = 6000;
+/** 1 記事を見せる時間（この間隔で次の記事へ横スライド）。見出し＋要約2文を遠目で読み切れる長さに設定
+ * （2026-06-21 ユーザー: 6 秒では短く読み切れない → 12 秒へ）。 */
+const ADVANCE_MS = 12000;
 
 /**
  * サイネージ pattern4 の **時事ニュース カルーセル**（2026-06-20 ユーザー指示）。**常に 1 記事だけ縦に収め**、
