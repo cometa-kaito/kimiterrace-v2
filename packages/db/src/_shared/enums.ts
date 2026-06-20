@@ -210,6 +210,26 @@ export const wbgtBand = pgEnum("wbgt_band", [
  */
 export type WbgtBand = (typeof wbgtBand.enumValues)[number];
 
+// ADR-046 (大気質 / UV): 大気汚染（PM2.5 等）・紫外線指数のデータソース。`air_quality_index.source` の値域を
+// DB レベルで固定する（ルール3: 値域の単一ソース化）。気象警報（JMA, weather_source）・熱中症（環境省 alert CSV,
+// heat_source）とは取得元・取得形式が異なるため別 enum にする（流用しない）。**最も脆いソース**（正規 JSON API が
+// 公開されておらず実質スクレイプ相当・非公式無保証）であることを ADR-046 §残存リスクに明記する。
+//   env_soramame … 環境省 大気汚染物質広域監視システム「そらまめくん」(https://soramame.env.go.jp)。keyless・
+//                   公開だが JS SPA で正規 API 契約が不確実（測定局単位）。PM2.5（主目的）・光化学オキシダント（任意）。
+//   jma_uv        … 気象庁 紫外線情報（UV インデックス）。現状 GRIB2 バイナリ配信で keyless-JSON/CSV の府県単位
+//                   取得が確立していないため **本 PR では取得しない**（列のみ用意・follow-up、ADR-046 §UV）。将来
+//                   keyless で取得可能になったらこのソースで upsert する。
+// 将来別ソースを足すなら末尾追加（ALTER TYPE ADD VALUE、非破壊。generate が DROP TYPE を吐かないこと）。
+export const airQualitySource = pgEnum("air_quality_source", ["env_soramame", "jma_uv"]);
+
+/**
+ * 大気質 / UV のデータソースの型（単一ソース）。アプリ層 (apps/web) は client-safe な
+ * `@kimiterrace/db/schema` から `import type` で引き込み、許可値・出典ラベルが enum とズレないことを
+ * `satisfies` でコンパイル時に強制する（`HeatSource` / `NewsSource` と同方針）。型のみなので Next バンドルに
+ * enum のランタイム値（= postgres を引き込む barrel）を持ち込まない。
+ */
+export type AirQualitySource = (typeof airQualitySource.enumValues)[number];
+
 // サイネージ静的コンテンツ（名言/四字熟語/英単語/今日は何の日）の日替わり表示。`signage_snippets.category`
 // の値域を DB レベルで固定する（ルール3: 値域の単一ソース化）。weather/news 等の外部取得キャッシュと違い
 // **外部 API も Cloud Run Job も使わない完全ゼロコスト枠**（seed 済みの静的データを日付決定論ローテで出すだけ）。

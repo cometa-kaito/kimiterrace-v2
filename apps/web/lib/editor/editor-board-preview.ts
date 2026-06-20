@@ -53,6 +53,8 @@ export type EditorBoardBase = Pick<
   | "callouts"
   | "trainStatus"
   | "news"
+  | "weatherWarnings"
+  | "heatAlerts"
   | "blackout"
 >;
 
@@ -96,6 +98,8 @@ export function buildEditorPreviewPayload(
     callouts: base.callouts,
     trainStatus: base.trainStatus,
     news: base.news,
+    weatherWarnings: base.weatherWarnings,
+    heatAlerts: base.heatAlerts,
     blackout: base.blackout,
   };
 }
