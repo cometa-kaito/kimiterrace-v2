@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "90878a3" # +#1066 pattern1 に気象警報・熱中症の安全帯表示(条件付き・fail-soft・pattern2/3無改修)。migration 0029-0033 適用済。疎通 /api/health 200 + /login private,no-cache
+  web_image_tag = "863251d" # hotfix #1070: サイネージ poll 応答の Date 復元(ニュース帯 getTime クラッシュ解消)。90878a3 + #1070 のみ cherry-pick した最小デルタ(main HEAD の #1061 prod未適用migration を避ける)。schema/secret 変更なし・web のみ。疎通 /api/health 200 + /login private,no-cache
 }
 
 module "network" {
