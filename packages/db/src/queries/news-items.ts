@@ -84,20 +84,28 @@ export async function saveNewsItems(
 }
 
 /**
- * 最新ニュースを公開日時の降順（公開日が無ければ取得時刻順）に最大 `limit` 件返す。
+ * 最新ニュースを**「要約付き（CC BY ソース）優先 → 公開日降順 → 取得時刻」**で最大 `limit` 件返す。
  * サイネージ匿名コンテキスト（role 未設定）でも `news_items_read_all`（USING true）により読める。
  * 該当が無ければ空配列（fail-soft）。
+ *
+ * ## 並び順（2026-06-20「METI 中心で全項目要約」ユーザー指示）
+ * `summary` を持つ項目（＝CC BY ソース＝主に経産省 METI・ADR-043 §2026-06-20）を**先頭に寄せる**。
+ * 単純な公開日降順だと説明文を持たない府省（文科省等）の直近大量公開が要約付き METI を `limit` 件外へ
+ * 押し出し、盤面に要約が一切出ない事象が起きるため（本番 #1087 反映直後に観測）。要約付きを上位に固定し、
+ * その中で公開日降順、要約無し（見出しのみの jst/mext）は後段で公開日降順に並べる。
  *
  * @param db    SELECT 可能な接続 / tx（匿名サイネージは school_id のみ or 無しで可）。
  * @param limit 返す最大件数（既定 8）。
  */
 export async function getLatestNews(db: Selectable, limit = 8): Promise<NewsItem[]> {
-  return (
-    db
-      .select()
-      .from(newsItems)
-      // 公開日 NULL は末尾へ（取得時刻で代替整列）。
-      .orderBy(sql`${newsItems.publishedAt} DESC NULLS LAST`, desc(newsItems.fetchedAt))
-      .limit(limit)
-  );
+  return db
+    .select()
+    .from(newsItems)
+    .orderBy(
+      // ① 要約付き（METI 等 CC BY）を先頭へ（true が先＝DESC）。② 公開日降順（NULL は末尾）。③ 取得時刻降順。
+      sql`(${newsItems.summary} IS NOT NULL) DESC`,
+      sql`${newsItems.publishedAt} DESC NULLS LAST`,
+      desc(newsItems.fetchedAt),
+    )
+    .limit(limit);
 }
