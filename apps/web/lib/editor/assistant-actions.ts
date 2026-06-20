@@ -492,6 +492,8 @@ async function draftSectionFromFile<T>(
     } catch (auditError) {
       assistLogger.error(
         {
+          // 「誰の egress が未監査か」を追跡できるよう actor を残す（uid は stable ID・ルール4 安全代替）。
+          actorUserId: auth.actor.userId,
           scope: auth.target.scope,
           schoolId: auth.actor.schoolId,
           mediaType: file.type,
