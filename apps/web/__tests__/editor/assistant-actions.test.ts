@@ -139,6 +139,42 @@ describe("assistDraftNoticesAction", () => {
     expect(h.insertValues).toHaveBeenCalledOnce();
   });
 
+  it("逆マスク後に PII 形になる辞書由来の復元値は pii_leak にしない（マスク空間検査・誤検知解消）", async () => {
+    // 教員が連絡に書いた電話をマスク → モデルが token を返す → 逆マスクで復元。復元値は PII 形だが正規（辞書由来）。
+    h.maskPII.mockReturnValue({ masked: "メモ", dictionary: { "{{PHONE_1}}": "09012345678" } });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("09012345678") ? ["09012345678"] : [],
+    );
+    h.unmaskPII.mockImplementation((s: string) => s.replace("{{PHONE_1}}", "09012345678"));
+    const d = deps({
+      generate: vi.fn().mockResolvedValue({
+        text: '{"notices":[{"text":"連絡先 {{PHONE_1}}","isHighlight":true}]}',
+        usage: {},
+        modelVersion: "f",
+      }),
+    });
+    const r = await assistDraftNoticesAction("class", CLASS_ID, "メモ", {}, d);
+    expect(r).toEqual({ ok: true, notices: [{ text: "連絡先 09012345678", isHighlight: true }] });
+    expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("モデルが生成した辞書に無い生 PII を下書きに含めば pii_leak（検出力維持）", async () => {
+    h.maskPII.mockReturnValue({ masked: "メモ", dictionary: {} });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("08099998888") ? ["08099998888"] : [],
+    );
+    const d = deps({
+      generate: vi.fn().mockResolvedValue({
+        text: '{"notices":[{"text":"電話 08099998888 へ","isHighlight":false}]}',
+        usage: {},
+        modelVersion: "f",
+      }),
+    });
+    const r = await assistDraftNoticesAction("class", CLASS_ID, "メモ", {}, d);
+    expect(r).toEqual({ ok: false, reason: "pii_leak" });
+    expect(h.insertValues).not.toHaveBeenCalled();
+  });
+
   it("基準日を user プロンプトに含めて生成する（相対日付の解決）", async () => {
     const d = deps();
     await assistDraftNoticesAction("class", CLASS_ID, "明日は短縮授業", {}, d);

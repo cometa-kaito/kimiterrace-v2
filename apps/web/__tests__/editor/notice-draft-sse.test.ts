@@ -261,12 +261,12 @@ describe("respondWithNoticeDraftStream", () => {
     expect(d.streamClient.stream).not.toHaveBeenCalled();
   });
 
-  it("逆マスク後に PII 残存した要素だけ notice_redacted で落とし、他は流す", async () => {
-    // 2 件目だけ fail-closed ヒット。
+  it("PII 残存した要素だけ notice_redacted で落とし、他は流す", async () => {
+    // 2 件目だけ fail-closed ヒット（検査はマスク空間 = el.text に対して行う）。
     h.findUnmaskedPii
-      .mockReturnValueOnce([]) // マスク直後（送信前）
-      .mockReturnValueOnce([]) // 1 件目 逆マスク後
-      .mockReturnValueOnce([{ kind: "email" }]); // 2 件目 逆マスク後
+      .mockReturnValueOnce([]) // マスク直後（送信前・input）
+      .mockReturnValueOnce([]) // 1 件目（マスク空間）
+      .mockReturnValueOnce([{ kind: "email" }]); // 2 件目（マスク空間）
     const d = deps({
       elements: [
         { text: "連絡1", isHighlight: false },
@@ -281,6 +281,36 @@ describe("respondWithNoticeDraftStream", () => {
       { event: "done", data: { count: 1 } },
     ]);
     expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("辞書由来 PII 復元値を含む要素は notice_redacted せず流す（マスク空間検査・誤検知解消）", async () => {
+    // 教員が連絡に書いた電話をマスク → モデルが token を返す → 逆マスクで復元。復元値は PII 形だが正規（辞書由来）。
+    h.maskPII.mockReturnValue({ masked: "メモ", dictionary: { "{{PHONE_1}}": "09012345678" } });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("09012345678") ? ["09012345678"] : [],
+    );
+    h.unmaskPII.mockImplementation((s: string) => s.replace("{{PHONE_1}}", "09012345678"));
+    const d = deps({ elements: [{ text: "連絡先 {{PHONE_1}}", isHighlight: false }] });
+    const res = await respondWithNoticeDraftStream(ARGS, req({ text: "メモ" }), d);
+    const evs = await collectSse(res);
+    expect(evs).toEqual([
+      { event: "notice", data: { index: 0, text: "連絡先 09012345678", isHighlight: false } },
+      { event: "done", data: { count: 1 } },
+    ]);
+  });
+
+  it("モデルが生成した辞書に無い生 PII の要素は引き続き notice_redacted（検出力維持）", async () => {
+    h.maskPII.mockReturnValue({ masked: "メモ", dictionary: {} });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("08099998888") ? ["08099998888"] : [],
+    );
+    const d = deps({ elements: [{ text: "電話 08099998888", isHighlight: false }] });
+    const res = await respondWithNoticeDraftStream(ARGS, req({ text: "メモ" }), d);
+    const evs = await collectSse(res);
+    expect(evs).toEqual([
+      { event: "notice_redacted", data: { index: 0 } },
+      { event: "error", data: { status: 422, reason: "no_result" } },
+    ]);
   });
 
   it("有効な連絡が 0 件なら no_result（audit しない）", async () => {

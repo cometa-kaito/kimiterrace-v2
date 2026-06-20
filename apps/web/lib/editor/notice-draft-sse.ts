@@ -238,14 +238,18 @@ export async function respondWithNoticeDraftStream(
           });
           for await (const el of result.elementStream) {
             armStall(); // 進捗があるたびストール時計をリセット。
-            const unmasked = unmaskPII(el.text, dictionary);
-            // 逆マスク後の各要素にも PII 残存が無いか fail-closed（漏れた項目だけ落とす、ルール4）。
-            if (typeof unmasked !== "string" || unmasked.trim().length === 0) {
+            // 逆マスク**前**（マスク空間）で leak 検査する（会話AIチャット #1105 と同型）。辞書由来の正規復元値を
+            // 誤検知して教員が正しく書いた連絡（電話/メール入り）を無言で落とす（notice_redacted）のを防ぐ。検出
+            // されるのはモデルが生成した辞書に無い生 PII（真のリーク）のみ（マスク取りこぼしの echo も masked 側に
+            // 生で現れ捕捉でき検出力は落ちない・ルール4）。
+            if (findUnmaskedPii(el.text, []).length > 0) {
               send("notice_redacted", { index });
               index += 1;
               continue;
             }
-            if (findUnmaskedPii(unmasked, []).length > 0) {
+            const unmasked = unmaskPII(el.text, dictionary);
+            // 逆マスク後に空（空要素や辞書展開の結果）になった要素も落とす。
+            if (typeof unmasked !== "string" || unmasked.trim().length === 0) {
               send("notice_redacted", { index });
               index += 1;
               continue;
