@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "2b5d7c1" # 2026-06-20: 時事ニュース表示で要約付き(METI/CC BY)項目を上位に並べ替え（#1091・getLatestNews を summary 優先順に）。土台 ea93c5f(#1087 METI 公式要約) + 中間 #1085(浮遊AIチャットresize)/#1086(エディタ盤面プレビュー統一) 込み。表示層(apps/web/packages/db query)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
+  web_image_tag = "f48b86f" # 2026-06-20: pattern4 のエディタ↔実機パターン不一致を是正（#1093 エディタのモニタ↔クラス解決を signage_url の magic_link トークン経由にも対応）＋ 時事ニュース/連絡を縦オートスクロール（#1094）。土台 2b5d7c1 込み。表示層(apps/web)/packages/db query のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
