@@ -66,6 +66,7 @@ export const ads = pgTable(
         OR (${t.scope} = 'grade' AND ${t.gradeId} IS NOT NULL AND ${t.classId} IS NULL)
         OR (${t.scope} = 'department' AND ${t.departmentId} IS NOT NULL AND ${t.gradeId} IS NULL AND ${t.classId} IS NULL)
         OR (${t.scope} = 'class' AND ${t.classId} IS NOT NULL)
+        OR (${t.scope} = 'monitor' AND ${t.gradeId} IS NULL AND ${t.classId} IS NULL AND ${t.departmentId} IS NULL)
       )`,
     ),
     ckDuration: check("ck_ads_duration_positive", sql`${t.durationSec} > 0`),

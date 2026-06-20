@@ -1,11 +1,13 @@
-import { type InferSelectModel, and, eq } from "drizzle-orm";
+import { type InferSelectModel, and, eq, inArray, isNull } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
+import { adTargetMonitors } from "../schema/ad-target-monitors.js";
 import { ads } from "../schema/ads.js";
 import { advertisers } from "../schema/advertisers.js";
 import { classes } from "../schema/classes.js";
 import { contracts } from "../schema/contracts.js";
 import { departments } from "../schema/departments.js";
 import { grades } from "../schema/grades.js";
+import { tvDevices } from "../schema/tv-devices.js";
 
 /**
  * Partner API K3（`docs/api/partner-api-contract.md` §3）: **配信 push の受け口**（Flow B の v2 側）の
@@ -82,6 +84,11 @@ export type DeliveryAdInput = {
    * 学校ブリッジ(v2_school_id)と違い、学校特定後の sub-scope 名前解決は低リスク（運営整理 §0b 判断）。
    */
   scopeRef: string | null;
+  /**
+   * scope='monitor' のとき配信対象モニタ（v2 `tv_devices.id`）の集合（portal の多選択）。他 scope では省略/空配列。
+   * applyPartnerDelivery が当該校に属するモニタかを検証し（越境拒否）、ad_target_monitors を置換する。
+   */
+  targetMonitorIds?: string[];
   mediaType: AdRow["mediaType"];
   durationSec: number;
   displayOrder: number;
@@ -127,6 +134,10 @@ async function resolveScopeIds(
   if (scope === "school") {
     return { gradeId: null, classId: null, departmentId: null };
   }
+  // monitor: 階層 id は持たず ad_target_monitors 中間表で結ぶ（モニタ検証は resolveMonitorIds が担う）。
+  if (scope === "monitor") {
+    return { gradeId: null, classId: null, departmentId: null };
+  }
   const ref = (scopeRef ?? "").trim();
   if (ref.length === 0) {
     throw new ScopeResolutionError(`scope '${scope}' requires scopeRef`);
@@ -170,6 +181,40 @@ async function resolveScopeIds(
     );
   }
   return { gradeId: null, classId: row.id, departmentId: null };
+}
+
+/**
+ * scope='monitor' の配信対象モニタ（tv_devices.id）を**当該校内で検証**する（Phase5）。
+ * - 全 ID が当該 school の tv_devices（ソフトデリート除く）に属することを確認。1件でも欠ければ
+ *   `ScopeResolutionError`（→409・保留）で fail-closed（他校モニタへの越境配信や存在しないモニタ指定を防ぐ）。
+ * - 重複は除去。空集合（monitor なのに対象なし）も恒久エラー。
+ * 返値は検証済みの一意な ID 配列。
+ */
+async function resolveMonitorIds(
+  tx: TenantTx,
+  schoolId: string,
+  monitorIds: string[],
+): Promise<string[]> {
+  const ids = [...new Set((monitorIds ?? []).filter((m) => typeof m === "string" && m.length > 0))];
+  if (ids.length === 0) {
+    throw new ScopeResolutionError("scope 'monitor' requires at least one targetMonitorId");
+  }
+  const rows = await tx
+    .select({ id: tvDevices.id })
+    .from(tvDevices)
+    .where(
+      and(
+        eq(tvDevices.schoolId, schoolId),
+        inArray(tvDevices.id, ids),
+        isNull(tvDevices.deletedAt),
+      ),
+    );
+  const found = new Set(rows.map((r) => r.id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new ScopeResolutionError(`monitor(s) not found in school: ${missing.join(", ")}`);
+  }
+  return ids;
 }
 
 export type DeliveryInput = {
@@ -283,7 +328,12 @@ export async function applyPartnerDelivery(
       a.scope,
       a.scopeRef,
     );
-    await tx
+    // scope='monitor' は対象モニタを当該校内で事前検証（fail-closed: 不正なら ad を書く前に 409 で中断）。
+    const monitorIds =
+      a.scope === "monitor"
+        ? await resolveMonitorIds(tx, a.v2SchoolId, a.targetMonitorIds ?? [])
+        : [];
+    const upserted = await tx
       .insert(ads)
       .values({
         portalPlacementId: a.portalPlacementId,
@@ -320,7 +370,25 @@ export async function applyPartnerDelivery(
           updatedAt: new Date(),
           updatedBy: null,
         },
-      });
+      })
+      .returning({ id: ads.id });
+    const adId = upserted[0]?.id;
+    if (!adId) {
+      throw new Error("applyPartnerDelivery: ad upsert が行を返しませんでした");
+    }
+    // モニタ紐付けを置換（冪等）。scope を monitor から他へ切り替えた再送でも古い紐付けを掃除する。
+    await tx.delete(adTargetMonitors).where(eq(adTargetMonitors.adId, adId));
+    if (a.scope === "monitor") {
+      await tx.insert(adTargetMonitors).values(
+        monitorIds.map((monitorId) => ({
+          adId,
+          monitorId,
+          schoolId: a.v2SchoolId,
+          createdBy: null,
+          updatedBy: null,
+        })),
+      );
+    }
     adsApplied += 1;
   }
 

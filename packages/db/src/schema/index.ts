@@ -68,5 +68,7 @@ export * from "./departments.js";
 export * from "./school-configs.js";
 export * from "./daily-data.js";
 export * from "./ads.js";
+// Phase5 (運営整理 G): 広告 ⇄ 個別モニタ直指定の M:N 中間表（scope='monitor'）。RLS は ads と同二層。
+export * from "./ad-target-monitors.js";
 // F0 (#48-F): 広告階層マージ VIEW (実体は migrations/0007、ここは型定義のみ)
 export * from "./effective-ads-view.js";

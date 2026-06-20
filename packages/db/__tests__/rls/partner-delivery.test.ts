@@ -289,4 +289,92 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
       expect(ad.department_id).toBeNull();
     });
   });
+
+  // ── Phase5: scope=monitor（個別モニタ直指定・ad_target_monitors 中間表） ──
+  describe("scope=monitor（Phase5・個別モニタ直指定）", () => {
+    let mA1: string;
+    let mA2: string;
+    let mB: string;
+
+    beforeEach(async () => {
+      // schoolA に2台・schoolB に1台のモニタを seed（BYPASSRLS の raw 接続）。
+      await sql`DELETE FROM tv_devices WHERE school_id IN (${fx.schoolA}, ${fx.schoolB})`;
+      const [a1] = await sql<{ id: string }[]>`
+        INSERT INTO tv_devices (device_id, school_id, label) VALUES ('dev-a1', ${fx.schoolA}, '廊下') RETURNING id`;
+      mA1 = a1.id;
+      const [a2] = await sql<{ id: string }[]>`
+        INSERT INTO tv_devices (device_id, school_id, label) VALUES ('dev-a2', ${fx.schoolA}, '昇降口') RETURNING id`;
+      mA2 = a2.id;
+      const [b] = await sql<{ id: string }[]>`
+        INSERT INTO tv_devices (device_id, school_id, label) VALUES ('dev-b', ${fx.schoolB}, '体育館') RETURNING id`;
+      mB = b.id;
+    });
+
+    function adWithMonitors(monitorIds: string[]) {
+      const input = baseInput();
+      input.ads[0].scope = "monitor";
+      input.ads[0].scopeRef = null;
+      input.ads[0].targetMonitorIds = monitorIds;
+      return input;
+    }
+
+    async function monitorLinks() {
+      return sql<{ monitor_id: string; school_id: string }[]>`
+        SELECT monitor_id, school_id FROM ad_target_monitors ORDER BY monitor_id`;
+    }
+
+    it("選択モニタを ad_target_monitors に保存（scope/各id整合・school_id 付与）", async () => {
+      await deliver(adWithMonitors([mA1, mA2]));
+      const [ad] = await sql<
+        {
+          scope: string;
+          grade_id: string | null;
+          class_id: string | null;
+          department_id: string | null;
+        }[]
+      >`SELECT scope, grade_id, class_id, department_id FROM ads`;
+      expect(ad.scope).toBe("monitor");
+      expect(ad.grade_id).toBeNull();
+      expect(ad.class_id).toBeNull();
+      expect(ad.department_id).toBeNull();
+
+      const links = await monitorLinks();
+      expect(links.map((l) => l.monitor_id).sort()).toEqual([mA1, mA2].sort());
+      expect(links.every((l) => l.school_id === fx.schoolA)).toBe(true);
+    });
+
+    it("他校のモニタ混在は越境拒否（ScopeResolutionError）・部分反映なし", async () => {
+      await expect(deliver(adWithMonitors([mA1, mB]))).rejects.toBeInstanceOf(ScopeResolutionError);
+      // tx 全体が巻き戻り、ads も ad_target_monitors も作られない。
+      expect(await counts()).toEqual({ advertisers: 0, contracts: 0, ads: 0 });
+      expect((await monitorLinks()).length).toBe(0);
+    });
+
+    it("存在しないモニタ ID は拒否（ScopeResolutionError）", async () => {
+      await expect(
+        deliver(adWithMonitors(["dddddddd-dddd-4ddd-8ddd-dddddddddddd"])),
+      ).rejects.toBeInstanceOf(ScopeResolutionError);
+    });
+
+    it("空の targetMonitorIds は拒否（空配信防止）", async () => {
+      await expect(deliver(adWithMonitors([]))).rejects.toBeInstanceOf(ScopeResolutionError);
+    });
+
+    it("再送で紐付けを置換（冪等・選択集合の差し替え）", async () => {
+      await deliver(adWithMonitors([mA1, mA2]));
+      // 同 portal_placement_id を mA1 のみで再送 → 紐付けは mA1 の1件に置換。
+      await deliver(adWithMonitors([mA1]));
+      expect(await counts()).toEqual({ advertisers: 1, contracts: 1, ads: 1 });
+      const links = await monitorLinks();
+      expect(links.map((l) => l.monitor_id)).toEqual([mA1]);
+    });
+
+    it("scope 切替 monitor→school で紐付けを掃除", async () => {
+      await deliver(adWithMonitors([mA1, mA2]));
+      await deliver(baseInput()); // 同 portal_placement_id を school で再送
+      const [ad] = await sql<{ scope: string }[]>`SELECT scope FROM ads`;
+      expect(ad.scope).toBe("school");
+      expect((await monitorLinks()).length).toBe(0);
+    });
+  });
 });

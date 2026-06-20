@@ -28,6 +28,8 @@ const SCOPE_LABEL: Record<HierarchyScopeValue, string> = {
   grade: "学年",
   class: "クラス",
   department: "学科",
+  // monitor は広告(ads)の個別モニタ直指定専用。school_configs では使われないが enum 網羅のため定義。
+  monitor: "モニタ",
 };
 
 /** 設定種別の表示ラベル。enum 値を網羅 (型でズレ検出、ルール3)。 */

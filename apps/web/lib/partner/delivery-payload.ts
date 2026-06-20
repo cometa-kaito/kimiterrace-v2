@@ -111,14 +111,30 @@ const adSchema = z
       .union([httpsUrl, z.null()])
       .optional()
       .transform((v) => v ?? null),
+    // scope='monitor'（Phase5・個別モニタ直指定）の対象 tv_devices.id 集合。他 scope では省略可（空配列）。
+    // 1配信あたり 500 件で頭打ち（暴走防止・1校のモニタ数を十分上回る）。
+    targetMonitorIds: z.array(z.string().uuid()).max(500).optional().default([]),
   })
   .superRefine((a, ctx) => {
-    // 非 school は scopeRef 必須（payload 段階で恒久 400 に倒す。空配信を防ぐ）。
-    if (a.scope !== "school" && (a.scopeRef == null || a.scopeRef.length === 0)) {
+    // 非 school かつ非 monitor は scopeRef 必須（payload 段階で恒久 400 に倒す。空配信を防ぐ）。
+    // monitor は scopeRef ではなく targetMonitorIds で対象を指定する。
+    if (
+      a.scope !== "school" &&
+      a.scope !== "monitor" &&
+      (a.scopeRef == null || a.scopeRef.length === 0)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `scope '${a.scope}' requires scopeRef`,
         path: ["scopeRef"],
+      });
+    }
+    // monitor は対象モニタが1件以上必須（空配信を防ぐ）。
+    if (a.scope === "monitor" && a.targetMonitorIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "scope 'monitor' requires at least one targetMonitorId",
+        path: ["targetMonitorIds"],
       });
     }
   });
@@ -192,7 +208,9 @@ export function parseDeliveryPayload(raw: unknown): ParseResult {
     // z.enum で許容値を絞り込み済み。DB enum と同一値域のため安全に narrow（as any 不使用）。
     scope: a.scope as ValidatedAd["scope"],
     // school は scopeRef を持たない（学校全体）。非 school は superRefine で非空を強制済み。
-    scopeRef: a.scope === "school" ? null : a.scopeRef,
+    scopeRef: a.scope === "school" || a.scope === "monitor" ? null : a.scopeRef,
+    // monitor 以外は対象モニタを持たない（空配列）。
+    targetMonitorIds: a.scope === "monitor" ? a.targetMonitorIds : [],
     mediaType: a.mediaType as ValidatedAd["mediaType"],
     durationSec: a.durationSec,
     displayOrder: a.displayOrder,
