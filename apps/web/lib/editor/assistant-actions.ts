@@ -20,9 +20,10 @@ import {
   unmaskPII,
 } from "@kimiterrace/ai";
 import { auditLog } from "@kimiterrace/db";
+import { createLogger } from "@kimiterrace/observability";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { resolveUploadType } from "../teacher-input/upload-validation";
+import { hasValidImageMagicBytes, resolveUploadType } from "../teacher-input/upload-validation";
 import {
   ALL_ASSIST_SYSTEM,
   ASSIST_INPUT_MAX,
@@ -67,6 +68,9 @@ import {
  */
 
 const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
+
+/** OCR egress 監査の best-effort 失敗等を構造化記録する（Cloud Logging・本文/PII は出さない）。 */
+const assistLogger = createLogger("editor-assist");
 
 let memoModel: ModelClient | null = null;
 /** 実 Vertex model を env から遅延生成（construct は lazy = 認証/通信なし、generate 時のみ ADC）。 */
@@ -447,6 +451,13 @@ async function draftSectionFromFile<T>(
   let ocrUsed = false;
   try {
     bytes = new Uint8Array(await file.arrayBuffer());
+    // 画像は OCR が画素を読むだけで形式検証をしないため、**egress の前に**宣言 MIME と先頭マジックバイトの整合を
+    // 検査する（upload route と同一不変条件 `hasValidImageMagicBytes`）。偽装/非画像バイト（image/png を名乗る
+    // 任意バイト列等）を Vertex Gemini に直送しない＝外部委託の境界（ルール4）。PDF/Office は抽出器パースが
+    // fail-close（422）で内容を検証するので対象外（非画像 MIME は常に true で素通り）。
+    if (isImage && !hasValidImageMagicBytes(bytes, file.type)) {
+      return { ok: false, reason: "unsupported_format" };
+    }
     // 画像 / PDF は OCR クライアントを注入 (ADR-038 Gemini 直送)。PDF はテキストレイヤがあれば OCR を使わず
     // ローカル抽出のまま（フォールバックはスキャン PDF のみ）。docx/xlsx/csv は egress なしのローカル抽出。
     // 抽出テキストは未マスク（ルール4・マスクは runSectionDraft）。
@@ -472,7 +483,24 @@ async function draftSectionFromFile<T>(
   // egress なし＝ocrUsed=false で監査しない）。egress は上の extract で発生済ゆえ、no_text や後続 draft の
   // 成否に関わらず残す (fail-safe・本文は残さず画像/PDF ハッシュ+文字数のみ)。
   if (ocrUsed) {
-    await writeOcrEgressAudit(auth.actor, auth.target, bytes, file.type, text.length);
+    // egress は上の extract で発生済。監査 INSERT が一時 DB 障害で失敗しても **本処理は止めない**（fail-safe）。
+    // egress 済のまま 500 で教員をブロックしても egress は取り消せず最悪（外部委託は完了済・ユーザーは詰まる・
+    // 監査も残らない）。失敗時は egress 完了の痕跡を構造化ログ（Cloud Logging で検知可能・PII/本文は出さない）に
+    // 残してから degrade する。これが docstring の「fail-safe（egress を必ず記録しようとする）」の本来の意図。
+    try {
+      await writeOcrEgressAudit(auth.actor, auth.target, bytes, file.type, text.length);
+    } catch (auditError) {
+      assistLogger.error(
+        {
+          scope: auth.target.scope,
+          schoolId: auth.actor.schoolId,
+          mediaType: file.type,
+          charCount: text.length,
+          error: auditError instanceof Error ? auditError.message : String(auditError),
+        },
+        "OCR egress audit write failed after egress occurred",
+      );
+    }
   }
 
   if (text.length === 0) {

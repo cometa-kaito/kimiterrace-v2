@@ -165,8 +165,15 @@ describe("assistDraftNoticesAction", () => {
 function pdfFile(name = "notice.pdf", type = "application/pdf"): File {
   return new File(["dummy-content"], name, { type });
 }
+// 先頭 8 バイトは実 PNG 署名（draftSectionFromFile の egress 前マジックバイト検査 `hasValidImageMagicBytes` を
+// 通すため）。残りはダミー（extractText はモックなので画素内容は不問）。
+const PNG_MAGIC = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 function imageFile(name = "board.png", type = "image/png"): File {
-  return new File(["dummy-image-bytes"], name, { type });
+  return new File([PNG_MAGIC, "dummy-image-bytes"], name, { type });
+}
+/** image/png を名乗るが先頭バイトが PNG 署名でない偽装画像（マジックバイト検査の拒否経路用）。 */
+function fakeImageFile(name = "fake.png", type = "image/png"): File {
+  return new File(["this-is-not-a-real-png"], name, { type });
 }
 function csvFile(name = "table.csv", type = "text/csv"): File {
   return new File(["科目,内容\n数学,ワーク"], name, { type });
@@ -212,6 +219,21 @@ describe("assistDraftNoticesFromFileAction", () => {
     );
     expect(r).toEqual({ ok: false, reason: "rate_limited" });
     expect(h.extractText).not.toHaveBeenCalled();
+  });
+
+  it("image/png を名乗る偽装画像（先頭バイトが PNG 署名でない）は egress 前に unsupported_format で弾く（Vertex 直送しない・監査なし）", async () => {
+    const d = deps();
+    const r = await assistDraftNoticesFromFileAction(
+      "class",
+      CLASS_ID,
+      fileForm(fakeImageFile()),
+      {},
+      d,
+    );
+    expect(r).toEqual({ ok: false, reason: "unsupported_format" });
+    // egress（extractText の OCR 呼び出し）に到達しない＝Vertex に直送しない。監査も書かない。
+    expect(h.extractText).not.toHaveBeenCalled();
+    expect(h.insertValues).not.toHaveBeenCalled();
   });
 
   it("CSV は表として受理し、egress なしのローカル抽出（OCR 注入なし）で notices を返す", async () => {
