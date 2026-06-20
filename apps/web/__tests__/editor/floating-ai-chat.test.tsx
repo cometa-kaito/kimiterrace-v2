@@ -10,7 +10,10 @@ import { FloatingAiChat } from "../../app/app/editor/[classId]/_components/Float
  * 開くとパネル内へフォーカスが移る / children は常時マウントされ display で出し分ける」を検証する。
  */
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
 
 describe("FloatingAiChat", () => {
   it("既定は閉じており FAB を出し、children はマウントされたまま非表示（display:none）", () => {
@@ -85,5 +88,46 @@ describe("FloatingAiChat", () => {
     expect(screen.getByRole("button", { name: "AIに相談" })).toBeTruthy();
     // 見出しはパネル（既定は非表示でも DOM 上に存在）。
     expect(screen.getByRole("heading", { name: "AI 支援チャット", hidden: true })).toBeTruthy();
+  });
+
+  it("リサイズハンドルがあり、矢印キーでパネルの幅/高さを変えて localStorage に保存する", () => {
+    render(
+      <FloatingAiChat>
+        <button type="button">中身ボタン</button>
+      </FloatingAiChat>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "AIで作る" }));
+    const dialog = screen.getByRole("dialog") as HTMLElement;
+    // 既定（リサイズ前）はインラインの幅/高さを持たず CSS 既定に委ねる。
+    expect(dialog.style.width).toBe("");
+    expect(dialog.style.height).toBe("");
+
+    const handle = screen.getByRole("button", { name: /大きさを変える/ });
+    // 上矢印 = 高さを伸ばす（jsdom は実寸 0 のため下限へクランプされる）。
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(dialog.style.height).toBe("360px");
+    expect(dialog.style.width).toBe("300px");
+    // 次回起動へ引き継ぐため localStorage に保存される。
+    const saved = JSON.parse(window.localStorage.getItem("kt:floating-ai-chat:size") ?? "null");
+    expect(saved).toEqual({ width: 300, height: 360 });
+  });
+
+  it("ハンドルのダブルクリックで既定サイズに戻す（インライン幅/高さを外し localStorage も消す）", () => {
+    render(
+      <FloatingAiChat>
+        <button type="button">中身ボタン</button>
+      </FloatingAiChat>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "AIで作る" }));
+    const dialog = screen.getByRole("dialog") as HTMLElement;
+    const handle = screen.getByRole("button", { name: /大きさを変える/ });
+
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(dialog.style.height).not.toBe("");
+
+    fireEvent.doubleClick(handle);
+    expect(dialog.style.width).toBe("");
+    expect(dialog.style.height).toBe("");
+    expect(window.localStorage.getItem("kt:floating-ai-chat:size")).toBeNull();
   });
 });
