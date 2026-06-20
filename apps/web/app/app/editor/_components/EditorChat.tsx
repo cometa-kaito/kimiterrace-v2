@@ -14,7 +14,9 @@ import {
 import {
   type AssistantChatRequestBody,
   type AssistantDraft,
-  draftHasItems,
+  DRAFT_SECTION_KINDS,
+  type DraftSectionKind,
+  EMPTY_DRAFT,
 } from "@/lib/editor/assistant-chat-core";
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
@@ -49,6 +51,26 @@ const GREETING =
 // 入力欄の自動伸長の上限（px）。これを超えたら内部スクロール（~5〜6 行）。CSS の inputStyle.maxHeight と同値。
 const INPUT_MAX_HEIGHT = 140;
 
+/** 反映対象セクション集合（meta 由来の許可セクション・未受信時は全セクションに倒す＝追加挙動の保険）。 */
+function allowedSetOf(allowedSections: readonly DraftSectionKind[]): ReadonlySet<DraftSectionKind> {
+  return allowedSections.length > 0 ? new Set(allowedSections) : new Set(DRAFT_SECTION_KINDS);
+}
+
+/**
+ * 反映でこのセクションを per-section 置換保存するか（= 盤面が変わりうるか）。下書きは盤面でシードした
+ * **完全な目標状態**なので、許可セクションのうち「今 items を持つ（追加 / 編集）」か「盤面に items があった
+ * （= 空にする＝**削除**）」ときだけ書く（両方空は触らない＝無駄な空置換・監査ノイズ回避）。確認カードの
+ * 表示判定（{@link EditorChat} の showConfirm）と反映（onApply）が必ず一致するよう単一の述語に集約する。
+ */
+function willWriteSection(
+  kind: DraftSectionKind,
+  draft: AssistantDraft,
+  board: AssistantDraft,
+  allowed: ReadonlySet<DraftSectionKind>,
+): boolean {
+  return allowed.has(kind) && (draft[kind].length > 0 || board[kind].length > 0);
+}
+
 export function EditorChat({
   scope,
   targetId,
@@ -74,6 +96,11 @@ export function EditorChat({
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   // 会話インラインの確認カードを閉じたか（「直す」or 反映成功で閉じ、次の送信/取込で再表示）。
   const [confirmHidden, setConfirmHidden] = useState(false);
+  // 盤面の現状スナップショット（= 反映の差分判定の基準）。初期はサーバ由来の initialDraft（盤面の現状）で、
+  // 反映成功でこのセッションが盤面を上書きするたび反映後の下書きへ更新する。「下書きは空だが盤面には項目が
+  // あった」= 削除指示、を判定して(1)空セクションの置換保存=全消去を起こし(2)空盤面への純粋な聞き返しでは
+  // 確認カードを出さない、を成立させる（編集/削除対応・追加挙動は不変）。
+  const [board, setBoard] = useState<AssistantDraft>(initialDraft ?? EMPTY_DRAFT);
   const streamingRef = useRef(false);
   // 進行中の SSE を中断するための AbortController（停止ボタン）。null=非ストリーミング。
   const abortRef = useRef<AbortController | null>(null);
@@ -222,23 +249,42 @@ export function EditorChat({
     bottomRef.current?.scrollIntoView?.({ block: "end" });
   }, [state.messages.length, state.streamingText, state.status]);
 
-  /** 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。成功で確認カードを閉じる。 */
+  /**
+   * 反映: 下書きを既存 per-section Server Action で盤面へ保存する（API は下書きのみ）。成功で確認カードを閉じる。
+   *
+   * 下書きは（盤面でシードされた）**完全な目標状態**なので、per-section の「置換」保存で盤面を下書きに一致させる。
+   * 書くのはこのクラスの許可セクション（meta 由来・未受信時は全セクションに倒す）のうち、
+   *  - 今 items を持つ（追加 / 編集）か
+   *  - 盤面に items があった（= 空にする = **削除**対象がある）
+   * セクションのみ（両方空のセクションは触らない＝無駄な空置換・監査ノイズ回避）。空配列の保存は当該セクションの
+   * 全消去になる（daily-data-write は値をそのまま置換）。これで編集・削除が成立する（旧実装は空セクションを
+   * 常にスキップし、削除が盤面に反映されなかった）。
+   */
   const onApply = useCallback(async () => {
     if (saving) return;
     setSaving(true);
     setSaveMsg(null);
     const d = state.draft;
+    const allowed = allowedSetOf(state.allowedSections);
     try {
       const results = await Promise.all([
-        d.schedules.length ? setScheduleAction(scope, targetId, date, d.schedules) : null,
-        d.notices.length ? setNoticesAction(scope, targetId, date, d.notices) : null,
-        d.assignments.length ? setAssignmentsAction(scope, targetId, date, d.assignments) : null,
+        willWriteSection("schedules", d, board, allowed)
+          ? setScheduleAction(scope, targetId, date, d.schedules)
+          : null,
+        willWriteSection("notices", d, board, allowed)
+          ? setNoticesAction(scope, targetId, date, d.notices)
+          : null,
+        willWriteSection("assignments", d, board, allowed)
+          ? setAssignmentsAction(scope, targetId, date, d.assignments)
+          : null,
       ]);
       const failed = results.some((r) => r !== null && !r.ok);
       setSaveMsg(
         failed ? "一部の反映に失敗しました。もう一度お試しください。" : "盤面に反映しました。",
       );
       if (!failed) {
+        // 盤面が下書きに一致した。次の差分判定（削除検出 / 確認カード表示）の基準を更新する。
+        setBoard(d);
         setConfirmHidden(true);
       }
     } catch {
@@ -246,7 +292,7 @@ export function EditorChat({
     } finally {
       setSaving(false);
     }
-  }, [saving, state.draft, scope, targetId, date]);
+  }, [saving, state.draft, state.allowedSections, board, scope, targetId, date]);
 
   /** ファイル取り込み: PDF/Word/Excel/画像を既存 action で全セクション下書きに（非ストリーミング・保存しない）。 */
   const onFile = useCallback(
@@ -297,8 +343,18 @@ export function EditorChat({
     state.allowedSections.length > 0 &&
     !state.allowedSections.includes("notices") &&
     !state.allowedSections.includes("assignments");
-  // 会話インラインの確認カード: AI が下書きをまとめ終え（done）、内容があり、未確定（閉じてない）とき。
-  const showConfirm = state.status === "done" && draftHasItems(state.draft) && !confirmHidden;
+  // 反映で盤面が変わりうるセクション（追加 / 編集 = 下書きに items、削除 = 盤面に items があり下書きは空）。
+  // onApply と同じ述語で導く（カード表示と実反映が必ず一致する）。
+  const pendingWrites = DRAFT_SECTION_KINDS.filter((k) =>
+    willWriteSection(k, state.draft, board, allowedSetOf(state.allowedSections)),
+  );
+  // 会話インラインの確認カード: AI が下書きをまとめ終え（done）・未確定（閉じてない）で、反映で盤面が変わる
+  // ものがあるとき。下書きも盤面も空（＝空盤面への純粋な聞き返し）では出さない。これで「全部削除」も確認
+  // カードから反映できる（旧実装は下書きが空だとカードが出ず、削除を反映する手段が無かった）。
+  const showConfirm = state.status === "done" && !confirmHidden && pendingWrites.length > 0;
+  // そのうち**全消去**になるセクション（書くが下書きは空＝削除）。削除時は下書きカードに並べる項目が無いので、
+  // 何が消えるかを明示して空カードに見えないようにする。
+  const clearedSections = pendingWrites.filter((k) => state.draft[k].length === 0);
 
   return (
     <section
@@ -329,6 +385,11 @@ export function EditorChat({
             <DraftSection title="予定" kind="schedules" items={state.draft.schedules} />
             <DraftSection title="連絡" kind="notices" items={state.draft.notices} />
             <DraftSection title="提出物" kind="assignments" items={state.draft.assignments} />
+            {clearedSections.length ? (
+              <p style={clearNoteStyle}>
+                {clearedSections.map((k) => SECTION_LABEL_JA[k]).join("・")}をすべて削除します。
+              </p>
+            ) : null}
             <div style={confirmActionsStyle}>
               <button
                 type="button"
@@ -500,6 +561,13 @@ export function EditorChat({
   );
 }
 
+/** セクション種別 → 確認カードの和名（削除予告文言用）。DraftSection の title と表記を揃える。 */
+const SECTION_LABEL_JA: Record<DraftSectionKind, string> = {
+  schedules: "予定",
+  notices: "連絡",
+  assignments: "提出物",
+};
+
 function Bubble({ from, children }: { from: "user" | "assistant"; children: React.ReactNode }) {
   const isUser = from === "user";
   return (
@@ -609,6 +677,15 @@ const confirmActionsStyle: React.CSSProperties = {
   alignItems: "center",
   gap: "0.6rem",
   marginTop: "0.7rem",
+};
+// 削除予告（盤面の項目を全消去するときの注意文）。danger 配色で確認カード内に出す。
+const clearNoteStyle: React.CSSProperties = {
+  margin: "0.3rem 0 0",
+  paddingTop: "0.3rem",
+  borderTop: `1px solid ${color.border}`,
+  fontSize: fontSize.sm,
+  fontWeight: 600,
+  color: color.dangerFg,
 };
 const warnBoxStyle: React.CSSProperties = {
   alignSelf: "stretch",
