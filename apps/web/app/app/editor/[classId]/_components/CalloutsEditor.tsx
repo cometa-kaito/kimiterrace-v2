@@ -12,7 +12,10 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import {
   dirtyTextStyle,
+  emptyPlaceholderRowStyle,
   inputStyle,
+  messageStyle,
+  noteTextStyle,
   primaryBtnDisabledStyle,
   primaryBtnStyle,
   removeBtnStyle,
@@ -24,6 +27,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { OptionalMark, RequiredLegend, RequiredMark } from "./FieldMarks";
 
 /**
  * 生徒呼び出しエディタ（パターン2「生徒呼び出し」）。**Client Component** — クラス×日付の呼び出しを行で
@@ -96,27 +100,44 @@ export function CalloutsEditor({
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>生徒呼び出し</h2>
-      <p style={{ margin: 0, fontSize: "0.8rem", color: "#6b7280" }}>
-        ※ 氏名は教室のサイネージに表示されます（呼び出しの取り違え防止のため実名表示・ADR-034）。
+      <p style={noteTextStyle}>
+        ※ 氏名は教室のサイネージに表示されます（呼び出しの取り違え防止のため実名で表示します）。
       </p>
-      {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
-          {msg.text}
-        </output>
-      ) : null}
+      <RequiredLegend requiredFieldLabel="生徒氏名" />
+      {msg ? <output style={messageStyle(msg.ok)}>{msg.text}</output> : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={thStyle}>時刻</th>
-              <th style={thStyle}>生徒氏名</th>
-              <th style={thStyle}>呼び出し先</th>
-              <th style={thStyle}>用件</th>
+              <th style={thStyle}>
+                時刻
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                生徒氏名
+                <RequiredMark />
+              </th>
+              <th style={thStyle}>
+                呼び出し先
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                用件
+                <OptionalMark />
+              </th>
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 ? (
+              // 空状態は装飾枠でなく罫線プレースホルダで「ここに行が入る」投入位置を示唆（finding⑥）。
+              <tr>
+                <td colSpan={5} style={{ ...tdStyle, padding: 0 }}>
+                  <div style={emptyPlaceholderRowStyle}>「呼び出しを追加」で行を追加します</div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((r, i) => (
               // 行は順序が UI 状態なので index key で十分（保存は全置換）。
               // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
@@ -143,7 +164,7 @@ export function CalloutsEditor({
                   <input
                     value={r.location}
                     onChange={(e) => update(i, { location: e.target.value })}
-                    placeholder="(任意) 職員室 等"
+                    placeholder="職員室 等"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の呼び出し先`}
                   />
@@ -152,7 +173,7 @@ export function CalloutsEditor({
                   <input
                     value={r.reason}
                     onChange={(e) => update(i, { reason: e.target.value })}
-                    placeholder="(任意) 用件"
+                    placeholder="用件"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の用件`}
                   />

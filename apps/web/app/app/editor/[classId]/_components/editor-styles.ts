@@ -102,3 +102,47 @@ export const primaryBtnDisabledStyle: React.CSSProperties = {
   background: color.muted,
   cursor: "not-allowed",
 };
+
+/** セクション補足の注記（控えめ・トークン化。生 hex を直書きしない＝design-ui 規律）。 */
+export const noteTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+/** 保存結果メッセージ（成功 / 失敗）。色はトークン参照（NFR05: テキストも併記される）。 */
+export function messageStyle(ok: boolean): React.CSSProperties {
+  return { display: "block", fontSize: fontSize.sm, color: ok ? color.successFg : color.dangerFg };
+}
+/** 必須項目マーク（列ヘッダー / ラベルに添える）。色だけに依存しない（「必須」テキストと併記）。 */
+export const requiredMarkStyle: React.CSSProperties = {
+  marginLeft: "0.25rem",
+  fontSize: fontSize.xs,
+  fontWeight: 700,
+  color: color.dangerFg,
+};
+/** 任意項目マーク（控えめ）。必須との対比で「任意」を明示する。 */
+export const optionalMarkStyle: React.CSSProperties = {
+  marginLeft: "0.25rem",
+  fontSize: fontSize.xs,
+  fontWeight: 400,
+  color: color.muted,
+};
+/** フォーム冒頭の必須/任意の凡例（控えめ）。 */
+export const legendTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+/**
+ * 空状態の罫線プレースホルダ行（来校者 / 呼び出しが 0 件のとき）。装飾枠ではなく**点線の枠**で「ここに
+ * 行が入る」投入位置を示唆する（finding⑥: 装飾枠を外しフラットに・空状態は罫線で示す）。色だけに頼らず
+ * テキスト（「『◯◯を追加』で行を追加します」）を併記する。
+ */
+export const emptyPlaceholderRowStyle: React.CSSProperties = {
+  padding: "0.75rem 0.6rem",
+  textAlign: "center",
+  fontSize: fontSize.sm,
+  color: color.muted,
+  border: `1px dashed ${color.border}`,
+  borderRadius: radius.sm,
+};

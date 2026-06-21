@@ -12,7 +12,9 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import {
   dirtyTextStyle,
+  emptyPlaceholderRowStyle,
   inputStyle,
+  messageStyle,
   primaryBtnDisabledStyle,
   primaryBtnStyle,
   removeBtnStyle,
@@ -24,6 +26,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { OptionalMark, RequiredLegend, RequiredMark } from "./FieldMarks";
 
 /**
  * 来校者一覧エディタ（パターン2「来校者一覧」）。**Client Component** — クラス×日付の来校者を行で
@@ -109,26 +112,49 @@ export function VisitorsEditor({
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "880px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>来校者一覧</h2>
-      {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
-          {msg.text}
-        </output>
-      ) : null}
+      <RequiredLegend requiredFieldLabel="氏名" />
+      {msg ? <output style={messageStyle(msg.ok)}>{msg.text}</output> : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={thStyle}>時刻</th>
-              <th style={thStyle}>氏名</th>
-              <th style={thStyle}>所属</th>
-              <th style={thStyle}>用件</th>
-              <th style={thStyle}>対応者</th>
-              <th style={thStyle}>備考</th>
+              <th style={thStyle}>
+                時刻
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                氏名
+                <RequiredMark />
+              </th>
+              <th style={thStyle}>
+                所属
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                用件
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                対応者
+                <OptionalMark />
+              </th>
+              <th style={thStyle}>
+                備考
+                <OptionalMark />
+              </th>
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 ? (
+              // 空状態は装飾枠でなく罫線プレースホルダで「ここに行が入る」投入位置を示唆（finding⑥）。
+              <tr>
+                <td colSpan={7} style={{ ...tdStyle, padding: 0 }}>
+                  <div style={emptyPlaceholderRowStyle}>「来校者を追加」で行を追加します</div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((r, i) => (
               // 行は順序が UI 状態なので index key で十分（保存は全置換）。
               // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
@@ -155,7 +181,7 @@ export function VisitorsEditor({
                   <input
                     value={r.affiliation}
                     onChange={(e) => update(i, { affiliation: e.target.value })}
-                    placeholder="(任意) 所属"
+                    placeholder="所属"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の所属`}
                   />
@@ -164,7 +190,7 @@ export function VisitorsEditor({
                   <input
                     value={r.purpose}
                     onChange={(e) => update(i, { purpose: e.target.value })}
-                    placeholder="(任意) 用件"
+                    placeholder="用件"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の用件`}
                   />
@@ -173,7 +199,7 @@ export function VisitorsEditor({
                   <input
                     value={r.host}
                     onChange={(e) => update(i, { host: e.target.value })}
-                    placeholder="(任意) 対応者"
+                    placeholder="対応者"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の対応者`}
                   />
@@ -182,7 +208,7 @@ export function VisitorsEditor({
                   <input
                     value={r.note}
                     onChange={(e) => update(i, { note: e.target.value })}
-                    placeholder="(任意) 備考"
+                    placeholder="備考"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の備考`}
                   />
