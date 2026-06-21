@@ -7,7 +7,7 @@
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
 - **web デプロイ手順: [runbooks/web-deploy.md](runbooks/web-deploy.md)（`scripts/deploy/deploy-web.sh <env> --apply`）。過去の引き継ぎ内の長い再デプロイ手順は読み返さずこれを使う。**
-- 最終更新: 2026-06-17 (JST) ／ 更新者: Claude Code
+- 最終更新: 2026-06-21 (JST) ／ 更新者: Claude Code
 
 ---
 
@@ -23,11 +23,11 @@
 
 ---
 
-## 現在地サマリ（2026-06-08）
+## 現在地サマリ（2026-06-21）
 
-- **main HEAD**: `f00e2e97`（#865 magic link ロール再編 squash merge）。URL は **namespace 改称完了**で `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（#891/#894/#895、下記「直近の完了」2026-06-14 / [[ref_namespace_rename_breaks_e2e_url_asserts]]）。
-- **staging live**: image `web:fb826fc`（2026-06-17 **その他=非教室サイネージ** #1012/#1013/#1015 反映＝今回・web のみ。前回 db12ca5(A〜D)/#998/#999）。`/api/health` 200 / `/login` `private,no-cache`。**migrate 実行済**（最新 `20260617115610`: `classes.department_id` 追加 + `grade` nullable 化 + index【#1010・#1014 で適用済】、その前 `20260615120000`）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。
-- **prod live**: image `web:fb826fc`（2026-06-17 **その他=非教室サイネージ** #1012/#1013/#1015 反映＝今回・web のみ・live image=web:fb826fc 突合・app.school-signage.net /api/health 200。前回 db12ca5(A〜D)/#998/#999・`GEMINI_THINKING_BUDGET=0` は env 維持）。`/api/health` 200・`cache-control private,no-cache`。**migrate 実行済**（最新 `20260617115610`【#1010・#1014 で適用済】・その前 `20260615120000`）。bump 記録 本PR。
+- **main HEAD**: `c10e7958`（#1111 magic link 一覧 GET 可視性チェック squash merge）。URL は `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（[[ref_namespace_rename_breaks_e2e_url_asserts]]）。
+- **staging live / prod live**: image `web:c10e795`（2026-06-21 **多ロール バグ修正リリース**＝下記「直近の完了」2026-06-21・web のみ・schema/secret 無変更・両 env `/api/health` 200・`/login` `private,no-cache`＝force-dynamic 健全）。前 image `web:2cd6d03`（pattern4 カルーセル一式 #1097-1103・signage 表示層、別セッション）。**fb826fc→2cd6d03 の中間 signage リリース**（#1061 monitor/#1070 hotfix/#1087 news要約/#1093 monitor token/#1094-1100 pattern4 等）は各 terraform コメント / PR body / memory が一次ソース。
+- **migrate 実行済**（最新 `migrate_image_tag=ea93c5f`: news/weather/heat/snippets/calendar/air_quality の 0028-0033・#1061 ad_target_monitors 含む。本リリースは **schema 無変更=migrate 不要**）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash・`GEMINI_THINKING_BUDGET=0`）。
 - **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/ops/schools/<id>/edit`（旧 `/admin/system/...`、§4.1 改称）で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
 - **Cloud Run URL**: `https://kimiterrace-web-5wkl3il5zq-an.a.run.app`（`/api/health` 200）。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash）。
@@ -39,6 +39,12 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-06-21: **deep research バグ調査 → 多ロール バグ修正リリースを staging→prod 反映済み（自律: 4ロール並列調査→各 fresh Reviewer APPROVE+CI緑→自律 squash merge→staging→prod 自律デプロイ）。prod/staging live `web:c10e795`**。ユーザー指示「教員→学校管理者→システム管理者の優先順でバグを探して直す」。schema/secret 無変更=migrate 不要・web のみ。各 PR は migration 不要の修正に限定（ユーザー判断）。
+  - **教員ロール（最優先）**: [#1101](https://github.com/cometa-kaito/kimiterrace-v2/pull/1101) **T1** 会話AIチャットの許可セクションを端末別パターンで解決（学校既定固定で盤面とAIが不一致になり「反映したのに盤面に出ない/許可外セクション保存」が起きていた。class scope で `getClassSignageUrl`+`resolveDesignPattern`＝#1093 の二段解決をチャット経路にも適用）。[#1102](https://github.com/cometa-kaito/kimiterrace-v2/pull/1102) **T5+T6** OCR egress 堅牢化（画像マジックバイト検査を egress 前に追加＝偽装画像の Vertex 直送遮断・upload route と同一不変条件 / 監査 INSERT を best-effort 化し DB 障害での 500 ブロック解消・構造化ログで握り潰し防止）。[#1104](https://github.com/cometa-kaito/kimiterrace-v2/pull/1104) **T4** 連絡ドラフト SSE の無応答ストール中断（#986 同型の timeout+abort を横展開・Issue #987 クローズ）。[#1105](https://github.com/cometa-kaito/kimiterrace-v2/pull/1105) **T8** + [#1108](https://github.com/cometa-kaito/kimiterrace-v2/pull/1108) **T9** 逆マスク PII 検査をマスク空間へ統一（辞書由来の正規復元値＝教員が連絡に書いた電話/メールの round-trip を誤検知し「正しい入力なのに毎回 pii_leak で中断/要素を無言 redact」していたのを是正。会話/ファイル/連絡の全 AI ドラフト経路を逆マスク前検査に統一。検出力は不変＝モデルが生成した辞書に無い生 PII は引き続き捕捉）。
+  - **学校管理者ロール**: 監査の結果 **P0/P1 級の cross-tenant 漏洩・全断・認可漏れは検出されず**（多層防御が一貫して健全）。唯一の指摘 [#1111](https://github.com/cometa-kaito/kimiterrace-v2/pull/1111) **S1** magic link 一覧 GET の自テナント可視性チェック（発行 POST と対称化・他校 classId は空一覧でなく 404 class_not_found で「存在も漏らさない」hardening・実害は無し）。
+  - **システム管理者ロール**: [#1106](https://github.com/cometa-kaito/kimiterrace-v2/pull/1106) **SA1** 運営広告 CRM 入稿の**本番全断**を修正（`createOperatorAdAction` が `ads.created_by/updated_by`〔users(id) FK・migration 0006〕に system_admin の uid を書き 23503 FK 違反→`isConstraintViolation` が "conflict" に誤マスクし**入稿が一度も成功しなかった**。`actorRef=null`〔監査の writeAudit/school-admin ads-actions と同型〕に是正。誤テスト〔「ads に FK 無し」と誤認し緑のまま本番だけ壊れていた〕も是正）。
+  - **設計判断で Issue 化**（挙動変更リスク/infra 主因で本リリース対象外）: [#1109](https://github.com/cometa-kaito/kimiterrace-v2/issues/1109) **T3** 自動保存 complete ゲートの取りこぼし（未入力行が削除/確定変更を巻き添え）、[#1110](https://github.com/cometa-kaito/kimiterrace-v2/issues/1110) **T7** 非ストリーム Vertex generate 経路の fail-fast 欠落（#986 の非ストリーム版）。**T2**（client allowedSetOf fail-open）は T1 修正後サーバ filter が権威ガードゆえ marginal で見送り。
+  - **デプロイ**: 現 prod `2cd6d03` は T1（#1101）を既内包（signage bump #1107 が先取り）。デプロイ範囲 `2cd6d03..c10e795` は本修正のみ（他セッション signage 作業は全て 2cd6d03 以下）＝クリーン。in-flight build なしを確認して staging→prod。両 env `/api/health` 200・`/login` private,no-cache・apply 0add/1change/0destroy。bump 記録 本PR。**実画面 click-through はユーザー本人ログイン要**（Claude は CI E2E+unit 全緑 + 各 PR fresh Reviewer + 疎通まで担保）。
 - 2026-06-17: **「その他」(非教室サイネージ＝玄関/廊下/職員室前) を新設し staging→prod 反映済み（自律: 設計合意→PR1-4 各 fresh Reviewer APPROVE+CI緑→自律 merge→自律 web デプロイ）。prod/staging live `web:fb826fc`**。学校がクラス内以外にもサイネージを設置できる機能。「その他」= **学年に属さないクラス(`grade_id NULL`)** ＋所属学科 `classes.department_id`（学校直下=NULL/学科配下=学科id）。新概念を増やさず daily_data/magic link/TV紐付け/パターン方式を再利用。クラス設定(HierarchyManager)で作成/改名/削除（school_admin/system_admin）、エディタの壁で**全ロール(teacher含む)編集**、サイネージは class→department→school フォールバック。設計 memory = `project_v2_signage_sonota_non_class_locations`。
   - [#1010](https://github.com/cometa-kaito/kimiterrace-v2/pull/1010) schema（`classes.department_id` + `grade` nullable + index、migration `20260617115610`）/ [#1012](https://github.com/cometa-kaito/kimiterrace-v2/pull/1012) 作成/編集 action（cross-tenant ガード+監査二系統）/ [#1015](https://github.com/cometa-kaito/kimiterrace-v2/pull/1015) クラス設定UI / [#1013](https://github.com/cometa-kaito/kimiterrace-v2/pull/1013) エディタの壁 + `resolveClassHierarchy` の department coalesce。
   - migration は **#1014（db12ca5 を staging→prod 反映）で既適用**ゆえ本デプロイは **web のみ**（db12ca5→fb826fc・schema/secret 無変更）。両 env `/api/health` 200・`/login` private,no-cache。bump 記録 本PR。**実画面 click-through 検証はユーザー本人ログイン要**（Claude は CI E2E+unit 全緑 + 各 PR fresh Reviewer + 疎通まで担保）。
