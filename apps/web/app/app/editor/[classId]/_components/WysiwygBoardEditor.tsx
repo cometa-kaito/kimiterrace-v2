@@ -142,14 +142,22 @@ export function WysiwygBoardEditor({
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
 
+  // 盤面クリックで編集欄へジャンプできる領域だけを文言に並べる（過剰約束の解消・finding⑤）。盤面に出る
+  // ブロックのうち、このコンポーネント配下に編集欄を持つ 予定 / 連絡 / 提出物 だけがジャンプ対応。来校者 /
+  // 生徒呼び出しは親（page.tsx）が盤面の外（下）に出すためジャンプ非対応 → 文言に含めない（言わない＝嘘を作らない）。
+  const jumpableRegions = [
+    "予定",
+    ...(showNotice ? ["連絡"] : []),
+    ...(showAssignment ? ["提出物"] : []),
+  ];
+
   return (
     <div className={styles.root}>
       {previewPayload ? (
         <>
+          {/* 説明文は最小限に（finding④: 「見れば分かる」冗長文を圧縮）。実際にジャンプできる領域だけを名指しする。 */}
           <p className={styles.hint}>
-            サイネージ（教室の 50
-            インチ画面）にどう出るかを見ながら編集できます。盤面の領域をクリックすると、その項目の
-            編集欄に移動します。広告は編集できません（広告管理で設定）。
+            盤面の{jumpableRegions.join("・")}をクリックすると、その編集欄へ移動します。
           </p>
 
           {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
