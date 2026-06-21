@@ -81,6 +81,18 @@ resource "google_secret_manager_secret_iam_member" "runtime_partner_api_secret" 
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# DEV_LOGIN_CONFIG secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
+# staging 限定 dev-login（apps/web/app/api/dev-login）の秘密キー + テストアカウント資格情報。空文字なら
+# 配線しない（= prod は accessor を付与せず env も注入しない＝dev-login は config 不在で常に 404）。
+resource "google_secret_manager_secret_iam_member" "runtime_dev_login_secret" {
+  count = var.enabled && var.dev_login_secret_id != "" ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.dev_login_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # Vertex AI 呼び出し（F03 抽出 / F06 生徒 Q&A / F08 効果コメントの Gemini）。project レベル
 # roles/aiplatform.user。送信前 PII マスキングは app 側（ルール4）。
 resource "google_project_iam_member" "runtime_vertex_user" {
@@ -221,6 +233,33 @@ resource "google_cloud_run_v2_service" "web" {
           value_source {
             secret_key_ref {
               secret  = var.partner_api_secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # APP_ENV = 実行環境名（非 secret・公開値）。staging 限定 dev-login の env ゲート（第1層）。
+      # **prod では app_env="" のため注入しない** → prod の app は APP_ENV 不在 = isStagingEnv() false で
+      # dev-login route が常に 404（多層防御。terraform 側で prod に "staging" を入れない不変条件）。
+      dynamic "env" {
+        for_each = var.app_env != "" ? [var.app_env] : []
+        content {
+          name  = "APP_ENV"
+          value = env.value
+        }
+      }
+
+      # DEV_LOGIN_CONFIG = staging 限定 dev-login の秘密キー + テストアカウント資格情報の JSON（Secret Manager
+      # 注入、ルール5）。dev-login の第2ゲート（?key= 突合）+ アカウント解決に使う。**prod では
+      # dev_login_secret_id="" のため注入しない** → prod は config 不在で鍵検証もアカウント解決も不能（404）。
+      dynamic "env" {
+        for_each = var.dev_login_secret_id != "" ? [1] : []
+        content {
+          name = "DEV_LOGIN_CONFIG"
+          value_source {
+            secret_key_ref {
+              secret  = var.dev_login_secret_id
               version = "latest"
             }
           }

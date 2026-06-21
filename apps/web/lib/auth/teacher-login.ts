@@ -1,5 +1,6 @@
 import { isTeacherLoginEnabled, listTeacherLoginSchools } from "@kimiterrace/db";
 import { getDb } from "../db";
+import { signInWithEmailPassword } from "./password-sign-in";
 import { teacherAccountEmail } from "./teacher-account";
 
 /**
@@ -48,27 +49,5 @@ export async function signInSharedTeacher(
   schoolId: string,
   password: string,
 ): Promise<string | null> {
-  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-  const email = teacherAccountEmail(schoolId);
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password, returnSecureToken: true }),
-      },
-    );
-  } catch {
-    return null;
-  }
-  if (!res.ok) {
-    return null;
-  }
-  const json = (await res.json().catch(() => null)) as { idToken?: unknown } | null;
-  return json && typeof json.idToken === "string" && json.idToken.length > 0 ? json.idToken : null;
+  return await signInWithEmailPassword(teacherAccountEmail(schoolId), password);
 }

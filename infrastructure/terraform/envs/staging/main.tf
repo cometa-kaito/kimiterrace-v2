@@ -131,6 +131,12 @@ locals {
   # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
   slack_webhook_url_secret_id = "staging-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
+  # staging 限定 dev-login の設定（秘密キー + テストアカウント資格情報の JSON）の Secret Manager secret ID
+  # （ルール5・値は人間投入）。Cloud Run web が DEV_LOGIN_CONFIG env として注入。**staging 専用**＝prod の
+  # envs/prod には同 secret も APP_ENV=staging も足さない（多層防御。dev-login が prod で機能しないことを保証）。
+  # 未投入なら dev-login は config 不在で常に 404（fail-closed）。
+  dev_login_secret_id = "staging-dev-login" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
   # a6463f5: 全ルートにセキュリティレスポンスヘッダを付与（live DAST 検証で欠落検出）。
@@ -294,6 +300,9 @@ module "secret_manager" {
     }
     (local.slack_webhook_url_secret_id) = {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.dev_login_secret_id) = {
+      description = "staging 限定 dev-login の設定 JSON（{secret, teacher:{email,password}, admin:{email,password}}）。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
@@ -498,8 +507,13 @@ module "cloud_run" {
   tv_poll_secret_id             = local.tv_poll_secret_id
   tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
   provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
-  vpc_connector                 = module.network.vpc_connector_id
-  vertex_location               = var.region
+  # staging 限定 dev-login（apps/web/app/api/dev-login）の多層防御の配線。
+  # APP_ENV=staging（第1ゲート）+ DEV_LOGIN_CONFIG secret（第2ゲート + テストアカウント）。
+  # **prod の envs/prod では両方とも設定しない**（dev-login が prod で機能しないことの terraform 側保証）。
+  app_env             = "staging"
+  dev_login_secret_id = local.dev_login_secret_id
+  vpc_connector       = module.network.vpc_connector_id
+  vertex_location     = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
   # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
   # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。
