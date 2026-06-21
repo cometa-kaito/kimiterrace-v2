@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildUploadObjectPath, createGcsUploadStorage } from "../../lib/storage/upload-storage";
+import {
+  buildUploadObjectPath,
+  createGcsUploadStorage,
+  isWithinSchoolUploadPrefix,
+} from "../../lib/storage/upload-storage";
 
 /**
  * F01 (#509 S2b) アップロード保存ポートの単体テスト。
@@ -29,6 +33,34 @@ describe("buildUploadObjectPath", () => {
     expect(() => buildUploadObjectPath("", "obj", "pdf")).toThrow(RangeError);
     expect(() => buildUploadObjectPath("school", "", "pdf")).toThrow(RangeError);
     expect(() => buildUploadObjectPath("school", "obj", "")).toThrow(RangeError);
+  });
+});
+
+describe("isWithinSchoolUploadPrefix（越境登録防止）", () => {
+  const SCHOOL = "22222222-2222-2222-2222-222222222222";
+
+  it("自校 prefix 内の path は許可", () => {
+    expect(isWithinSchoolUploadPrefix(`uploads/${SCHOOL}/obj.pdf`, SCHOOL)).toBe(true);
+  });
+
+  it("他校 prefix の path は拒否（cross-tenant 登録を構造的に塞ぐ）", () => {
+    const other = "33333333-3333-3333-3333-333333333333";
+    expect(isWithinSchoolUploadPrefix(`uploads/${other}/obj.pdf`, SCHOOL)).toBe(false);
+  });
+
+  it("prefix を持たない / 別ルートの path は拒否", () => {
+    expect(isWithinSchoolUploadPrefix("gs://b/x.pdf", SCHOOL)).toBe(false);
+    expect(isWithinSchoolUploadPrefix(`reports/${SCHOOL}/x.pdf`, SCHOOL)).toBe(false);
+  });
+
+  it(".. 混入は拒否（path traversal）", () => {
+    expect(isWithinSchoolUploadPrefix(`uploads/${SCHOOL}/../../etc/x`, SCHOOL)).toBe(false);
+  });
+
+  it("schoolId 空 / 区切り文字混入は拒否（テナント文脈なし・injection）", () => {
+    expect(isWithinSchoolUploadPrefix(`uploads/${SCHOOL}/obj.pdf`, "")).toBe(false);
+    expect(isWithinSchoolUploadPrefix(`uploads/${SCHOOL}/obj.pdf`, null)).toBe(false);
+    expect(isWithinSchoolUploadPrefix("uploads/a/b/obj.pdf", "a/b")).toBe(false);
   });
 });
 
