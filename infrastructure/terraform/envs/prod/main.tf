@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "c10e795" # 2026-06-21: 多ロール バグ修正リリース（deep research）。教員: AIチャット端末別パターン解決(#1101)/OCR egress 堅牢化(#1102)/連絡ドラフトSSE stall中断(#1104・#987)/逆マスクPII検査をマスク空間へ統一(#1105・#1108)。学校管理者: magic link一覧GET可視性チェック(#1111)。システム管理者: 運営広告CRM入稿の本番全断修正(#1106・ads created_by FK)。表示層+server actionのみ・schema/secret 無変更=migrate 不要。両env /api/health 200・/login private,no-cache（s-maxage退行なし）・apply 0add/1change/0destroy。live image=web:c10e795 突合
+  web_image_tag = "a12b7ef" # 2026-06-21: 添付メタ登録の越境ハードニング(#1113)。POST /api/teacher-inputs/:id/attachments に MIME allowlist(415)+自校prefix検証(403)を追加し、クライアント申告 storagePath による cross-tenant 登録を封鎖。route+lib のみ・schema/secret 無変更=migrate 不要。/api/health 200・/login private,no-cache（s-maxage退行なし）・apply 0add/1change/0destroy。live image=web:a12b7ef 突合
 }
 
 module "network" {
