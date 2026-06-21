@@ -1,3 +1,4 @@
+import { getCurrentSchoolName } from "@/lib/auth/school-name";
 import type { AuthUser } from "@/lib/auth/session";
 import { navGroupsForRole, navItemsForRole } from "@/lib/nav";
 import { ToastProvider } from "@kimiterrace/ui";
@@ -14,8 +15,13 @@ import { SignOutButton } from "./SignOutButton";
  * レスポンシブ: 幅の出し分け・モバイルのサイドバー折りたたみはメディアクエリが要るため
  * `globals.css` の `.admin-*` クラスで制御する（インライン style では書けない）。
  */
-export function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
+export async function AppShell({ user, children }: { user: AuthUser; children: ReactNode }) {
   const items = navItemsForRole(user.role);
+  // 「いま自分はどの学校の管理画面にいるのか」を欠落させない（v2-sch-uo7）。学校管理者は学校名を
+  // ヘッダの文脈として出す。教員は ADR-032 / ユーザー要望でヘッダを「教員」バッジのみに保つ方針
+  // （アカウント概念を見せない）ため、学校名の解決対象を **school_admin に限定**し既存の教員ヘッダ挙動を
+  // 変えない。system_admin は全校横断で学校名なし（getCurrentSchoolName も null を返す）。
+  const schoolName = user.role === "school_admin" ? await getCurrentSchoolName(user) : null;
   // 表示は role 別グループ（system_admin は目的別 5 グループ + 見出し、他は見出し無し 1 グループ）。
   // showSidebar 判定は従来どおりフラット項目数で行う（1 項目＝teacher はサイドバー撤去）。
   const groups = navGroupsForRole(user.role);
@@ -31,7 +37,9 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
   // ハンバーガー（サイドバー）を持つロールだけモバイルで畳める＝ menuFooter は showSidebar 時のみ。
   // showSidebar=false（教員＝エディタ 1 項目）はメニューが無く畳めないため、操作群はヘッダに残す
   // （教員ヘッダは logo + 教員バッジ + ログアウトのみで狭幅でも溢れない）。
-  const menuFooter = showSidebar ? <HeaderActions user={user} variant="menu" /> : null;
+  const menuFooter = showSidebar ? (
+    <HeaderActions user={user} variant="menu" schoolName={schoolName} />
+  ) : null;
 
   return (
     // admin-shell: デスクトップでシェルをビューポート高に固定し、サイドメニューと本文を各列で
@@ -51,8 +59,17 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
               明示する。社内 ops (商流) は portal `/admin` (Rebounder・緑) が担い、配色は跨いで分ける
               (「今どっちにいるか」を最優先・UIUX-00)。狭幅ではロゴで伝わるため CSS で畳む。 */}
           <span className="admin-header__label">配信管理</span>
-          <span className="admin-header__badge">{ROLE_LABEL[user.role]}</span>
-          <HeaderActions user={user} variant="header" />
+          {/* オリエンテーション（v2-sch-uo7 / uo8）: 学校に属するロールは「学校名」を主たる文脈として
+              出し、冗長な役割バッジ（例:「学校管理者」）を畳む（学校名 + このコンソールにいる事実で役割は
+              伝わる）。学校に属さない system_admin は学校名が無いため従来どおり役割バッジを出す。 */}
+          {schoolName ? (
+            <span className="admin-header__badge" title={schoolName}>
+              {schoolName}
+            </span>
+          ) : (
+            <span className="admin-header__badge">{ROLE_LABEL[user.role]}</span>
+          )}
+          <HeaderActions user={user} variant="header" schoolName={schoolName} />
           {/* モバイルのみ表示（CSS）。タブ（ヘッダ）右上に置き、押すと下に nav ドロップダウンが開く。
               メニューを持つロール（showSidebar）だけ出す。 */}
           {showSidebar && <HamburgerButton />}
@@ -76,12 +93,21 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
  * 畳み、`.admin-nav__footer` はデスクトップで畳む）。条件分岐（system_admin のみポータル等）を
  * 1 箇所に集約し、両 variant の内容が将来ズレないようにする。
  */
-function HeaderActions({ user, variant }: { user: AuthUser; variant: "header" | "menu" }) {
+function HeaderActions({
+  user,
+  variant,
+  schoolName,
+}: {
+  user: AuthUser;
+  variant: "header" | "menu";
+  schoolName: string | null;
+}) {
   const isMenu = variant === "menu";
   return (
     <div className={isMenu ? "admin-nav__footer" : "admin-header__actions"}>
-      {/* メニュー内ではロールバッジもここに畳む（ヘッダのバッジはモバイルで非表示になるため）。 */}
-      {isMenu && <span className="admin-nav__role">{ROLE_LABEL[user.role]}</span>}
+      {/* メニュー内では文脈バッジもここに畳む（ヘッダのバッジはモバイルで非表示になるため）。学校に属する
+          ロールは学校名、属さない system_admin は役割名（ヘッダと同じ畳み方）。 */}
+      {isMenu && <span className="admin-nav__role">{schoolName ?? ROLE_LABEL[user.role]}</span>}
       {/* 統一入口の戻り導線 (UIUX-03 A)。Rebounder 社内ポータルは運営専用のため
           system_admin にのみ表示する (学校ロールに社内ツールの存在を見せない)。
           URL は env で上書き可 (既定=本番 portal)。リンク遷移のみで fetch はしない。 */}
