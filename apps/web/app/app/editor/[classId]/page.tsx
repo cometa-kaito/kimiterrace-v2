@@ -28,12 +28,10 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
-import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
-import { VisitorsEditor } from "./_components/VisitorsEditor";
+import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
-import boardLayout from "./_components/board-layout.module.css";
 
 /**
  * クラス別エディタ — **盤面エディタを本画面・AI は浮遊チャット**（ユーザー判断 2026-06-16）。
@@ -232,17 +230,19 @@ export default async function ClassEditorPage({
 
       {/* 来校者 / 呼び出しは pattern2 専用ブロック（`PATTERN_BLOCKS`）。pattern2 のときだけ 2 カラムで盤面の
           下に出す（pattern1 では盤面に出ないので編集セクションも出さない＝死セクション防止・finding①）。
-          key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。 */}
-      {showVisitors || showCallouts ? (
-        <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-          {showVisitors && visitors ? (
-            <VisitorsEditor key={date} classId={classId} date={date} initialItems={visitors} />
-          ) : null}
-          {showCallouts && callouts ? (
-            <CalloutsEditor key={date} classId={classId} date={date} initialItems={callouts} />
-          ) : null}
-        </div>
-      ) : null}
+          各エディタの key は VisitorsCalloutsSection 内で衝突しない安定キー（visitors-* / callouts-*）にして
+          いる。旧実装は両方を同じ key={date} で並べており、対象日変更（?date= ソフトナビ）時に React の keyed
+          reconciliation が兄弟キー衝突で破綻 →「来校者一覧」複製・「生徒呼び出し」が下へ押し出される実バグに
+          なっていた（本番 6/21→6/22 再現）。日付変更で再マウントし新日付データで初期化する意図は key に date を
+          含めて維持する。 */}
+      <VisitorsCalloutsSection
+        classId={classId}
+        date={date}
+        showVisitors={showVisitors}
+        showCallouts={showCallouts}
+        visitors={visitors}
+        callouts={callouts}
+      />
 
       {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
           表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断
