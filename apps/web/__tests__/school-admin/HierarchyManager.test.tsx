@@ -32,6 +32,7 @@ import {
   deleteClassAction,
   deleteDepartmentAction,
   reorderHierarchyAction,
+  updateDepartmentAction,
   updateGradeAction,
   updateOtherLocationAction,
 } from "../../lib/school-admin/hub-actions";
@@ -40,6 +41,7 @@ const ok = { ok: true as const, data: { id: "x" } };
 const createGradeMock = vi.mocked(createGradeAction);
 const createClassMock = vi.mocked(createClassAction);
 const updateGradeMock = vi.mocked(updateGradeAction);
+const updateDeptMock = vi.mocked(updateDepartmentAction);
 const deleteDeptMock = vi.mocked(deleteDepartmentAction);
 const deleteClassMock = vi.mocked(deleteClassAction);
 const reorderMock = vi.mocked(reorderHierarchyAction);
@@ -69,6 +71,7 @@ beforeEach(() => {
   createGradeMock.mockResolvedValue(ok);
   createClassMock.mockResolvedValue(ok);
   updateGradeMock.mockResolvedValue(ok);
+  updateDeptMock.mockResolvedValue(ok);
   deleteDeptMock.mockResolvedValue(ok);
   deleteClassMock.mockResolvedValue(ok);
   reorderMock.mockResolvedValue({ ok: true, data: { count: 1 } });
@@ -489,14 +492,13 @@ describe("その他（非教室の設置場所）配線", () => {
 
   it("学校直下に追加すると createOtherLocationAction({name, departmentId: undefined}) を呼ぶ", async () => {
     render(<HierarchyManager hierarchy={WITH_OTHERS} />);
-    // 学校直下の追加フォーム（学科に属さない「その他を追加」ボタン）。
-    const addBtn = screen.getByRole("button", { name: "その他を追加" });
-    const form = addBtn.closest("form");
-    if (!form) throw new Error("学校直下の追加フォームが見つかりません");
-    fireEvent.change(within(form).getByPlaceholderText(/設置場所名/), {
+    // 学校直下の「その他」セクションに絞って「設置場所を追加」する（曖昧な「この学科に追加」を廃止）。
+    const schoolSection = screen.getByText("その他（非教室の設置場所）").closest("section");
+    if (!schoolSection) throw new Error("学校直下のその他セクションが見つかりません");
+    fireEvent.change(within(schoolSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "職員室前" },
     });
-    fireEvent.click(addBtn);
+    fireEvent.click(within(schoolSection).getByRole("button", { name: "設置場所を追加" }));
     await waitFor(() =>
       expect(createOtherMock).toHaveBeenCalledWith({ name: "職員室前", departmentId: undefined }),
     );
@@ -504,13 +506,13 @@ describe("その他（非教室の設置場所）配線", () => {
 
   it("学科配下に追加すると createOtherLocationAction({name, departmentId: 学科id}) を呼ぶ", async () => {
     render(<HierarchyManager hierarchy={WITH_OTHERS} />);
-    // 学科ノード内の「この学科に追加」は AddGradeForm と AddOtherLocationForm の 2 つ。設置場所側を絞る。
+    // 学科ノード内の「設置場所を追加」（学年追加は別ボタン「学年を追加」と明確に分離した）。
     const hallSection = screen.getByText("その他（この学科の設置場所）").closest("section");
     if (!hallSection) throw new Error("学科配下のその他セクションが見つかりません");
     fireEvent.change(within(hallSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "廊下" },
     });
-    fireEvent.click(within(hallSection).getByRole("button", { name: "この学科に追加" }));
+    fireEvent.click(within(hallSection).getByRole("button", { name: "設置場所を追加" }));
     await waitFor(() =>
       expect(createOtherMock).toHaveBeenCalledWith({ name: "廊下", departmentId: "d-elec" }),
     );
@@ -579,18 +581,103 @@ describe("その他（非教室の設置場所）配線", () => {
   it("対象校スコープ: schoolId 付きで createOtherLocationAction(raw, schoolId) を呼ぶ", async () => {
     const SID = "55555555-5555-4555-8555-555555555555";
     render(<HierarchyManager hierarchy={WITH_OTHERS} schoolId={SID} />);
-    const addBtn = screen.getByRole("button", { name: "その他を追加" });
-    const form = addBtn.closest("form");
-    if (!form) throw new Error("学校直下の追加フォームが見つかりません");
-    fireEvent.change(within(form).getByPlaceholderText(/設置場所名/), {
+    const schoolSection = screen.getByText("その他（非教室の設置場所）").closest("section");
+    if (!schoolSection) throw new Error("学校直下のその他セクションが見つかりません");
+    fireEvent.change(within(schoolSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "体育館前" },
     });
-    fireEvent.click(addBtn);
+    fireEvent.click(within(schoolSection).getByRole("button", { name: "設置場所を追加" }));
     await waitFor(() =>
       expect(createOtherMock).toHaveBeenCalledWith(
         { name: "体育館前", departmentId: undefined },
         SID,
       ),
+    );
+  });
+});
+
+// UX テスト用: 学科 + 学年 + 学校直下/学科配下の設置場所を持つ階層。
+const WITH_OTHERS_FOR_UX = {
+  departments: [{ id: "d-elec", name: "電子工学科", displayOrder: 0 }],
+  grades: [
+    {
+      id: "g1",
+      name: "電子工学科3年",
+      displayOrder: 0,
+      hasClasses: true,
+      departmentId: "d-elec",
+      classes: [{ id: "c1", name: "1組", grade: 3 }],
+    },
+  ],
+  otherLocations: [
+    { id: "o-genkan", name: "玄関", departmentId: null },
+    { id: "o-hall", name: "実習棟ホール", departmentId: "d-elec" },
+  ],
+};
+
+/**
+ * UX 発見（v2 LEDGER 2026-06-21）の引き算 / 明確化 / 数字表示順廃止の回帰ガード。
+ */
+describe("UX 改善（引き算・明確化・表示順のドラッグ化）", () => {
+  it("掲示が無い行に「本日 掲示なし」を出さない（v2-sch-uo3）", () => {
+    // statusByClass を渡さない＝全クラスが掲示なし。何も出さないのが正。
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    expect(screen.queryByText(/掲示なし/)).toBeNull();
+  });
+
+  it("重複ヒント「組がなければ空欄でOK…」を各学年に繰り返さない（v2-sch-ai1）", () => {
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    expect(screen.queryByText(/組がなければ空欄でOK/)).toBeNull();
+  });
+
+  it("設置場所の冗長な説明文「玄関・廊下…」を出さない（v2-sch-uo4）", () => {
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    expect(screen.queryByText(/玄関・廊下・職員室前/)).toBeNull();
+  });
+
+  it("トップの「学科 → 学年 → クラスで校内の構成を管理します」説明を出さない（v2-sch-uo6）", () => {
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    expect(screen.queryByText(/校内の構成を管理します/)).toBeNull();
+  });
+
+  it("学科配下の追加は「学年を追加」「設置場所を追加」で対象を明示する（v2-sch-ai3）", () => {
+    render(<HierarchyManager hierarchy={WITH_OTHERS_FOR_UX} />);
+    // 曖昧な「この学科に追加」は消えている。
+    expect(screen.queryByRole("button", { name: "この学科に追加" })).toBeNull();
+    expect(screen.getByRole("button", { name: "学年を追加" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "設置場所を追加" }).length).toBeGreaterThan(0);
+  });
+
+  it("学年の掲示単位バッジを「組ごとに掲示 / 学年でまとめて掲示」で説明する（v2-sch-ai5）", () => {
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    // HIERARCHY の学年は hasClasses=true。
+    expect(screen.getByText("組ごとに掲示")).toBeInTheDocument();
+    expect(screen.queryByText("クラス単位")).toBeNull();
+  });
+
+  it("名称編集は表示順を数字入力させず、現在の displayOrder を保持して保存する（v2-sch-uo5/回帰）", async () => {
+    // displayOrder=2 の学科を名称だけ編集 → updateDepartmentAction に displayOrder:2 が保たれる
+    // （数字入力欄を撤去した結果、null 渡し→0 リセットになる回帰を防ぐ）。
+    const h = {
+      departments: [{ id: "d-x", name: "情報科", displayOrder: 2 }],
+      grades: [],
+      otherLocations: [],
+    };
+    render(<HierarchyManager hierarchy={h} />);
+    fireEvent.click(screen.getByRole("button", { name: "学科の操作" }));
+    // 「名称・表示順を編集」→「名称を編集」に変わっている。
+    expect(screen.queryByRole("menuitem", { name: "名称・表示順を編集" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "名称を編集" }));
+    // 表示順の数字入力欄は無い。
+    expect(screen.queryByLabelText("表示順")).toBeNull();
+    fireEvent.change(screen.getByLabelText("学科名"), { target: { value: "情報技術科" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(updateDeptMock).toHaveBeenCalledWith({
+        id: "d-x",
+        name: "情報技術科",
+        displayOrder: 2,
+      }),
     );
   });
 });

@@ -178,12 +178,6 @@ function HierarchyManagerInner({
         <output style={{ ...msgStyle, color: msg.ok ? C.teal : C.danger }}>{msg.text}</output>
       ) : null}
 
-      <p style={hintStyle}>
-        「学科 → 学年 →
-        クラス」で校内の構成を管理します。学年は組に分けても、学年そのものを掲示単位に
-        してもかまいません。
-      </p>
-
       {bulkOpen ? (
         <div style={bulkPanelStyle}>
           {hasDepartments ? <BulkAddYears departments={departments} report={report} /> : null}
@@ -476,22 +470,20 @@ function RowMenu({ items, label }: { items: MenuItem[]; label: string }) {
 
 /**
  * 本日(JST)サイネージに掲示中かの状態。active=今日サイネージに出る予定/連絡/提出物あり (昨日以前に入れた
- * 複数日連絡・期限内の提出物も含む、hub-queries の遡及窓判定に整合) → ティールの「公開中」。なければ
- * 「本日 掲示なし」(入力が無い、または表示期間が過ぎて今日は何も出ていない)。
+ * 複数日連絡・期限内の提出物も含む、hub-queries の遡及窓判定に整合) → ティールの「公開中」。
+ *
+ * **掲示なしは何も出さない（v2-sch-uo3）**: 「本日 掲示なし」は各行に出すと過小表示・視覚ノイズになり、
+ * 先生が「壊れている / 未設定」と誤認しうる。掲示がある時だけ「公開中」を出し、無い時は静かに省く
+ * （= 既定状態を肯定的に扱い、無の通知をしない）。
  */
 function StatusDot({ active }: { active: boolean }) {
-  if (active) {
-    return (
-      <span style={statusActiveStyle}>
-        <span style={dotFilledStyle} aria-hidden />
-        公開中
-      </span>
-    );
+  if (!active) {
+    return null;
   }
   return (
-    <span style={statusEmptyStyle}>
-      <span style={dotRingStyle} aria-hidden />
-      本日 掲示なし
+    <span style={statusActiveStyle}>
+      <span style={dotFilledStyle} aria-hidden />
+      公開中
     </span>
   );
 }
@@ -511,7 +503,6 @@ function EditorLink({ classId }: { classId: string }) {
 
 function NodeHeader({
   name,
-  defaultOrder,
   entity,
   badge,
   childCount,
@@ -521,12 +512,12 @@ function NodeHeader({
   reorder,
   leading,
   trailing,
+  emphasize,
   onSave,
   onDelete,
   report,
 }: {
   name: string;
-  defaultOrder: number;
   entity: string;
   badge: string;
   childCount: number;
@@ -536,10 +527,14 @@ function NodeHeader({
   reorder?: RowReorder;
   leading?: ReactNode;
   trailing?: ReactNode;
-  onSave: (v: {
-    name: FormDataEntryValue | null;
-    displayOrder: FormDataEntryValue | null;
-  }) => Promise<Result>;
+  /** 最上位（学科）は名前を一段大きく出し、階層の深さを字面でも示す（v2-sch-uo1）。 */
+  emphasize?: boolean;
+  /**
+   * 名称のみ保存する。表示順は**数字入力ではなくドラッグ / ⋯メニューの「上へ/下へ移動」で操作する**
+   * （v2-sch-uo5: 数字での指定は分かりにくい）。親は現在の displayOrder を保持したまま name だけ
+   * 差し替えて action を呼ぶ（編集で順序が 0 にリセットされる回帰を防ぐ）。
+   */
+  onSave: (v: { name: FormDataEntryValue | null }) => Promise<Result>;
   onDelete: () => Promise<Result>;
   report: Reporter;
 }) {
@@ -552,7 +547,7 @@ function NodeHeader({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     start(async () => {
-      const res = await onSave({ name: fd.get("name"), displayOrder: fd.get("displayOrder") });
+      const res = await onSave({ name: fd.get("name") });
       report(res, `${entity}を更新しました。`);
       if (res.ok) setEditing(false);
     });
@@ -568,13 +563,6 @@ function NodeHeader({
           style={inputStyle}
           aria-label={`${entity}名`}
         />
-        <input
-          name="displayOrder"
-          type="number"
-          defaultValue={defaultOrder}
-          style={orderInputStyle}
-          aria-label="表示順"
-        />
         <button type="submit" disabled={pending} style={primaryBtnStyle}>
           {pending ? "保存中…" : "保存"}
         </button>
@@ -586,7 +574,7 @@ function NodeHeader({
   }
 
   const items: MenuItem[] = [
-    { label: "名称・表示順を編集", onSelect: () => setEditing(true) },
+    { label: "名称を編集", onSelect: () => setEditing(true) },
     ...(reorder?.canUp ? [{ label: "上へ移動", onSelect: () => reorder.onMove(-1) }] : []),
     ...(reorder?.canDown ? [{ label: "下へ移動", onSelect: () => reorder.onMove(1) }] : []),
     ...(extraItems ?? []),
@@ -613,7 +601,7 @@ function NodeHeader({
         ) : null}
         {leading}
         <span style={badgeStyle}>{badge}</span>
-        <span style={nodeNameStyle}>{name}</span>
+        <span style={emphasize ? deptNameStyle : nodeNameStyle}>{name}</span>
         {trailing}
         <span
           className={styles.actions}
@@ -705,9 +693,9 @@ function DepartmentNode({
     >
       <NodeHeader
         name={dept.name}
-        defaultOrder={dept.displayOrder}
         entity="学科"
         badge="学科"
+        emphasize
         childCount={grades.length}
         childLabel="学年"
         reorder={reorder}
@@ -724,7 +712,8 @@ function DepartmentNode({
         }
         trailing={<span style={summaryStyle}>{grades.length}学年</span>}
         onSave={(v) =>
-          updateDepartmentAction({ id: dept.id, name: v.name, displayOrder: v.displayOrder })
+          // 表示順は現在値を保持（並べ替えはドラッグ / ⋯メニュー専任。null 渡しは 0 リセットになる）。
+          updateDepartmentAction({ id: dept.id, name: v.name, displayOrder: dept.displayOrder })
         }
         onDelete={() => deleteDepartmentAction(dept.id)}
         report={report}
@@ -770,7 +759,11 @@ function GradeNode({
 }) {
   const { createClassAction, updateGradeAction, deleteGradeAction } = useScopedHubActions();
   const [pending, start] = useTransition();
-  const modeLabel = grade.hasClasses ? "クラス単位" : "学年単位";
+  // 「クラス単位 / 学年単位」だけでは初見で意味が伝わりにくい（v2-sch-ai5）。掲示の単位を一言で補う。
+  const modeLabel = grade.hasClasses ? "組ごとに掲示" : "学年でまとめて掲示";
+  const modeTitle = grade.hasClasses
+    ? "この学年は組（クラス）ごとにサイネージを掲示します。"
+    : "この学年は組に分けず、学年そのものを 1 つの掲示単位にします。";
   const unitClass = grade.classes[0];
   // 学年名と同名の「裏方クラス」（学年単位の表示単位）。クラス単位⇄学年単位の往復で再利用する。
   const backstageClass = grade.classes.find((c) => c.name === grade.name);
@@ -827,7 +820,6 @@ function GradeNode({
     <div style={{ ...gradeNodeStyle, ...nodeDragStyle(reorder) }} {...(reorder?.dropProps ?? {})}>
       <NodeHeader
         name={grade.name}
-        defaultOrder={grade.displayOrder}
         entity="学年"
         badge="学年"
         childCount={grade.classes.length}
@@ -839,13 +831,18 @@ function GradeNode({
             : "学年単位の学年です。削除するには先に「クラスに分ける」で組表示に戻してください。"
         }
         extraItems={extraItems}
-        trailing={<span style={modeChipStyle}>{modeLabel}</span>}
+        trailing={
+          <span style={modeChipStyle} title={modeTitle}>
+            {modeLabel}
+          </span>
+        }
         onSave={(v) =>
           updateGradeAction({
             id: grade.id,
             name: v.name,
-            displayOrder: v.displayOrder,
-            // name/順のみ変更。hasClasses / departmentId は現状値を保持（全置換 API のため明示）。
+            // 名称のみ変更。表示順 / hasClasses / departmentId は現状値を保持（全置換 API のため明示）。
+            // 表示順はドラッグ / ⋯メニュー専任（v2-sch-uo5）。
+            displayOrder: grade.displayOrder,
             hasClasses: grade.hasClasses,
             departmentId: grade.departmentId ?? undefined,
           })
@@ -1010,7 +1007,6 @@ function OtherLocationsSection({
   statusByClass: Record<string, boolean>;
   report: Reporter;
 }) {
-  const scopeLabel = department ? "この学科" : "学校";
   return (
     <section style={department ? otherDeptSectionStyle : otherSchoolSectionStyle}>
       <div style={otherHeaderStyle}>
@@ -1019,10 +1015,6 @@ function OtherLocationsSection({
           {department ? "その他（この学科の設置場所）" : "その他（非教室の設置場所）"}
         </span>
       </div>
-      <p style={otherHintStyle}>
-        玄関・廊下・職員室前など、教室以外の設置場所を{scopeLabel}
-        に追加できます。設置場所ごとにサイネージへ掲示できます。
-      </p>
       {locations.length > 0 ? (
         <div style={otherListStyle}>
           {locations.map((o) => (
@@ -1175,7 +1167,8 @@ function AddOtherLocationForm({ department, report }: { department?: Dept; repor
         style={growInputStyle}
       />
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-        {pending ? "追加中…" : department ? "この学科に追加" : "その他を追加"}
+        {/* 「この学科に追加」は学年追加と設置場所追加の両方で曖昧（v2-sch-ai3）。対象を明示する。 */}
+        {pending ? "追加中…" : "設置場所を追加"}
       </button>
     </form>
   );
@@ -1368,10 +1361,9 @@ function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?
     const form = e.currentTarget;
     const fd = new FormData(form);
     start(async () => {
-      const res = await createDepartmentAction({
-        name: fd.get("name"),
-        displayOrder: fd.get("displayOrder"),
-      });
+      // 表示順は指定させない（v2-sch-uo5: 数字指定は分かりにくい）。既定の並びで追加し、並べ替えは
+      // ドラッグ / ⋯メニューで行う。
+      const res = await createDepartmentAction({ name: fd.get("name") });
       report(res, "学科を追加しました。");
       if (res.ok) form.reset();
     });
@@ -1388,13 +1380,6 @@ function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?
         style={growInputStyle}
         // biome-ignore lint/a11y/noAutofocus: 「最初の学科を追加」直後の入力欄に限定したフォーカス誘導。
         autoFocus={autoFocus}
-      />
-      <input
-        name="displayOrder"
-        type="number"
-        placeholder="表示順"
-        style={orderInputStyle}
-        aria-label="表示順"
       />
       <button type="submit" disabled={pending} style={secondaryBtnStyle}>
         {pending ? "追加中…" : "学科を追加"}
@@ -1441,7 +1426,8 @@ function AddGradeForm({ department, report }: { department?: Dept; report: Repor
           style={growInputStyle}
         />
         <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-          {pending ? "追加中…" : department ? "この学科に追加" : "学年を追加"}
+          {/* 「この学科に追加」は設置場所追加とも紛らわしい（v2-sch-ai3）。「学年を追加」と明示する。 */}
+          {pending ? "追加中…" : "学年を追加"}
         </button>
       </form>
       {department ? (
@@ -1469,19 +1455,18 @@ function AddClassForm({ grade, report }: { grade: Grade; report: Reporter }) {
       if (res.ok) form.reset();
     });
   }
+  // 「組がなければ学年単位」の案内は、組が 0 件の学年（GradeNode の onboard カード）に 1 回だけ出す。
+  // ここ（各 AddClassForm）に毎回出すと学年の数だけ重複する（v2-sch-ai1）ため出さない。
   return (
-    <div>
-      <form onSubmit={add} style={addFormStyle}>
-        <span aria-hidden style={plusStyle}>
-          ＋
-        </span>
-        <input name="name" placeholder="クラス名（例: 1組）" required style={growInputStyle} />
-        <button type="submit" disabled={pending} style={secondaryBtnStyle}>
-          {pending ? "追加中…" : "この学年に追加"}
-        </button>
-      </form>
-      <p style={fieldHintStyle}>組がなければ空欄でOK。学年そのものが掲示対象になります。</p>
-    </div>
+    <form onSubmit={add} style={addFormStyle}>
+      <span aria-hidden style={plusStyle}>
+        ＋
+      </span>
+      <input name="name" placeholder="クラス名（例: 1組）" required style={growInputStyle} />
+      <button type="submit" disabled={pending} style={secondaryBtnStyle}>
+        {pending ? "追加中…" : "組を追加"}
+      </button>
+    </form>
   );
 }
 
@@ -1546,13 +1531,18 @@ const C = {
   borderLight: "#f5f5f4",
   surface: "#fafaf9",
   orange: "#ea580c",
+  // 階層レール（配下を示す縦線）用のブランドオレンジの淡色。装飾の罫線のみに使う（テキストには使わない
+  // ＝AA 対象外）。3 色（ウォームグレー + オレンジ + 赤）の範囲内。
+  railLine: "#fed7aa",
   teal: "#0f766e",
   danger: "#b91c1c",
   dangerBg: "#fef2f2",
   dangerBorder: "#fca5a5",
 } as const;
 
-const pageStyle: React.CSSProperties = { display: "grid", gap: "0.85rem", maxWidth: "820px" };
+// 横幅を活かす（v2-sch-uo2）。820px は左に寄って横が余っていた。広い画面では学科を読みやすい行長で
+// 広げつつ、超ワイドでも 1 行が長くなりすぎないよう上限を設ける。
+const pageStyle: React.CSSProperties = { display: "grid", gap: "1rem", maxWidth: "1080px" };
 const headerRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-end",
@@ -1566,24 +1556,31 @@ const hintStyle: React.CSSProperties = {
   margin: 0,
   lineHeight: 1.6,
 };
-const treeRootStyle: React.CSSProperties = { display: "grid", gap: "0.6rem" };
+// 学科どうしは明確に離して「ぱっと見でブロックが分かれている」状態にする（v2-sch-uo1）。
+const treeRootStyle: React.CSSProperties = { display: "grid", gap: "1rem" };
+// 階層の下りを「インデント + 縦のレール」で視覚化する（v2-sch-uo1）。レールはブランドのオレンジを
+// ごく薄く使い（3 色の範囲内）、どこからが配下かを目で追えるようにする。
 const childListStyle: React.CSSProperties = {
-  margin: "0.5rem 0 0",
-  padding: "0 0 0 0.9rem",
-  borderLeft: `2px solid ${C.borderLight}`,
+  margin: "0.6rem 0 0",
+  padding: "0.1rem 0 0.1rem 1.1rem",
+  borderLeft: `2px solid ${C.railLine}`,
   display: "grid",
-  gap: "0.45rem",
+  gap: "0.55rem",
 };
+// 学科 = 最上位ブロック。やや強い枠と余白でカードとして独立させる。
 const deptNodeStyle: React.CSSProperties = {
   border: `1px solid ${C.border}`,
-  borderRadius: "8px",
-  padding: "0.7rem 0.85rem",
+  borderRadius: "10px",
+  padding: "0.9rem 1rem",
   background: "#fff",
+  boxShadow: "0 1px 2px rgba(28,25,23,0.04)",
 };
+// 学年 = 学科の配下ブロック。淡い面色で「箱の中の箱」を作り、クラスとの深さの差を出す。
 const gradeNodeStyle: React.CSSProperties = {
   background: C.surface,
-  borderRadius: "6px",
-  padding: "0.5rem 0.65rem",
+  border: `1px solid ${C.border}`,
+  borderRadius: "8px",
+  padding: "0.6rem 0.75rem",
 };
 const nodeHeaderRowStyle: React.CSSProperties = {
   display: "flex",
@@ -1596,11 +1593,23 @@ const nodeNameStyle: React.CSSProperties = {
   fontSize: "0.92rem",
   color: C.inkPrimary,
 };
+// 学科名は一段大きく・太く（階層の深さを字面でも示す）。
+const deptNameStyle: React.CSSProperties = {
+  fontWeight: 700,
+  fontSize: "1.02rem",
+  color: C.inkPrimary,
+};
 const summaryStyle: React.CSSProperties = { fontSize: "0.75rem", color: C.inkTertiary };
+// クラス / 設置場所 = 末端の行。白地のチップ状の行にして、学年（淡い面色）の上で 1 件ずつ拾える
+// ようにする。横幅は name 左・状態/操作右（marginLeft:auto）で使い切る。
 const classRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "0.45rem",
+  gap: "0.5rem",
+  background: "#fff",
+  border: `1px solid ${C.border}`,
+  borderRadius: "6px",
+  padding: "0.35rem 0.55rem",
 };
 const classNameStyle: React.CSSProperties = { fontSize: "0.88rem", color: C.inkPrimary };
 const badgeStyle: React.CSSProperties = {
@@ -1643,25 +1652,11 @@ const statusActiveStyle: React.CSSProperties = {
   fontSize: "0.72rem",
   color: C.teal,
 };
-const statusEmptyStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "0.35rem",
-  fontSize: "0.72rem",
-  color: C.inkMuted,
-};
 const dotFilledStyle: React.CSSProperties = {
   width: "7px",
   height: "7px",
   borderRadius: "999px",
   background: C.teal,
-};
-const dotRingStyle: React.CSSProperties = {
-  width: "7px",
-  height: "7px",
-  borderRadius: "999px",
-  border: `1.5px solid ${C.inkTertiary}`,
-  boxSizing: "border-box",
 };
 const editorLinkStyle: React.CSSProperties = {
   fontSize: "0.76rem",
@@ -1760,7 +1755,6 @@ const inputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 const growInputStyle: React.CSSProperties = { ...inputStyle, flex: "1 1 200px" };
-const orderInputStyle: React.CSSProperties = { ...inputStyle, width: "5rem", flex: "0 0 auto" };
 const selectStyle: React.CSSProperties = {
   padding: "0.35rem 0.5rem",
   border: `1px solid ${C.border}`,
@@ -1916,15 +1910,9 @@ const otherTitleStyle: React.CSSProperties = {
   fontSize: "0.9rem",
   color: C.inkPrimary,
 };
-const otherHintStyle: React.CSSProperties = {
-  fontSize: "0.76rem",
-  color: C.inkMuted,
-  margin: 0,
-  lineHeight: 1.6,
-};
 const otherListStyle: React.CSSProperties = {
   display: "grid",
   gap: "0.45rem",
-  padding: "0 0 0 0.9rem",
-  borderLeft: `2px solid ${C.borderLight}`,
+  padding: "0.1rem 0 0.1rem 1.1rem",
+  borderLeft: `2px solid ${C.railLine}`,
 };
