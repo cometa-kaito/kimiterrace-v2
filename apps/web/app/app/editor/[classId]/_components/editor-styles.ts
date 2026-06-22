@@ -103,6 +103,7 @@ export const primaryBtnDisabledStyle: React.CSSProperties = {
   cursor: "not-allowed",
 };
 
+<<<<<<< HEAD
 /* ------------------------------------------------------------------ *
  *  並べ替え（D&D / 上へ下へ）— 連絡など「配列順 = サイネージ表示順」のセクション用（D 群）
  *
@@ -147,4 +148,16 @@ export const moveBtnDisabledStyle: React.CSSProperties = {
   ...moveBtnStyle,
   color: color.border,
   cursor: "not-allowed",
+};
+/**
+ * 空状態の罫線（点線）プレースホルダ（来校者一覧 / 生徒呼び出し）。LEDGER v2-ed-uo6: 装飾枠ではなく
+ * 「ここにデータが入る」を点線の行で示唆する。空テーブルのヘッダだけが浮く違和感を解消する。
+ */
+export const emptyPlaceholderStyle: React.CSSProperties = {
+  padding: "0.75rem 0.6rem",
+  border: `1px dashed ${color.border}`,
+  borderRadius: radius.sm,
+  color: color.muted,
+  fontSize: fontSize.sm,
+  textAlign: "center",
 };

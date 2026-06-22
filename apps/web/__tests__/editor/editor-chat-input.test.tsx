@@ -42,7 +42,7 @@ function renderChat() {
 }
 
 function getInput(): HTMLTextAreaElement {
-  return screen.getByPlaceholderText(/Enter で送信/) as HTMLTextAreaElement;
+  return screen.getByPlaceholderText(/話す・書く・ファイル/) as HTMLTextAreaElement;
 }
 
 // stream() が即解決するよう、本文のない ok レスポンスで fetch を stub（SSE は流さない）。
