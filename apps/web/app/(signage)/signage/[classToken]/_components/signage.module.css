@@ -1413,12 +1413,14 @@
   padding-bottom: 0.2rem;
   margin-bottom: 0.25rem;
 }
-/* 1 件ぶんの窓（見出し1行 + 本文最大4行 + 出典/日付）。全記事を絶対配置で重ね active のみ表示してクロスフェード。
-   絶対配置のスライドは窓高に収まるので、見出し1行+本文4行+出典が入る高さを確保する（2026-06-22 ユーザー指示）。 */
+/* 1 件ぶんの窓（見出し最大2行 + 本文最大4行 + 出典/日付）。全記事を絶対配置で重ね active のみ表示してクロスフェード。
+   絶対配置のスライドは窓高に収まるので、見出し2行+本文4行+出典が入る高さを確保する（METI 等は見出しが長く 1 行だと
+   趣旨が切れて読めないため 2 行へ・2026-06-23 ユーザー指示。フッタは予定/人物と flex 取り合いだが予定 5 行側に
+   縦の余裕があるため許容）。 */
 .p3NewsViewport {
   position: relative;
   flex: 1 1 auto;
-  min-height: clamp(5rem, 7.5vw, 7rem);
+  min-height: clamp(7rem, 10vw, 9.5rem);
 }
 .p3NewsSlide {
   position: absolute;
@@ -1439,23 +1441,23 @@
     transition: none;
   }
 }
-/* 見出し（主役・最大 2 行）。 */
+/* 見出し（主役）。METI 等は見出しが長く、1 行だと趣旨が切れて読めなかったため 2 行に拡張し、超過のみ「…」省略
+   （2026-06-23 ユーザー指示で 1 行→2 行）。 */
 .p3NewsHeadline {
   font-size: clamp(0.95rem, 1.4vw, 1.34rem);
   font-weight: 700;
   color: var(--primary-color);
   line-height: 1.3;
-  /* 見出しは 1 行に固定し、超過は「…」省略（2026-06-22 ユーザー指示＝見出し1行+本文4行）。 */
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   min-width: 0;
 }
 /* 本文（CC BY 要約の箇条書き）は共有 .p2NewsSummary を流用。pattern3（廊下版）は AutoScroll を持たない固定カード
    なので、共有側の「行クランプ廃止（全文折返し）」のままだと枠を超えた本文がカード overflow:hidden で中途半端に
    ハードクリップされる。pattern3 だけ **1 文 2 行までクランプ**して「…」省略に倒す（2 文＝最大 4 行＝ユーザー指示
-   「見出し1行＋本文4行・超過は…省略」）。pattern4 の本文は共有規則のまま不変（.p3NewsCard スコープ限定）。 */
+   「見出し2行＋本文4行・超過は…省略」）。pattern4 の本文は共有規則のまま不変（.p3NewsCard スコープ限定）。 */
 .p3NewsCard .p2NewsSummary li {
   font-size: clamp(0.58rem, 0.8vw, 0.74rem);
   display: -webkit-box;
