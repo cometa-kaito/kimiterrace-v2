@@ -227,3 +227,63 @@ describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上
     expect(screen.queryByRole("button", { name: /行目を上へ移動/ })).toBeNull();
   });
 });
+
+describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替えできる（上へ/下へ）", () => {
+  const nameAt = (row: number) =>
+    (screen.getByLabelText(`${row} 行目の生徒氏名`) as HTMLInputElement).value;
+
+  it("下の行を上へ移動すると順序が入れ替わる（配列順 = 保存順 = 盤面の表示順）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors={false}
+        showCallouts
+        visitors={null}
+        callouts={[callout("c1", "生徒 花子"), callout("c2", "生徒 桃子")]}
+      />,
+    );
+    expect(nameAt(1)).toBe("生徒 花子");
+    expect(nameAt(2)).toBe("生徒 桃子");
+
+    fireEvent.click(screen.getByRole("button", { name: "2 行目を上へ移動（全 2 行中）" }));
+
+    expect(nameAt(1)).toBe("生徒 桃子");
+    expect(nameAt(2)).toBe("生徒 花子");
+  });
+
+  it("先頭の上 / 末尾の下は無効（端で押せない）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors={false}
+        showCallouts
+        visitors={null}
+        callouts={[callout("c1", "生徒 花子"), callout("c2", "生徒 桃子")]}
+      />,
+    );
+    expect(
+      (screen.getByRole("button", { name: "1 行目を上へ移動（全 2 行中）" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "2 行目を下へ移動（全 2 行中）" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("呼び出しが 1 行のときは並べ替えコントロールを出さない", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors={false}
+        showCallouts
+        visitors={null}
+        callouts={[callout("c1", "生徒 花子")]}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /行目を上へ移動/ })).toBeNull();
+  });
+});
