@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { type KimiterraceDb, withTenantContext } from "../client.js";
 import { schools } from "../schema/schools.js";
 import { users } from "../schema/users.js";
@@ -74,6 +74,13 @@ export async function findExistingTeacherLoginSchoolId(
 /**
  * **既存の** school_admin（`users.role = 'school_admin'` かつ `is_active`）を 1 件、安定順で解決する。
  * 0 件なら null（呼出側が dev 専用 school_admin を作るシグナル）。uid（= users.id = IdP localId）のみ返す。
+ *
+ * ## 決定性（どの校の admin になるか）
+ * staging に複数テナントのテストデータが入った場合に「最初に作られた任意の校」へ落ちるのを避けるため、
+ * **dev-login 専用テスト校（DEVLOGIN_TEST）配下の school_admin を最優先**で選ぶ（`schoolId == DEVLOGIN_TEST` を
+ * 先頭に並べ替え、その中で createdAt/id 安定順）。これにより dev-login の admin は既定で dev 専用テナントに収束する。
+ * 特定の実在校の admin を使いたい場合は呼出側が `DEV_LOGIN_CONFIG.admin.uid` ヒントで明示する（dev-login.ts が優先採用）。
+ * prod には到達しない（route 多層ゲート）ため権限昇格にはならない。
  */
 export async function findExistingSchoolAdminUid(
   db: KimiterraceDb,
@@ -87,7 +94,12 @@ export async function findExistingSchoolAdminUid(
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.role, "school_admin"), eq(users.isActive, true)))
-        .orderBy(asc(users.createdAt), asc(users.id))
+        // DEVLOGIN_TEST 校配下を最優先（0=テスト校 / 1=その他）。同位は createdAt/id で安定化。
+        .orderBy(
+          sql`case when ${users.schoolId} = ${DEVLOGIN_TEST_SCHOOL_ID} then 0 else 1 end`,
+          asc(users.createdAt),
+          asc(users.id),
+        )
         .limit(1);
       return rows[0]?.id ?? null;
     },

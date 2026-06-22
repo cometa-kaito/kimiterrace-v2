@@ -82,7 +82,7 @@ resource "google_secret_manager_secret_iam_member" "runtime_partner_api_secret" 
 }
 
 # DEV_LOGIN_CONFIG secret の accessor（**該当 secret のみ** = 最小権限、ルール5）。
-# staging 限定 dev-login（apps/web/app/api/dev-login）の秘密キー + テストアカウント資格情報。空文字なら
+# staging 限定 dev-login（apps/web/app/api/dev-login）のゲート鍵 + 任意の解決ヒント（password は持たない）。空文字なら
 # 配線しない（= prod は accessor を付与せず env も注入しない＝dev-login は config 不在で常に 404）。
 resource "google_secret_manager_secret_iam_member" "runtime_dev_login_secret" {
   count = var.enabled && var.dev_login_secret_id != "" ? 1 : 0
@@ -250,9 +250,10 @@ resource "google_cloud_run_v2_service" "web" {
         }
       }
 
-      # DEV_LOGIN_CONFIG = staging 限定 dev-login の秘密キー + テストアカウント資格情報の JSON（Secret Manager
-      # 注入、ルール5）。dev-login の第2ゲート（?key= 突合）+ アカウント解決に使う。**prod では
-      # dev_login_secret_id="" のため注入しない** → prod は config 不在で鍵検証もアカウント解決も不能（404）。
+      # DEV_LOGIN_CONFIG = staging 限定 dev-login のゲート鍵 + 任意の解決ヒント（password は持たない）の JSON
+      # （Secret Manager 注入、ルール5）。dev-login の第2ゲート（Authorization: Bearer 突合）+ アカウント解決
+      # （teacher.schoolId / admin.uid の任意ヒント）に使う。**prod では dev_login_secret_id="" のため注入しない**
+      # → prod は config 不在で鍵検証もアカウント解決も不能（404）。
       dynamic "env" {
         for_each = var.dev_login_secret_id != "" ? [1] : []
         content {

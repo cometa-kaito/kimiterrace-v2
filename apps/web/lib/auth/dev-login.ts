@@ -26,8 +26,10 @@ import { sharedTeacherUid, teacherAccountEmail } from "./teacher-account";
  * - **teacher**: ① config ヒント（schoolId）or ② DB の `teacher_login_enabled` 有効校を 1 校解決し、その学校の
  *   共通教員 uid（`sharedTeacherUid`）を対象にする。無ければ **dev 専用テスト校 "DEVLOGIN_TEST" を冪等作成**し、
  *   その共通教員を対象にする。
- * - **admin**: ① config ヒント（uid）or ② DB の既存 school_admin を 1 件解決。無ければ dev 専用テスト校配下に
- *   **dev 専用 school_admin を冪等作成**する。
+ * - **admin**: ① config ヒント（uid）or ② DB の既存 school_admin を 1 件解決。②は **DEVLOGIN_TEST 校配下を最優先**
+ *   で選ぶため（findExistingSchoolAdminUid）、staging に複数テナントのテストデータがあっても既定で dev 専用テナントに
+ *   収束する。**特定の実在校の admin を使いたい場合は `DEV_LOGIN_CONFIG.admin.uid` ヒントで明示**する（①が②に優先）。
+ *   無ければ dev 専用テスト校配下に **dev 専用 school_admin を冪等作成**する。
  *
  * 新規作成は **dev-login 経路かつ staging ゲート内のみ**（route が isProdLikeEnv / APP_ENV / ゲート鍵を通した後に
  * だけ本モジュールを呼ぶ）。IdP アカウント（custom claims = role/school_id）と `users` 行の両方を冪等に用意する。
@@ -94,7 +96,8 @@ async function resolveExistingTarget(role: DevLoginRole): Promise<DevLoginTarget
     const schoolId = hint?.schoolId ?? (await findExistingTeacherLoginSchoolId(getDb()));
     return schoolId ? { uid: sharedTeacherUid(schoolId) } : null;
   }
-  // admin: ヒント uid → そのまま。無ければ DB の既存 school_admin を 1 件解決。
+  // admin: ヒント uid → そのまま（実在校を固定したい時はこれ）。無ければ DB の既存 school_admin を 1 件解決
+  // （DEVLOGIN_TEST 校配下を最優先＝多テナント staging でも既定で dev 専用テナントに収束）。
   const uid = hint?.uid ?? (await findExistingSchoolAdminUid(getDb()));
   return uid ? { uid } : null;
 }
