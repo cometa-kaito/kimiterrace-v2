@@ -163,6 +163,17 @@ describe("middleware matcher (匿名公開経路の除外)", () => {
     expect(gated.test("/api/health")).toBe(false);
   });
 
+  it("staging 限定 dev-login /api/dev-login はゲート対象外 (除外)", () => {
+    // dev-login は未ログインで叩く必要があるため middleware の __session ゲートから除外する。
+    // 認証バイパスの砦は route 側の env ゲート(APP_ENV=staging) + 秘密キーであり、middleware ではない。
+    expect(gated.test("/api/dev-login")).toBe(false);
+  });
+
+  it("api/dev-login 除外は境界済、look-alike な /api/dev-login-admin 等は過剰除外しない (保護のまま)", () => {
+    expect(gated.test("/api/dev-login-admin")).toBe(true);
+    expect(gated.test("/api/dev-loginx")).toBe(true);
+  });
+
   it("境界厳格化 (#139 L3): prefix 一致だった token が look-alike な保護ルートを過剰除外しない", () => {
     // 素の `login`/`student`/`api/auth`/`api/health` は前方一致なので、これらが将来の
     // 保護対象ルートを静かにゲート対象外にしていた。`(?:/|$)` 境界化で gate 対象に戻す。
