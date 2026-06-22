@@ -38,7 +38,8 @@ import styles from "./signage.module.css";
  * - **静的再利用（サムネ / エディタキャンバス）**: `ScaledSignageBoard` がスナップショット `SignagePayload` から
  *   `now=null`（時計非表示）・広告静止・タップ noop で `SignageBoardView` を縮小描画する（後続 A/B の土台）。
  *
- * **盤面レイアウトは旧キミテラス v1 を忠実移植**: 上段(横幅いっぱい)=予定(今後3平日の3列・各列5行) /
+ * **盤面レイアウトは旧キミテラス v1 を忠実移植**: 上段(横幅いっぱい)=予定(今後 N 平日の N 列・列数は
+ * `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝現在 5・各列5行) /
  * 左下=連絡(5行) / 右下=提出物(表・5行) / 右=広告(70:30)。天気は予定列の日付ヘッダーにアイコンで内包し、
  * 静粛時間は盤面に出さない(2026-06-06 ユーザー確定)。
  *
@@ -176,14 +177,24 @@ function AdAside({
   adCount,
   safeIndex,
   onAdTap,
+  editRegions,
 }: {
   ad: SignageBoardProps["ad"];
   adLink: string | null;
   adCount: number;
   safeIndex: number;
   onAdTap: SignageBoardProps["onAdTap"];
+  /**
+   * 編集モード（WYSIWYG エディタ）か否か。**渡るのはエディタプレビューのときだけ**で、live TV / モニタの壁は
+   * undefined＝出力不変。編集モードかつ広告未設定のときだけ、空の広告枠に「広告枠（広告管理で設定）」の
+   * 明示ラベルを出し、教員が黒帯を「壊れ／未表示」と誤認するのを防ぐ（指摘 v2-ed-ai5）。live TV では従来どおり
+   * 控えめなウォーターマーク（`.adArea::after`）のままにし、実機の見た目は 1px も変えない。
+   */
+  editRegions?: EditRegionsProps;
 }) {
   const hasMedia = ad != null;
+  // 編集モード（editRegions あり）かつ広告未設定のときだけ、空枠が「広告の場所」だと分かるラベルを出す。
+  const showEmptyLabel = editRegions != null && !hasMedia;
   return (
     <aside
       aria-label="広告"
@@ -210,7 +221,15 @@ function AdAside({
       ) : (
         <div className={styles.adContainer}>
           <div className={styles.adForeground}>
-            <p className={styles.adEmpty}>　</p>
+            {showEmptyLabel ? (
+              // 編集モードだけのプレースホルダ（live TV では出ない）。黒帯を「広告の入る場所」と明示する。
+              <p className={styles.adEditorPlaceholder}>
+                <span className={styles.adEditorPlaceholderTitle}>広告枠</span>
+                <span className={styles.adEditorPlaceholderSub}>広告管理で設定します</span>
+              </p>
+            ) : (
+              <p className={styles.adEmpty}>　</p>
+            )}
           </div>
         </div>
       )}
@@ -266,6 +285,7 @@ function Pattern1Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         {/* モバイル限定フッター（順序: タブ→広告→予定→連絡→提出物→フッター）。デスクトップは非表示。 */}
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
@@ -324,6 +344,7 @@ function Pattern2Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
@@ -383,6 +404,7 @@ function Pattern3Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
@@ -448,6 +470,7 @@ function Pattern4Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>

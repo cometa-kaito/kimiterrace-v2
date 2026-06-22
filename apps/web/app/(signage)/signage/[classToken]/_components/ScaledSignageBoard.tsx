@@ -27,6 +27,7 @@ export function ScaledSignageBoard({
   payload,
   width,
   editRegions,
+  now = null,
 }: {
   /** 表示する盤面のスナップショット（Server 側で取得した確定 `SignagePayload`）。 */
   payload: SignagePayload;
@@ -41,6 +42,13 @@ export function ScaledSignageBoard({
    * 一切描かず出力が変わらない）。渡すのは WYSIWYG エディタ（client）だけ。
    */
   editRegions?: EditRegionsProps;
+  /**
+   * ヘッダーに出す実時計（任意）。**省略時（既定 null）は時計を出さない**＝サムネ / モニタの壁の静的描画は
+   * 従来どおり不変。WYSIWYG エディタ（client）が live TV と同じ 1 秒刻みの `Date` を渡すと、編集プレビューの
+   * ヘッダーが実盤面（`SignageClient`）と一致して「実機にどう出るか」がより正確になる（ヘッダー差の縮小）。
+   * 静的に渡るサムネ等は now を渡さない（SSR/サーバ描画でも非決定にならない）。
+   */
+  now?: Date | null;
 }) {
   // 広告は payload.ads の先頭のみ静止表示（ローテーションしない）。空なら null（広告枠は空表示）。
   const ad = payload.ads.length > 0 ? (payload.ads[0] ?? null) : null;
@@ -60,8 +68,8 @@ export function ScaledSignageBoard({
           // ローテーション無し（先頭広告を静止表示）。ドットは出さない。
           adCount={ad ? 1 : 0}
           safeIndex={0}
-          // 時計は出さない（静的スナップショット）。
-          now={null}
+          // 時計は呼び出し側が渡したときだけ出す（既定 null＝静的スナップショットは従来どおり時計なし）。
+          now={now}
           // タップ計測はしない（read-only）。
           onAdTap={NOOP_AD_TAP}
           // WYSIWYG 編集の領域クリック配線を素通し（省略時は read-only のまま不変）。

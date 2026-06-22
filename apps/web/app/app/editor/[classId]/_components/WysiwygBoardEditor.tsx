@@ -101,6 +101,16 @@ export function WysiwygBoardEditor({
     return () => ro.disconnect();
   }, []);
 
+  // 編集プレビューのヘッダー実時計を **live TV（SignageClient）と同じ作法**で動かす（マウント後のみ・1 秒刻み）。
+  // SSR/初回は null＝時計なしで描き（ハイドレーション不一致を避ける）、マウント後に実時計を出して実盤面の
+  // ヘッダーと一致させる（now の扱いの差を縮める）。これにより教員は「実機にどう出るか」をヘッダー込みで確認できる。
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const focusRegion = useCallback((region: Region) => {
     setActive(region);
     const card =
@@ -168,6 +178,7 @@ export function WysiwygBoardEditor({
                 payload={previewPayload}
                 width={boardWidth}
                 editRegions={{ active, onRegion: focusRegion }}
+                now={now}
               />
             ) : (
               <div className={styles.skeleton} aria-hidden="true" />
