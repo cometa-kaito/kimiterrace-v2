@@ -98,16 +98,19 @@ export function ScheduleEditor({
   useEffect(() => {
     onItemsChange?.(items);
   }, [serialized, onItemsChange]);
-  // 全行が有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ slot が重複しないなら自動保存。
-  // 未入力/重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
-  const periods = rows.map((r) => r.period);
+  // 全行が有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ **数値時限**が重複しないなら自動保存。
+  // 未入力/数値時限の重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
+  // 特殊スロット（朝 / 昼休み / 放課後）は重複を許容する（例: 放課後に部活と三者面談）＝サーバ検証と整合。
+  // 以前はここで全 period を一律に重複扱いしていたため、放課後を 2 つ入れると complete=false で**保存されなかった**
+  // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
+  const numberedPeriods = rows.map((r) => r.period).filter((p): p is number => !isSpecialSlot(p));
   const complete =
     rows.every(
       (r) =>
         r.subject.trim().length > 0 &&
         (isSpecialSlot(r.period) ||
           (Number.isInteger(r.period) && r.period >= 1 && r.period <= 12)),
-    ) && new Set(periods).size === periods.length;
+    ) && new Set(numberedPeriods).size === numberedPeriods.length;
   const auto = useAutoSaveSection({
     serialized,
     items,

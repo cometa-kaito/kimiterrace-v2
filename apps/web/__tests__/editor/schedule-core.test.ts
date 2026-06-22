@@ -154,7 +154,7 @@ describe("validateScheduleItems", () => {
     expect(r.ok && r.value.map((i) => i.period)).toEqual(["morning", 1, 2, "lunch", "afterschool"]);
   });
 
-  it("時限の重複は拒否", () => {
+  it("数値時限の重複は拒否", () => {
     const r = validateScheduleItems([
       { period: 1, subject: "国語" },
       { period: 1, subject: "数学" },
@@ -162,12 +162,42 @@ describe("validateScheduleItems", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("特殊スロットの重複は拒否", () => {
+  it("特殊スロットの重複は許容する（放課後に複数の予定・入力順を保つ）", () => {
     const r = validateScheduleItems([
-      { period: "lunch", subject: "昼食A" },
-      { period: "lunch", subject: "昼食B" },
+      { period: "afterschool", subject: "部活" },
+      { period: "afterschool", subject: "三者面談" },
+    ]);
+    expect(r.ok && r.value.map((i) => [i.period, i.subject])).toEqual([
+      ["afterschool", "部活"],
+      ["afterschool", "三者面談"],
+    ]);
+  });
+
+  it("特殊スロットは重複可・数値時限の重複は依然拒否（混在）", () => {
+    // 放課後 ×2（許容）+ 1限 ×2（拒否）→ 全体は拒否される。
+    const r = validateScheduleItems([
+      { period: "afterschool", subject: "部活" },
+      { period: "afterschool", subject: "面談" },
+      { period: 1, subject: "国語" },
+      { period: 1, subject: "数学" },
     ]);
     expect(r.ok).toBe(false);
+  });
+
+  it("数値時限 + 特殊スロット重複が並んでも morning < periods < lunch < afterschool に正規化", () => {
+    const r = validateScheduleItems([
+      { period: "afterschool", subject: "三者面談" },
+      { period: 1, subject: "国語" },
+      { period: "afterschool", subject: "部活" },
+      { period: "morning", subject: "朝の会" },
+    ]);
+    // afterschool 同士は安定ソートで入力順（三者面談 → 部活）を保つ。
+    expect(r.ok && r.value.map((i) => [i.period, i.subject])).toEqual([
+      ["morning", "朝の会"],
+      [1, "国語"],
+      ["afterschool", "三者面談"],
+      ["afterschool", "部活"],
+    ]);
   });
 
   it("13 コマ超は拒否", () => {
