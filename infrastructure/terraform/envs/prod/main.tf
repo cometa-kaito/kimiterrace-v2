@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "297f8fd" # Phase5 個別モニタ配信 完成反映: PR2/PR3 読取・表示データ層(#1073)＋PR4 表示ルート配線(#1075 /signage/monitor/[deviceId])。schema 変更なし(migration は PR1 #1061 で適用済 ad_target_monitors)。疎通 /api/health=200・/signage/monitor/<未登録>/data=410(ルート稼働)・既存 classToken=410(非回帰)
+  web_image_tag = "e95d5ff" # 公開サイネージ /signage を タブレット/PC（≥900px）で実機モニタ（16:9・1920×1080）の固定スケール縮小表示に（signage.module.css §14 + page.tsx ラッパ）。1920×1080 実機は scale=1.0 で従来同一・≤899px はモバイル不変。schema 変更なし・secret 増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
