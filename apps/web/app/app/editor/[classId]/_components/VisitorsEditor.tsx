@@ -8,10 +8,13 @@ import {
 } from "@/lib/editor/editor-save-state";
 import { setVisitorsAction } from "@/lib/editor/visitors-actions";
 import type { ClassVisitor } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
   dirtyTextStyle,
+  emptyPlaceholderStyle,
   inputStyle,
   primaryBtnDisabledStyle,
   primaryBtnStyle,
@@ -109,8 +112,14 @@ export function VisitorsEditor({
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "880px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>来校者一覧</h2>
+      <FieldLegend />
       {msg ? (
-        <output style={{ display: "block", color: msg.ok ? "#166534" : "#b91c1c" }}>
+        <output
+          style={{
+            display: "block",
+            color: msg.ok ? tokens.color.successFg : tokens.color.dangerFg,
+          }}
+        >
           {msg.text}
         </output>
       ) : null}
@@ -120,7 +129,10 @@ export function VisitorsEditor({
           <thead>
             <tr>
               <th style={thStyle}>時刻</th>
-              <th style={thStyle}>氏名</th>
+              <th style={thStyle}>
+                氏名
+                <RequiredMark />
+              </th>
               <th style={thStyle}>所属</th>
               <th style={thStyle}>用件</th>
               <th style={thStyle}>対応者</th>
@@ -129,6 +141,15 @@ export function VisitorsEditor({
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ ...tdStyle, padding: 0 }}>
+                  <div style={emptyPlaceholderStyle}>
+                    まだ来校者がありません。「来校者を追加」から入力します。
+                  </div>
+                </td>
+              </tr>
+            ) : null}
             {rows.map((r, i) => (
               // 行は順序が UI 状態なので index key で十分（保存は全置換）。
               // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行

@@ -19,6 +19,8 @@ export const color = {
   muted: "#6b7280",
   border: "#e5e7eb",
   bgSoft: "#f7f8fa",
+  /** 白サーフェス（カード/ボタン地）。インライン style で生 "#fff" を散らさないための単一ソース。 */
+  surface: "#ffffff",
   /** UI アクセント（明るいオレンジ #ea580c・2026-06-06 ユーザー指定で旧 #c2410c から明色化。
    *  白文字は約 3.6:1 = 非テキスト UI 3:1 のみ充足／通常テキスト 4.5:1 は未達、hover #c2410c は AA 充足）。
    *  グラデはロゴ画像のみ・2026-06-05 方針。globals.css --brand-primary と一致させること。 */

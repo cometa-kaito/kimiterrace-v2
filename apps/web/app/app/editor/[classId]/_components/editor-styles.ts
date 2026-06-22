@@ -26,7 +26,7 @@ export const primaryBtnStyle: React.CSSProperties = {
   minHeight: "44px",
   padding: "0.45rem 1.1rem",
   background: color.primary,
-  color: "#fff",
+  color: color.surface,
   border: "none",
   borderRadius: radius.sm,
   cursor: "pointer",
@@ -35,7 +35,7 @@ export const primaryBtnStyle: React.CSSProperties = {
 export const secondaryBtnStyle: React.CSSProperties = {
   minHeight: "44px",
   padding: "0.45rem 1.1rem",
-  background: "#fff",
+  background: color.surface,
   color: color.ink,
   border: `1px solid ${color.border}`,
   borderRadius: radius.sm,
@@ -101,4 +101,62 @@ export const primaryBtnDisabledStyle: React.CSSProperties = {
   ...primaryBtnStyle,
   background: color.muted,
   cursor: "not-allowed",
+};
+
+/* ------------------------------------------------------------------ *
+ *  並べ替え（D&D / 上へ下へ）— 連絡など「配列順 = サイネージ表示順」のセクション用（D 群）
+ *
+ *  学校管理 #1116 の grip（⠿）と同じ視覚言語。色だけに頼らず、ドラッグ中は半透明・ドロップ先は左辺に
+ *  ブランド色の差し込み線でヒントする。キーボード/タッチ経路は「上へ」「下へ」ボタンを別途用意する。
+ * ------------------------------------------------------------------ */
+
+/** ドラッグハンドル（グリップ ⠿）。掴めることを示すカーソル＋控えめ色。タップ領域も確保する。 */
+export const gripStyle: React.CSSProperties = {
+  cursor: "grab",
+  color: color.muted,
+  fontSize: fontSize.md,
+  lineHeight: 1,
+  padding: "0.25rem 0.15rem",
+  userSelect: "none",
+  touchAction: "none",
+};
+/** ドラッグ中の行（半透明＝掴んでいることを示す）。 */
+export const draggingRowStyle: React.CSSProperties = {
+  opacity: 0.5,
+};
+/** ドロップ先候補の行（左辺にブランド色の差し込み線で「ここに入る」を示す）。 */
+export const dropOverRowStyle: React.CSSProperties = {
+  boxShadow: `inset 3px 0 0 0 ${color.primary}`,
+  borderRadius: radius.sm,
+};
+/** 上へ/下へ移動ボタン（キーボード/タッチ経路。アイコンのみだが aria-label を必ず添える）。 */
+export const moveBtnStyle: React.CSSProperties = {
+  minWidth: "1.9rem",
+  minHeight: "1.9rem",
+  padding: "0 0.35rem",
+  background: color.surface,
+  color: color.ink,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
+  cursor: "pointer",
+  fontSize: fontSize.sm,
+  lineHeight: 1,
+};
+/** 無効な移動ボタン（端の行）。 */
+export const moveBtnDisabledStyle: React.CSSProperties = {
+  ...moveBtnStyle,
+  color: color.border,
+  cursor: "not-allowed",
+};
+/**
+ * 空状態の罫線（点線）プレースホルダ（来校者一覧 / 生徒呼び出し）。LEDGER v2-ed-uo6: 装飾枠ではなく
+ * 「ここにデータが入る」を点線の行で示唆する。空テーブルのヘッダだけが浮く違和感を解消する。
+ */
+export const emptyPlaceholderStyle: React.CSSProperties = {
+  padding: "0.75rem 0.6rem",
+  border: `1px dashed ${color.border}`,
+  borderRadius: radius.sm,
+  color: color.muted,
+  fontSize: fontSize.sm,
+  textAlign: "center",
 };

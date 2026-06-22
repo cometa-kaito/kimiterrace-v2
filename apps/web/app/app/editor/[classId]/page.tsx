@@ -16,12 +16,10 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
-import { CalloutsEditor } from "./_components/CalloutsEditor";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
-import { VisitorsEditor } from "./_components/VisitorsEditor";
+import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
-import boardLayout from "./_components/board-layout.module.css";
 
 /**
  * クラス別エディタ — **盤面エディタを本画面・AI は浮遊チャット**（ユーザー判断 2026-06-16）。
@@ -168,27 +166,21 @@ export default async function ClassEditorPage({
       {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
           パターンのときだけ 2 カラムで盤面の下に出す（含まないパターンでは盤面に出ないので編集セクションも
           出さない＝死セクション防止・finding①。将来パターン追加にも単一ソースで自動追従）。
-          key={date}: 対象日変更で再マウントし新日付データで初期化（中身の混線防止・上記と同理由）。 */}
-      {showVisitors || showCallouts ? (
-        <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-          {showVisitors && board?.visitors ? (
-            <VisitorsEditor
-              key={date}
-              classId={classId}
-              date={date}
-              initialItems={board.visitors}
-            />
-          ) : null}
-          {showCallouts && board?.callouts ? (
-            <CalloutsEditor
-              key={date}
-              classId={classId}
-              date={date}
-              initialItems={board.callouts}
-            />
-          ) : null}
-        </div>
-      ) : null}
+          各エディタの key は VisitorsCalloutsSection 内で衝突しない安定キー（visitors-* / callouts-*）にして
+          いる。旧実装は両方を同じ key={date} で、条件付き短絡（showVisitors && … / showCallouts && …）のまま
+          同一親に隣接させており、対象日変更（?date= ソフトナビ＝同一ページ再レンダ）時に「来校者一覧」複製・
+          「生徒呼び出し」が下へ押し出される実バグが観測された（本番 6/21→6/22 再現）。日付変更で再マウントし
+          新日付データで初期化する意図は key に date を含めて維持する。詳細・観測条件は VisitorsCalloutsSection
+          の docstring 参照。盤面のパターン選択（showVisitors / showCallouts）は親で決めた値をそのまま渡すだけで
+          増減させない。 */}
+      <VisitorsCalloutsSection
+        classId={classId}
+        date={date}
+        showVisitors={showVisitors}
+        showCallouts={showCallouts}
+        visitors={board?.visitors ?? null}
+        callouts={board?.callouts ?? null}
+      />
 
       {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
           表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断

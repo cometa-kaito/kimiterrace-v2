@@ -154,26 +154,13 @@ export function WysiwygBoardEditor({
   const showSchedule = patternIncludesBlock(pattern, "schedule");
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
-  // 盤面クリックジャンプは「予定 / 連絡 / 提出物」の実セクション（`EditRegion`）にだけ配線されている
-  // （クリックボタンは `BoardRegionEditButton` が敷くこの 3 種のみ）。来校者 / 生徒呼び出しは盤面に出ても
-  // クリック対象ではなく、編集欄は盤面の**下**に別カードで出る。ヒント文がここを「クリックで移動」と
-  // 一括で言い切ると嘘になる（指摘 v2-ed-uo2）ので、当該パターンに来校者/呼び出しがある時だけ「下の編集欄で」
-  // と但し書きを足し、過剰主張を避ける（実装を増やさずに文言整合・finding①の半端ジャンプの誠実化）。
-  // 但し書きは `patternIncludesBlock` 駆動なので、PATTERN_BLOCKS に visitor/callout を持つ新パターンが増えても
-  // 自動追従する。⚠ 将来クリックジャンプ未配線の**別ブロック**を新パターンに足す PR では、ここのヒント文が
-  // その新ブロックも網羅できているか（「下の編集欄で編集」に含めるべきか）を必ず再確認すること（レビュー P3 / item2）。
-  const hasBelowEditors =
-    patternIncludesBlock(pattern, "visitor") || patternIncludesBlock(pattern, "callout");
 
   return (
     <div className={styles.root}>
       {previewPayload ? (
         <>
           <p className={styles.hint}>
-            サイネージ（教室の 50 インチ画面）にどう出るかを見ながら編集できます。盤面の「予定 /
-            連絡 / 提出物」の領域をクリックすると、 その項目の編集欄に移動します。
-            {hasBelowEditors ? "来校者一覧・生徒呼び出しは盤面の下の編集欄で編集します。" : ""}
-            広告は編集できません（広告管理で設定）。
+            実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
           </p>
 
           {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
@@ -183,7 +170,9 @@ export function WysiwygBoardEditor({
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
           <div ref={canvasRef} className={styles.canvas}>
-            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。 */}
+            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
+                幅計測（ResizeObserver / マウント）が済むまでは盤面を出せないので、その間は真っ白な空箱ではなく
+                スケルトンを敷く（LEDGER v2-ed-uo11: 読み込み中の "白い空箱" を解消）。 */}
             {boardWidth != null ? (
               <ScaledSignageBoard
                 payload={previewPayload}
@@ -191,7 +180,9 @@ export function WysiwygBoardEditor({
                 editRegions={{ active, onRegion: focusRegion }}
                 now={now}
               />
-            ) : null}
+            ) : (
+              <div className={styles.skeleton} aria-hidden="true" />
+            )}
           </div>
         </>
       ) : null}

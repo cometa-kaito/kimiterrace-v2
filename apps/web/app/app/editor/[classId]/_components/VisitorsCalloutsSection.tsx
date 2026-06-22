@@ -1,0 +1,69 @@
+"use client";
+
+import type { ClassVisitor, StudentCallout } from "@kimiterrace/db";
+import { CalloutsEditor } from "./CalloutsEditor";
+import { VisitorsEditor } from "./VisitorsEditor";
+import boardLayout from "./board-layout.module.css";
+
+/**
+ * 来校者一覧 / 生徒呼び出しの編集セクション（pattern2/3 専用ブロック）。盤面の下に 2 カラムで出す。
+ *
+ * ## なぜ独立コンポーネントにしたか（バグ修正の本丸）
+ * 旧実装は親（`page.tsx`）が `VisitorsEditor` と `CalloutsEditor` を**同じ `key={date}`** で、しかも
+ * それぞれ `showVisitors && …` / `showCallouts && …` の**条件付き短絡で同一親に隣接**させて並べていた。
+ * この「同一親・隣接・条件付きレンダリング＋兄弟で同じ key」という配置のとき、対象日（`?date=` ソフトナビ＝
+ * 同一ページ再レンダ）で `date` を変えると「来校者一覧」が複製され「生徒呼び出し」が下へ押し出される、という
+ * 実バグが本番（6/21→6/22）で観測された（衝突 key に戻すと手元でも再現・回帰テストで固定済）。
+ * ※ React の内部仕様としては「型＋位置で照合」されるため、異なる型の兄弟が同じ key を持つこと自体は通常は
+ *   問題にならない。ここで複製したのは上記の特定配置での rerender 時に観測された挙動であり、断定的な一般則
+ *   （「key が被ると未定義」）として記録しない。観測事実に留める。
+ *
+ * 修正方針: 各エディタに**衝突しない安定キー**（`visitors-*` / `callouts-*`）を与える。日付変更時に新日付の
+ * データで初期化する目的（旧 `key={date}` の意図）は、`date` を含めることで維持する（`visitors-${date}` /
+ * `callouts-${date}`）＝対象日切替時の「中身が変更先の日付に移る」混線も従来どおり防げる。
+ *
+ * 表示・保存・検証・RLS/監査は各エディタ（`VisitorsEditor` / `CalloutsEditor`）が温存して担う。本コンポーネントは
+ * **配置と key 付与のみ**で、データには一切関与しない。盤面のパターン選択（`showVisitors` / `showCallouts`）は
+ * 親が `patternIncludesBlock` 単一ソースで決めた値をそのまま受け取るだけで、ここでは増減させない。
+ */
+export function VisitorsCalloutsSection({
+  classId,
+  date,
+  showVisitors,
+  showCallouts,
+  visitors,
+  callouts,
+}: {
+  classId: string;
+  date: string;
+  showVisitors: boolean;
+  showCallouts: boolean;
+  visitors: ClassVisitor[] | null;
+  callouts: StudentCallout[] | null;
+}) {
+  if (!(showVisitors || showCallouts)) {
+    return null;
+  }
+  return (
+    <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
+      {showVisitors && visitors ? (
+        // 兄弟間で衝突しない安定キー。旧実装は両兄弟が同じ key={date} で、上記の配置下で対象日変更時に複製が
+        // 観測された。date を含め日付変更で再マウントする（新日付データで初期化する旧 key={date} の意図を維持）。
+        <VisitorsEditor
+          key={`visitors-${date}`}
+          classId={classId}
+          date={date}
+          initialItems={visitors}
+        />
+      ) : null}
+      {showCallouts && callouts ? (
+        <CalloutsEditor
+          key={`callouts-${date}`}
+          classId={classId}
+          date={date}
+          initialItems={callouts}
+        />
+      ) : null}
+    </div>
+  );
+}
