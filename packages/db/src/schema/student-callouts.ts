@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { date, index, pgTable, uuid, varchar } from "drizzle-orm/pg-core";
+import { date, index, integer, pgTable, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { classes } from "./classes.js";
 import { schools } from "./schools.js";
@@ -51,6 +51,9 @@ export const studentCallouts = pgTable(
     reason: varchar("reason", { length: 200 }),
     // 呼び出し/予定時刻 "HH:MM"（任意）。一覧の並び順に使う。形式検証はアプリ層。
     scheduledTime: varchar("scheduled_time", { length: 5 }),
+    // 表示順（教員が呼び出し一覧を任意に並べ替える。盤面はこの昇順で描画する）。保存（全置換）時に編集 UI の
+    // 行位置を 0,1,2... で採番する。既定 0（旧データ・未採番は時刻→氏名のタイブレークに委ねる）。migration 0035。
+    sortOrder: integer("sort_order").notNull().default(0),
     ...auditColumns,
   },
   (t) => ({

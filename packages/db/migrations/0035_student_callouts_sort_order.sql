@@ -1,0 +1,29 @@
+-- =====================================================================
+-- 0035_student_callouts_sort_order.sql
+-- 目的: student_callouts に表示順列 sort_order（NOT NULL DEFAULT 0）を追加する。
+--       教員が「生徒呼び出し」の並び順を任意に変えられるようにする（要望 2026-06-23）。
+--       盤面（パターン2/3 の生徒呼び出し）と編集 UI はこの昇順で描画/保存する。
+--       class_visitors の 0034 と同型（来校者の表示順変更と揃える）。
+--
+-- 前提: drizzle/<timestamp>_*.sql で student_callouts が作成済であること
+--       （collectMigrationFiles は drizzle/* を全て適用 → migrations/* を全て適用するため、
+--        本 0035 は student_callouts 作成後に流れる。migrations/README.md 順序契約）。
+--       列追加のみ（0022_tv_devices_fcm_token.sql / 0034_class_visitors_sort_order.sql と同型）。
+--
+-- RLS について（ルール2）:
+--   student_callouts の RLS は 0024_student_callouts_rls.sql で tenant_isolation +
+--   system_admin_full_access の 2 policy を FOR ALL（全列対象）で付与済。**列追加は policy に影響しない**
+--   （policy は school_id / role に対する行レベル述語で、列単位の権限制御ではない）。よって本 migration は
+--   列追加のみで policy 変更は不要（ADR-019 二層 RLS は維持）。
+--
+-- 監査について（ルール1）:
+--   created_by/updated_by FK・auditColumns は 0024 で付与済。新規 FK 列ではないため監査 FK 追加は不要。
+--
+-- 既定値: DEFAULT 0。既存行（採番前）は全て 0 となり、読み取りクエリ側の
+--   ORDER BY sort_order, scheduled_time, student_name のタイブレーク（時刻→氏名）で従来順を保つ。
+--   保存（replaceStudentCallouts の全置換）以降は行位置 0,1,2... が採番される。
+--
+-- 冪等性: ADD COLUMN IF NOT EXISTS で再適用安全（auto-discovery loader が毎回全件流すため）。
+-- =====================================================================
+
+ALTER TABLE student_callouts ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;

@@ -5,12 +5,17 @@ import { setCalloutsAction } from "@/lib/editor/callouts-actions";
 import { validateCalloutItems } from "@/lib/editor/callouts-core";
 import type { StudentCallout } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
+  draggingRowStyle,
+  dropOverRowStyle,
   emptyPlaceholderStyle,
+  gripStyle,
   inputStyle,
+  moveBtnDisabledStyle,
+  moveBtnStyle,
   removeBtnStyle,
   saveBarStyle,
   secondaryBtnStyle,
@@ -19,6 +24,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { type RowReorder, moveItem, useRowReorder } from "./useRowReorder";
 
 /**
  * 生徒呼び出しエディタ（パターン2「生徒呼び出し」）。**Client Component** — クラス×日付の呼び出しを行で
@@ -32,12 +38,77 @@ import {
  * 取り違え防止。生徒以外の機微情報は入れない。教員向け注記には内部 ADR 番号を出さない（理由文のみ）。
  *
  * **時刻入力（finding #10）**: `type="time"` のネイティブ時刻ピッカーにし、手打ちの「HH:MM」形式ミスを防ぐ。
+ *
+ * **表示順の変更（要望 2026-06-23）**: 呼び出しは既定では盤面で時刻順に並ぶが、教員が任意の順に並べ替えたい
+ * ケースがあるため、行をドラッグ&ドロップ /「上へ・下へ」で並べ替えられるようにする（{@link useRowReorder}・
+ * 連絡 / 来校者と同部品）。並べ替え後の配列順は既存の自動保存経路でそのまま保存され、サーバが各行の位置を
+ * `sort_order` に採番する（migration 0035）。読み取りは `sort_order` 昇順優先（同順位は時刻→氏名）。
  */
-type Row = { scheduledTime: string; studentName: string; location: string; reason: string };
+type Row = {
+  /** 行の安定キー（並べ替えで React の同一性を保つための描画用 id。保存対象外）。 */
+  id: string;
+  scheduledTime: string;
+  studentName: string;
+  location: string;
+  reason: string;
+};
 
-/** 行 state を保存ペイロードに正規化する。dirty 判定と保存で同じ写像を使う。 */
-function toItems(rows: Row[]): Row[] {
-  return rows.map((r) => ({ ...r }));
+/** 保存ペイロード（行の安定キー `id` は描画用なので保存対象外）。 */
+type CalloutPayload = Omit<Row, "id">;
+
+/** 行 state を保存ペイロードに正規化する（`id` を除く）。dirty 判定と保存で同じ写像を使う。 */
+function toItems(rows: Row[]): CalloutPayload[] {
+  return rows.map((r) => ({
+    scheduledTime: r.scheduledTime,
+    studentName: r.studentName,
+    location: r.location,
+    reason: r.reason,
+  }));
+}
+
+/**
+ * 1 行ぶんの並べ替えコントロール（grip + 上へ/下へ）。マウスは grip を掴んでドラッグ、キーボード/タッチは
+ * 「上へ」「下へ」ボタン（aria-label 付き・色だけに依存しない）。連絡 / 来校者エディタの同名部品と揃える。
+ */
+function ReorderControls({
+  reorder,
+  position,
+  total,
+}: {
+  reorder: RowReorder;
+  position: number;
+  total: number;
+}) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
+      <span
+        {...reorder.handleProps}
+        aria-hidden
+        title="ドラッグして並べ替え（または 上へ/下へ ボタン）"
+        style={gripStyle}
+      >
+        ⠿
+      </span>
+      <button
+        type="button"
+        onClick={() => reorder.onMove(-1)}
+        disabled={!reorder.canUp}
+        style={reorder.canUp ? moveBtnStyle : moveBtnDisabledStyle}
+        aria-label={`${position} 行目を上へ移動（全 ${total} 行中）`}
+      >
+        <span aria-hidden>↑</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => reorder.onMove(1)}
+        disabled={!reorder.canDown}
+        style={reorder.canDown ? moveBtnStyle : moveBtnDisabledStyle}
+        aria-label={`${position} 行目を下へ移動（全 ${total} 行中）`}
+      >
+        <span aria-hidden>↓</span>
+      </button>
+    </span>
+  );
 }
 
 export function CalloutsEditor({
@@ -50,13 +121,16 @@ export function CalloutsEditor({
   initialItems: StudentCallout[];
 }) {
   const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i) => ({
+    initialItems.map((i, idx) => ({
+      id: `r${idx}`,
       scheduledTime: i.scheduledTime ?? "",
       studentName: i.studentName,
       location: i.location ?? "",
       reason: i.reason ?? "",
     })),
   );
+  // 新規行の安定キー用カウンタ（初期行は r0.. を使うので length から続け、衝突しない）。NoticeEditor と同方式。
+  const nextId = useRef(initialItems.length);
 
   const items = toItems(rows);
   const serialized = serializeForDirty(items);
@@ -74,11 +148,22 @@ export function CalloutsEditor({
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
   function addRow() {
-    setRows((prev) => [...prev, { scheduledTime: "", studentName: "", location: "", reason: "" }]);
+    const id = `r${nextId.current}`;
+    nextId.current += 1;
+    setRows((prev) => [
+      ...prev,
+      { id, scheduledTime: "", studentName: "", location: "", reason: "" },
+    ]);
   }
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
+  // 並べ替え: 行を from→to へ移す。並べ替え後の配列順がそのまま保存ペイロード順になり、既存の自動保存
+  // （dirty 判定 = serialized 変化）が走って sort_order が採番・保存される（盤面の表示順が変わる）。
+  function moveRow(from: number, to: number) {
+    setRows((prev) => moveItem(prev, from, to));
+  }
+  const rowReorder = useRowReorder(rows.length, moveRow);
 
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px", marginTop: "1.5rem" }}>
@@ -92,6 +177,7 @@ export function CalloutsEditor({
         <table style={tableStyle}>
           <thead>
             <tr>
+              <th style={thStyle} aria-label="並べ替え" />
               <th style={thStyle}>時刻</th>
               <th style={thStyle}>
                 生徒氏名
@@ -105,65 +191,79 @@ export function CalloutsEditor({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ ...tdStyle, padding: 0 }}>
+                <td colSpan={6} style={{ ...tdStyle, padding: 0 }}>
                   <div style={emptyPlaceholderStyle}>
                     まだ呼び出しがありません。「呼び出しを追加」から入力します。
                   </div>
                 </td>
               </tr>
             ) : null}
-            {rows.map((r, i) => (
-              // 行は順序が UI 状態なので index key で十分（保存は全置換）。
-              // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
-              <tr key={i}>
-                <td style={tdStyle}>
-                  <input
-                    type="time"
-                    value={r.scheduledTime}
-                    onChange={(e) => update(i, { scheduledTime: e.target.value })}
-                    style={{ ...inputStyle, width: "8rem" }}
-                    aria-label={`${i + 1} 行目の時刻`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    value={r.studentName}
-                    onChange={(e) => update(i, { studentName: e.target.value })}
-                    placeholder="生徒氏名"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の生徒氏名`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    value={r.location}
-                    onChange={(e) => update(i, { location: e.target.value })}
-                    placeholder="(任意) 職員室 等"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の呼び出し先`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    value={r.reason}
-                    onChange={(e) => update(i, { reason: e.target.value })}
-                    placeholder="(任意) 用件"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の用件`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(i)}
-                    style={removeBtnStyle}
-                    aria-label={`${i + 1} 行目を削除`}
-                  >
-                    削除
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((r, i) => {
+              const reorder = rowReorder(i);
+              return (
+                // 安定キー `r.id` で並べ替え時も行の同一性を保つ（NoticeEditor / VisitorsEditor と同方式）。
+                <tr
+                  key={r.id}
+                  {...reorder.dropProps}
+                  style={{
+                    ...(reorder.isDragging ? draggingRowStyle : {}),
+                    ...(reorder.isOver ? dropOverRowStyle : {}),
+                  }}
+                >
+                  <td style={tdStyle}>
+                    {rows.length > 1 ? (
+                      <ReorderControls reorder={reorder} position={i + 1} total={rows.length} />
+                    ) : null}
+                  </td>
+                  <td style={tdStyle}>
+                    <input
+                      type="time"
+                      value={r.scheduledTime}
+                      onChange={(e) => update(i, { scheduledTime: e.target.value })}
+                      style={{ ...inputStyle, width: "8rem" }}
+                      aria-label={`${i + 1} 行目の時刻`}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <input
+                      value={r.studentName}
+                      onChange={(e) => update(i, { studentName: e.target.value })}
+                      placeholder="生徒氏名"
+                      style={{ ...inputStyle, width: "100%" }}
+                      aria-label={`${i + 1} 行目の生徒氏名`}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <input
+                      value={r.location}
+                      onChange={(e) => update(i, { location: e.target.value })}
+                      placeholder="(任意) 職員室 等"
+                      style={{ ...inputStyle, width: "100%" }}
+                      aria-label={`${i + 1} 行目の呼び出し先`}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <input
+                      value={r.reason}
+                      onChange={(e) => update(i, { reason: e.target.value })}
+                      placeholder="(任意) 用件"
+                      style={{ ...inputStyle, width: "100%" }}
+                      aria-label={`${i + 1} 行目の用件`}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <button
+                      type="button"
+                      onClick={() => removeRow(i)}
+                      style={removeBtnStyle}
+                      aria-label={`${i + 1} 行目を削除`}
+                    >
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

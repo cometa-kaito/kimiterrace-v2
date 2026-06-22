@@ -151,7 +151,9 @@ describeOrSkip("RLS: student_callouts（生徒呼び出し）", () => {
       (tx) => getCalloutsForClass(tx, classA, today),
       APP,
     );
-    expect(rows.map((r) => r.studentName)).toEqual(["鈴木花子", "佐藤太郎"]);
+    // 表示順は sort_order（保存時の挿入＝編集 UI の行順）優先で、時刻より勝つ（呼び出しの表示順変更 / migration 0035）。
+    // 佐藤太郎=idx0(10:00) → 鈴木花子=idx1(09:00)。旧挙動（時刻昇順で鈴木→佐藤）から「教員が並べた順」へ変わった。
+    expect(rows.map((r) => r.studentName)).toEqual(["佐藤太郎", "鈴木花子"]);
 
     const count = await withTenantContext(
       db,
