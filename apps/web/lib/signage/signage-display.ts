@@ -254,9 +254,10 @@ export async function buildSignagePayloadForClass(
   const ads = monitorId
     ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
     : await getEffectiveAdsForClass(tx, classId);
-  // 予定グリッド (今後 N 平日・`SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝盤面 CSS の列数と一致)。`date` を
-  // 起点に土日を飛ばした N 平日ぶんの schedules を 1 クエリで取得。列数を増やしても 1 クエリ（日付配列を
-  // 渡すだけ）なので追加コネクション・往復は増やさない。連絡/提出物/自動ブロックの取得範囲は不変。
+  // 予定グリッド (今後 N 平日・`SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝盤面 CSS の列数と一致・現在 5 列)。
+  // `date` を起点に土日を飛ばした N 平日ぶんの schedules を 1 クエリで取得。pattern3（廊下版）も同じ 5 列で出す
+  // （専用の Pattern3Schedule が 5 列レイアウトで描く）。列数を増やしても 1 クエリ（日付配列を渡すだけ）なので
+  // 追加コネクション・往復は増やさない。連絡/提出物/自動ブロックの取得範囲は不変。
   const scheduleDays = await getEffectiveScheduleDays(
     tx,
     classId,

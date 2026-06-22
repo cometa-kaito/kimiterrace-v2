@@ -13,6 +13,7 @@ import {
 } from "@/lib/signage/section-format";
 import type { HeatAlertLevel, WarningLevel } from "@kimiterrace/db/schema";
 import type { SignageHeatAlert } from "@/lib/signage/heat-alerts";
+import { formatNewsDate, formatNewsUrl } from "@/lib/signage/news-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import type { SignageWeatherWarning } from "@/lib/signage/weather-warnings";
@@ -24,6 +25,7 @@ import {
   type EditRegionsProps,
 } from "./BoardRegionEditButton";
 import editStyles from "./BoardRegionEditButton.module.css";
+import { Pattern3NewsTicker } from "./Pattern3NewsTicker";
 import styles from "./signage.module.css";
 
 /**
@@ -381,21 +383,20 @@ function Pattern3Board({
         <main className={styles.infoArea}>
           <div className={styles.p2Grid}>
             <Pattern3WeeklyWeather weather={data.weather ?? null} today={data.date} />
-            <Pattern2Schedule
+            <Pattern3Schedule
               days={data.scheduleDays}
               today={data.date}
-              weather={data.weather ?? null}
               editRegions={editRegions}
             />
             <div className={styles.p2People}>
-              <Pattern2Callouts callouts={data.callouts} />
-              <Pattern2Visitors visitors={data.visitors} />
+              <Pattern3Callouts callouts={data.callouts} />
+              <Pattern3Visitors visitors={data.visitors} />
             </div>
-            <div className={styles.p2Status}>
-              <Pattern2Train train={data.trainStatus} />
-              <Pattern2SensorCount count={data.presenceCount} />
-            </div>
-            {/* 時事ニュースは廊下版（pattern3）では出さない（2026-06-20 ユーザー確定・PATTERN_BLOCKS から除去）。 */}
+            <Pattern3Footer
+              news={data.news}
+              train={data.trainStatus}
+              presenceCount={data.presenceCount}
+            />
           </div>
         </main>
         <AdAside
@@ -626,31 +627,276 @@ function Pattern3WeeklyWeather({
             key={day.forecastDate}
             className={`${styles.p3WxCell} ${isToday ? styles.p3WxCellToday : ""}`}
           >
-            <span className={styles.p3WxDow}>{weekday}</span>
-            <span className={styles.p3WxDate}>{monthDay}</span>
+            {/* 1 段目: 曜日 + 日付を横並び（縦積みの段数を減らし無駄な余白を削る）。 */}
+            <span className={styles.p3WxHead}>
+              <span className={styles.p3WxDow}>{weekday}</span>
+              <span className={styles.p3WxDate}>{monthDay}</span>
+            </span>
+            {/* 2 段目: 天気アイコン（意味は aria-label が担保・色非依存 NFR05）。 */}
             <span className={styles.p3WxIcon} aria-label={day.weatherText ?? day.iconLabel}>
               <span aria-hidden="true">{WEATHER_ICON_GLYPH[day.icon]}</span>
             </span>
-            <span className={styles.p3WxTemps}>
+            {/* 3 段目: 最高/最低/降水確率を 1 行に横並び。 */}
+            <span className={styles.p3WxData}>
               <span className={styles.p3WxHigh}>
                 {day.tempMax != null ? `${day.tempMax}°` : "—"}
               </span>
               <span className={styles.p3WxLow}>
                 {day.tempMin != null ? `${day.tempMin}°` : "—"}
               </span>
+              {day.pop != null ? (
+                <span
+                  className={`${styles.p3WxPop} ${day.pop >= 50 ? styles.p3WxPopHigh : ""}`}
+                  aria-label={`降水確率 ${day.pop}％`}
+                >
+                  <span aria-hidden="true">☂</span>
+                  {day.pop}%
+                </span>
+              ) : null}
             </span>
-            {day.pop != null ? (
-              <span
-                className={`${styles.p3WxPop} ${day.pop >= 50 ? styles.p3WxPopHigh : ""}`}
-                aria-label={`降水確率 ${day.pop}％`}
-              >
-                <span aria-hidden="true">☂</span>
-                {day.pop}%
-              </span>
-            ) : null}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** pattern3（廊下版）予定で「1 列に何コマまで出すか」。これを超える日は CSS で自動縦スクロールする。 */
+const P3_SCHEDULE_VISIBLE_ROWS = 6;
+
+/**
+ * パターン3（廊下版）専用の予定。pattern2 の 3 列とは別物で、廊下の「遠目・一瞥」に最適化する（2026-06-22 ユーザー確定）:
+ *   - **平日 5 日**を 5 列で出す（データ層が pattern3 だけ 5 平日を供給。pattern1/2 は 3 列のまま無改修）。
+ *   - **箱をやめ**、日ごとは**縦線**（列の border-left）、コマは**横線**（行の border-bottom）で区切る。
+ *   - 日付は **`M/D(曜)`** 表記（{@link p3ScheduleHeaderLabel}）。**天気アイコンは出さない**（週間天気帯が担う）。
+ *   - 1 列 **6 コマ**まで表示し、超える日は **CSS のみで自動縦スクロール**（{@link P3_SCHEDULE_VISIBLE_ROWS} /
+ *     `.p3SchScrollerAuto`）。hooks を持たないので `SignageBoardView` の server 描画可能性（ScaledSignageBoard）は不変。
+ *
+ * region は pattern2 と同じ `aria-label="予定"`（編集配線 `regionEditProps("schedules", …)` を共有＝WYSIWYG「盤面を
+ * 編集」もそのまま効く・盤面 region ドリフトガードと整合）。
+ */
+function Pattern3Schedule({
+  days,
+  today,
+  editRegions,
+}: {
+  days: ScheduleDay[];
+  today: string;
+  editRegions?: EditRegionsProps;
+}) {
+  const { sectionProps, button } = regionEditProps(
+    "schedules",
+    styles.p3Schedule,
+    "予定",
+    editRegions,
+  );
+  return (
+    <section {...sectionProps}>
+      {button}
+      {days.map((day) => {
+        const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
+        const isToday = day.date === today;
+        const overflow = rows.length > P3_SCHEDULE_VISIBLE_ROWS;
+        return (
+          <div
+            key={day.date}
+            className={`${styles.p3SchDay} ${isToday ? styles.p3SchDayToday : ""}`}
+          >
+            <div className={styles.p3SchDate}>{p3ScheduleHeaderLabel(day.date)}</div>
+            <div className={styles.p3SchRows}>
+              {rows.length === 0 ? (
+                <span className={styles.p3SchEmpty}>予定はありません</span>
+              ) : (
+                <div
+                  className={`${styles.p3SchScroller} ${overflow ? styles.p3SchScrollerAuto : ""}`}
+                  // 超過時のみ: 行数を CSS 変数で渡し、スクロール距離（(行数-6)×行高）と所要時間を CSS 側で算出する。
+                  style={
+                    overflow
+                      ? ({ "--p3-sch-rows": String(rows.length) } as React.CSSProperties)
+                      : undefined
+                  }
+                >
+                  {rows.map((row, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                    <Pattern3ScheduleRow key={i} row={row} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/** pattern3 予定の 1 コマ（固定行高・単一行）。時限 + 内容を 1 行で出す（はみ出しは省略）。 */
+function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  return (
+    <div className={styles.p3SchItem}>
+      <span className={styles.p3SchMain}>
+        {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
+        {row.content}
+      </span>
+    </div>
+  );
+}
+
+/** pattern3（廊下版）人物エリアで「1 列に何件まで出すか」。これを超えると CSS で自動縦スクロールする。 */
+const P3_PEOPLE_VISIBLE_ROWS = 3;
+
+/**
+ * パターン3（廊下版）専用の生徒呼び出し。pattern2 の `card`（囲み枠）はやめ、見出し（アクセント下線の名札）＋
+ * 固定高ビューポートで出し、{@link P3_PEOPLE_VISIBLE_ROWS} 件を超える日は **CSS のみで自動縦スクロール**する
+ * （予定 §11c-2 と同作法・hooks なし＝server 描画可能性は不変）。region は pattern2 と同じ `aria-label="生徒呼び出し"`
+ * （盤面 region ドリフトガードと整合）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。
+ */
+function Pattern3Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
+  const list = callouts ?? [];
+  const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
+  return (
+    <section aria-label="生徒呼び出し" className={styles.p3Person}>
+      <h2 className={styles.p3PersonTitle}>生徒呼び出し</h2>
+      <div className={styles.p3PersonRows}>
+        {list.length === 0 ? (
+          <span className={styles.p3SchEmpty}>呼び出しはありません</span>
+        ) : (
+          <div
+            className={`${styles.p3PersonScroller} ${overflow ? styles.p3PersonScrollerAuto : ""}`}
+            style={
+              overflow
+                ? ({ "--p3-person-rows": String(list.length) } as React.CSSProperties)
+                : undefined
+            }
+          >
+            {list.map((c) => (
+              <div key={c.id} className={styles.p3PersonItem}>
+                <span className={styles.p3PersonMain}>
+                  {c.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                  ) : null}
+                  <span className={styles.p3PersonName}>{c.studentName}</span>
+                  {c.location ? <span className={styles.p3PersonTo}>→ {c.location}</span> : null}
+                </span>
+                {c.reason ? <span className={styles.p3PersonMeta}>{c.reason}</span> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * パターン3（廊下版）専用の来校者一覧。{@link Pattern3Callouts} と同じく囲み枠をやめ、固定高ビューポート＋
+ * 6 件超の自動縦スクロールにする。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
+ * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」・2026-06-10 ユーザー確定）。
+ */
+function Pattern3Visitors({ visitors }: { visitors: SignagePayload["visitors"] }) {
+  const list = visitors ?? [];
+  const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
+  return (
+    <section aria-label="来校者一覧" className={styles.p3Person}>
+      <h2 className={styles.p3PersonTitle}>来校者一覧</h2>
+      <div className={styles.p3PersonRows}>
+        {list.length === 0 ? (
+          <span className={styles.p3SchEmpty}>本日の来校者はありません</span>
+        ) : (
+          <div
+            className={`${styles.p3PersonScroller} ${overflow ? styles.p3PersonScrollerAuto : ""}`}
+            style={
+              overflow
+                ? ({ "--p3-person-rows": String(list.length) } as React.CSSProperties)
+                : undefined
+            }
+          >
+            {list.map((v) => (
+              <div key={v.id} className={styles.p3PersonItem}>
+                <span className={styles.p3PersonMain}>
+                  {v.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{v.scheduledTime}</span>
+                  ) : null}
+                  <span className={styles.p3PersonName}>{v.visitorName}</span>
+                  {v.affiliation ? (
+                    <span className={styles.p3PersonAffil}>（{v.affiliation}）</span>
+                  ) : null}
+                </span>
+                {v.purpose || v.host ? (
+                  <span className={styles.p3PersonMeta}>
+                    {v.purpose ? <span>{v.purpose}</span> : null}
+                    {v.purpose && v.host ? (
+                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                        ／
+                      </span>
+                    ) : null}
+                    {v.host ? <span>対応: {v.host}</span> : null}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * パターン3（廊下版）の**フッタ帯**（情報エリア最下段・左下）。従来の「鉄道・人感センサのステータス帯」と
+ * 「工学ニュースのカード」を 1 本のスリムなフッタに集約する（2026-06-22 ユーザー確定）:
+ *   - **工学ニュース** = 主役。{@link Pattern3NewsTicker}（client island）が 1 件ずつ自動で切り替える。
+ *   - **鉄道 / 人感センサ** = 付属情報として右端に小さく常時表示。
+ * 右 30% の広告は不変（フッタは左 70% の情報エリア内に収め、広告を覆わない＝「広告は隠さない」ユーザー指示）。
+ * 鉄道・人感センサは {@link SIGNAGE_BLOCK_META} で `hasRegion=true` なので `<section aria-label>` の region を保つ
+ * （盤面 region ドリフトガードと整合）。取得失敗・不在は fail-soft 表示に倒す（盤面を壊さない）。
+ */
+function Pattern3Footer({
+  news,
+  train,
+  presenceCount,
+}: {
+  news: SignagePayload["news"];
+  train: SignagePayload["trainStatus"];
+  presenceCount: number | null;
+}) {
+  return (
+    <div className={styles.p3Foot}>
+      <Pattern3NewsTicker news={news} />
+      <div className={styles.p3FootSide}>
+        <section aria-label="鉄道" className={styles.p3FootChip}>
+          <span className={styles.p3FootChipLabel}>
+            鉄道{train ? `・${train.operatorName}` : ""}
+          </span>
+          {train == null ? (
+            <span className={styles.p3FootMuted}>取得できていません</span>
+          ) : (
+            <span className={styles.p3FootChipBody}>
+              <span
+                className={`${styles.p3FootChipVal} ${train.hasDisruption ? styles.p3FootChipAlert : ""}`}
+              >
+                {train.statusText}
+              </span>
+              {train.isStale ? (
+                <span className={styles.p3FootMuted} role="status">
+                  （古い可能性）
+                </span>
+              ) : null}
+            </span>
+          )}
+        </section>
+        <section aria-label="人感センサカウンタ" className={styles.p3FootChip}>
+          <span className={styles.p3FootChipLabel}>本日の検知</span>
+          {presenceCount == null ? (
+            <span className={styles.p3FootMuted}>計測なし</span>
+          ) : (
+            <span className={styles.p3FootChipVal}>
+              {presenceCount.toLocaleString("ja-JP")}
+              <span className={styles.p3FootChipUnit}>回</span>
+            </span>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
@@ -1141,27 +1387,6 @@ function splitNewsSummary(summary: string): string[] {
     .map((s) => `${s}。`);
 }
 
-/** ニュース公開日を `M/D` に整形（TZ ドリフト回避に JST 表示）。不正値は空文字。 */
-function formatNewsDate(d: Date): string {
-  if (Number.isNaN(d.getTime())) {
-    return "";
-  }
-  return d.toLocaleDateString("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    month: "numeric",
-    day: "numeric",
-  });
-}
-
-/** 出典 URL をホスト名（出典ドメイン）に短縮表示する。パース不可は素の URL を返す（fail-soft）。 */
-function formatNewsUrl(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
 /**
  * 予定（今後3平日の3列グリッド）。上段に横幅いっぱいで配置 (v1 ScheduleGrid 移植)。
  * 各列の日付ヘッダーに当日の天気を横並びで表示する（2026-06-07 ユーザー）。天気が古い場合は
@@ -1472,6 +1697,25 @@ function scheduleHeaderLabel(date: string): string {
   const mm = String(m).padStart(2, "0");
   const dd = String(d).padStart(2, "0");
   return `${mm}/${dd} (${dow})`;
+}
+
+/**
+ * pattern3（廊下版）予定の日付ヘッダー: **`M/D(曜)`**（先頭ゼロなし・括弧前スペースなし。例: `6/23(火)`。
+ * 2026-06-22 ユーザー指定）。pattern1/2 の {@link scheduleHeaderLabel}（`MM/DD (曜)`）とは別表記。不正値は素返し。
+ */
+function p3ScheduleHeaderLabel(date: string): string {
+  const parts = date.split("-");
+  if (parts.length !== 3) {
+    return date;
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return date;
+  }
+  const dow = WEEKDAY_JA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? "";
+  return `${m}/${d}(${dow})`;
 }
 
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"] as const;

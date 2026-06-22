@@ -922,8 +922,8 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* CC BY ソース（経産省 METI）の公式要約の箇条書き（pattern4 = showSummary のときのみ）。控えめ・行間広めで、
-   各文を 2 行までにクランプし 1 記事の高さが破綻しないようにする（pattern2 では描画されない）。 */
+/* CC BY ソース（経産省 METI）の公式要約の箇条書き（pattern4 / pattern3 フッタ = showSummary のときのみ）。控えめ・
+   行間広めで、各文を 2 行までにクランプし 1 記事の高さが破綻しないようにする（pattern2 では描画されない）。 */
 .p2NewsSummary {
   list-style: none;
   margin: 0.1rem 0 0;
@@ -958,9 +958,19 @@
      (3) 「今日」列を枠で面強調 */
 
 /* (1) 大型ヘッダー: 時刻主役。--header-height を p3 だけ高くし .container の上余白も自動追従させる
-   （.signageRoot.p3Root の 2 クラス指定で 12 章のレスポンシブ --header-height より優先）。 */
+   （.signageRoot.p3Root の 2 クラス指定で 12 章のレスポンシブ --header-height より優先）。
+   あわせて廊下版（遠目・一瞥）のローカル設計変数を定義する。pattern2（教室・近接）より「ゾーン分離・
+   二次情報のコントラスト」を一段強める値で、**p3 スコープ限定**＝pattern2 / グローバル brand トークンには
+   一切影響しない（教室端末は不変・brand-tokens-drift も無関係）。 */
 .signageRoot.p3Root {
-  --header-height: 58px;
+  --header-height: 64px;
+  /* パネル境界: 既定 --border-color(#e5e7eb) は廊下距離で消えるので一段濃く（面の分離を遠目で効かせる装飾境界）。 */
+  --p3-panel-border: #cbd2dc;
+  /* 二次テキスト（ラベル/メタ/空状態/出典）: --text-muted(#6b7280) は遠目で沈むので濃く。
+     #475467 は白 / #f7f8fa 上で約 7:1（本文 AA 4.5:1 を余裕で充足・NFR05 は数値併記で別途担保）。 */
+  --p3-ink-secondary: #475467;
+  /* 「今日」面の淡いアクセント地（予定の今日列・週間天気の今日セル）。--accent-color 系の極淡で焦点を作る。 */
+  --p3-today-tint: #eef4fb;
 }
 .p3Header {
   position: absolute;
@@ -980,11 +990,13 @@
 .p3HeaderLoc {
   display: inline-flex;
   align-items: center;
-  font-weight: 700;
-  font-size: clamp(0.85rem, 1.2vw, 1.15rem);
-  max-width: 32%;
+  font-weight: 800;
+  /* 廊下では「どの掲示か（学科 学年 クラス）」が最重要の手掛かり。遠目で読めるよう拡大する。 */
+  font-size: clamp(1rem, 1.5vw, 1.5rem);
+  max-width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 時刻＝主役。右寄せで大きく。tabular-nums で桁ブレを防ぐ。 */
 .p3HeaderClock {
@@ -1014,11 +1026,13 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding-left: 0.9rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  /* 当日気温は通行者がよく見る情報。区切り線でなく淡いピルにして遠目でも一塊に見せる。 */
+  padding: 0.15rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
 }
 .p3HeaderWxTemp {
-  font-size: clamp(0.8rem, 1.15vw, 1.1rem);
+  font-size: clamp(0.9rem, 1.3vw, 1.25rem);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -1031,34 +1045,20 @@
   border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* (2) 拡大タイポ: 主要テキストの clamp を一段引き上げ、廊下距離で読めるようにする（pattern2 部品の
-   クラスを `.p3Root` 配下でだけ上書き。pattern2 単体のサイズには影響しない）。 */
-.p3Root .p2ScheduleDate {
-  font-size: clamp(1rem, 1.55vw, 1.4rem);
-}
-.p3Root .p2ScheduleMain {
-  font-size: clamp(0.95rem, 1.5vw, 1.45rem);
-}
-.p3Root .cardTitle {
-  font-size: clamp(1.1rem, 1.7vw, 1.5rem);
-}
-.p3Root .p2VisitorMain {
-  font-size: clamp(0.95rem, 1.45vw, 1.35rem);
-}
-.p3Root .p2TrainStatus {
-  font-size: clamp(1rem, 1.6vw, 1.45rem);
-}
-.p3Root .p2StatusLabel {
-  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
-}
-.p3Root .p2SensorNum {
-  font-size: clamp(1.5rem, 2.9vw, 2.5rem);
+/* (2) ゾーン間の余白。pattern3 の各ゾーン（天気帯／予定／人物／フッタ）は専用クラス（§11c-*）で描くため、
+   ここで共有する p3 上書きはコンテナの gap だけ（旧 pattern2 部品の `.p3Root .p2*` 上書きは pattern3 が専用
+   コンポーネントへ移行したので不要になり撤去）。 */
+.p3Root .p2Grid {
+  gap: 14px;
 }
 
-/* (3) 「今日」列を枠で面強調（日付ヘッダーの黒反転＝既存に加え、列全体を太枠で囲う・色非依存）。 */
-.p3Root .p2ScheduleToday {
-  border-color: var(--primary-color);
-  box-shadow: inset 0 0 0 2px var(--primary-color);
+/* (2e) p3 専用の段配分: 天気帯（§11c-1）とフッタ（§11c-4）は固定高。残り高さを予定（§11c-2）と人物（§11c-3）
+   が 3:2 で分け合って盤面を埋める（下部に余白を作らない）。両者とも内部は size container で可視数ぶんに割り付く。
+   人物列は囲み枠をやめ縦線区切りにするため gap は 0。flex は共有 .p2People に載るので .p3Root スコープで上書き
+   ＝pattern2 の配分は不変。鉄道/センサ/ニュースはフッタへ集約したのでステータス帯/ニュースの段は持たない。 */
+.p3Root .p2People {
+  flex: 2 1 0;
+  gap: 0;
 }
 
 /* (4) 週間天気帯（廊下版・グラフなし）。情報エリア（.p2Grid）先頭に本日以降 7 日を 1 行で出す。各日 =
@@ -1069,78 +1069,468 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 0.5vmin;
+  gap: 0;
   min-height: 0;
+  /* 天気と予定は「横線」で区切る（角丸の箱はやめる・2026-06-22 ユーザー指示）。 */
+  border-bottom: 2px solid var(--p3-panel-border);
+  padding-bottom: 0.6vmin;
 }
 .p3WxCell {
-  background: var(--surface-muted);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0.35vmin 0.3vmin;
+  /* 箱（背景/枠/角丸/影）をやめ、各日は「縦線」で区切る。縦積みは 3 段（曜日+日付 / アイコン / 気温+降水）に
+     畳んで無駄な余白を削る。 */
+  border-left: 1px solid var(--p3-panel-border);
+  padding: 0.1rem 0.5vmin 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.05rem;
+  gap: 0.15rem;
   min-width: 0;
   overflow: hidden;
   text-align: center;
   white-space: nowrap;
 }
-/* 今日セル: 予定の今日列と同じ太枠で面強調（色非依存）。 */
+.p3WxCell:first-child {
+  border-left: 0;
+}
+/* 今日は箱でなく「アクセントの上罫＋アクセント曜日」で示す（角丸を使わない・線基調で統一）。 */
 .p3WxCellToday {
-  border-color: var(--primary-color);
-  box-shadow: inset 0 0 0 2px var(--primary-color);
+  box-shadow: inset 0 3px 0 0 var(--accent-color);
+}
+/* 1 段目: 曜日 + 日付を 1 行に横並び（縦積みの段数を減らす）。 */
+.p3WxHead {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  line-height: 1.1;
 }
 .p3WxDow {
-  font-size: clamp(0.72rem, 1.05vw, 0.98rem);
-  font-weight: 700;
+  font-size: clamp(0.82rem, 1.15vw, 1.08rem);
+  font-weight: 800;
   color: var(--primary-color);
-  line-height: 1.1;
 }
 .p3WxCellToday .p3WxDow {
   color: var(--accent-color);
 }
 .p3WxDate {
-  font-size: clamp(0.55rem, 0.78vw, 0.74rem);
+  font-size: clamp(0.6rem, 0.85vw, 0.8rem);
   font-weight: 600;
-  color: var(--text-muted);
-  line-height: 1.1;
+  color: var(--p3-ink-secondary);
 }
 .p3WxIcon {
-  font-size: clamp(1.15rem, 2vw, 1.8rem);
-  line-height: 1.15;
+  font-size: clamp(1.4rem, 2.3vw, 2.1rem);
+  line-height: 1.1;
 }
-/* 最高(暖色・大)/最低(寒色)を横並びで。tabular-nums で桁ブレ防止。 */
-.p3WxTemps {
+/* 3 段目: 最高(暖色・大)/最低(寒色)/降水確率を 1 行に横並び（tabular-nums で桁ブレ防止）。 */
+.p3WxData {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.3rem;
+  gap: 0.35rem;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 .p3WxHigh {
-  font-size: clamp(0.88rem, 1.35vw, 1.2rem);
+  font-size: clamp(1rem, 1.5vw, 1.35rem);
   font-weight: 800;
   color: var(--temp-high-color);
 }
 .p3WxLow {
-  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+  font-size: clamp(0.82rem, 1.15vw, 1.05rem);
   font-weight: 700;
   color: var(--accent-color);
 }
 .p3WxPop {
   display: inline-flex;
   align-items: center;
-  gap: 0.12rem;
-  font-size: clamp(0.55rem, 0.8vw, 0.74rem);
+  gap: 0.1rem;
+  font-size: clamp(0.62rem, 0.85vw, 0.8rem);
   font-weight: 700;
-  color: var(--text-muted);
+  color: var(--p3-ink-secondary);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
 }
 /* 降水確率が高い日（≥50%）は accent で注意喚起（色だけに依存せず % 数値も併記）。 */
 .p3WxPopHigh {
   color: var(--accent-color);
+}
+
+/* ===================== 11c-2. パターン3 予定（廊下版・平日5列・罫線区切り・6行＋自動スクロール） =====================
+   pattern2 の 3 列予定とは別物（Pattern3Schedule）。箱はやめ、日ごとは「縦線」、コマは「横線」で区切る。
+   1 列 6 コマまで表示し、超える日は CSS のみで自動縦スクロール（hooks 不要＝server 描画可能性を保つ）。
+   天気アイコンは出さない（週間天気帯が担う）。pattern1/2 は無改修（2026-06-22 ユーザー確定）。 */
+.p3Schedule {
+  /* 主役（盤面の大半を占める）。残り高さを人物エリアと 3:2 で分け合って盤面を埋める（下に余白を作らない）。 */
+  flex: 3 1 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  min-height: 0;
+  /* 1 列に表示するコマ数。これが行高（=列高/可視数）と自動スクロール距離の基準。コンポーネント定数
+     P3_SCHEDULE_VISIBLE_ROWS と一致させる。 */
+  --p3-sch-visible: 6;
+}
+.p3SchDay {
+  /* 箱なし。日ごとは縦線で区切る（先頭列は線なし）。 */
+  border-left: 1px solid var(--p3-panel-border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 0.6vmin;
+  overflow: hidden;
+}
+.p3SchDay:first-child {
+  border-left: 0;
+}
+/* 日付ヘッダー `M/D(曜)`。予定本体とは横線で区切る。 */
+.p3SchDate {
+  font-weight: 800;
+  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  color: var(--primary-color);
+  text-align: center;
+  padding: 0.15rem 0;
+  margin-bottom: 0.15rem;
+  border-bottom: 2px solid var(--p3-panel-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+/* 今日列: アクセント色の日付＋下罫＋上の短いアクセント罫（週間天気の今日セルと一貫・箱を使わない）。 */
+.p3SchDayToday {
+  box-shadow: inset 0 3px 0 0 var(--accent-color);
+}
+.p3SchDayToday .p3SchDate {
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
+}
+/* 列の残り高さいっぱいの表示窓（= 列高 - 日付ヘッダー）。size container にして 1 コマ高を cqh で割り付け、
+   ちょうど --p3-sch-visible コマで埋める。超過は内側 .p3SchScroller が縦スクロールする。 */
+.p3SchRows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+}
+.p3SchScroller {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+/* 可視数超は自動縦スクロール（上端で一拍→下端へ→一拍→alternate で戻る）。距離 =(行数-可視数)/可視数×窓高、
+   所要時間は行数に比例。行数（--p3-sch-rows）は要素 inline で渡し、窓高は cqh で取る。 */
+.p3SchScrollerAuto {
+  animation: p3SchScroll calc((var(--p3-sch-rows) - var(--p3-sch-visible)) * 3.5s) ease-in-out
+    infinite alternate;
+}
+@keyframes p3SchScroll {
+  0%,
+  10% {
+    transform: translateY(0);
+  }
+  90%,
+  100% {
+    transform: translateY(
+      calc((var(--p3-sch-visible) - var(--p3-sch-rows)) / var(--p3-sch-visible) * 100cqh)
+    );
+  }
+}
+/* アニメ抑制設定では自動スクロールを止め、先頭の可視数コマのみ表示（NFR・design 原則）。 */
+@media (prefers-reduced-motion: reduce) {
+  .p3SchScrollerAuto {
+    animation: none;
+  }
+}
+/* 1 コマ = 窓高を可視数で割った高さ・単一行。コマ間は横線（点線）で区切る。 */
+.p3SchItem {
+  height: calc(100cqh / var(--p3-sch-visible));
+  display: flex;
+  align-items: center;
+  border-bottom: 1px dotted var(--p3-panel-border);
+  min-width: 0;
+}
+.p3SchMain {
+  width: 100%;
+  font-size: clamp(0.92rem, 1.4vw, 1.4rem);
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.p3SchEmpty {
+  color: var(--p3-ink-secondary);
+  font-size: clamp(0.9rem, 1.3vw, 1.18rem);
+  font-weight: 600;
+  padding: 0.3rem 0;
+}
+
+/* ===================== 11c-3. パターン3 人物（生徒呼び出し / 来校者一覧・廊下版） =====================
+   pattern2 の card（囲み枠）はやめ、見出し（アクセント下線の名札）＋固定高ビューポートで出す。2 列は縦線で
+   区切り、1 列 3 件まで表示・超過は CSS のみで自動縦スクロール（予定 §11c-2 と同作法・hooks 不要）。pattern1/2 は無改修。 */
+.p3Person {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 0.7vmin;
+  /* 1 列に表示する件数。1 件高（=窓高/可視数）と自動スクロール距離の基準。コンポーネント定数
+     P3_PEOPLE_VISIBLE_ROWS と一致させる。 */
+  --p3-people-visible: 3;
+}
+/* 2 列目（来校者）は縦線で区切る（先頭列は線なし・予定の日区切りと一貫）。呼び出し / 来校者は
+   同一デザインに統一する（行動 vs 告知の差は枠で付けない・2026-06-22 ユーザー確定=案A）。 */
+.p3Person + .p3Person {
+  border-left: 1px solid var(--p3-panel-border);
+}
+/* 見出し＝ゾーンの名札（アクセント下線・拡大）。囲み枠は無くすが名札は残す。 */
+.p3PersonTitle {
+  font-weight: 800;
+  font-size: clamp(1.15rem, 1.8vw, 1.6rem);
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--accent-color);
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
+  flex-shrink: 0;
+}
+/* 残り高さいっぱいの表示窓。size container にして 1 件高を cqh で割り付け、可視数ぶんで埋める。
+   超過は内側 .p3PersonScroller が縦スクロールする。 */
+.p3PersonRows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+}
+.p3PersonScroller {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+/* 3 件超は自動縦スクロール（上端で一拍→下端へ→一拍→alternate で戻る）。距離 =(件数-表示数)×スロット高、
+   所要時間も件数に比例。距離・時間は件数（--p3-person-rows・要素 inline）から CSS calc で算出する。 */
+.p3PersonScrollerAuto {
+  animation: p3PersonScroll calc((var(--p3-person-rows) - var(--p3-people-visible)) * 3.5s)
+    ease-in-out infinite alternate;
+}
+@keyframes p3PersonScroll {
+  0%,
+  10% {
+    transform: translateY(0);
+  }
+  90%,
+  100% {
+    transform: translateY(
+      calc((var(--p3-people-visible) - var(--p3-person-rows)) / var(--p3-people-visible) * 100cqh)
+    );
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .p3PersonScrollerAuto {
+    animation: none;
+  }
+}
+/* 1 件 = 窓高を可視数で割った高さ。上段=時刻＋氏名＋呼出先/所属（単一行）、下段=用件（小さく）。件間は横線で区切る。 */
+.p3PersonItem {
+  height: calc(100cqh / var(--p3-people-visible));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.05rem;
+  border-bottom: 1px dotted var(--p3-panel-border);
+  min-width: 0;
+  overflow: hidden;
+}
+.p3PersonMain {
+  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.p3PersonName {
+  font-weight: 800;
+  color: var(--primary-color);
+}
+.p3PersonAffil {
+  color: var(--p3-ink-secondary);
+  font-weight: 600;
+}
+.p3PersonTo {
+  color: var(--accent-color);
+  font-weight: 700;
+  margin-left: 0.3rem;
+}
+.p3PersonMeta {
+  font-size: clamp(0.72rem, 1vw, 0.95rem);
+  color: var(--p3-ink-secondary);
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ===================== 11c-4. パターン3 フッタ帯（時事ニュース[枠あり・見出し＋本文・1件送り] + 鉄道/人感センサ） =====================
+   情報エリア最下段。時事ニュースは「枠あり」のカードで**見出し＋本文（CC BY 要約・先頭2文）を 1 件ずつ自動切替**
+   （2026-06-22 ユーザー確定）。鉄道/人感センサは右に付属チップで常時。広告（右30%）は覆わない。 */
+.p3Foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: var(--content-gap);
+  min-width: 0;
+  min-height: 0;
+}
+/* 時事ニュース: 枠ありカード（見出し＋本文を 1 件ずつクロスフェード）。 */
+.p3NewsCard {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 2px solid var(--p3-panel-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.07);
+  padding: 0.4vmin 1vmin 0.6vmin;
+  overflow: hidden;
+}
+/* カード見出し（名札・アクセント下線）。 */
+.p3NewsTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+  font-weight: 800;
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--accent-color);
+  padding-bottom: 0.2rem;
+  margin-bottom: 0.25rem;
+}
+/* 1 件ぶんの窓（見出し + 本文2文 + 出典/日付）。全記事を絶対配置で重ね active のみ表示してクロスフェード。 */
+.p3NewsViewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: clamp(3.6rem, 6vw, 6rem);
+}
+.p3NewsSlide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+}
+.p3NewsSlideActive {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .p3NewsSlide {
+    transition: none;
+  }
+}
+/* 見出し（主役・最大 2 行）。 */
+.p3NewsHeadline {
+  font-size: clamp(1.05rem, 1.6vw, 1.5rem);
+  font-weight: 700;
+  color: var(--primary-color);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-width: 0;
+}
+/* 本文（CC BY 要約の箇条書き）は共有 .p2NewsSummary を流用。出典/日付は最下部に。 */
+.p3NewsMeta {
+  margin-top: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 0 0.3rem;
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+  font-weight: 600;
+  color: var(--p3-ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+.p3NewsSource {
+  color: var(--accent-color);
+  font-weight: 700;
+}
+.p3NewsDots {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: inline-flex;
+  gap: 4px;
+}
+.p3FootDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p3-panel-border);
+}
+.p3FootDotActive {
+  background: var(--accent-color);
+}
+/* 付属情報（鉄道・人感センサ）: ニュースカードの右に小さく縦積みで常時表示（背の高いカードに合わせて縦並び）。 */
+.p3FootSide {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--content-gap);
+  min-width: 0;
+}
+.p3FootChip {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 0;
+}
+.p3FootChipLabel {
+  font-size: clamp(0.62rem, 0.9vw, 0.82rem);
+  font-weight: 700;
+  color: var(--p3-ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.p3FootChipBody {
+  display: flex;
+  align-items: baseline;
+  gap: 0 0.4rem;
+  min-width: 0;
+}
+.p3FootChipVal {
+  font-size: clamp(0.92rem, 1.35vw, 1.25rem);
+  font-weight: 800;
+  color: var(--primary-color);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.p3FootChipAlert {
+  color: var(--urgent-color);
+}
+.p3FootChipUnit {
+  font-size: 0.7em;
+  font-weight: 700;
+  margin-left: 0.1rem;
+}
+.p3FootMuted {
+  font-size: clamp(0.68rem, 0.95vw, 0.88rem);
+  font-weight: 600;
+  color: var(--p3-ink-secondary);
 }
 
 /* ===================== 11d. パターン4 盤面（教員入力最小・天気/ニュース主役） =====================

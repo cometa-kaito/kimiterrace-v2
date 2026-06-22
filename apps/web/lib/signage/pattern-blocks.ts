@@ -116,9 +116,10 @@ export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockK
   // 警報/熱中症がある時だけ条件付きで描画する（無い時は帯ごと出さない・fail-soft、ADR-044）。
   pattern1: ["safety_alert", "schedule", "notice", "assignment", "weather", "ad"],
   pattern2: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
-  // pattern3（廊下）は pattern2 から時事ニュース（news）を除いたブロック（廊下運用ではニュースを外す・
-  // 2026-06-20 ユーザー確定）。デザイン層（拡大タイポ／週間天気帯）は Pattern3Board が担う。
-  pattern3: ["schedule", "callout", "visitor", "train", "presence", "weather", "ad"],
+  // pattern3（廊下）は pattern2 と同じブロック。時事ニュース（news）は最下段のフッタ帯に 1 件ずつ自動切替で
+  // 常時表示する（2026-06-22 ユーザー確定で再導入）。デザイン層（拡大タイポ／週間天気帯／罫線区切り／鉄道・センサ・
+  // ニュースのフッタ集約）は Pattern3Board が担う。
+  pattern3: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
   // pattern4（教員入力最小）: 天気・ニュースを主役に、教員入力は連絡（notice・フリーワード）のみ。防災・安全は
   // 条件付きで先頭、その後 天気→ニュース→連絡→鉄道→人感センサ、広告は末尾。schedule/callout/visitor/assignment
   // は教員入力を要するため**載せない**（editableBlocksForPattern→[notice] のみ。2026-06-20 ユーザー確定）。
