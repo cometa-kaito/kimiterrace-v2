@@ -3,10 +3,12 @@ import {
   type AssistantDraft,
   CHAT_MESSAGE_MAX,
   MAX_CHAT_TURNS,
+  MAX_DRAFT_DAYS,
   draftHasItems,
   draftItemCounts,
   filterDraftToSections,
   latestUserMessage,
+  multiDayWrites,
   parseChatTurns,
   sanitizeDraft,
 } from "../../lib/editor/assistant-chat-core";
@@ -139,10 +141,10 @@ describe("filterDraftToSections", () => {
 });
 
 describe("draftHasItems / draftItemCounts", () => {
-  it("空下書きは false / 全 0", () => {
+  it("空下書きは false / 全 0（days 0 併記）", () => {
     const empty: AssistantDraft = { schedules: [], notices: [], assignments: [] };
     expect(draftHasItems(empty)).toBe(false);
-    expect(draftItemCounts(empty)).toEqual({ schedules: 0, notices: 0, assignments: 0 });
+    expect(draftItemCounts(empty)).toEqual({ schedules: 0, notices: 0, assignments: 0, days: 0 });
   });
   it("1 件でもあれば true / 件数を返す", () => {
     const d: AssistantDraft = {
@@ -151,6 +153,133 @@ describe("draftHasItems / draftItemCounts", () => {
       assignments: [{ deadline: "2026-06-19", subject: "数学", task: "ワーク" }],
     };
     expect(draftHasItems(d)).toBe(true);
-    expect(draftItemCounts(d)).toEqual({ schedules: 1, notices: 0, assignments: 1 });
+    expect(draftItemCounts(d)).toEqual({ schedules: 1, notices: 0, assignments: 1, days: 0 });
+  });
+  it("top-level が空でも days があれば true / days 件数を返す", () => {
+    const d: AssistantDraft = {
+      schedules: [],
+      notices: [],
+      assignments: [],
+      days: [
+        {
+          date: "2026-06-29",
+          schedules: [{ period: 1, subject: "数学" }],
+          notices: [],
+          assignments: [],
+        },
+      ],
+    };
+    expect(draftHasItems(d)).toBe(true);
+    expect(draftItemCounts(d)).toEqual({ schedules: 0, notices: 0, assignments: 0, days: 1 });
+  });
+});
+
+describe("sanitizeDraft（複数日 days）", () => {
+  it("実在日付の各日を 3 セクション検証して残す（単一日では days キーを生やさない）", () => {
+    const single = sanitizeDraft({ schedules: [{ period: 1, subject: "数学" }] });
+    expect("days" in single).toBe(false);
+
+    const multi = sanitizeDraft({
+      schedules: [],
+      notices: [],
+      assignments: [],
+      days: [
+        {
+          date: "2026-06-29",
+          schedules: [{ period: 1, subject: "数学" }],
+          notices: [],
+          assignments: [],
+        },
+        {
+          date: "2026-06-30",
+          schedules: [{ period: 1, subject: "実力テスト" }],
+          notices: [{ text: "テスト範囲を確認" }],
+          assignments: [],
+        },
+      ],
+    });
+    expect(multi.days).toEqual([
+      {
+        date: "2026-06-29",
+        schedules: [{ period: 1, subject: "数学" }],
+        notices: [],
+        assignments: [],
+      },
+      {
+        date: "2026-06-30",
+        schedules: [{ period: 1, subject: "実力テスト" }],
+        notices: [{ text: "テスト範囲を確認" }],
+        assignments: [],
+      },
+    ]);
+  });
+
+  it("不正日付・空日・重複日付を落とし、不正セクションは fail-soft で空配列に倒す", () => {
+    const d = sanitizeDraft({
+      days: [
+        { date: "2026-02-30", schedules: [{ period: 1, subject: "数学" }] }, // 実在しない日付 → 落とす
+        { date: "not-a-date", schedules: [{ period: 1, subject: "数学" }] }, // 不正形式 → 落とす
+        { date: "2026-06-29", schedules: [], notices: [], assignments: [] }, // 全空 → 落とす
+        {
+          date: "2026-07-01",
+          schedules: [{ period: 99, subject: "x" }], // period 範囲外 → [] に倒す
+          notices: [{ text: "残る連絡" }],
+          assignments: [],
+        },
+        { date: "2026-07-01", schedules: [{ period: 2, subject: "国語" }] }, // 重複日付（先勝ち）→ 落とす
+      ],
+    });
+    expect(d.days).toEqual([
+      { date: "2026-07-01", schedules: [], notices: [{ text: "残る連絡" }], assignments: [] },
+    ]);
+  });
+
+  it("MAX_DRAFT_DAYS を超える日数は切り捨てる", () => {
+    const many = Array.from({ length: MAX_DRAFT_DAYS + 3 }, (_, i) => ({
+      // 2026-07-01 から連番（すべて実在日付・1 件ずつ）。
+      date: `2026-07-${String(i + 1).padStart(2, "0")}`,
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [],
+      assignments: [],
+    }));
+    const d = sanitizeDraft({ days: many });
+    expect(d.days).toHaveLength(MAX_DRAFT_DAYS);
+  });
+});
+
+describe("filterDraftToSections / multiDayWrites（複数日 days）", () => {
+  const multi: AssistantDraft = {
+    schedules: [],
+    notices: [],
+    assignments: [],
+    days: [
+      {
+        date: "2026-06-29",
+        schedules: [{ period: 1, subject: "数学" }],
+        notices: [{ text: "持ち物連絡" }],
+        assignments: [],
+      },
+      { date: "2026-06-30", schedules: [], notices: [{ text: "連絡のみ" }], assignments: [] },
+    ],
+  };
+
+  it("許可外セクションを各日から落とし、絞り後に空になった日は除外する（pattern2 = schedules のみ）", () => {
+    const writes = multiDayWrites(multi, ["schedules"]);
+    // 6/29 は schedules が残る。6/30 は notices のみ → schedules 絞りで空 → 落とす。
+    expect(writes).toEqual([
+      {
+        date: "2026-06-29",
+        schedules: [{ period: 1, subject: "数学" }],
+        notices: [],
+        assignments: [],
+      },
+    ]);
+  });
+
+  it("3 種許可なら各日のセクションを保持する", () => {
+    const writes = multiDayWrites(multi, ["schedules", "notices", "assignments"]);
+    expect(writes).toHaveLength(2);
+    expect(writes[0]?.date).toBe("2026-06-29");
+    expect(writes[1]?.date).toBe("2026-06-30");
   });
 });

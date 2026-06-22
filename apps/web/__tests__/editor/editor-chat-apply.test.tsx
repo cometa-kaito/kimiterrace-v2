@@ -174,6 +174,62 @@ describe("EditorChat 反映（編集 / 削除対応）", () => {
     expect(setAssignmentsAction).not.toHaveBeenCalled();
   });
 
+  it("複数日まとめ（days）は各日付へ非空セクションのみ per-section 保存する", async () => {
+    // 当日(2026-06-20) top-level は空・days に 2 日分（6/29 予定のみ・6/30 予定+連絡）。
+    const draft: AssistantDraft = {
+      schedules: [],
+      notices: [],
+      assignments: [],
+      days: [
+        {
+          date: "2026-06-29",
+          schedules: [{ period: 1, subject: "数学" }],
+          notices: [],
+          assignments: [],
+        },
+        {
+          date: "2026-06-30",
+          schedules: [{ period: 1, subject: "実力テスト" }],
+          notices: [{ text: "テスト範囲を確認してください。" }],
+          assignments: [],
+        },
+      ],
+    };
+    stubSse(draft);
+    render(<EditorChat scope="class" targetId="c1" date="2026-06-20" initialDraft={undefined} />);
+
+    send("来週の月火、1限を入れて");
+
+    const applyBtn = await screen.findByRole("button", { name: "反映する" });
+    // 確認カードに日付見出しが出る（複数日サマリ）。
+    expect(screen.getByText(/6\/29/)).toBeTruthy();
+    expect(screen.getByText(/6\/30/)).toBeTruthy();
+
+    fireEvent.click(applyBtn);
+    await screen.findByText("盤面に反映しました。");
+
+    // 各日付へ「非空セクションのみ」置換保存する。
+    expect(setScheduleAction).toHaveBeenCalledWith("class", "c1", "2026-06-29", [
+      { period: 1, subject: "数学" },
+    ]);
+    expect(setScheduleAction).toHaveBeenCalledWith("class", "c1", "2026-06-30", [
+      { period: 1, subject: "実力テスト" },
+    ]);
+    expect(setNoticesAction).toHaveBeenCalledWith("class", "c1", "2026-06-30", [
+      { text: "テスト範囲を確認してください。" },
+    ]);
+    // 予定は 2 日分のみ・連絡は 6/30 のみ。当日 top-level（2026-06-20）は空なので一切書かない。
+    expect(setScheduleAction).toHaveBeenCalledTimes(2);
+    expect(setNoticesAction).toHaveBeenCalledTimes(1);
+    expect(setScheduleAction).not.toHaveBeenCalledWith(
+      "class",
+      "c1",
+      "2026-06-20",
+      expect.anything(),
+    );
+    expect(setAssignmentsAction).not.toHaveBeenCalled();
+  });
+
   it("空盤面への聞き返し（下書きも盤面も空）では確認カードを出さない", async () => {
     stubSse({ schedules: [], notices: [], assignments: [] });
     render(<EditorChat scope="class" targetId="c1" date="2026-06-20" initialDraft={undefined} />);

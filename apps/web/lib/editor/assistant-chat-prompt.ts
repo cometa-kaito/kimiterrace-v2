@@ -41,6 +41,9 @@ function buildExampleLines(allowed: readonly DraftSectionKind[]): string[] {
     ex.push(
       '例（既存下書きの部分編集は全体を返す）: 現在の下書きが 1限=数学・2限=国語で、教員「2限を英語に」→ 1限は残し2限だけ直す → {"reply":"2限を英語に変更しました。この内容で反映してよいですか？","schedules":[{"period":1,"subject":"数学"},{"period":2,"subject":"英語"}],"notices":[],"assignments":[]}',
     );
+    ex.push(
+      '例（複数日は days に日付ごと）: 基準日が2026年6月22日(月)で教員「来週月〜金の1限は数学。火曜だけ実力テスト」→ top-level は空にし days に5日分入れる → {"reply":"来週の月〜金の予定を作りました。火曜だけ1限を実力テストにしています。この内容で反映してよいですか？","schedules":[],"notices":[],"assignments":[],"days":[{"date":"2026-06-29","schedules":[{"period":1,"subject":"数学"}],"notices":[],"assignments":[]},{"date":"2026-06-30","schedules":[{"period":1,"subject":"実力テスト"}],"notices":[],"assignments":[]},{"date":"2026-07-01","schedules":[{"period":1,"subject":"数学"}],"notices":[],"assignments":[]},{"date":"2026-07-02","schedules":[{"period":1,"subject":"数学"}],"notices":[],"assignments":[]},{"date":"2026-07-03","schedules":[{"period":1,"subject":"数学"}],"notices":[],"assignments":[]}]}',
+    );
   }
   if (allowed.includes("assignments")) {
     ex.push(
@@ -79,10 +82,12 @@ export function buildAssistantChatSystem(
     `このクラスのサイネージに出せるのは次のセクションだけです: ${allowedLabels}。これ以外のセクションは作らない（空配列）。`,
     `基準日（今日）: ${referenceDateLabel}。「今日」「明日」「金曜」等の相対表現はこの基準日で実在日付に直す。`,
     "日付・時限・期間・締切が発話から特定できないときは、値を創作せず・勝手に省略もせず、reply で具体的に聞き返す（例:『何日の予定ですか？』『提出期限はいつですか？』『いつまで掲示しますか？』）。聞き返している項目は、日付・期間が確定するまで該当セクションに入れない（曖昧なまま埋めない）。確定済みの項目だけ下書きに入れ、未確定分は次のターンで先生の回答を反映する。",
-    "出力は必ず次の構造のオブジェクト 1 つ: { reply, schedules, notices, assignments }。",
+    "出力は必ず次の構造のオブジェクト 1 つ: { reply, schedules, notices, assignments }。複数日にまたがる指示のときだけ、これに days 配列を加える（下記）。",
     "- reply: 先生への短い会話応答（1〜3 文・日本語）。何をしたか・確認したいことを述べる。雑談で引き延ばさない。",
     "- schedules/notices/assignments: **現時点の下書き全体**（差分でなく完全な現在状態）。許可外セクションは必ず空配列。",
     "先生の編集指示（例「2 限を英語に」「1 件目を消して」「全部やり直し」）が来たら、与えられた『現在の下書き』を起点に更新した**全体**を返す。",
+    '【複数日まとめ】複数の日にまたがる指示（例「来週月〜金の予定」「6/24と6/26の連絡」「毎日6時間授業」）のときは、top-level の schedules/notices/assignments は空配列にし、代わりに days 配列に日付ごとに入れる: days:[{ date:"YYYY-MM-DD", schedules, notices, assignments }]。date は基準日から実在日付に直す（曜日や『来週』も実日付に）。各日にも上の全ルール（時限は1〜12・時限外は連絡・締切や日付を創作しない・曖昧なら聞き返す・許可外セクションは空）をそのまま適用する。',
+    "一度に作れるのは最大 7 日分。これを超える指示は days に入れず、reply で『何回かに分けましょうか』と聞き返す。単一の日だけの指示では days は使わず top-level に入れる（days は省略）。",
     "予定(schedules): period は時限 1〜12 の整数。朝の会/集会/放課後/部活など時限に乗らないものは入れない（連絡で扱う）。同じ period を 2 つ作らない。",
     "提出物(assignments): deadline は実在する YYYY-MM-DD。基準日から締切を確定できないものは作らない（締切を創作しない）。",
     "連絡(notices): 各 text は 1 文・簡潔。重要な注意喚起のみ isHighlight を true。",
