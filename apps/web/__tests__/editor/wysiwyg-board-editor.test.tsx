@@ -21,9 +21,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 
 const h = vi.hoisted(() => ({
-  setScheduleAction: vi.fn(),
-  setNoticesAction: vi.fn(),
-  setAssignmentsAction: vi.fn(),
+  // 保存アクションは成功結果（{ ok: true }）を resolve する。#1136 の自動保存はアンマウント時にも flush で
+  // runSave を走らせる（runSave は `const res = await save(...); if (res.ok)`）ため、未指定（undefined 返し）だと
+  // テスト後片付けのアンマウントで `res.ok` 参照が unhandled rejection になる。editor-autosave 等の他テストと同じく
+  // 明示的に成功を返す（vi.clearAllMocks は実装を消さないので hoisted 定義で十分）。
+  setScheduleAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  setNoticesAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  setAssignmentsAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   refresh: vi.fn(),
   push: vi.fn(),
 }));
