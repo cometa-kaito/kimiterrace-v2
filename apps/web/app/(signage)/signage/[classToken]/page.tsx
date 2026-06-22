@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { shouldApplyFitStage } from "@/lib/signage/fit-mode";
 import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { SignageClient } from "./_components/SignageClient";
@@ -31,10 +33,10 @@ export default async function SignagePage({
   searchParams,
 }: {
   params: Promise<{ classToken: string }>;
-  searchParams: Promise<{ date?: string; design?: string }>;
+  searchParams: Promise<{ date?: string; design?: string; fit?: string | string[] }>;
 }) {
   const { classToken } = await params;
-  const { date: dateParam, design } = await searchParams;
+  const { date: dateParam, design, fit } = await searchParams;
 
   // 既定は JST の今日。?date=YYYY-MM-DD で任意日を表示可 (形式不正・無効暦日は今日へフォールバック)。
   const date = parseSignageDate(dateParam);
@@ -45,18 +47,25 @@ export default async function SignagePage({
     return <SignageInvalid />;
   }
 
+  const board = (
+    <SignageClient basePath={`/signage/${encodeURIComponent(classToken)}`} initial={payload} />
+  );
+
+  // **実機サイネージ端末（tv-ble-bridge の Android WebView）は盤面を画面いっぱいに描く**べきなので fit-stage を
+  // 当てない。判定は `?fit=on/off` 明示が最優先、未指定は UA で自動（端末＝全画面 / PC・タブレットの実ブラウザ＝縮小）。
+  // fit-mode.ts 単一ソース。端末で UA 判定が外れた場合の安全弁は signage_url に `?fit=off` を付けること。
+  const ua = (await headers()).get("user-agent");
+  if (!shouldApplyFitStage(fit, ua)) {
+    return board;
+  }
+
   // タブレット/PC（≥900px）では盤面を「実機モニタ（16:9・1920×1080）の忠実な縮小コピー」として見せる
   // （signage.module.css §14）。3 つのラッパは ≤899px では display:contents で消えるため、スマホの縦スクロール
   // 挙動は従来どおり不変。再生制御（ポーリング/時計/ローテ）は内側の SignageClient がそのまま担う（ライブ）。
   return (
     <div className={styles.fitViewport}>
       <div className={styles.fitStageSizer}>
-        <div className={styles.fitStage}>
-          <SignageClient
-            basePath={`/signage/${encodeURIComponent(classToken)}`}
-            initial={payload}
-          />
-        </div>
+        <div className={styles.fitStage}>{board}</div>
       </div>
     </div>
   );
