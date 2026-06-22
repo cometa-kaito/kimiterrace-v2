@@ -296,6 +296,70 @@ describe("respondWithAssistantChat", () => {
     expect(JSON.stringify(drafts.at(-1)?.data)).toContain("09012345678");
   });
 
+  it("複数日下書き（days）の辞書由来 PII 復元値も pii_leak にせず unmaskDeep で復元する（handler 無改修被覆）", async () => {
+    // days は応答オブジェクトの入れ子。既存の単一マスク往復・leak 検査・unmaskDeep が days を自動被覆することを固定。
+    h.maskPII.mockReturnValue({
+      masked: "来週の予定",
+      dictionary: { "{{PHONE_1}}": "09012345678" },
+    });
+    // マスク空間（{{PHONE_1}}）では PII 形に見えない → 誤検知しない。逆マスク後の生番号で初めて一致。
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("09012345678") ? ["09012345678"] : [],
+    );
+    h.unmaskDeep.mockImplementation((v: unknown) =>
+      JSON.parse(JSON.stringify(v).replace("{{PHONE_1}}", "09012345678")),
+    );
+    const d = deps([
+      {
+        reply: "了解",
+        days: [
+          {
+            date: "2026-06-29",
+            schedules: [],
+            notices: [{ text: "連絡先 {{PHONE_1}}", isHighlight: false }],
+            assignments: [],
+          },
+        ],
+      },
+    ]);
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    // 辞書由来の復元値で誤って中断しない（pii_leak なし）。draft.days は逆マスク済みの生番号を含む。
+    expect(fr.find((f) => f.event === "error")).toBeUndefined();
+    const lastDraft = fr.filter((f) => f.event === "draft").at(-1)?.data;
+    expect(JSON.stringify(lastDraft)).toContain("2026-06-29");
+    expect(JSON.stringify(lastDraft)).toContain("09012345678");
+    expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("モデルが days 内に出した辞書に無い生 PII（真のリーク）は pii_leak（days も leak 検査対象・監査なし）", async () => {
+    h.maskPII.mockReturnValue({ masked: "来週の予定", dictionary: {} });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("08099998888") ? ["08099998888"] : [],
+    );
+    const d = deps([
+      {
+        reply: "了解",
+        days: [
+          {
+            date: "2026-06-29",
+            schedules: [],
+            notices: [{ text: "電話 08099998888 へ" }],
+            assignments: [],
+          },
+        ],
+      },
+    ]);
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    // days の JSON（マスク空間）に生 PII が現れ、draft の leak 検査で捕捉 → 中止・監査なし。
+    expect(fr.find((f) => f.event === "error")?.data).toMatchObject({
+      status: 422,
+      reason: "pii_leak",
+    });
+    expect(h.insertValues).not.toHaveBeenCalled();
+  });
+
   it("reply も下書きも空なら no_result（監査なし）", async () => {
     const d = deps([{ reply: "" }]);
     const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);

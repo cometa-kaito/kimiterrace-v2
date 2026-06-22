@@ -58,6 +58,27 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain('"deadline":"2026-06-25","subject":"数学","task":"ドリルp10"');
   });
 
+  it("複数日まとめ（days）の指示・上限・few-shot を含む（schedules 許可時）", () => {
+    const sys = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年6月13日（土）",
+    );
+    // 単一日の基本構造はそのまま（days は複数日のときだけ加える）。
+    expect(sys).toContain("{ reply, schedules, notices, assignments }");
+    // 複数日まとめの指示・最大日数・top-level を空にして days に入れる旨。
+    expect(sys).toContain("複数日まとめ");
+    expect(sys).toContain("days");
+    expect(sys).toContain("最大 7 日分");
+    // 複数日の few-shot（days に日付ごと）。
+    expect(sys).toContain('"days":[{"date":"2026-06-29"');
+  });
+
+  it("複数日 few-shot も許可セクションに追従する（notices/assignments のみ許可では schedule の複数日例を出さない）", () => {
+    const sys = buildAssistantChatSystem(["notices", "assignments"], "2026年6月13日（土）");
+    // schedules 不許可なので schedule 駆動の複数日例（days の数学）は出さない。
+    expect(sys).not.toContain('"days":[{"date":"2026-06-29"');
+  });
+
   it("pattern2 相当（schedules のみ許可）= 予定だけを許可ラベルに出す", () => {
     const sys = buildAssistantChatSystem(["schedules"], "2026年6月13日（土）");
     expect(sys).toContain("予定（時間割）");

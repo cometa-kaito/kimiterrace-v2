@@ -47,39 +47,65 @@ export interface VertexAssistantChatConfig {
 const DEFAULT_MODEL_ID = "gemini-2.5-flash";
 
 /**
- * 会話アシスタントの既定生成パラメータ。温度は忠実寄り（{@link DRAFT_TEMPERATURE}）、出力上限は
- * 「会話応答 + 1 ターン分の構造化下書き」を十分賄える 2048。thinking budget は既定 SDK dynamic
- * （配線層が env で絞れる）。
+ * 会話アシスタントの既定生成パラメータ。温度は忠実寄り（{@link DRAFT_TEMPERATURE}）。出力上限は
+ * 「会話応答 + 1 ターン分の構造化下書き」に加え、**複数日まとめ（`days`）の下書き**（来週分の予定を
+ * 一度に作る等）が途中で途切れないよう 4096 に取る（上限は CAP であり単一日生成のコスト/レイテンシは
+ * 実出力トークンに比例して不変・複数日のときだけ消費が増える）。thinking budget は既定 SDK dynamic
+ * （配線層が env で絞れる。prod は GEMINI_THINKING_BUDGET=0 で思考が出力枠を食わない）。
  */
 const DEFAULT_TUNING: GenerationTuning = {
   temperature: DRAFT_TEMPERATURE,
-  maxOutputTokens: 2048,
+  maxOutputTokens: 4096,
 };
 
 /**
+ * 各セクションの要素スキーマ（**構造のみ**）。top-level（その日 1 日分）と `days[]`（複数日まとめ）の
+ * 双方で同じ形を使う（DRY）。長さ・period 範囲・実在日付などの規則は下流 `validate*Items`（apps/web）が
+ * 強制する（ドメイン規則を本層に焼かない）。
+ */
+const scheduleArray = z.array(
+  z.object({
+    period: z.number(),
+    subject: z.string(),
+    note: z.string().optional(),
+    location: z.string().optional(),
+    targetAudience: z.string().optional(),
+  }),
+);
+const noticeArray = z.array(
+  z.object({
+    text: z.string(),
+    isHighlight: z.boolean().optional(),
+    displayDays: z.number().optional(),
+  }),
+);
+const assignmentArray = z.array(
+  z.object({ deadline: z.string(), subject: z.string(), task: z.string() }),
+);
+
+/**
  * 1 ターンの構造化出力スキーマ（**構造のみ**）。`reply` を先頭に置き、配列より先に流れる（会話の体感速度）。
- * 各セクション要素は schedule-core / notice-assignment-core（apps/web）の検証済み型に**形だけ**合わせ、
- * 長さ・period 範囲・実在日付などの規則は下流 `validate*Items` が強制する（ドメイン規則を本層に焼かない）。
+ *
+ * - top-level の `schedules/notices/assignments` = **その日 1 日分**の下書き（従来どおり・単一日の最頻出経路）。
+ * - `days` = **複数日まとめ**の下書き（「来週月〜金の予定」等）。各要素は対象日（`date`: YYYY-MM-DD・handler が
+ *   基準日から実在日付に解決させる）＋同じ 3 セクション。単一日では空/省略（モデルへの指示は handler の system）。
+ *   どの日に何件入れるかはプロンプトが規定し、実在日付・件数上限の強制は下流 `sanitizeDraft`（apps/web）が担う。
  */
 const assistantTurnSchema = z.object({
   reply: z.string(),
-  schedules: z.array(
-    z.object({
-      period: z.number(),
-      subject: z.string(),
-      note: z.string().optional(),
-      location: z.string().optional(),
-      targetAudience: z.string().optional(),
-    }),
-  ),
-  notices: z.array(
-    z.object({
-      text: z.string(),
-      isHighlight: z.boolean().optional(),
-      displayDays: z.number().optional(),
-    }),
-  ),
-  assignments: z.array(z.object({ deadline: z.string(), subject: z.string(), task: z.string() })),
+  schedules: scheduleArray,
+  notices: noticeArray,
+  assignments: assignmentArray,
+  days: z
+    .array(
+      z.object({
+        date: z.string(),
+        schedules: scheduleArray,
+        notices: noticeArray,
+        assignments: assignmentArray,
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -92,6 +118,8 @@ export interface AssistantTurnPartial {
   schedules?: unknown;
   notices?: unknown;
   assignments?: unknown;
+  /** 複数日まとめの下書き（生成途中は欠落/未完成になりうる。handler が下流 `sanitizeDraft` で検証）。 */
+  days?: unknown;
 }
 
 /** SSE ストリーミング 1 ターン分の結果。handler がこれを meta/message/draft/done フレームに整形する。 */

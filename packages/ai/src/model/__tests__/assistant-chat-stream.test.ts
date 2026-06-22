@@ -62,8 +62,33 @@ describe("createVertexAssistantChatClient", () => {
     expect(arg.schema).toBeDefined();
     // 既定生成パラメータ: 忠実寄り温度 + 出力上限を渡す（thinking は未指定＝SDK 既定）。
     expect(arg.temperature).toBe(0.3);
-    expect(arg.maxOutputTokens).toBe(2048);
+    expect(arg.maxOutputTokens).toBe(4096);
     expect(arg.providerOptions).toBeUndefined();
+  });
+
+  it("複数日まとめ（days）を含む partial も素通しする（構造のみ・検証は下流）", async () => {
+    const partials: AssistantTurnPartial[] = [
+      { reply: "来週分を作りました", schedules: [], notices: [], assignments: [] },
+      {
+        reply: "来週分を作りました",
+        schedules: [],
+        notices: [],
+        assignments: [],
+        days: [
+          {
+            date: "2026-06-29",
+            schedules: [{ period: 1, subject: "数学" }],
+            notices: [],
+            assignments: [],
+          },
+        ],
+      },
+    ];
+    streamObjectMock.mockReturnValue(fakeStreamResult({ partials }));
+    const client = createVertexAssistantChatClient({ project: "p", location: "l" });
+
+    const r = client.stream({ system: "s", user: "u" });
+    expect(await collect(r.partialStream)).toEqual(partials);
   });
 
   it("config.tuning が既定を上書きし、thinkingBudget は providerOptions へ写る", async () => {
@@ -78,7 +103,7 @@ describe("createVertexAssistantChatClient", () => {
     const arg = streamObjectMock.mock.calls[0]?.[0];
     // temperature は上書き、maxOutputTokens は既定維持、thinkingBudget=0 は providerOptions に載る。
     expect(arg.temperature).toBe(0.1);
-    expect(arg.maxOutputTokens).toBe(2048);
+    expect(arg.maxOutputTokens).toBe(4096);
     expect(arg.providerOptions).toEqual({
       google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
     });

@@ -4,7 +4,7 @@ import {
   validateAssignmentItems,
   validateNoticeItems,
 } from "./notice-assignment-core";
-import { type ScheduleItem, validateScheduleItems } from "./schedule-core";
+import { isValidDate, type ScheduleItem, validateScheduleItems } from "./schedule-core";
 
 /**
  * 会話型 AI アシスタント（学校エディタ・finding 2b 作り直し）の **API 契約 + 共有型**。
@@ -51,16 +51,42 @@ export const DRAFT_SECTION_KINDS = ["schedules", "notices", "assignments"] as co
 export type DraftSectionKind = (typeof DRAFT_SECTION_KINDS)[number];
 
 /**
- * 構造化された **パターン準拠の作業下書き**。要素型は schedule-core / notice-assignment-core の
- * 検証済み単一ソースを再利用する（ルール3）。許可外セクションは常に空配列（{@link filterDraftToSections}）。
+ * **複数日まとめ**の 1 日分の下書き（`date` = 反映先の実在日付 YYYY-MM-DD ＋ その日の 3 セクション）。
+ * 要素型は AssistantDraft と同じ検証済み単一ソース（ルール3）。{@link AssistantDraft.days} の要素。
  */
-export type AssistantDraft = {
+export type AssistantDayDraft = {
+  /** 反映先の実在日付（YYYY-MM-DD）。{@link sanitizeDraft} が実在日付でない要素を落とす。 */
+  date: string;
   schedules: ScheduleItem[];
   notices: NoticeItem[];
   assignments: AssignmentItem[];
 };
 
-/** 空の下書き（初期状態・フォールバック）。 */
+/**
+ * 構造化された **パターン準拠の作業下書き**。要素型は schedule-core / notice-assignment-core の
+ * 検証済み単一ソースを再利用する（ルール3）。許可外セクションは常に空配列（{@link filterDraftToSections}）。
+ *
+ * top-level の `schedules/notices/assignments` は **エディタで開いている当日 1 日分**（単一日の最頻出経路・
+ * 従来挙動）。`days` は **複数日まとめ**（「来週月〜金の予定」等）で、各要素が自分の `date` を持つ。単一日の
+ * ときは `days` を省略/空にし当日 top-level のみを使う（= 回帰なし）。反映は当日 top-level を当日 date へ、
+ * `days` を各 `date` へ per-section action で書く（{@link multiDayWrites}）。
+ */
+export type AssistantDraft = {
+  schedules: ScheduleItem[];
+  notices: NoticeItem[];
+  assignments: AssignmentItem[];
+  /** 複数日まとめの下書き（任意・省略時は単一日）。最大 {@link MAX_DRAFT_DAYS} 日に制限。 */
+  days?: AssistantDayDraft[];
+};
+
+/**
+ * 1 ターンで `days` に積める最大日数（出力トークン上限/レイテンシ/誤爆の保護）。これを超える指示は
+ * プロンプトが「分けて」と聞き返させ、{@link sanitizeDraft} が超過分を切り捨てる（多層）。1 週間（平日 5 +
+ * 予備）を一度に作れる現実的な上限。
+ */
+export const MAX_DRAFT_DAYS = 7;
+
+/** 空の下書き（初期状態・フォールバック）。`days` は単一日では持たない（省略）。 */
 export const EMPTY_DRAFT: AssistantDraft = { schedules: [], notices: [], assignments: [] };
 
 /** 会話の 1 ターン。`assistant` は過去の AI 応答（prose）、`user` は教員の発話/入力。 */
@@ -201,11 +227,51 @@ export function sanitizeDraft(raw: unknown): AssistantDraft {
   const s = validateScheduleItems(obj.schedules);
   const n = validateNoticeItems(obj.notices);
   const a = validateAssignmentItems(obj.assignments);
+  const days = sanitizeDraftDays(obj.days);
   return {
     schedules: s.ok ? s.value : [],
     notices: n.ok ? n.value : [],
     assignments: a.ok ? a.value : [],
+    // 単一日（days 無し）では `days` キー自体を生やさない（EMPTY_DRAFT と等価・既存スナップショット比較を変えない）。
+    ...(days.length > 0 ? { days } : {}),
   };
+}
+
+/**
+ * `days`（複数日まとめ）を防御的に正規化する。各要素は **実在日付（{@link isValidDate}）** を必須にし、
+ * 3 セクションを既存 `validate*Items` に独立して通す（fail-soft）。日付が不正 or 全セクション空の要素は落とし、
+ * 同一日付は先勝ちで重複排除、{@link MAX_DRAFT_DAYS} 日に制限する（生成途中の partial・モデル誤出力に強い）。
+ */
+function sanitizeDraftDays(raw: unknown): AssistantDayDraft[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: AssistantDayDraft[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (out.length >= MAX_DRAFT_DAYS) {
+      break;
+    }
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const rec = entry as Record<string, unknown>;
+    if (!isValidDate(rec.date) || seen.has(rec.date)) {
+      continue;
+    }
+    const s = validateScheduleItems(rec.schedules);
+    const n = validateNoticeItems(rec.notices);
+    const a = validateAssignmentItems(rec.assignments);
+    const schedules = s.ok ? s.value : [];
+    const notices = n.ok ? n.value : [];
+    const assignments = a.ok ? a.value : [];
+    if (schedules.length === 0 && notices.length === 0 && assignments.length === 0) {
+      continue; // 空日は持たない（無駄な空置換・カードのノイズを避ける）。
+    }
+    seen.add(rec.date);
+    out.push({ date: rec.date, schedules, notices, assignments });
+  }
+  return out;
 }
 
 /**
@@ -218,23 +284,54 @@ export function filterDraftToSections(
   allowed: readonly DraftSectionKind[],
 ): AssistantDraft {
   const allow = new Set<DraftSectionKind>(allowed);
+  const days = (draft.days ?? [])
+    .map((d) => ({
+      date: d.date,
+      schedules: allow.has("schedules") ? d.schedules : [],
+      notices: allow.has("notices") ? d.notices : [],
+      assignments: allow.has("assignments") ? d.assignments : [],
+    }))
+    // 許可絞りの結果すべて空になった日は落とす（許可外しか無かった日をカード/書込から消す）。
+    .filter((d) => d.schedules.length > 0 || d.notices.length > 0 || d.assignments.length > 0);
   return {
     schedules: allow.has("schedules") ? draft.schedules : [],
     notices: allow.has("notices") ? draft.notices : [],
     assignments: allow.has("assignments") ? draft.assignments : [],
+    ...(days.length > 0 ? { days } : {}),
   };
 }
 
-/** 下書きが 1 件でも項目を持つか（no_result 判定・done 出力の要否）。 */
+/** 下書きが 1 件でも項目を持つか（no_result 判定・done 出力の要否）。複数日（`days`）も含めて判定する。 */
 export function draftHasItems(draft: AssistantDraft): boolean {
-  return draft.schedules.length > 0 || draft.notices.length > 0 || draft.assignments.length > 0;
+  return (
+    draft.schedules.length > 0 ||
+    draft.notices.length > 0 ||
+    draft.assignments.length > 0 ||
+    (draft.days?.length ?? 0) > 0
+  );
 }
 
-/** 下書きの件数（監査記録用・本文は残さず件数のみ、ルール1/4）。 */
-export function draftItemCounts(draft: AssistantDraft): Record<DraftSectionKind, number> {
+/** 下書きの件数（監査記録用・本文は残さず件数のみ、ルール1/4）。`days` は対象日数を併記する。 */
+export function draftItemCounts(
+  draft: AssistantDraft,
+): Record<DraftSectionKind, number> & { days: number } {
   return {
     schedules: draft.schedules.length,
     notices: draft.notices.length,
     assignments: draft.assignments.length,
+    days: draft.days?.length ?? 0,
   };
+}
+
+/**
+ * 反映で **per-section action を呼ぶべき各日付**を、許可セクションに絞って列挙する（複数日まとめの反映単位）。
+ * `draft.days` のうち、許可セクション絞り後に 1 件でも項目が残る日だけを返す（空日・許可外のみの日は除外）。
+ * 当日 top-level（単一日）は対象外（{@link AssistantDraft} の当日経路が別に書くため）。UI（EditorChat）は
+ * 返った各日の非空セクションのみを、その `date` で置換保存する（追加的・未来日には削除検出を行わない）。
+ */
+export function multiDayWrites(
+  draft: AssistantDraft,
+  allowed: readonly DraftSectionKind[],
+): AssistantDayDraft[] {
+  return filterDraftToSections(draft, allowed).days ?? [];
 }
