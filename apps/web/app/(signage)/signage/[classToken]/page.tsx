@@ -2,6 +2,7 @@ import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { SignageClient } from "./_components/SignageClient";
 import { SignageInvalid } from "./_components/SignageInvalid";
+import styles from "./_components/signage.module.css";
 
 /**
  * 公開サイネージ表示ページ `/signage/{classToken}` (#48-E / F12、V1 root `/` の移植)。
@@ -44,7 +45,19 @@ export default async function SignagePage({
     return <SignageInvalid />;
   }
 
+  // タブレット/PC（≥900px）では盤面を「実機モニタ（16:9・1920×1080）の忠実な縮小コピー」として見せる
+  // （signage.module.css §14）。3 つのラッパは ≤899px では display:contents で消えるため、スマホの縦スクロール
+  // 挙動は従来どおり不変。再生制御（ポーリング/時計/ローテ）は内側の SignageClient がそのまま担う（ライブ）。
   return (
-    <SignageClient basePath={`/signage/${encodeURIComponent(classToken)}`} initial={payload} />
+    <div className={styles.fitViewport}>
+      <div className={styles.fitStageSizer}>
+        <div className={styles.fitStage}>
+          <SignageClient
+            basePath={`/signage/${encodeURIComponent(classToken)}`}
+            initial={payload}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
