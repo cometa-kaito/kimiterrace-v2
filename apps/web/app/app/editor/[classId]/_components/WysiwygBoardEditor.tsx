@@ -150,9 +150,7 @@ export function WysiwygBoardEditor({
       {previewPayload ? (
         <>
           <p className={styles.hint}>
-            サイネージ（教室の 50
-            インチ画面）にどう出るかを見ながら編集できます。盤面の領域をクリックすると、その項目の
-            編集欄に移動します。広告は編集できません（広告管理で設定）。
+            実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
           </p>
 
           {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
@@ -162,14 +160,18 @@ export function WysiwygBoardEditor({
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
           <div ref={canvasRef} className={styles.canvas}>
-            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。 */}
+            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
+                幅計測（ResizeObserver / マウント）が済むまでは盤面を出せないので、その間は真っ白な空箱ではなく
+                スケルトンを敷く（LEDGER v2-ed-uo11: 読み込み中の "白い空箱" を解消）。 */}
             {boardWidth != null ? (
               <ScaledSignageBoard
                 payload={previewPayload}
                 width={boardWidth}
                 editRegions={{ active, onRegion: focusRegion }}
               />
-            ) : null}
+            ) : (
+              <div className={styles.skeleton} aria-hidden="true" />
+            )}
           </div>
         </>
       ) : null}
