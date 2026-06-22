@@ -62,10 +62,10 @@ describe("編集対象ブロックの出し分け", () => {
     expect(editableBlocksForPattern("pattern2")).toEqual(["schedule", "callout", "visitor"]);
   });
 
-  it("pattern3（廊下）は pattern2 から時事ニュースを除いたブロック（廊下運用はニュース枠を外す・2026-06-20）", () => {
-    // 廊下運用ではニュース枠を外し予定・人物情報に集中させる（ユーザー確定）。それ以外は pattern2 と同一順序。
-    expect(PATTERN_BLOCKS.pattern3).toEqual(PATTERN_BLOCKS.pattern2.filter((b) => b !== "news"));
-    expect(patternIncludesBlock("pattern3", "news")).toBe(false);
+  it("pattern3（廊下）は pattern2 と同一ブロック（時事ニュースはフッタに 1 件ずつ自動切替で再導入・2026-06-22）", () => {
+    // 廊下版はニュースを最下段フッタに集約して常時表示する（ユーザー確定 2026-06-22）。ブロック集合・順序は pattern2 と同一。
+    expect(PATTERN_BLOCKS.pattern3).toEqual(PATTERN_BLOCKS.pattern2);
+    expect(patternIncludesBlock("pattern3", "news")).toBe(true);
     // 編集対象（予定/呼び出し/来校者）は不変（news は自動ブロックで編集対象に元から含まれない）。
     expect(editableBlocksForPattern("pattern3")).toEqual(["schedule", "callout", "visitor"]);
   });

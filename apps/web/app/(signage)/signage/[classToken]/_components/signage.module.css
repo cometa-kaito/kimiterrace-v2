@@ -1321,93 +1321,101 @@
   min-width: 0;
 }
 
-/* ===================== 11c-4. パターン3 フッタ帯（鉄道・人感センサ・工学ニュースを集約・廊下版） =====================
-   情報エリア最下段（左下）。従来の「ステータス帯（鉄道・センサ）」＋「ニュースカード」を 1 本のスリムなフッタに
-   集約。ニュースを主役に 1 件ずつ自動切替、鉄道/センサは右端に小さく付属表示。広告（右30%）は覆わない。 */
+/* ===================== 11c-4. パターン3 フッタ帯（時事ニュース[枠あり・見出し＋本文・1件送り] + 鉄道/人感センサ） =====================
+   情報エリア最下段。時事ニュースは「枠あり」のカードで**見出し＋本文（CC BY 要約・先頭2文）を 1 件ずつ自動切替**
+   （2026-06-22 ユーザー確定）。鉄道/人感センサは右に付属チップで常時。広告（右30%）は覆わない。 */
 .p3Foot {
   flex: 0 0 auto;
   display: flex;
   align-items: stretch;
-  gap: 1.2vmin;
+  gap: var(--content-gap);
   min-width: 0;
   min-height: 0;
-  border-top: 2px solid var(--p3-panel-border);
-  padding-top: 0.5vmin;
 }
-/* ニュース（主役）: NEWS タグ ＋ 1 件カルーセル。 */
-.p3FootNews {
+/* 時事ニュース: 枠ありカード（見出し＋本文を 1 件ずつクロスフェード）。 */
+.p3NewsCard {
   flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 0.8vmin;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 2px solid var(--p3-panel-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.07);
+  padding: 0.4vmin 1vmin 0.6vmin;
   overflow: hidden;
 }
-.p3FootNewsTag {
-  flex: 0 0 auto;
-  font-size: clamp(0.66rem, 0.95vw, 0.88rem);
+/* カード見出し（名札・アクセント下線）。 */
+.p3NewsTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  font-size: clamp(1.05rem, 1.6vw, 1.45rem);
   font-weight: 800;
-  letter-spacing: 0.06em;
-  color: #fff;
-  background: var(--accent-color);
-  padding: 0.1rem 0.55rem;
-  border-radius: var(--radius-sm);
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--accent-color);
+  padding-bottom: 0.2rem;
+  margin-bottom: 0.25rem;
 }
-/* カルーセル窓（1 件ぶん）。全記事を絶対配置で重ね、active のみ opacity:1 でクロスフェード。 */
-.p3FootNewsViewport {
+/* 1 件ぶんの窓（見出し + 本文2文 + 出典/日付）。全記事を絶対配置で重ね active のみ表示してクロスフェード。 */
+.p3NewsViewport {
   position: relative;
   flex: 1 1 auto;
-  min-width: 0;
-  height: clamp(2.2rem, 3vw, 3rem);
+  min-height: clamp(3.6rem, 6vw, 6rem);
 }
-.p3FootNewsItem {
+.p3NewsSlide {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  gap: 0.15rem;
   min-width: 0;
   opacity: 0;
   transition: opacity 0.6s ease;
   pointer-events: none;
 }
-.p3FootNewsItemActive {
+.p3NewsSlideActive {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  .p3FootNewsItem {
+  .p3NewsSlide {
     transition: none;
   }
 }
-.p3FootNewsTitle {
-  font-size: clamp(1rem, 1.5vw, 1.4rem);
+/* 見出し（主役・最大 2 行）。 */
+.p3NewsHeadline {
+  font-size: clamp(1.05rem, 1.6vw, 1.5rem);
   font-weight: 700;
   color: var(--primary-color);
-  line-height: 1.2;
-  white-space: nowrap;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
   min-width: 0;
 }
-.p3FootNewsMeta {
+/* 本文（CC BY 要約の箇条書き）は共有 .p2NewsSummary を流用。出典/日付は最下部に。 */
+.p3NewsMeta {
+  margin-top: auto;
   display: flex;
   align-items: baseline;
   gap: 0 0.3rem;
-  font-size: clamp(0.7rem, 1vw, 0.92rem);
+  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
   font-weight: 600;
   color: var(--p3-ink-secondary);
   white-space: nowrap;
   overflow: hidden;
   min-width: 0;
 }
-.p3FootNewsSource {
+.p3NewsSource {
   color: var(--accent-color);
   font-weight: 700;
 }
-.p3FootNewsDots {
+.p3NewsDots {
   position: absolute;
   right: 0;
-  bottom: 0;
+  top: 0;
   display: inline-flex;
   gap: 4px;
 }
@@ -1420,14 +1428,14 @@
 .p3FootDotActive {
   background: var(--accent-color);
 }
-/* 付属情報（鉄道・人感センサ）: ニュースと縦線で区切り、右端に小さく常時表示。 */
+/* 付属情報（鉄道・人感センサ）: ニュースカードの右に小さく縦積みで常時表示（背の高いカードに合わせて縦並び）。 */
 .p3FootSide {
   flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
-  gap: 1.2vmin;
-  border-left: 1px solid var(--p3-panel-border);
-  padding-left: 1.2vmin;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--content-gap);
+  min-width: 0;
 }
 .p3FootChip {
   display: flex;
