@@ -31,6 +31,36 @@ export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string>
   pattern4: "パターン4（教員入力最小・天気/ニュース主役・連絡のみ編集）",
 };
 
+/**
+ * サイネージ「予定」セクションで表示する**平日の日数（= 予定グリッドの列数）**をパターン別に持つ単一ソース。
+ *
+ * 🔧 **日数を変えるのはここ 1 か所**。値を書き換えるだけで:
+ *  - データ取得日数（`signage-display.ts` が `signageScheduleDates(date, n)` に渡す日数）と
+ *  - 盤面の列数（`SignageBoardView` が描画した `days.length` を CSS 変数 `--schedule-cols` /
+ *    `--p3-schedule-cols` で grid に流すため、列数はデータに自動追従する）
+ * が**同時に**追従する。以前は `rotation.ts` の単一値（全パターン共通=5）で、pattern1/2 まで 5 日に
+ * なっていた（#1127「盤面5日表示」の副作用）。本マップでパターン別に分離し直す。
+ *
+ * 既定値:
+ *  - `pattern1` / `pattern2`: 標準・掲示盤面は「今後 3 平日」。
+ *  - `pattern3`（廊下版）: 遠目最適化で「平日 5 日」（2026-06-22 ユーザー確定）。
+ *  - `pattern4`（教員入力最小）: 予定セクションを描画しないため `0`（= 取得もしない）。
+ *
+ * 土日はスキップして「平日 n 日」を出す（`signageScheduleDates`）。値を増やすと列が細くなるので、
+ * 盤面の可読性（特に廊下版の遠目）とコマのはみ出しを実機で確認すること。
+ */
+export const SIGNAGE_SCHEDULE_DAY_COUNT: Record<SignageDesignPattern, number> = {
+  pattern1: 3,
+  pattern2: 3,
+  pattern3: 5,
+  pattern4: 0,
+};
+
+/** パターンの予定表示日数（= 予定グリッドの列数）。未知値は既定 pattern1 の日数に倒す（fail-soft）。 */
+export function signageScheduleDayCount(pattern: SignageDesignPattern): number {
+  return SIGNAGE_SCHEDULE_DAY_COUNT[pattern] ?? SIGNAGE_SCHEDULE_DAY_COUNT.pattern1;
+}
+
 /** signage_url / サイネージ URL に載せるデザイン指定クエリのキー。 */
 export const SIGNAGE_DESIGN_QUERY_KEY = "design";
 

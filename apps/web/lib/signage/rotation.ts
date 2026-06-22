@@ -117,13 +117,9 @@ export function jstDateString(now: Date = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
 
-/**
- * サイネージ「予定」グリッドの**列数の単一ソース**（＝今後何平日ぶんを盤面に出すか）。盤面（`SignageBoardView`
- * の `.scheduleGridContainer` / `.p2Schedule`）の `grid-template-columns: repeat(N, 1fr)` と一致させること
- * （CSS 側の N と本値がドリフトすると列が溢れる / 余る）。2026-06-22 に 3→5 へ拡張（週の見通しを良くする・
- * ユーザー指示）。広告（右 30%）・連絡/提出物・自動ブロックの取得範囲は不変（予定列数だけが変わる）。
- */
-export const SIGNAGE_SCHEDULE_DAY_COUNT = 5;
+// 予定の表示日数（= 列数）は**パターン別**に分離し `design-pattern.ts` の `SIGNAGE_SCHEDULE_DAY_COUNT`
+// （Record）/ `signageScheduleDayCount()` を単一ソースとする。旧・全パターン共通の単一値はここにあったが、
+// pattern1/2 まで 5 日になる副作用（#1127）を是正するため撤去した。`signageScheduleDates` は日数を引数で受ける。
 
 /**
  * サイネージ「予定」グリッドの列日付 (今後 `count` 日ぶん) を YYYY-MM-DD で返す。

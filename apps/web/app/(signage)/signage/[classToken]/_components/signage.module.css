@@ -219,7 +219,8 @@
    破綻が観測されない限りレンダリングは変更しない（推測でサイズを動かすと実機の見た目が変わる）。 */
 .scheduleGridContainer {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 列数は表示日数に追従（インライン --schedule-cols。未指定時の既定は 3 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern1）。 */
+  grid-template-columns: repeat(var(--schedule-cols, 3), 1fr);
   gap: 0.4vmin;
   flex: 1;
   min-height: 0;
@@ -625,12 +626,12 @@
   overflow: hidden;
 }
 /* 第1段: 予定。見出し・外枠を持たず 5 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。
-   列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致（ドリフトすると列が溢れる/余る）。列増に合わせ gap を詰める。 */
+   列数は表示日数に追従（インライン --schedule-cols。未指定時の既定は 3 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern2）。 */
 .p2Schedule {
   flex: 46 1 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--schedule-cols, 3), 1fr);
   gap: 0.5vmin;
   overflow: hidden;
 }
@@ -1160,7 +1161,8 @@
   /* 主役（盤面の大半を占める）。残り高さを人物エリアと 3:2 で分け合って盤面を埋める（下に余白を作らない）。 */
   flex: 3 1 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 列数は表示日数に追従（インライン --p3-schedule-cols。未指定時の既定は 5 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern3）。 */
+  grid-template-columns: repeat(var(--p3-schedule-cols, 5), 1fr);
   gap: 0;
   min-height: 0;
   /* 1 列に表示するコマ数。これが行高（=列高/可視数）と自動スクロール距離の基準。コンポーネント定数

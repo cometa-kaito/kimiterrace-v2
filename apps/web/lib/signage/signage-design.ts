@@ -16,9 +16,11 @@ export {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   SIGNAGE_DESIGN_PATTERNS,
   SIGNAGE_DESIGN_PATTERN_LABELS,
+  SIGNAGE_SCHEDULE_DAY_COUNT,
   type SignageDesignPattern,
   isSignageDesignPattern,
   parseSignageDesignPattern,
+  signageScheduleDayCount,
 } from "./design-pattern";
 
 /**
