@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "a12b7ef" # 2026-06-21: 添付メタ登録の越境ハードニング(#1113)。POST /api/teacher-inputs/:id/attachments に MIME allowlist(415)+自校prefix検証(403)を追加し、クライアント申告 storagePath による cross-tenant 登録を封鎖。route+lib のみ・schema/secret 無変更=migrate 不要。/api/health 200・/login private,no-cache（s-maxage退行なし）・apply 0add/1change/0destroy。live image=web:a12b7ef 突合
+  web_image_tag = "f3fe951" # 障害復旧: stale ブランチ(feat/signage-fit-to-monitor)から prod を bump したため pattern4 とエディタのパターン解決(#1086/#1093/#1101)が静かにロールバックしていたのを是正。f3fe951 = a12b7ef(#1114・pattern4＋エディタ修正含む・前任 web:a12b7ef を内包) に signage-fit(e95d5ffa) と実機 fit-stage 除外(9f73a566) を cherry-pick。schema 変更なし・secret 増減なし。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
