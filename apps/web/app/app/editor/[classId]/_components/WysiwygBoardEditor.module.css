@@ -62,13 +62,13 @@
 /*
  * 読み込み中（幅計測前）の盤面プレースホルダ。真っ白な空箱の代わりに薄いニュートラル面を敷き、ゆるい
  * 明滅で "これから盤面が出る" ことを示す（LEDGER v2-ed-uo11）。.canvas が 16:9 と overflow:hidden を持つので
- * 本要素は 100% で満たすだけ。グラデは使わない（ブランド方針＝グラデ禁止）＝単色＋opacity pulse。色の実値は
- * globals.css のニュートラル系が権威（ここは見た目のみ）。
+ * 本要素は 100% で満たすだけ。グラデは使わない（ブランド方針＝グラデ禁止）＝単色＋opacity pulse。色は
+ * 新規トークンを足さず、globals.css の既存ニュートラル面トークン --brand-bg-soft を参照する（単一ソース維持）。
  */
 .skeleton {
   width: 100%;
   height: 100%;
-  background: var(--editor-skeleton-base, #eef0f3);
+  background: var(--brand-bg-soft, #f7f8fa);
   animation: ktBoardSkeleton 1.4s ease-in-out infinite;
 }
 @keyframes ktBoardSkeleton {

@@ -25,7 +25,7 @@ import { formatSignageItem } from "@/lib/signage/section-format";
 import { sttErrorHint } from "@/lib/teacher-input/stt-error-hint";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { tokens } from "@kimiterrace/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import styles from "./EditorChat.module.css";
 
 const { color, radius, fontSize } = tokens;
@@ -90,6 +90,9 @@ export function EditorChat({
    */
   variant?: "page" | "floating";
 }) {
+  // 入力欄の操作ヒント（Enter=送信 / Shift+Enter=改行）を aria-describedby で textarea に紐付けるための安定 id。
+  // title だけだと SR/タッチ/キーボード利用者に確実に露出しないため、常時表示の控えめなヒント行も併設する（uo8 補完）。
+  const hintId = useId();
   const [state, setState] = useState<ChatState>(() => initialChatState(initialDraft));
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -510,8 +513,10 @@ export function EditorChat({
           }}
           placeholder="話す・書く・ファイルで…"
           // 操作ヒント（Enter=送信 / Shift+Enter=改行）は placeholder に詰め込むと狭幅パネルで不自然に折返す
-          //（LEDGER v2-ed-uo8）。placeholder は短くし、ヒントは title（ツールチップ）に逃がして折返しを作らない。
+          //（LEDGER v2-ed-uo8）。placeholder は短くし、ヒントは下部の常時表示行（hintId）＋ title（ツールチップ）に逃がす。
+          // title はマウス利用者向けの補助で、SR/キーボード/タッチには aria-describedby（hintId の行）が露出を担保する。
           title="Enter で送信 / Shift+Enter で改行"
+          aria-describedby={hintId}
           rows={1}
           disabled={streaming}
         />
@@ -553,6 +558,12 @@ export function EditorChat({
           </button>
         )}
       </div>
+
+      {/* 入力欄の操作ヒント。常時表示の控えめな1行（uo8 補完）。aria-describedby で textarea に紐付き、
+          SR/キーボード/タッチでも Shift+Enter 改行を発見できる。装飾色は使わず muted トークンのみ。 */}
+      <p id={hintId} style={inputHintStyle}>
+        Enter で送信 / Shift+Enter で改行
+      </p>
 
       {/* 音声入力が実際に失敗したときだけ、マイク直下に短いヒントを出す（role=status で読み上げ）。 */}
       {micHint ? (
@@ -713,6 +724,13 @@ const micHintStyle: React.CSSProperties = {
   padding: "0 0.7rem 0.6rem",
   fontSize: fontSize.sm,
   color: color.dangerFg,
+};
+// 入力欄の操作ヒント（常時表示・控えめ）。最小サイズの muted テキスト。トークンのみ・生 hex/px を使わない。
+const inputHintStyle: React.CSSProperties = {
+  margin: 0,
+  padding: "0 0.7rem 0.6rem",
+  fontSize: fontSize.xs,
+  color: color.muted,
 };
 // 入力欄: 内容に応じて高さを自動調整（autoGrow が height を JS 制御）し、上限で内部スクロール。
 // 高さは JS が握るので手動ドラッグ resize は無効化（JS と取り合いになるのを避ける）。min/max は保険。
