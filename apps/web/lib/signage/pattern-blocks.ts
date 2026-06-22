@@ -40,7 +40,7 @@ export type SignageBlockKind =
   | "visitor" // 来校者一覧
   | "presence" // 人感センサカウンタ
   | "train" // 鉄道
-  | "news" // 工学ニュース（外部取得キャッシュの見出し+出典・ADR-043）
+  | "news" // 時事ニュース（旧称「工学ニュース」・外部取得キャッシュの見出し+出典・ADR-043）
   | "safety_alert" // 防災・安全（気象警報/注意報 + 熱中症警戒。アクティブ時のみ条件付き表示・ADR-044）
   | "weather" // 天気（予定列ヘッダーに内包・独立リージョン無し）
   | "ad"; // 広告
@@ -78,7 +78,7 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
   visitor: { label: "来校者一覧", editable: true, hasRegion: true },
   presence: { label: "人感センサカウンタ", editable: false, hasRegion: true },
   train: { label: "鉄道", editable: false, hasRegion: true },
-  news: { label: "工学ニュース", editable: false, hasRegion: true },
+  news: { label: "時事ニュース", editable: false, hasRegion: true },
   // 防災・安全（気象警報 + 熱中症）。**アクティブな時だけ**条件付きで出す自動ブロック（ADR-044）。盤面では
   // weather と同様に独立 region landmark を作らず（`hasRegion=false`）、帯は `role="group"` でまとめる。これは
   // 「条件付き描画（無アラート時は帯ごと出さない）」と盤面 region ドリフトガード（描画 region 集合 ↔ hasRegion
@@ -94,13 +94,20 @@ export const SIGNAGE_BLOCK_META: Record<SignageBlockKind, SignageBlockMeta> = {
  * 自動ブロック（weather／ad）は編集フローの末尾に置く。
  *
  * - **pattern1**（既定・v1 レイアウト）: 防災・安全（条件付き）／予定／連絡／提出物 ＋ 天気（予定内包）／広告。
- * - **pattern2**（掲示盤面）: 予定／生徒呼び出し／来校者一覧／鉄道／人感センサ／工学ニュース ＋ 天気／広告。
- * - **pattern3**（廊下設置）: **pattern2 と同一ブロック・同一順序**（先方リクエストの確定コンテンツを維持）。
- *   違いは盤面レイアウトのみ＝廊下の「遠目・一瞥」に合わせた拡大タイポ／時刻主役ヘッダー／今日強調で、
- *   出すブロックは変えない（`PATTERN_BOARDS` の `Pattern3Board` がデザイン層だけ差し替える）。
+ * - **pattern2**（掲示盤面）: 予定／生徒呼び出し／来校者一覧／鉄道／人感センサ／時事ニュース ＋ 天気／広告。
+ * - **pattern3**（廊下設置）: **pattern2 から時事ニュースを除いた**ブロック（予定／呼び出し／来校者／鉄道／
+ *   人感センサ ＋ 天気／広告）。廊下運用ではニュース枠を外して予定・人物情報に集中させる（2026-06-20 ユーザー
+ *   確定）。違いは盤面レイアウト（廊下の「遠目・一瞥」向けの拡大タイポ／時刻主役ヘッダー／今日強調／週間天気帯）と
+ *   このニュース除去のみ（`PATTERN_BOARDS` の `Pattern3Board` がデザイン層を差し替える）。
+ * - **pattern4**（教員入力最小）: **天気・ニュースを主役**の自動コンテンツに据え、教員が入力するのは
+ *   **連絡（フリーワード）のみ**。それ以外は全自動／API（防災・安全＝条件付き／鉄道／人感センサ／広告）で
+ *   教員入力ゼロ（2026-06-20 ユーザー確定）。**予定・呼び出し・来校者・提出物は持たない**（教員入力を要する
+ *   ブロックは連絡を除き載せない）＝pattern4 だけは「全パターン共通の主役 schedule」を持たない例外
+ *   （`Pattern4Board` がレイアウトを担う）。pattern3（教員入力前提の廊下運用）と対になる「自動寄り」の盤面。
  *
- * 工学ニュース（news・ADR-043）は鉄道（train）と同じシステム供給の自動ブロックで、pattern2/3 のみに出す
- * （pattern1 は対象外）。
+ * 時事ニュース（news・ADR-043）は鉄道（train）と同じシステム供給の自動ブロックで、**pattern2／pattern4** に
+ * 出す（pattern1／pattern3 は対象外）。防災・安全（safety_alert・ADR-044）は **pattern1／pattern4** が出す
+ * （いずれもアクティブ時のみ条件付き描画）。
  *
  * 新パターンはここに 1 行追加するだけで全消費者が追従する（finding①「宣言的マッピングで一括駆動」）。
  */
@@ -109,8 +116,14 @@ export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockK
   // 警報/熱中症がある時だけ条件付きで描画する（無い時は帯ごと出さない・fail-soft、ADR-044）。
   pattern1: ["safety_alert", "schedule", "notice", "assignment", "weather", "ad"],
   pattern2: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
-  // pattern3（廊下）は pattern2 と同一ブロック（内容据え置き・デザインのみ最適化）。
+  // pattern3（廊下）は pattern2 と同じブロック。時事ニュース（news）は最下段のフッタ帯に 1 件ずつ自動切替で
+  // 常時表示する（2026-06-22 ユーザー確定で再導入）。デザイン層（拡大タイポ／週間天気帯／罫線区切り／鉄道・センサ・
+  // ニュースのフッタ集約）は Pattern3Board が担う。
   pattern3: ["schedule", "callout", "visitor", "train", "presence", "news", "weather", "ad"],
+  // pattern4（教員入力最小）: 天気・ニュースを主役に、教員入力は連絡（notice・フリーワード）のみ。防災・安全は
+  // 条件付きで先頭、その後 天気→ニュース→連絡→鉄道→人感センサ、広告は末尾。schedule/callout/visitor/assignment
+  // は教員入力を要するため**載せない**（editableBlocksForPattern→[notice] のみ。2026-06-20 ユーザー確定）。
+  pattern4: ["safety_alert", "weather", "news", "notice", "train", "presence", "ad"],
 };
 
 /**

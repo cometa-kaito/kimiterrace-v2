@@ -135,10 +135,13 @@ export function WysiwygBoardEditor({
   );
 
   // このクラスの実機が出すパターンに含まれる**編集対象ブロックだけ**を出す（`PATTERN_BLOCKS` 単一ソース駆動）。
-  // 予定は全パターン共通。連絡 / 提出物は pattern1 専用ブロックなので pattern2/3 では盤面に出ず、編集欄も出さない
-  // （死セクション防止・finding① の対称ケース）。来校者 / 生徒呼び出しは pattern2/3 用で親（page.tsx）が盤面下に
-  // 出し分ける。盤面取得不能（base=null）は既定 pattern1 に倒し従来の縦積みフォーム（予定/連絡/提出物）を出す。
+  // 予定は pattern1/2/3 共通だが **pattern4 だけは予定を持たない**（教員入力最小・連絡のみ編集）ので、予定の
+  // 編集欄も `patternIncludesBlock` で出し分ける（死セクション防止・finding① の対称ケース）。連絡 / 提出物も
+  // 同様（pattern2/3 は盤面に出ず編集欄も出さない／pattern4 は連絡のみ出す）。来校者 / 生徒呼び出しは pattern2/3
+  // 用で親（page.tsx）が盤面下に出し分ける。盤面取得不能（base=null）は既定 pattern1 に倒し従来の縦積みフォーム
+  // （予定/連絡/提出物）を出す。
   const pattern = base?.designPattern ?? DEFAULT_SIGNAGE_DESIGN_PATTERN;
+  const showSchedule = patternIncludesBlock(pattern, "schedule");
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
 
@@ -181,19 +184,22 @@ export function WysiwygBoardEditor({
 
       {/* 下段: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存して担う）。 */}
       <div className={styles.editors}>
-        <EditorCard
-          title="予定"
-          cardRef={scheduleRef}
-          active={active === "schedules"}
-          onFocusCapture={() => setActive("schedules")}
-        >
-          <ScheduleEditor
-            classId={classId}
-            date={date}
-            initialItems={initialSchedules}
-            onItemsChange={onSchedules}
-          />
-        </EditorCard>
+        {/* 予定は pattern1/2/3 の主役ブロックだが pattern4 は持たない（連絡のみ編集）ので出し分ける。 */}
+        {showSchedule ? (
+          <EditorCard
+            title="予定"
+            cardRef={scheduleRef}
+            active={active === "schedules"}
+            onFocusCapture={() => setActive("schedules")}
+          >
+            <ScheduleEditor
+              classId={classId}
+              date={date}
+              initialItems={initialSchedules}
+              onItemsChange={onSchedules}
+            />
+          </EditorCard>
+        ) : null}
         {showNotice ? (
           <EditorCard
             title="連絡"

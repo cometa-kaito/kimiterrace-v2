@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
  * 原因: 自動更新ポーリング応答は JSON で、`fetchedAt` / `publishedAt` 等の **Date 型フィールドが文字列化**
  * する。これを Date に復元せず再描画すると、盤面の Date 利用（ニュース日付 `formatNewsDate` の
  * `publishedAt.getTime()`）が**文字列に対して実行され `TypeError: ...getTime is not a function`** を投げ、
- * error boundary が盤面ごとエラー画面に倒す（ニュースを描く pattern2/3 のみ実害、pattern1 は無傷）。
+ * error boundary が盤面ごとエラー画面に倒す（ニュースを描く pattern2 のみ実害、pattern1 は無傷。pattern3 は
+ * 2026-06-20 にニュース枠を撤去したので、現在は pattern2 がニュース描画の代表。reviver 修正は pattern 非依存）。
  *
  * 修正: poll 応答を `rotation.reviveSignageDate` reviver でパースし、初期描画（SSR→hydration、RSC が Date
  * 復元）と同じ「Date は Date」の不変条件をクライアント側でも保つ。
@@ -22,11 +23,15 @@ import type { SignagePayload } from "../../lib/signage/signage-display";
 
 const emptySection = { items: [] as unknown[], source: null };
 
-/** ニュースを 1 件持つ pattern3（廊下）payload。`publishedAt` は本来 Date（サーバ/初期描画の形）。 */
-function pattern3PayloadWithNews(): SignagePayload {
+/**
+ * ニュースを 1 件持つ「ニュース描画パターン」（pattern2）payload。`publishedAt` は本来 Date（サーバ/初期描画の
+ * 形）。回帰の原典は pattern3 だが 2026-06-20 にニュース枠を撤去したため、ニュースを描く pattern2 で同じ Date
+ * 復元経路を固定する（reviver 修正は pattern 非依存）。
+ */
+function newsBearingPayload(): SignagePayload {
   return {
     date: "2026-06-20",
-    designPattern: "pattern3",
+    designPattern: "pattern2",
     daily: {
       date: "2026-06-20",
       schedules: emptySection,
@@ -71,6 +76,7 @@ function pattern3PayloadWithNews(): SignagePayload {
           title: "松本洋平文部科学大臣記者会見録",
           sourceLabel: "文部科学省",
           url: "https://www.mext.go.jp/b_menu/daijin/detail/mext_00705.html",
+          summary: null,
           publishedAt: new Date("2026-06-19T10:57:00.000Z"),
         },
       ],
@@ -112,20 +118,20 @@ describe("サイネージ poll 応答の日付復元（本番障害回帰）", (
     expect(reviveSignageDate("heatAlerts", null)).toBe(null);
   });
 
-  it("【バグ再現】reviver 無しの素 JSON.parse 由来 payload は pattern3 ニュース描画で TypeError を投げる", () => {
-    const raw = JSON.parse(pollResponseJson(pattern3PayloadWithNews())) as SignagePayload;
+  it("【バグ再現】reviver 無しの素 JSON.parse 由来 payload はニュース描画で TypeError を投げる", () => {
+    const raw = JSON.parse(pollResponseJson(newsBearingPayload())) as SignagePayload;
     // publishedAt が文字列のまま → formatNewsDate の getTime() が文字列に対して走り throw（= 本番の症状）。
     expect(() => render(<SignageBoardView {...boardProps(raw)} />)).toThrow();
   });
 
-  it("【修正】reviveSignageDate で復元した payload は pattern3 ニュースを正常描画し落ちない", () => {
+  it("【修正】reviveSignageDate で復元した payload はニュースを正常描画し落ちない", () => {
     const revived = JSON.parse(
-      pollResponseJson(pattern3PayloadWithNews()),
+      pollResponseJson(newsBearingPayload()),
       reviveSignageDate,
     ) as SignagePayload;
     render(<SignageBoardView {...boardProps(revived)} />);
     // ニュース帯が描かれ、公開日が JST M/D（6/19）で整形される。
-    const news = screen.getByRole("region", { name: "工学ニュース" });
+    const news = screen.getByRole("region", { name: "時事ニュース" });
     expect(news).toHaveTextContent("松本洋平文部科学大臣記者会見録");
     expect(news).toHaveTextContent("6/19");
   });

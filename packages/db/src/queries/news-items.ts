@@ -23,6 +23,11 @@ export type UpsertNewsItemInput = {
   title: string;
   url: string;
   category?: string | null;
+  /**
+   * 公式が配信する要約（CC BY ソースのみ非 null・要許諾ソースは null）。gate は取得 Job 側（run.ts の
+   * `isSummaryAllowedSource`）が担い、本層はそのまま保存する（ADR-043 §2026-06-20 改訂）。
+   */
+  summary?: string | null;
   /** 記事の公開日時（RSS pubDate）。無ければ null。 */
   publishedAt?: Date | null;
   /** 取得時刻（未指定は now()）。 */
@@ -52,6 +57,7 @@ export async function saveNewsItems(
         title: it.title,
         url: it.url,
         category: it.category ?? null,
+        summary: it.summary ?? null,
         publishedAt: it.publishedAt ?? null,
         ...(it.fetchedAt ? { fetchedAt: it.fetchedAt } : {}),
         createdBy: null,
@@ -64,6 +70,8 @@ export async function saveNewsItems(
         sourceLabel: sql`excluded.source_label`,
         title: sql`excluded.title`,
         category: sql`excluded.category`,
+        // 再取得時に要約も差し替える（CC BY 化で要約が後付けされた既存行も拾える。null 化も反映）。
+        summary: sql`excluded.summary`,
         publishedAt: sql`excluded.published_at`,
         fetchedAt: sql`excluded.fetched_at`,
         // ルール1: 再取得時刻として updated_at を明示更新（created_at / created_by は初回値を保つ）。

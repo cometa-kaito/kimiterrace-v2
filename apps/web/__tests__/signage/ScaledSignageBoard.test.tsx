@@ -113,7 +113,7 @@ describe("SignageBoardView（純粋な盤面描画層）", () => {
     expect(screen.getByRole("region", { name: "人感センサカウンタ" })).toBeInTheDocument();
   });
 
-  it("designPattern=pattern3（廊下）は pattern2 と同一ブロックを dispatch しつつ大型ヘッダーを出す", () => {
+  it("designPattern=pattern3（廊下）は pattern2 から時事ニュースを除いたブロックを dispatch しつつ大型ヘッダーを出す", () => {
     const weather: SignagePayload["weather"] = {
       areaCode: "210000",
       areaName: "岐阜県",

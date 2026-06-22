@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ParsedNewsItem } from "../news-parse.js";
-import { type NewsFeed, parseFeedsEnv, runNewsFetch } from "../run.js";
+import { type NewsFeed, isSummaryAllowedSource, parseFeedsEnv, runNewsFetch } from "../run.js";
 
 /**
  * 工学ニュース取得バッチのオーケストレーション（ADR-043）を、fetch/DB を注入して検証する。フィード単位の
@@ -18,13 +18,24 @@ const FEED_MEXT: NewsFeed = {
   sourceLabel: "文部科学省",
   url: "https://www.mext.go.jp/b_menu/news/index.rdf",
 };
+const FEED_METI: NewsFeed = {
+  source: "meti",
+  sourceLabel: "経済産業省",
+  url: "https://www.meti.go.jp/ml_index_release_atom.xml",
+};
 
 const ITEM_A: ParsedNewsItem = {
   title: "記事A",
   url: "https://a/1",
   publishedAt: new Date("2026-06-01T00:00:00Z"),
+  summary: null,
 };
-const ITEM_B: ParsedNewsItem = { title: "記事B", url: "https://a/2", publishedAt: null };
+const ITEM_B: ParsedNewsItem = {
+  title: "記事B",
+  url: "https://a/2",
+  publishedAt: null,
+  summary: null,
+};
 const jstItems: ParsedNewsItem[] = [ITEM_A, ITEM_B];
 
 describe("runNewsFetch", () => {
@@ -44,6 +55,8 @@ describe("runNewsFetch", () => {
         sourceLabel: "JST サイエンスポータル",
         title: "記事A",
         url: "https://a/1",
+        // jst は要許諾 = 要約は破棄され null（CC BY gating・ADR-043 §2026-06-20）。
+        summary: null,
         publishedAt: new Date("2026-06-01T00:00:00Z"),
       },
       {
@@ -51,6 +64,7 @@ describe("runNewsFetch", () => {
         sourceLabel: "JST サイエンスポータル",
         title: "記事B",
         url: "https://a/2",
+        summary: null,
         publishedAt: null,
       },
     ]);
@@ -133,6 +147,50 @@ describe("runNewsFetch", () => {
       failed: 0,
       failedFeeds: [],
     });
+  });
+
+  it("CC BY gating: meti(CC BY) は要約を保存、jst(要許諾) は description が取れても summary=null に破棄する", async () => {
+    const saveItems = vi.fn(async (items: readonly unknown[]) => items.length);
+    // どちらのフィードも parse 段階では summary を持つ（jst でも description が取れた状況を再現）。
+    const metiParsed: ParsedNewsItem[] = [
+      {
+        title: "経産省の記事",
+        url: "https://meti/1",
+        publishedAt: null,
+        summary: "公式の要約文。",
+      },
+    ];
+    const jstParsed: ParsedNewsItem[] = [
+      {
+        title: "JST の記事",
+        url: "https://jst/1",
+        publishedAt: null,
+        summary: "要許諾ソースの説明文（破棄されるべき）。",
+      },
+    ];
+    await runNewsFetch({
+      listFeeds: () => [FEED_METI, FEED_JST],
+      fetchFeed: async (feed) => (feed.source === "meti" ? metiParsed : jstParsed),
+      saveItems,
+    });
+    // meti は要約を保持。
+    expect(saveItems.mock.calls[0]?.[0]?.[0]).toMatchObject({
+      source: "meti",
+      summary: "公式の要約文。",
+    });
+    // jst は parse で取れていても保存前に null へ落とす（法的 gate）。
+    expect(saveItems.mock.calls[1]?.[0]?.[0]).toMatchObject({ source: "jst", summary: null });
+  });
+});
+
+describe("isSummaryAllowedSource", () => {
+  it("CC BY（政府標準利用規約）の meti / mext は true", () => {
+    expect(isSummaryAllowedSource("meti")).toBe(true);
+    expect(isSummaryAllowedSource("mext")).toBe(true);
+  });
+
+  it("要許諾の jst は false（要約を保存・表示しない）", () => {
+    expect(isSummaryAllowedSource("jst")).toBe(false);
   });
 });
 

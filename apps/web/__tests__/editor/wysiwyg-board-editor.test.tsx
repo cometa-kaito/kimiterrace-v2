@@ -249,4 +249,27 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.queryByRole("heading", { name: "提出物", level: 2 })).toBeNull();
     expect(screen.queryByPlaceholderText("連絡事項")).toBeNull();
   });
+
+  it("pattern4 では編集欄を連絡のみにする（予定/提出物は出さない・教員入力最小・2026-06-20）", () => {
+    // pattern4 は天気/ニュース主役の自動寄り盤面で、教員入力は連絡（フリーワード）だけ。予定も持たない例外
+    // なので、予定の編集欄も出さない（showSchedule=false）。盤面上のクリック編集も連絡のみ。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern4" }}
+        initialSchedules={[{ period: 1, subject: "数学" }]}
+        initialNotices={[{ text: "既存連絡" }]}
+        initialAssignments={[]}
+      />,
+    );
+    // 連絡の編集欄（見出し + placeholder）と盤面のクリック編集ボタンは出る（pattern4 唯一の編集ブロック）。
+    expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
+    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "連絡を編集" })).toBeTruthy();
+    // 予定 / 提出物の編集欄は出さない（pattern4 の盤面に無い＝死セクション防止）。盤面のクリック編集も予定は無い。
+    expect(screen.queryByRole("heading", { name: "予定", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "提出物", level: 2 })).toBeNull();
+    expect(screen.queryByRole("button", { name: "予定を編集" })).toBeNull();
+  });
 });

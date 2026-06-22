@@ -133,15 +133,16 @@ export type SignagePayload = {
    */
   trainStatus: SignageRailwayStatus | null;
   /**
-   * パターン2/3「工学ニュース」用、外部取得キャッシュ（news_items）の最新見出し（見出し+発表元+公開日+出典 URL）。
-   * pattern1 は使わない。**端末は閉域**で、バックエンド取得 Job が `news_items` にキャッシュした行を読むだけ
-   * （政府系/JST の公開 RSS を直叩きしない・ADR-043）。RLS read_all で匿名でも読める。**本文は持たず転載しない**
-   * （著作権方針）。記事無し・取得失敗は `items: []`（ウィジェットは「ニュースを取得できていません」表示＝
-   * fail-soft）。`null` はパターン非該当（pattern1）で取得していないことを表す。
+   * パターン2/4「時事ニュース」用、外部取得キャッシュ（news_items）の最新見出し（見出し+発表元+公開日+出典 URL）。
+   * pattern1/pattern3 は使わない（pattern3 は 2026-06-20 にニュース枠を撤去）。**端末は閉域**で、バックエンド取得
+   * Job が `news_items` にキャッシュした行を読むだけ（政府系/JST の公開 RSS を直叩きしない・ADR-043）。RLS read_all
+   * で匿名でも読める。**本文は持たず転載しない**（著作権方針）。記事無し・取得失敗は `items: []`（ウィジェットは
+   * 「ニュースを取得できていません」表示＝fail-soft）。`null` はパターン非該当（pattern1/pattern3）で取得していない
+   * ことを表す。
    */
   news: SignageNews | null;
   /**
-   * pattern1「防災・安全」帯用、自校地域の**気象警報・注意報**（ADR-044）。pattern2/3 は使わない（null）。
+   * pattern1/pattern4「防災・安全」帯用、自校地域の**気象警報・注意報**（ADR-044）。pattern2/3 は使わない（null）。
    * **端末は閉域**で、バックエンド天気 Job が `weather_warnings` にキャッシュした行（公開・非 PII の地域警報）を
    * 読むだけ（JMA bosai を直叩きしない）。RLS read_all で匿名でも読める。地域未解決・キャッシュ無し・取得失敗は
    * `null`（帯ごと非表示＝fail-soft、盤面の他要素は壊さない）。`maxLevel='none'`（行はあるが警報なし）は非 null で
@@ -149,7 +150,7 @@ export type SignagePayload = {
    */
   weatherWarnings: SignageWeatherWarning | null;
   /**
-   * pattern1「防災・安全」帯用、自校地域の**熱中症警戒アラート / WBGT**（ADR-044）。pattern2/3 は使わない（null）。
+   * pattern1/pattern4「防災・安全」帯用、自校地域の**熱中症警戒アラート / WBGT**（ADR-044）。pattern2/3 は使わない（null）。
    * **端末は閉域**で、バックエンド天気 Job が `heat_alerts` にキャッシュした行（公開・非 PII の地域アラート）を
    * 読むだけ（環境省を直叩きしない）。RLS read_all で匿名でも読める。地域未解決・キャッシュ無し・取得失敗は
    * `null`（帯ごと非表示＝fail-soft）。`alertLevel='none'`（行はあるがアラートなし）は非 null で返り、**帯を
@@ -291,15 +292,15 @@ export async function buildSignagePayloadForClass(
   const trainStatus = patternIncludesBlock(designPattern, "train")
     ? await getSignageRailwayStatus(tx).catch(() => null)
     : null;
-  // 「工学ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
+  // 「時事ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
   // の RSS 直叩きしない・ADR-043）。RLS read_all で匿名でも読める。取得失敗は空リスト（fail-soft）に倒す。
-  // パターン非該当（pattern1）は引かず null（盤面でも出さない）。
+  // パターン非該当（pattern1/pattern3）は引かず null（盤面でも出さない）。pattern2/pattern4 が取得・表示。
   const news = patternIncludesBlock(designPattern, "news")
     ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
     : null;
   // 「防災・安全」= 自校地域の気象警報・注意報 + 熱中症警戒アラートをキャッシュ（weather_warnings / heat_alerts）
-  // から読む。端末は閉域（JMA / 環境省を直叩きしない・ADR-044）。RLS read_all で匿名でも読める。pattern1 のみ取得
-  // （pattern2/3 は無改修＝null で盤面に出さない）。取得失敗・地域未解決・行無しは null に倒し帯ごと出さない
+  // から読む。端末は閉域（JMA / 環境省を直叩きしない・ADR-044）。RLS read_all で匿名でも読める。pattern1/pattern4
+  // が取得（pattern2/3 は null で盤面に出さない）。取得失敗・地域未解決・行無しは null に倒し帯ごと出さない
   // （fail-soft、安全情報でも盤面の他要素は壊さない）。同一 tx・天気と同じ prefecture 解決を使う。
   const weatherWarnings = patternIncludesBlock(designPattern, "safety_alert")
     ? await getSignageWeatherWarnings(tx, schoolId).catch(() => null)

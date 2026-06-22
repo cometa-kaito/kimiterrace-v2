@@ -16,7 +16,7 @@ const NEWS_DWELL_MS = 6_000;
  * - 全記事を DOM に積み（絶対配置）、`active` のものだけ opacity:1 でクロスフェード表示する（非 active は
  *   `aria-hidden`）。全文が DOM に残るので region のテキスト照合（テスト）も安定。
  * - `prefers-reduced-motion` ではフェード遷移を止める（CSS 側ガード）。
- * - region は pattern2 と同じ `aria-label="工学ニュース"`（盤面 region ドリフトガード／SIGNAGE_BLOCK_META と整合）。
+ * - region は pattern2 と同じ `aria-label="時事ニュース"`（盤面 region ドリフトガード／SIGNAGE_BLOCK_META と整合）。
  * - **本文は転載しない**（見出し＋発表元＋公開日のみ。news_items 自体が本文を持たない・著作権方針）。記事無し /
  *   取得失敗（`null` / 空）は「ニュースを取得できていません」（fail-soft）。
  */
@@ -39,7 +39,7 @@ export function Pattern3NewsTicker({ news }: { news: SignagePayload["news"] }) {
   const safe = items.length > 0 ? active % items.length : 0;
 
   return (
-    <section aria-label="工学ニュース" className={styles.p3FootNews}>
+    <section aria-label="時事ニュース" className={styles.p3FootNews}>
       <span className={styles.p3FootNewsTag} aria-hidden="true">
         NEWS
       </span>

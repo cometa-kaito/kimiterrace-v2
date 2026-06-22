@@ -225,7 +225,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "90878a3" # +#1066 pattern1 に気象警報・熱中症の安全帯表示(条件付き・fail-soft・pattern2/3無改修)。疎通 /api/health 200 + /login private,no-cache
+  web_image_tag = "d0eff93" # 2026-06-20: エディタの浮遊AIチャットをドラッグ/矢印キー/ダブルクリック/Homeでリサイズ可能に（#1085）。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {

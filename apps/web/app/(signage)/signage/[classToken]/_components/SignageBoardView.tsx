@@ -126,8 +126,10 @@ const PATTERN_BOARDS: Record<
 > = {
   pattern1: Pattern1Board,
   pattern2: Pattern2Board,
-  // pattern3 = pattern2 の掲示盤面を「廊下設置」向けにデザイン最適化した版（表示ブロック・データは同一）。
+  // pattern3 = pattern2 の掲示盤面を「廊下設置」向けにデザイン最適化した版（pattern2 から時事ニュースを除く）。
   pattern3: Pattern3Board,
+  // pattern4 = 教員入力最小（連絡のみ編集）・天気/ニュースを主役にした自動寄りの盤面。
+  pattern4: Pattern4Board,
 };
 
 /**
@@ -330,15 +332,16 @@ function Pattern2Board({
 }
 
 /**
- * パターン3: 廊下設置に最適化した掲示盤面。**表示ブロック・データ・順序・広告は pattern2 と完全に同一**
- * （先方リクエストの確定コンテンツを変えない）で、廊下の「通り過ぎながら遠目で一瞥」に効く**デザイン層だけ**を
- * 足す版（2026-06-17 ユーザー確定）:
+ * パターン3: 廊下設置に最適化した掲示盤面。**表示ブロック・データ・順序・広告は pattern2 から時事ニュースを
+ * 除いたもの**（廊下運用ではニュース枠を外し予定・人物情報に集中・2026-06-20 ユーザー確定）で、廊下の
+ * 「通り過ぎながら遠目で一瞥」に効く**デザイン層**を足す版（2026-06-17 ベース）:
  *   (1) 時刻を主役にした大型ヘッダー（{@link Pattern3Header}）— 通行者が最も見る情報を最大化。
  *   (2) 主要テキスト（予定／氏名／鉄道／センサ）を遠距離可読まで拡大（CSS `.p3Root` の上書き）。
- *   (3) 「今日」列を枠で面強調。
+ *   (3) 「今日」列を枠で面強調 ＋ 週間天気帯（{@link Pattern3WeeklyWeather}）。
  * 盤面の各リージョン（予定／呼び出し／来校者／鉄道／センサ）と広告は **pattern2 の部品をそのまま再利用**し、
  * region aria-label・fail-soft・編集配線・ドリフトガード（SignageClient.test）・データ取得ゲートを共有する
- * （DRY。pattern2 は無改修＝既存教室端末は不変）。差分はラッパの `p3Root` クラスと専用ヘッダーのみ。
+ * （DRY。pattern2 は無改修＝既存教室端末は不変）。差分はラッパの `p3Root` クラス・専用ヘッダー・週間天気帯・
+ * 時事ニュース非表示（`PATTERN_BLOCKS.pattern3` から news を外したので {@link Pattern2News} を呼ばない）。
  */
 function Pattern3Board({
   data,
@@ -382,6 +385,137 @@ function Pattern3Board({
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
+    </div>
+  );
+}
+
+/**
+ * パターン4: **教員入力を最小化した自動寄りの盤面**（pattern3 の対）。天気・ニュースを主役の自動コンテンツに
+ * 据え、教員が入力するのは**連絡（フリーワード）のみ**。それ以外は全自動／API（防災・安全＝条件付き帯／鉄道／
+ * 人感センサ／広告）で教員入力ゼロ（2026-06-20 ユーザー確定）。**予定・呼び出し・来校者・提出物は出さない**
+ * （`PATTERN_BLOCKS.pattern4` に含めない＝`editableBlocksForPattern` は `[notice]` のみ）。
+ *
+ * 盤面の各リージョン（連絡／時事ニュース／鉄道／人感センサ）・防災帯・広告は **既存部品をそのまま再利用**し、
+ * region aria-label・fail-soft・ドリフトガード（SignageClient.test）・データ取得ゲートを共有する（DRY。pattern1/2/3
+ * は無改修）。差分はラッパ `p4Root` クラス・縦積みの `p4Grid` レイアウト・天気ヒーロー（{@link Pattern4WeatherHero}）・
+ * 大型ヘッダー（pattern3 流用）のみ。連絡だけ `editRegions` を渡す（WYSIWYG「盤面を編集」で連絡のみクリック編集可）。
+ *
+ * ヘッダーは **pattern3 の大型ヘッダー（`Pattern3Header`・時刻主役）を流用**（2026-06-20 ユーザー指示）。盤面の
+ * `--header-height` は `.p4Root` でも 58px に上書きして大型ヘッダー分の上余白を確保する（CSS 参照）。
+ */
+function Pattern4Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
+  return (
+    <div className={`${styles.signageRoot} ${styles.p4Root}`}>
+      <Pattern3Header data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p4Grid}>
+            {/* 防災・安全帯（ADR-044）: アクティブな警報/熱中症がある時だけ最上部に出す（無い時は帯ごと出ない）。 */}
+            <SafetyAlertBand
+              warning={data.weatherWarnings ?? null}
+              heatAlert={data.heatAlerts ?? null}
+            />
+            {/* 主役①: 天気ヒーロー（日付/曜日/天気マークを主・気温/降水を従に・本日以降7日）。fail-soft で null。 */}
+            <Pattern4WeatherHero weather={data.weather ?? null} today={data.date} />
+            {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。pattern4 では
+                CC BY ソース（経産省 METI）の公式要約を箇条書きで添える（showSummary）。 */}
+            <Pattern2News news={data.news} showSummary />
+            {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。 */}
+            <NoticeList section={data.daily.notices} editRegions={editRegions} />
+            {/* ステータス帯（自動）: 鉄道 + 人感センサを小さく 2 列。 */}
+            <div className={styles.p4Status}>
+              <Pattern2Train train={data.trainStatus} />
+              <Pattern2SensorCount count={data.presenceCount} />
+            </div>
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン4 専用の**天気ヒーロー**（主役）。`data.weather.days` の本日以降（最大 7 日）を 1 行のストリップで出す。
+ * 各日 = **曜日（今日は「今日」）／日付（M/D）／天気マーク**を**主役（大）**に、**気温（最高/最低）／降水確率**を
+ * **サブ（小）**として添える（2026-06-20 ユーザー指示「日にち・曜日・天気マークをメイン、気温・降雨率をサブ」）。
+ *
+ * ## 設計上の不変条件
+ * - **region landmark を作らない**: weather は {@link SIGNAGE_BLOCK_META} で `hasRegion=false`。盤面 region
+ *   ドリフトガード（描画 region 集合 ↔ hasRegion ブロック集合の一致）を崩さぬよう、`<section aria-label>` では
+ *   なく `role="group"` でまとめる（pattern1 防災帯 / pattern3 週間天気帯と同作法）。aria-label は「天気」。
+ * - **pattern3 週間天気帯（"週間天気" group）とは別物**: 本ヒーローは "天気" group で、pattern3 専用の
+ *   `Pattern3WeeklyWeather`（"週間天気" group）とは名前で区別する（テストの取り違え防止）。
+ * - **NFR05（色非依存）**: 気温は色だけでなく必ず数値を添え、天気グリフは `aria-label` で意味を担保。
+ * - **fail-soft**: `weather=null` や本日以降の予報が 0 件なら帯ごと出さない（盤面を壊さない）。降水確率・気温が
+ *   欠落した日はその要素だけ出さない（盤面を詰めて見せる）。
+ */
+function Pattern4WeatherHero({
+  weather,
+  today,
+}: {
+  weather: SignageWeather | null;
+  today: string;
+}) {
+  const days = weather ? weather.days.slice(0, 7) : [];
+  if (days.length === 0) {
+    return null;
+  }
+  return (
+    // 非フォームの関連項目まとめ。region landmark を増やさぬよう <section aria-label> でなく role="group"。
+    // biome-ignore lint/a11y/useSemanticElements: 盤面 region ドリフトガードを崩さぬため role="group" を使う
+    <div className={styles.p4Weather} role="group" aria-label="天気">
+      {days.map((day) => {
+        const { weekday, monthDay } = weeklyWeatherLabel(day.forecastDate, today);
+        const isToday = day.forecastDate === today;
+        return (
+          <div
+            key={day.forecastDate}
+            className={`${styles.p4WxCell} ${isToday ? styles.p4WxCellToday : ""}`}
+          >
+            {/* 主役: 曜日（今日は「今日」）／日付（M/D）／天気マーク（大）。 */}
+            <span className={styles.p4WxDow}>{weekday}</span>
+            <span className={styles.p4WxDate}>{monthDay}</span>
+            <span className={styles.p4WxIcon} aria-label={day.weatherText ?? day.iconLabel}>
+              <span aria-hidden="true">{WEATHER_ICON_GLYPH[day.icon]}</span>
+            </span>
+            {/* サブ: 気温（最高=暖色／最低=寒色・小）。色だけに依らず数値併記（NFR05）。 */}
+            {day.tempMax != null || day.tempMin != null ? (
+              <span className={styles.p4WxTemps}>
+                <span className={styles.p4WxHigh}>
+                  {day.tempMax != null ? `${day.tempMax}°` : "—"}
+                </span>
+                <span className={styles.p4WxLow}>
+                  {day.tempMin != null ? `${day.tempMin}°` : "—"}
+                </span>
+              </span>
+            ) : null}
+            {/* サブ: 降水確率（小）。欠落日は出さない。 */}
+            {day.pop != null ? (
+              <span className={styles.p4WxPop} aria-label={`降水確率 ${day.pop}％`}>
+                <span aria-hidden="true">☂</span>
+                {day.pop}%
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1078,7 +1212,9 @@ function Pattern2SensorCount({ count }: { count: number | null }) {
 function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
   return (
     <section aria-label="鉄道" className={styles.p2StatusTile}>
-      <span className={styles.p2StatusLabel}>鉄道{train ? `・${train.operatorName}` : ""}</span>
+      <span className={styles.p2StatusLabel}>
+        {train ? `${train.operatorName}・笠松駅の運行状況` : "名鉄・笠松駅の運行状況"}
+      </span>
       {train == null ? (
         <span className={styles.p2Muted}>運行情報は取得できていません</span>
       ) : (
@@ -1100,18 +1236,30 @@ function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
 }
 
 /**
- * パターン2/3 の工学ニュース（ADR-043）。外部取得キャッシュ（news_items）の最新見出しを**見出し + 発表元
- * + 公開日 + 出典 URL**で 1 行ずつ出す。**本文は転載しない**（著作権方針・news_items 自体が本文を持たない）。
- * **出典明記（発表元ラベル）は必須**（CC BY の条件かつ礼儀）。端末は閉域で、バックエンド取得 Job が更新した
- * キャッシュを読むだけ（RSS 直叩きしない）。記事無し・取得失敗（`null` / `items` 空）はともに「ニュースを
- * 取得できていません」（fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。
+ * パターン2/4 の時事ニュース（ADR-043。旧称「工学ニュース」を 2026-06-20 に「時事ニュース」へ全体改称・
+ * ユーザー指定）。外部取得キャッシュ（news_items）の最新見出しを**見出し + 発表元 + 公開日 + 出典 URL**で
+ * 1 行ずつ出す。**本文は転載しない**（著作権方針・news_items 自体が本文を持たない）。**出典明記（発表元
+ * ラベル）は必須**（CC BY の条件かつ礼儀）。端末は閉域で、バックエンド取得 Job が更新したキャッシュを読むだけ
+ * （RSS 直叩きしない）。記事無し・取得失敗（`null` / `items` 空）はともに「ニュースを取得できていません」
+ * （fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。pattern3 は news 非表示（#1080）。
+ *
+ * `showSummary`（pattern4 のみ true）が立つと、**CC BY ソースの公式要約**（`item.summary`・経産省 METI のみ非
+ * null・gate は取得 Job 済）を見出しの下に **箇条書き（最大 4 文）** で添える（ADR-043 §2026-06-20 改訂・ユーザー
+ * 指示「箇条書きで3〜4文」）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。要約の出典は既存の
+ * 発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
  */
-function Pattern2News({ news }: { news: SignagePayload["news"] }) {
+function Pattern2News({
+  news,
+  showSummary = false,
+}: {
+  news: SignagePayload["news"];
+  showSummary?: boolean;
+}) {
   const items = news?.items ?? [];
   return (
-    <section aria-label="工学ニュース" className={`${styles.card} ${styles.p2News}`}>
+    <section aria-label="時事ニュース" className={`${styles.card} ${styles.p2News}`}>
       <h2 className={styles.cardTitle}>
-        工学ニュース
+        時事ニュース
         {news?.isStale ? (
           <span className={styles.p2NewsStale} role="status">
             （情報が古い可能性）
@@ -1122,29 +1270,55 @@ function Pattern2News({ news }: { news: SignagePayload["news"] }) {
         <p className={styles.p2Muted}>ニュースを取得できていません</p>
       ) : (
         <ul className={styles.p2NewsList}>
-          {items.map((item) => (
-            <li key={item.id} className={styles.p2NewsItem}>
-              <span className={styles.p2NewsTitle}>{item.title}</span>
-              <span className={styles.p2NewsMeta}>
-                {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
-                <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
-                {item.publishedAt ? (
-                  <>
-                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                      ／
-                    </span>
-                    <span>{formatNewsDate(item.publishedAt)}</span>
-                  </>
+          {items.map((item) => {
+            // 要約は pattern4（showSummary）かつ CC BY ソースで要約がある記事だけ。「。」で文分割し最大 4 文。
+            const summarySentences =
+              showSummary && item.summary ? splitNewsSummary(item.summary) : [];
+            return (
+              <li key={item.id} className={styles.p2NewsItem}>
+                <span className={styles.p2NewsTitle}>{item.title}</span>
+                {summarySentences.length > 0 ? (
+                  <ul className={styles.p2NewsSummary}>
+                    {summarySentences.map((s, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
                 ) : null}
-              </span>
-              {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
-              <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
-            </li>
-          ))}
+                <span className={styles.p2NewsMeta}>
+                  {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
+                  <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
+                  {item.publishedAt ? (
+                    <>
+                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                        ／
+                      </span>
+                      <span>{formatNewsDate(item.publishedAt)}</span>
+                    </>
+                  ) : null}
+                </span>
+                {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
+                <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
   );
+}
+
+/**
+ * 要約（公式配信の説明文）を「。」で文分割し、各文末に「。」を付け直して**最大 4 文**返す（ユーザー指示
+ * 「箇条書きで3〜4文」）。空要素は捨てる。「。」を含まない 1 文だけの要約はその 1 件を返す（末尾「。」付与）。
+ */
+function splitNewsSummary(summary: string): string[] {
+  return summary
+    .split("。")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .slice(0, 4)
+    .map((s) => `${s}。`);
 }
 
 /**
