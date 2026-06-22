@@ -103,7 +103,6 @@ export const primaryBtnDisabledStyle: React.CSSProperties = {
   cursor: "not-allowed",
 };
 
-<<<<<<< HEAD
 /* ------------------------------------------------------------------ *
  *  並べ替え（D&D / 上へ下へ）— 連絡など「配列順 = サイネージ表示順」のセクション用（D 群）
  *
