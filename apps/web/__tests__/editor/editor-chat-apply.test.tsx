@@ -68,7 +68,7 @@ function stubSse(finalDraft: AssistantDraft, allowed = ["schedules", "notices", 
 }
 
 function send(text: string) {
-  const input = screen.getByPlaceholderText(/Enter で送信/) as HTMLTextAreaElement;
+  const input = screen.getByPlaceholderText(/話す・書く・ファイル/) as HTMLTextAreaElement;
   fireEvent.change(input, { target: { value: text } });
   fireEvent.keyDown(input, { key: "Enter" });
 }

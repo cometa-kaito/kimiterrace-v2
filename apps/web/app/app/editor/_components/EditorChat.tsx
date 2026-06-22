@@ -508,7 +508,10 @@ export function EditorChat({
             e.preventDefault();
             onSend();
           }}
-          placeholder="話す・書く・ファイルで…（Enter で送信 / Shift+Enter で改行）"
+          placeholder="話す・書く・ファイルで…"
+          // 操作ヒント（Enter=送信 / Shift+Enter=改行）は placeholder に詰め込むと狭幅パネルで不自然に折返す
+          //（LEDGER v2-ed-uo8）。placeholder は短くし、ヒントは title（ツールチップ）に逃がして折返しを作らない。
+          title="Enter で送信 / Shift+Enter で改行"
           rows={1}
           disabled={streaming}
         />
