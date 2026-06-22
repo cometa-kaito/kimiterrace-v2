@@ -167,11 +167,12 @@ export default async function ClassEditorPage({
           パターンのときだけ 2 カラムで盤面の下に出す（含まないパターンでは盤面に出ないので編集セクションも
           出さない＝死セクション防止・finding①。将来パターン追加にも単一ソースで自動追従）。
           各エディタの key は VisitorsCalloutsSection 内で衝突しない安定キー（visitors-* / callouts-*）にして
-          いる。旧実装は両方を同じ key={date} で同一親に並べており、対象日変更（?date= ソフトナビ）時に React の
-          keyed reconciliation が兄弟キー衝突で破綻 →「来校者一覧」複製・「生徒呼び出し」が下へ押し出される実バグ
-          になっていた（本番 6/21→6/22 再現）。日付変更で再マウントし新日付データで初期化する意図は key に date を
-          含めて維持する。盤面のパターン選択（showVisitors / showCallouts）は親で決めた値をそのまま渡すだけで増減
-          させない。 */}
+          いる。旧実装は両方を同じ key={date} で、条件付き短絡（showVisitors && … / showCallouts && …）のまま
+          同一親に隣接させており、対象日変更（?date= ソフトナビ＝同一ページ再レンダ）時に「来校者一覧」複製・
+          「生徒呼び出し」が下へ押し出される実バグが観測された（本番 6/21→6/22 再現）。日付変更で再マウントし
+          新日付データで初期化する意図は key に date を含めて維持する。詳細・観測条件は VisitorsCalloutsSection
+          の docstring 参照。盤面のパターン選択（showVisitors / showCallouts）は親で決めた値をそのまま渡すだけで
+          増減させない。 */}
       <VisitorsCalloutsSection
         classId={classId}
         date={date}

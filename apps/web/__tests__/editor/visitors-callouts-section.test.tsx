@@ -99,6 +99,25 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     assertExactlyOneEach();
   });
 
+  it("初回 render 時点でも来校者一覧/生徒呼び出しは各 1 つずつ・順序維持（rerender 経路とは別経路の固定）", () => {
+    // rerender（?date= ソフトナビ）経路は上のケースで固定済。こちらは初回マウント単体を独立に固定し、
+    // 将来 key 戦略を弄った時に初回描画側の退行も検知できるようにする。
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors
+        showCallouts
+        visitors={[visitor("v1", "来校 太郎")]}
+        callouts={[callout("c1", "生徒 花子")]}
+      />,
+    );
+    expect(screen.getAllByRole("heading", { name: "来校者一覧", level: 2 })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { name: "生徒呼び出し", level: 2 })).toHaveLength(1);
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["来校者一覧", "生徒呼び出し"]);
+  });
+
   it("パターンに含まれないブロックは出さない（visitors のみ）", () => {
     render(
       <VisitorsCalloutsSection
