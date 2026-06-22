@@ -495,6 +495,8 @@ describe("その他（非教室の設置場所）配線", () => {
     // 学校直下の「その他」セクションに絞って「設置場所を追加」する（曖昧な「この学科に追加」を廃止）。
     const schoolSection = screen.getByText("その他（非教室の設置場所）").closest("section");
     if (!schoolSection) throw new Error("学校直下のその他セクションが見つかりません");
+    // 追加フォームは既定で畳まれている（v2-sch-ai2）。まず「設置場所を追加」で開く。
+    fireEvent.click(within(schoolSection).getByRole("button", { name: "設置場所を追加" }));
     fireEvent.change(within(schoolSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "職員室前" },
     });
@@ -509,6 +511,8 @@ describe("その他（非教室の設置場所）配線", () => {
     // 学科ノード内の「設置場所を追加」（学年追加は別ボタン「学年を追加」と明確に分離した）。
     const hallSection = screen.getByText("その他（この学科の設置場所）").closest("section");
     if (!hallSection) throw new Error("学科配下のその他セクションが見つかりません");
+    // 追加フォームは既定で畳まれている（v2-sch-ai2）。まず「設置場所を追加」で開く。
+    fireEvent.click(within(hallSection).getByRole("button", { name: "設置場所を追加" }));
     fireEvent.change(within(hallSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "廊下" },
     });
@@ -583,6 +587,8 @@ describe("その他（非教室の設置場所）配線", () => {
     render(<HierarchyManager hierarchy={WITH_OTHERS} schoolId={SID} />);
     const schoolSection = screen.getByText("その他（非教室の設置場所）").closest("section");
     if (!schoolSection) throw new Error("学校直下のその他セクションが見つかりません");
+    // 追加フォームは既定で畳まれている（v2-sch-ai2）。まず「設置場所を追加」で開く。
+    fireEvent.click(within(schoolSection).getByRole("button", { name: "設置場所を追加" }));
     fireEvent.change(within(schoolSection).getByPlaceholderText(/設置場所名/), {
       target: { value: "体育館前" },
     });
@@ -679,5 +685,15 @@ describe("UX 改善（引き算・明確化・表示順のドラッグ化）", (
         displayOrder: 2,
       }),
     );
+  });
+
+  it("既存ノードへの追加欄は既定で畳み、「＋ 追加」を押すと開く（v2-sch-ai2）", () => {
+    // HIERARCHY の学年 g1 はクラス（1組）を持つので、組の追加フォームは既定で畳まれる。
+    render(<HierarchyManager hierarchy={HIERARCHY} />);
+    // 平常時は入力欄を出さない（大規模校でのページ激長・密度過多を防ぐ）。
+    expect(screen.queryByPlaceholderText(/クラス名/)).toBeNull();
+    // 「組を追加」を押すと入力欄が現れる。
+    fireEvent.click(screen.getByRole("button", { name: "組を追加" }));
+    expect(screen.getByPlaceholderText(/クラス名/)).toBeInTheDocument();
   });
 });

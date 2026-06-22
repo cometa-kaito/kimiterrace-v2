@@ -204,7 +204,9 @@ function HierarchyManagerInner({
           {orphanGrades.length > 0 ? (
             <OrphanBox orphans={orphanGrades} departments={departments} report={report} />
           ) : null}
-          <AddDepartmentForm report={report} />
+          <CollapsibleAdd label="学科を追加">
+            <AddDepartmentForm report={report} />
+          </CollapsibleAdd>
           <OtherLocationsSection
             locations={schoolOtherLocations}
             statusByClass={statusByClass}
@@ -224,7 +226,9 @@ function HierarchyManagerInner({
               />
             ))}
           </div>
-          <AddGradeForm report={report} />
+          <CollapsibleAdd label="学年を追加">
+            <AddGradeForm report={report} />
+          </CollapsibleAdd>
           <p style={hintStyle}>学科制にすると「学科 → 学年 → クラス」の3階層で管理できます。</p>
           <OtherLocationsSection
             locations={schoolOtherLocations}
@@ -729,7 +733,9 @@ function DepartmentNode({
               report={report}
             />
           ))}
-          <AddGradeForm department={dept} report={report} />
+          <CollapsibleAdd label="学年を追加">
+            <AddGradeForm department={dept} report={report} />
+          </CollapsibleAdd>
           <OtherLocationsSection
             locations={otherLocations}
             department={dept}
@@ -880,7 +886,9 @@ function GradeNode({
           {grade.classes.map((c) => (
             <ClassNode key={c.id} cls={c} active={statusByClass[c.id] ?? false} report={report} />
           ))}
-          <AddClassForm grade={grade} report={report} />
+          <CollapsibleAdd label="組を追加">
+            <AddClassForm grade={grade} report={report} />
+          </CollapsibleAdd>
         </div>
       )}
     </div>
@@ -1027,7 +1035,9 @@ function OtherLocationsSection({
           ))}
         </div>
       ) : null}
-      <AddOtherLocationForm department={department} report={report} />
+      <CollapsibleAdd label="設置場所を追加">
+        <AddOtherLocationForm department={department} report={report} />
+      </CollapsibleAdd>
     </section>
   );
 }
@@ -1353,6 +1363,30 @@ function EmptyState({ report }: { report: Reporter }) {
  *  追加フォーム群
  * ------------------------------------------------------------------ */
 
+/**
+ * 既存ノードへの追加フォームを既定で畳むトグル（v2-sch-ai2: 追加欄を常時開くと大規模校で
+ * ページが激長・密度過多）。平常時は淡い「＋ {label}」リンク状ボタンだけを出し、押すと中身
+ * （入力フォーム）に差し替える。`label` は中の送信ボタンと同じ文言にして、開く前後で操作名が
+ * ブレないようにする（例:「学年を追加」）。一度開けば追加後も開いたまま（連続入力できる）。
+ *
+ * 新規校の空状態や「組ゼロ学年」の onboard カードなど“追加が主目的”の箇所では使わず、呼び出し側で
+ * そのまま開いておく（畳むのは既存ノードに足す導線だけ）。
+ */
+function CollapsibleAdd({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (open) {
+    return <>{children}</>;
+  }
+  return (
+    <button type="button" style={addRevealBtnStyle} onClick={() => setOpen(true)}>
+      <span aria-hidden style={plusStyle}>
+        ＋
+      </span>
+      {label}
+    </button>
+  );
+}
+
 function AddDepartmentForm({ report, autoFocus }: { report: Reporter; autoFocus?: boolean }) {
   const { createDepartmentAction } = useScopedHubActions();
   const [pending, start] = useTransition();
@@ -1599,7 +1633,9 @@ const deptNameStyle: React.CSSProperties = {
   fontSize: "1.02rem",
   color: C.inkPrimary,
 };
-const summaryStyle: React.CSSProperties = { fontSize: "0.75rem", color: C.inkTertiary };
+// 補足テキスト（「N学年」等）。小さい文字なので AA を満たす inkMuted を使う（inkTertiary は
+// 白地で約 2.5:1 と AA 未達。v2-sch-ai7）。inkTertiary は装飾（グリップ / 罫線）専用に残す。
+const summaryStyle: React.CSSProperties = { fontSize: "0.75rem", color: C.inkMuted };
 // クラス / 設置場所 = 末端の行。白地のチップ状の行にして、学年（淡い面色）の上で 1 件ずつ拾える
 // ようにする。横幅は name 左・状態/操作右（marginLeft:auto）で使い切る。
 const classRowStyle: React.CSSProperties = {
@@ -1630,7 +1666,8 @@ const modeChipStyle: React.CSSProperties = {
 };
 const unitNoteStyle: React.CSSProperties = {
   fontSize: "0.76rem",
-  color: C.inkTertiary,
+  // 説明テキストは AA を満たす inkMuted（inkTertiary は白地で AA 未達。v2-sch-ai7）。
+  color: C.inkMuted,
   margin: "0.4rem 0 0 0.9rem",
 };
 const unitRowStyle: React.CSSProperties = {
@@ -1743,10 +1780,25 @@ const addFormStyle: React.CSSProperties = {
 const editFormStyle: React.CSSProperties = { ...addFormStyle };
 const fieldHintStyle: React.CSSProperties = {
   fontSize: "0.72rem",
-  color: C.inkTertiary,
+  // 入力欄の補足。最小級の文字なので AA を満たす inkMuted にする（v2-sch-ai7）。
+  color: C.inkMuted,
   margin: "0.3rem 0 0 1.2rem",
 };
 const plusStyle: React.CSSProperties = { color: C.inkMuted, fontWeight: 500 };
+// 折りたたみ時の「＋ 追加」リンク状ボタン（v2-sch-ai2）。平常時は控えめに、押すと入力欄に開く。
+const addRevealBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  width: "fit-content",
+  padding: "0.3rem 0.5rem",
+  background: "transparent",
+  color: C.inkMuted,
+  border: "none",
+  borderRadius: "6px",
+  cursor: "pointer",
+  fontSize: "0.82rem",
+};
 const inputStyle: React.CSSProperties = {
   padding: "0.4rem 0.6rem",
   border: `1px solid ${C.border}`,
