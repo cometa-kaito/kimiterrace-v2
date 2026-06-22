@@ -1,26 +1,17 @@
 "use client";
 
-import {
-  EDITOR_SAVE_STATE_LABEL,
-  deriveEditorSaveState,
-  serializeForDirty,
-  useUnsavedGuard,
-} from "@/lib/editor/editor-save-state";
+import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setVisitorsAction } from "@/lib/editor/visitors-actions";
+import { validateVisitorItems } from "@/lib/editor/visitors-core";
 import type { ClassVisitor } from "@kimiterrace/db";
-import { tokens } from "@kimiterrace/ui";
-import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useState } from "react";
+import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
-  dirtyTextStyle,
   emptyPlaceholderStyle,
   inputStyle,
-  primaryBtnDisabledStyle,
-  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  savedTextStyle,
   secondaryBtnStyle,
   tableStyle,
   tableWrapStyle,
@@ -30,12 +21,17 @@ import {
 
 /**
  * 来校者一覧エディタ（パターン2「来校者一覧」）。**Client Component** — クラス×日付の来校者を行で
- * 追加/削除/編集し、保存時に **全置換** で `setVisitorsAction` を呼ぶ。検証（氏名必須 / HH:MM / 長さ）・
- * 認可・監査・RLS・cross-tenant 防止は Server Action 側が担保するので、ここは入力収集と結果表示に徹する。
+ * 追加/削除/編集し、編集の都度 **全置換で自動保存** する（{@link useAutoSaveSection}）。検証（氏名必須 /
+ * HH:MM / 長さ）・認可・監査・RLS・cross-tenant 防止は Server Action 側が担保するので、ここは入力収集と
+ * 保存状態の表示に徹する。
  *
- * 未保存ガード・保存状態の明示・未変更時の保存無効化・aria-label・狭幅の表横スクロールは ScheduleEditor と
- * 同じ部品（editor-save-state / editor-styles）を共有する。氏名は教室サイネージに表示される（生徒個人 PII を
- * 入れない・来校者は外部の成人。class-visitors の「個人情報について」参照）。
+ * **保存モデルを自動保存に統一（finding #16）**: 旧実装は明示「保存」ボタンの手動保存だったため、自動保存の
+ * 予定/連絡/提出物と挙動が非対称で「保存したつもりで消える」事故源だった。予定/連絡/提出物と同じ
+ * {@link useAutoSaveSection} に寄せて全エディタの保存 UX を一致させる。氏名が未入力の行があるうちは保存しない
+ * （揃った時点で自動保存）。氏名は教室サイネージに表示される（生徒個人 PII を入れない・来校者は外部の成人。
+ * class-visitors の「個人情報について」参照）。
+ *
+ * **時刻入力（finding #10）**: `type="time"` のネイティブ時刻ピッカーにし、手打ちの「HH:MM」形式ミスを防ぐ。
  */
 type Row = {
   scheduledTime: string;
@@ -60,8 +56,6 @@ export function VisitorsEditor({
   date: string;
   initialItems: ClassVisitor[];
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState<Row[]>(
     initialItems.map((i) => ({
       scheduledTime: i.scheduledTime ?? "",
@@ -72,14 +66,18 @@ export function VisitorsEditor({
       note: i.note ?? "",
     })),
   );
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [savedOnce, setSavedOnce] = useState(false);
 
-  const currentSerialized = serializeForDirty(toItems(rows));
-  const baselineRef = useRef<string>(currentSerialized);
-  const dirty = currentSerialized !== baselineRef.current;
-  const saveState = deriveEditorSaveState({ dirty, savedOnce });
-  useUnsavedGuard(dirty);
+  const items = toItems(rows);
+  const serialized = serializeForDirty(items);
+  // 全行が有効（氏名必須・時刻は指定時のみ HH:MM）なら自動保存する。判定はサーバと同じ純関数
+  // `validateVisitorItems` を再利用し、client/server で検証規則が drift しないようにする（ルール3 の精神）。
+  const complete = validateVisitorItems(items).ok;
+  const auto = useAutoSaveSection({
+    serialized,
+    items,
+    complete,
+    save: (toSave) => setVisitorsAction(classId, date, toSave),
+  });
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -94,35 +92,10 @@ export function VisitorsEditor({
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function save() {
-    const items = toItems(rows);
-    startTransition(async () => {
-      const res = await setVisitorsAction(classId, date, items);
-      if (res.ok) {
-        baselineRef.current = serializeForDirty(items);
-        setSavedOnce(true);
-        setMsg({ ok: true, text: `保存しました（${res.data.count} 名）。` });
-        router.refresh();
-      } else {
-        setMsg({ ok: false, text: res.error.message });
-      }
-    });
-  }
-
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "880px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>来校者一覧</h2>
       <FieldLegend />
-      {msg ? (
-        <output
-          style={{
-            display: "block",
-            color: msg.ok ? tokens.color.successFg : tokens.color.dangerFg,
-          }}
-        >
-          {msg.text}
-        </output>
-      ) : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
@@ -156,10 +129,10 @@ export function VisitorsEditor({
               <tr key={i}>
                 <td style={tdStyle}>
                   <input
+                    type="time"
                     value={r.scheduledTime}
                     onChange={(e) => update(i, { scheduledTime: e.target.value })}
-                    placeholder="HH:MM"
-                    style={{ ...inputStyle, width: "5rem" }}
+                    style={{ ...inputStyle, width: "8rem" }}
                     aria-label={`${i + 1} 行目の時刻`}
                   />
                 </td>
@@ -228,20 +201,7 @@ export function VisitorsEditor({
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
           来校者を追加
         </button>
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending || !dirty}
-          style={pending || !dirty ? primaryBtnDisabledStyle : primaryBtnStyle}
-        >
-          {pending ? "保存中..." : "保存"}
-        </button>
-        {saveState !== "idle" ? (
-          <span style={saveState === "dirty" ? dirtyTextStyle : savedTextStyle} aria-live="polite">
-            {saveState === "dirty" ? "● " : "✓ "}
-            {EDITOR_SAVE_STATE_LABEL[saveState]}
-          </span>
-        ) : null}
+        <AutoSaveStatusText status={auto.status} error={auto.error} />
       </div>
     </section>
   );
