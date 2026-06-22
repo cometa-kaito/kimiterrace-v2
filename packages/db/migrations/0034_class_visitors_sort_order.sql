@@ -1,0 +1,28 @@
+-- =====================================================================
+-- 0034_class_visitors_sort_order.sql
+-- 目的: class_visitors に表示順列 sort_order（NOT NULL DEFAULT 0）を追加する。
+--       教員が「来校者一覧」の並び順を任意に変えられるようにする（要望 2026-06-22）。
+--       盤面（パターン2/3 の来校者一覧）と編集 UI はこの昇順で描画/保存する。
+--
+-- 前提: drizzle/20260610100124_eager_red_skull.sql で class_visitors が作成済であること
+--       （collectMigrationFiles は drizzle/* を全て適用 → migrations/* を全て適用するため、
+--        本 0034 は class_visitors 作成後に流れる。migrations/README.md 順序契約）。
+--       列追加のみ（0022_tv_devices_fcm_token.sql と同型）。
+--
+-- RLS について（ルール2）:
+--   class_visitors の RLS は 0023_class_visitors_rls.sql で tenant_isolation +
+--   system_admin_full_access の 2 policy を FOR ALL（全列対象）で付与済。**列追加は policy に影響しない**
+--   （policy は school_id / role に対する行レベル述語で、列単位の権限制御ではない）。よって本 migration は
+--   列追加のみで policy 変更は不要（ADR-019 二層 RLS は維持）。
+--
+-- 監査について（ルール1）:
+--   created_by/updated_by FK・auditColumns は 0023 で付与済。新規 FK 列ではないため監査 FK 追加は不要。
+--
+-- 既定値: DEFAULT 0。既存行（採番前）は全て 0 となり、読み取りクエリ側の
+--   ORDER BY sort_order, scheduled_time, visitor_name のタイブレーク（時刻→氏名）で従来順を保つ。
+--   保存（replaceClassVisitors の全置換）以降は行位置 0,1,2... が採番される。
+--
+-- 冪等性: ADD COLUMN IF NOT EXISTS で再適用安全（auto-discovery loader が毎回全件流すため）。
+-- =====================================================================
+
+ALTER TABLE class_visitors ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;

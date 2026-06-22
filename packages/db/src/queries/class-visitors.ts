@@ -29,7 +29,9 @@ export type ClassVisitor = Pick<
 
 /**
  * 指定クラスの指定日（JST 暦日 = `date`）の来校者一覧を取得する（RLS で自校スコープ）。
- * 並び順は時刻（`scheduled_time` 昇順、未設定は末尾＝NULLS LAST）→ 氏名で決定的に。
+ * 並び順は **表示順（`sort_order` 昇順）** を最優先に、同順位は時刻（`scheduled_time` 昇順、未設定は末尾＝
+ * NULLS LAST）→ 氏名で決定的に。教員が編集 UI で並べ替えた順を盤面に反映する（保存時に行位置を sort_order に
+ * 採番）。旧データ（採番前）は sort_order=0 で揃うため従来どおり時刻→氏名順になる（後方互換、migration 0034）。
  *
  * @param db      非 BYPASSRLS の Drizzle クライアント / tx（RLS context 下で呼ぶこと）。
  * @param classId 対象クラス。
@@ -52,7 +54,11 @@ export async function getVisitorsForClass(
     })
     .from(classVisitors)
     .where(and(eq(classVisitors.classId, classId), eq(classVisitors.visitDate, date)))
-    .orderBy(asc(classVisitors.scheduledTime), asc(classVisitors.visitorName));
+    .orderBy(
+      asc(classVisitors.sortOrder),
+      asc(classVisitors.scheduledTime),
+      asc(classVisitors.visitorName),
+    );
 }
 
 /** 来校者 1 件の書き込み入力（編集 Action が検証・正規化して渡す。空欄は null）。 */
@@ -103,7 +109,9 @@ export async function replaceClassVisitors(
     .where(and(eq(classVisitors.classId, classId), eq(classVisitors.visitDate, date)));
   if (items.length > 0) {
     await tx.insert(classVisitors).values(
-      items.map((it) => ({
+      // 配列の並び順 = 編集 UI の行順。行位置をそのまま sort_order に採番し、表示順を永続化する
+      // （getVisitorsForClass が sort_order 昇順で読む）。
+      items.map((it, idx) => ({
         schoolId,
         classId,
         visitDate: date,
@@ -113,6 +121,7 @@ export async function replaceClassVisitors(
         purpose: it.purpose,
         host: it.host,
         note: it.note,
+        sortOrder: idx,
         createdBy: actorUserId,
         updatedBy: actorUserId,
       })),

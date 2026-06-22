@@ -309,7 +309,13 @@ export type ScheduleItem = {
   targetAudience?: string;
 };
 
+/** 数値時限の上限（1..MAX_ITEMS）。特殊スロット（朝 / 昼休み / 放課後）はこの範囲外で別途許容する。 */
 const MAX_ITEMS = 12;
+/**
+ * 予定 1 日あたりの行数上限（暴走入力の抑止）。数値時限 12 + 特殊スロット（朝 / 昼休み / 放課後）に加え、
+ * 特殊スロットの重複（例: 放課後に部活と三者面談）を許容するため、数値上限とは独立に余裕を持たせる。
+ */
+const MAX_ROWS = 20;
 const SUBJECT_MAX = 32;
 const NOTE_MAX = 200;
 /** 場所 / 対象者 の最大長（任意フィールド。暴走入力抑止）。 */
@@ -348,17 +354,21 @@ function normalizePeriod(raw: unknown): SchedulePeriod | null {
 
 /**
  * 予定配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
- * period の重複は許容しない (同じ時限・スロットが 2 つあると描画・編集が破綻するため)。
  * period は数値時限 (1..12) もしくは特殊スロット (朝 / 昼休み / 放課後) を許容する。
+ *
+ * **重複の扱い**: 数値時限 (1限〜12限) の重複は拒否する（同じ時限が 2 つあるのはデータ誤り）。一方、特殊スロット
+ * (朝 / 昼休み / 放課後) は **重複を許容**する（例: 放課後に「部活」と「三者面談」の 2 件）。要望: 放課後が
+ * 2 つあると反映されない、の是正 (2026-06-22)。並びは安定ソートのため重複スロットは入力順を保つ。
  */
 export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (!Array.isArray(raw)) {
     return { ok: false, message: "予定の形式が不正です。" };
   }
-  if (raw.length > MAX_ITEMS) {
-    return { ok: false, message: `予定は最大 ${MAX_ITEMS} コマまでです。` };
+  if (raw.length > MAX_ROWS) {
+    return { ok: false, message: `予定は最大 ${MAX_ROWS} 件までです。` };
   }
-  const seen = new Set<SchedulePeriod>();
+  // 重複検知は **数値時限のみ**。特殊スロットは複数件を許すので Set に入れない。
+  const seenNumbered = new Set<number>();
   const items: ScheduleItem[] = [];
   for (const entry of raw) {
     if (typeof entry !== "object" || entry === null) {
@@ -372,10 +382,12 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
         message: `時限は 1〜${MAX_ITEMS} の整数、または 朝 / 昼休み / 放課後 を選択してください。`,
       };
     }
-    if (seen.has(period)) {
-      return { ok: false, message: `「${scheduleSlotLabel(period)}」が重複しています。` };
+    if (!isSpecialSlot(period)) {
+      if (seenNumbered.has(period)) {
+        return { ok: false, message: `「${scheduleSlotLabel(period)}」が重複しています。` };
+      }
+      seenNumbered.add(period);
     }
-    seen.add(period);
     const subject = normalizeString(rec.subject, SUBJECT_MAX);
     if (!subject) {
       return { ok: false, message: `科目名は 1〜${SUBJECT_MAX} 文字で入力してください。` };

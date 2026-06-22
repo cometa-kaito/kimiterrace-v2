@@ -1,5 +1,5 @@
 import type { ClassVisitor, StudentCallout } from "@kimiterrace/db";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -165,5 +165,65 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
       />,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上へ/下へ）", () => {
+  const nameAt = (row: number) =>
+    (screen.getByLabelText(`${row} 行目の氏名`) as HTMLInputElement).value;
+
+  it("下の行を上へ移動すると順序が入れ替わる（配列順 = 保存順 = 盤面の表示順）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors
+        showCallouts={false}
+        visitors={[visitor("v1", "来校 太郎"), visitor("v2", "来校 次郎")]}
+        callouts={null}
+      />,
+    );
+    expect(nameAt(1)).toBe("来校 太郎");
+    expect(nameAt(2)).toBe("来校 次郎");
+
+    fireEvent.click(screen.getByRole("button", { name: "2 行目を上へ移動（全 2 行中）" }));
+
+    expect(nameAt(1)).toBe("来校 次郎");
+    expect(nameAt(2)).toBe("来校 太郎");
+  });
+
+  it("先頭の上 / 末尾の下は無効（端で押せない）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors
+        showCallouts={false}
+        visitors={[visitor("v1", "来校 太郎"), visitor("v2", "来校 次郎")]}
+        callouts={null}
+      />,
+    );
+    expect(
+      (screen.getByRole("button", { name: "1 行目を上へ移動（全 2 行中）" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "2 行目を下へ移動（全 2 行中）" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("来校者が 1 行のときは並べ替えコントロールを出さない", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors
+        showCallouts={false}
+        visitors={[visitor("v1", "来校 太郎")]}
+        callouts={null}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /行目を上へ移動/ })).toBeNull();
   });
 });
