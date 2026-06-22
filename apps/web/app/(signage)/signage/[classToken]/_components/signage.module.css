@@ -992,7 +992,7 @@
   align-items: center;
   font-weight: 800;
   /* 廊下では「どの掲示か（学科 学年 クラス）」が最重要の手掛かり。遠目で読めるよう拡大する。 */
-  font-size: clamp(1rem, 1.5vw, 1.5rem);
+  font-size: clamp(0.82rem, 1.25vw, 1.25rem);
   max-width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1001,7 +1001,7 @@
 /* 時刻＝主役。右寄せで大きく。tabular-nums で桁ブレを防ぐ。 */
 .p3HeaderClock {
   margin-left: auto;
-  font-size: clamp(1.6rem, 3vw, 2.6rem);
+  font-size: clamp(1.3rem, 2.45vw, 2.15rem);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.02em;
@@ -1014,11 +1014,11 @@
   line-height: 1.1;
 }
 .p3HeaderDateMain {
-  font-size: clamp(0.8rem, 1.15vw, 1.05rem);
+  font-size: clamp(0.68rem, 0.95vw, 0.88rem);
   font-weight: 700;
 }
 .p3HeaderDay {
-  font-size: clamp(0.6rem, 0.85vw, 0.8rem);
+  font-size: clamp(0.52rem, 0.7vw, 0.68rem);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.65);
 }
@@ -1032,12 +1032,12 @@
   background: rgba(255, 255, 255, 0.12);
 }
 .p3HeaderWxTemp {
-  font-size: clamp(0.9rem, 1.3vw, 1.25rem);
+  font-size: clamp(0.76rem, 1.1vw, 1.05rem);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 .p3HeaderBrand {
-  font-size: clamp(0.55rem, 0.8vw, 0.72rem);
+  font-size: clamp(0.48rem, 0.68vw, 0.62rem);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: rgba(255, 255, 255, 0.5);
@@ -1104,7 +1104,7 @@
   line-height: 1.1;
 }
 .p3WxDow {
-  font-size: clamp(0.82rem, 1.15vw, 1.08rem);
+  font-size: clamp(0.7rem, 0.98vw, 0.92rem);
   font-weight: 800;
   color: var(--primary-color);
 }
@@ -1112,12 +1112,12 @@
   color: var(--accent-color);
 }
 .p3WxDate {
-  font-size: clamp(0.6rem, 0.85vw, 0.8rem);
+  font-size: clamp(0.52rem, 0.7vw, 0.68rem);
   font-weight: 600;
   color: var(--p3-ink-secondary);
 }
 .p3WxIcon {
-  font-size: clamp(1.4rem, 2.3vw, 2.1rem);
+  font-size: clamp(1.18rem, 1.9vw, 1.72rem);
   line-height: 1.1;
 }
 /* 3 段目: 最高(暖色・大)/最低(寒色)/降水確率を 1 行に横並び（tabular-nums で桁ブレ防止）。 */
@@ -1129,12 +1129,12 @@
   line-height: 1.1;
 }
 .p3WxHigh {
-  font-size: clamp(1rem, 1.5vw, 1.35rem);
+  font-size: clamp(0.84rem, 1.25vw, 1.14rem);
   font-weight: 800;
   color: var(--temp-high-color);
 }
 .p3WxLow {
-  font-size: clamp(0.82rem, 1.15vw, 1.05rem);
+  font-size: clamp(0.7rem, 0.98vw, 0.9rem);
   font-weight: 700;
   color: var(--accent-color);
 }
@@ -1142,7 +1142,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.1rem;
-  font-size: clamp(0.62rem, 0.85vw, 0.8rem);
+  font-size: clamp(0.54rem, 0.7vw, 0.68rem);
   font-weight: 700;
   color: var(--p3-ink-secondary);
   font-variant-numeric: tabular-nums;
@@ -1183,7 +1183,7 @@
 /* 日付ヘッダー `M/D(曜)`。予定本体とは横線で区切る。 */
 .p3SchDate {
   font-weight: 800;
-  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  font-size: clamp(0.84rem, 1.25vw, 1.18rem);
   color: var(--primary-color);
   text-align: center;
   padding: 0.15rem 0;
@@ -1249,7 +1249,7 @@
 }
 .p3SchMain {
   width: 100%;
-  font-size: clamp(0.92rem, 1.4vw, 1.4rem);
+  font-size: clamp(0.78rem, 1.18vw, 1.18rem);
   font-weight: 600;
   line-height: 1.15;
   white-space: nowrap;
@@ -1259,7 +1259,7 @@
 }
 .p3SchEmpty {
   color: var(--p3-ink-secondary);
-  font-size: clamp(0.9rem, 1.3vw, 1.18rem);
+  font-size: clamp(0.76rem, 1.1vw, 1rem);
   font-weight: 600;
   padding: 0.3rem 0;
 }
@@ -1286,7 +1286,7 @@
 /* 見出し＝ゾーンの名札（アクセント下線・拡大）。囲み枠は無くすが名札は残す。 */
 .p3PersonTitle {
   font-weight: 800;
-  font-size: clamp(1.15rem, 1.8vw, 1.6rem);
+  font-size: clamp(0.98rem, 1.5vw, 1.35rem);
   color: var(--primary-color);
   border-bottom: 2px solid var(--accent-color);
   padding-bottom: 0.25rem;
@@ -1341,7 +1341,7 @@
   overflow: hidden;
 }
 .p3PersonMain {
-  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  font-size: clamp(0.84rem, 1.25vw, 1.18rem);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -1363,7 +1363,7 @@
   margin-left: 0.3rem;
 }
 .p3PersonMeta {
-  font-size: clamp(0.72rem, 1vw, 0.95rem);
+  font-size: clamp(0.62rem, 0.85vw, 0.82rem);
   color: var(--p3-ink-secondary);
   font-weight: 600;
   line-height: 1.15;
@@ -1403,7 +1403,7 @@
   align-items: baseline;
   gap: 0.5rem;
   flex-shrink: 0;
-  font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+  font-size: clamp(0.9rem, 1.35vw, 1.22rem);
   font-weight: 800;
   color: var(--primary-color);
   border-bottom: 2px solid var(--accent-color);
@@ -1437,7 +1437,7 @@
 }
 /* 見出し（主役・最大 2 行）。 */
 .p3NewsHeadline {
-  font-size: clamp(1.05rem, 1.6vw, 1.5rem);
+  font-size: clamp(0.9rem, 1.35vw, 1.26rem);
   font-weight: 700;
   color: var(--primary-color);
   line-height: 1.25;
@@ -1447,13 +1447,18 @@
   overflow: hidden;
   min-width: 0;
 }
-/* 本文（CC BY 要約の箇条書き）は共有 .p2NewsSummary を流用。出典/日付は最下部に。 */
+/* 本文（CC BY 要約の箇条書き）は共有 .p2NewsSummary を流用。pattern3（廊下版・全体縮小）では一段小さく
+   上書きする（pattern4 の本文は不変＝.p3NewsCard スコープ限定・2026-06-22 ユーザー指示「全体的に小さく」）。 */
+.p3NewsCard .p2NewsSummary li {
+  font-size: clamp(0.58rem, 0.8vw, 0.74rem);
+}
+/* 出典/日付は最下部に。 */
 .p3NewsMeta {
   margin-top: auto;
   display: flex;
   align-items: baseline;
   gap: 0 0.3rem;
-  font-size: clamp(0.72rem, 1.05vw, 0.95rem);
+  font-size: clamp(0.62rem, 0.9vw, 0.82rem);
   font-weight: 600;
   color: var(--p3-ink-secondary);
   white-space: nowrap;
@@ -1497,7 +1502,7 @@
   min-width: 0;
 }
 .p3FootChipLabel {
-  font-size: clamp(0.62rem, 0.9vw, 0.82rem);
+  font-size: clamp(0.54rem, 0.78vw, 0.7rem);
   font-weight: 700;
   color: var(--p3-ink-secondary);
   white-space: nowrap;
@@ -1511,7 +1516,7 @@
   min-width: 0;
 }
 .p3FootChipVal {
-  font-size: clamp(0.92rem, 1.35vw, 1.25rem);
+  font-size: clamp(0.78rem, 1.15vw, 1.05rem);
   font-weight: 800;
   color: var(--primary-color);
   font-variant-numeric: tabular-nums;
@@ -1529,7 +1534,7 @@
   margin-left: 0.1rem;
 }
 .p3FootMuted {
-  font-size: clamp(0.68rem, 0.95vw, 0.88rem);
+  font-size: clamp(0.58rem, 0.8vw, 0.75rem);
   font-weight: 600;
   color: var(--p3-ink-secondary);
 }
