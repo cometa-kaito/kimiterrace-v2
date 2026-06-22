@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続。weather/news/railway/tv-liveness は同コードで image のみ更新
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "e95d5ff" # 公開サイネージ /signage を タブレット/PC（≥900px）で実機モニタ（16:9・1920×1080）の固定スケール縮小表示に（signage.module.css §14 + page.tsx ラッパ）。1920×1080 実機は scale=1.0 で従来同一・≤899px はモバイル不変。schema 変更なし・secret 増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
+  web_image_tag = "9f73a56" # signage fit-stage を実機端末（Android WebView/TV）には当てず全画面描画にする出し分け（lib/signage/fit-mode.ts・UA判定＋?fit=on/off上書き）。実機モニタを e95d5ff の縮小表示から従来の全画面に戻すガード。schema 変更なし・secret 増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
