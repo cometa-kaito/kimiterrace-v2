@@ -12,6 +12,7 @@ import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
 import { ScheduleEditor } from "./ScheduleEditor";
 import styles from "./WysiwygBoardEditor.module.css";
+import { editorRegionAnchorId } from "./region-anchor";
 
 /**
  * クラスエディタ「盤面を編集」タブの **WYSIWYG（実レイアウト上のライブプレビュー連動）編集器**（PR・B）。
@@ -113,12 +114,19 @@ export function WysiwygBoardEditor({
 
   const focusRegion = useCallback((region: Region) => {
     setActive(region);
-    const card =
-      region === "schedules"
-        ? scheduleRef.current
-        : region === "notices"
-          ? noticeRef.current
-          : assignmentRef.current;
+    // 予定/連絡/提出物 は本コンポーネント内の編集器（ref）。来校者/呼び出しは親（page.tsx）が盤面の**外（下）**に
+    // 出す別セクションなので ref では届かず、DOM id（region-anchor 単一ソース）で参照して寄せる（finding #2 の全配線）。
+    let card: HTMLElement | null = null;
+    if (region === "schedules") {
+      card = scheduleRef.current;
+    } else if (region === "notices") {
+      card = noticeRef.current;
+    } else if (region === "assignments") {
+      card = assignmentRef.current;
+    } else if (typeof document !== "undefined") {
+      // visitors | callouts — 盤面外の編集欄（VisitorsCalloutsSection が anchor id を付与）。
+      card = document.getElementById(editorRegionAnchorId(region));
+    }
     if (!card) {
       return;
     }

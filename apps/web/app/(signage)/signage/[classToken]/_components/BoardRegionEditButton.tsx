@@ -23,7 +23,7 @@ import editStyles from "./BoardRegionEditButton.module.css";
  * `aria-hidden` 化）、領域のアクセシブルな操作名は本ボタンの `aria-label="○○を編集"` が一手に担う。これで
  * 編集器側の見出し・既存 e2e の strict locator と二重化しない。
  */
-export type EditRegion = "schedules" | "notices" | "assignments";
+export type EditRegion = "schedules" | "notices" | "assignments" | "visitors" | "callouts";
 
 /** `SignageBoardView` の `editRegions` prop（編集モードの配線。undefined＝既定は完全に非編集＝出力不変）。 */
 export type EditRegionsProps = {
@@ -37,6 +37,8 @@ const REGION_LABEL: Record<EditRegion, string> = {
   schedules: "予定",
   notices: "連絡",
   assignments: "提出物",
+  visitors: "来校者一覧",
+  callouts: "生徒呼び出し",
 };
 
 /**

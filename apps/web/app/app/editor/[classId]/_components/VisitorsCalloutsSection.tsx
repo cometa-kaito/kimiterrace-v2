@@ -4,6 +4,7 @@ import type { ClassVisitor, StudentCallout } from "@kimiterrace/db";
 import { CalloutsEditor } from "./CalloutsEditor";
 import { VisitorsEditor } from "./VisitorsEditor";
 import boardLayout from "./board-layout.module.css";
+import { editorRegionAnchorId } from "./region-anchor";
 
 /**
  * 来校者一覧 / 生徒呼び出しの編集セクション（pattern2/3 専用ブロック）。盤面の下に 2 カラムで出す。
@@ -25,6 +26,14 @@ import boardLayout from "./board-layout.module.css";
  * 表示・保存・検証・RLS/監査は各エディタ（`VisitorsEditor` / `CalloutsEditor`）が温存して担う。本コンポーネントは
  * **配置と key 付与のみ**で、データには一切関与しない。盤面のパターン選択（`showVisitors` / `showCallouts`）は
  * 親が `patternIncludesBlock` 単一ソースで決めた値をそのまま受け取るだけで、ここでは増減させない。
+ *
+ * ## 盤面との空間対応（finding #12）＋ 盤面クリックのジャンプ先（finding #2）
+ * 盤面（`SignageBoardView` の pattern2/3）は **生徒呼び出し（左）→ 来校者一覧（右）** の順で 2 カラムに並ぶ。
+ * 編集欄もこの左右順に合わせる（旧実装は来校者→呼び出しで盤面と左右が逆だった＝空間対応の崩れ・#12）。
+ * また各エディタを `editorRegionAnchorId` の DOM id を持つラッパで囲む。盤面の来校者/呼び出しをクリックすると
+ * `WysiwygBoardEditor.focusRegion` がこの id を `getElementById` して該当編集欄へスクロール + フォーカスする
+ * （#2 の盤面クリック全配線）。id 付与をラッパに置くことで、各エディタ本体（VisitorsEditor / CalloutsEditor）は
+ * 無改修のまま（他レーンの編集と衝突しない）。
  */
 export function VisitorsCalloutsSection({
   classId,
@@ -46,23 +55,19 @@ export function VisitorsCalloutsSection({
   }
   return (
     <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
-      {showVisitors && visitors ? (
-        // 兄弟間で衝突しない安定キー。旧実装は両兄弟が同じ key={date} で、上記の配置下で対象日変更時に複製が
-        // 観測された。date を含め日付変更で再マウントする（新日付データで初期化する旧 key={date} の意図を維持）。
-        <VisitorsEditor
-          key={`visitors-${date}`}
-          classId={classId}
-          date={date}
-          initialItems={visitors}
-        />
-      ) : null}
+      {/* 盤面（pattern2/3）と同じ左右順: 生徒呼び出し（左）→ 来校者一覧（右）。各エディタは盤面クリックの
+          ジャンプ先になるよう anchor id 付きのラッパで囲む（id はラッパに置き、エディタ本体は無改修に保つ）。
+          兄弟間で衝突しない安定キー（callouts-* / visitors-*）を維持し、date を含めて日付変更で再マウントする
+          （新日付データで初期化する旧 key={date} の意図を維持・複製バグの回帰ガードと整合）。 */}
       {showCallouts && callouts ? (
-        <CalloutsEditor
-          key={`callouts-${date}`}
-          classId={classId}
-          date={date}
-          initialItems={callouts}
-        />
+        <div key={`callouts-${date}`} id={editorRegionAnchorId("callouts")}>
+          <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+        </div>
+      ) : null}
+      {showVisitors && visitors ? (
+        <div key={`visitors-${date}`} id={editorRegionAnchorId("visitors")}>
+          <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+        </div>
       ) : null}
     </div>
   );

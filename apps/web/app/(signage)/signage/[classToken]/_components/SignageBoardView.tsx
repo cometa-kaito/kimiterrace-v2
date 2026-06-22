@@ -330,8 +330,8 @@ function Pattern2Board({
               editRegions={editRegions}
             />
             <div className={styles.p2People}>
-              <Pattern2Callouts callouts={data.callouts} />
-              <Pattern2Visitors visitors={data.visitors} />
+              <Pattern2Callouts callouts={data.callouts} editRegions={editRegions} />
+              <Pattern2Visitors visitors={data.visitors} editRegions={editRegions} />
             </div>
             <div className={styles.p2Status}>
               <Pattern2Train train={data.trainStatus} />
@@ -389,8 +389,8 @@ function Pattern3Board({
               editRegions={editRegions}
             />
             <div className={styles.p2People}>
-              <Pattern3Callouts callouts={data.callouts} />
-              <Pattern3Visitors visitors={data.visitors} />
+              <Pattern3Callouts callouts={data.callouts} editRegions={editRegions} />
+              <Pattern3Visitors visitors={data.visitors} editRegions={editRegions} />
             </div>
             <Pattern3Footer
               news={data.news}
@@ -759,12 +759,28 @@ const P3_PEOPLE_VISIBLE_ROWS = 4;
  * （予定 §11c-2 と同作法・hooks なし＝server 描画可能性は不変）。region は pattern2 と同じ `aria-label="生徒呼び出し"`
  * （盤面 region ドリフトガードと整合）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。
  */
-function Pattern3Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
+function Pattern3Callouts({
+  callouts,
+  editRegions,
+}: {
+  callouts: SignagePayload["callouts"];
+  editRegions?: EditRegionsProps;
+}) {
   const list = callouts ?? [];
   const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "callouts",
+    styles.p3Person,
+    "生徒呼び出し",
+    editRegions,
+  );
   return (
-    <section aria-label="生徒呼び出し" className={styles.p3Person}>
-      <h2 className={styles.p3PersonTitle}>生徒呼び出し</h2>
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.p3PersonTitle} aria-hidden={hideHeading || undefined}>
+        生徒呼び出し
+      </h2>
       <div className={styles.p3PersonRows}>
         {list.length === 0 ? (
           <span className={styles.p3SchEmpty}>呼び出しはありません</span>
@@ -801,12 +817,28 @@ function Pattern3Callouts({ callouts }: { callouts: SignagePayload["callouts"] }
  * {@link P3_PEOPLE_VISIBLE_ROWS} 件超の自動縦スクロールにする。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
  * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」・2026-06-10 ユーザー確定）。
  */
-function Pattern3Visitors({ visitors }: { visitors: SignagePayload["visitors"] }) {
+function Pattern3Visitors({
+  visitors,
+  editRegions,
+}: {
+  visitors: SignagePayload["visitors"];
+  editRegions?: EditRegionsProps;
+}) {
   const list = visitors ?? [];
   const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "visitors",
+    styles.p3Person,
+    "来校者一覧",
+    editRegions,
+  );
   return (
-    <section aria-label="来校者一覧" className={styles.p3Person}>
-      <h2 className={styles.p3PersonTitle}>来校者一覧</h2>
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.p3PersonTitle} aria-hidden={hideHeading || undefined}>
+        来校者一覧
+      </h2>
       <div className={styles.p3PersonRows}>
         {list.length === 0 ? (
           <span className={styles.p3SchEmpty}>本日の来校者はありません</span>
@@ -1149,11 +1181,27 @@ function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
  * 来校者無し・取得失敗（`null`）はともに「本日の来校者はありません」（fail-soft）。氏名は当該クラスの端末に
  * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」参照・2026-06-10 ユーザー確定）。
  */
-function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }) {
+function Pattern2Visitors({
+  visitors,
+  editRegions,
+}: {
+  visitors: SignagePayload["visitors"];
+  editRegions?: EditRegionsProps;
+}) {
   const list = visitors ?? [];
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "visitors",
+    styles.card,
+    "来校者一覧",
+    editRegions,
+  );
   return (
-    <section aria-label="来校者一覧" className={styles.card}>
-      <h2 className={styles.cardTitle}>来校者一覧</h2>
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.cardTitle} aria-hidden={hideHeading || undefined}>
+        来校者一覧
+      </h2>
       {list.length === 0 ? (
         <p className={styles.p2Muted}>本日の来校者はありません</p>
       ) : (
@@ -1193,17 +1241,30 @@ function Pattern2Visitors({ visitors }: { visitors: SignagePayload["visitors"] }
  * 呼び出し無し・取得失敗（`null`）はともに「呼び出しはありません」（fail-soft）。実名表示は ADR-034 の境界下
  * （当該クラス端末・RLS 自校・Vertex 非送信。出席番号でなく実名なのは呼び出しの取り違え防止）。
  */
-function Pattern2Callouts({ callouts }: { callouts: SignagePayload["callouts"] }) {
+function Pattern2Callouts({
+  callouts,
+  editRegions,
+}: {
+  callouts: SignagePayload["callouts"];
+  editRegions?: EditRegionsProps;
+}) {
   const list = callouts ?? [];
   // 呼び出しが 1 件以上ある時だけ左にアクセント線を立て、名指しされた生徒が気づきやすくする（提出物の
   // 期限切れ行と同じ inset box-shadow 作法）。0 件は線なしで他カードと等価に保つ（ユーザー指定 2026-06-13）。
   const hasCallouts = list.length > 0;
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "callouts",
+    `${styles.card} ${hasCallouts ? styles.p2CalloutsActive : ""}`,
+    "生徒呼び出し",
+    editRegions,
+  );
   return (
-    <section
-      aria-label="生徒呼び出し"
-      className={`${styles.card} ${hasCallouts ? styles.p2CalloutsActive : ""}`}
-    >
-      <h2 className={styles.cardTitle}>生徒呼び出し</h2>
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.cardTitle} aria-hidden={hideHeading || undefined}>
+        生徒呼び出し
+      </h2>
       {list.length === 0 ? (
         <p className={styles.p2Muted}>呼び出しはありません</p>
       ) : (

@@ -20,11 +20,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * 保存・自動保存・検証は各エディタが温存して担うため、ここでは server action をモックして UI 連動のみ見る。
  */
 
+// 保存アクションは実体（Server Action）と同じ成功結果（{ ok: true }）を返すモックにする。自動保存
+// （useAutoSaveSection）の flush-on-unmount が cleanup 時に dirty な編集を保存しようとするため、undefined を
+// 返すと `res.ok` 参照で unhandled rejection になる（実体は必ず結果オブジェクトを返す・#1136/#1138）。
 const h = vi.hoisted(() => ({
-  // 保存アクションは成功結果（{ ok: true }）を resolve する。#1136 の自動保存はアンマウント時にも flush で
-  // runSave を走らせる（runSave は `const res = await save(...); if (res.ok)`）ため、未指定（undefined 返し）だと
-  // テスト後片付けのアンマウントで `res.ok` 参照が unhandled rejection になる。editor-autosave 等の他テストと同じく
-  // 明示的に成功を返す（vi.clearAllMocks は実装を消さないので hoisted 定義で十分）。
   setScheduleAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   setNoticesAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   setAssignmentsAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
@@ -275,5 +274,55 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.queryByRole("heading", { name: "予定", level: 2 })).toBeNull();
     expect(screen.queryByRole("heading", { name: "提出物", level: 2 })).toBeNull();
     expect(screen.queryByRole("button", { name: "予定を編集" })).toBeNull();
+  });
+
+  it("pattern2: 盤面の来校者/生徒呼び出しにもクリック編集ボタンを出す（#2 全配線・盤面側）", () => {
+    // pattern2 の盤面は来校者一覧 / 生徒呼び出しを持つ。編集モード（editRegions）では予定だけでなく
+    // これらにも領域編集ボタンを敷き、盤面クリック → 編集欄ジャンプの対象にする（旧実装は予定/連絡/提出物のみ）。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern2" }}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "来校者一覧を編集" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "生徒呼び出しを編集" })).toBeTruthy();
+  });
+
+  it("pattern2: 盤面の来校者をクリックすると盤面外の編集欄(anchor id)へスクロール+選択状態にする（#2 クロスコンポーネント）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern2" }}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    // 来校者の編集欄は親(page.tsx)が盤面の外に出す（VisitorsCalloutsSection）。本単体テストには無いので、
+    // ジャンプ先 anchor id を持つ要素を document に注入して代替し、focusRegion が DOM id 経由で到達することを固定する。
+    const target = document.createElement("div");
+    target.id = "editor-region-visitors";
+    const input = document.createElement("input");
+    target.appendChild(input);
+    document.body.appendChild(target);
+    const scrollSpy = vi.fn();
+    target.scrollIntoView = scrollSpy;
+
+    fireEvent.click(screen.getByRole("button", { name: "来校者一覧を編集" }));
+
+    // 盤面外の編集欄へスクロール + 内部の最初の入力にフォーカス + クリックした領域は選択状態。
+    expect(scrollSpy).toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    expect(
+      screen.getByRole("button", { name: "来校者一覧を編集" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    document.body.removeChild(target);
   });
 });
