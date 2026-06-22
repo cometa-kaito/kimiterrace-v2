@@ -293,6 +293,34 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByRole("button", { name: "生徒呼び出しを編集" })).toBeTruthy();
   });
 
+  it("予定の時限で「その他」を選ぶと自由入力欄が出る（#予定 自由記入）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[{ period: 1, subject: "数学" }]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    const slot = screen.getByLabelText("1 行目の時限") as HTMLSelectElement;
+    // 「その他」option が存在する。
+    expect(
+      Array.from(slot.options).some((o) => o.textContent === "その他" && o.value === "__custom__"),
+    ).toBe(true);
+    // 既定は自由入力欄なし。
+    expect(screen.queryByLabelText("1 行目の時限（自由入力）")).toBeNull();
+    // 「その他」を選ぶと自由入力欄が出る。
+    fireEvent.change(slot, { target: { value: "__custom__" } });
+    const custom = screen.getByLabelText("1 行目の時限（自由入力）") as HTMLInputElement;
+    expect(custom).toBeTruthy();
+    fireEvent.change(custom, { target: { value: "補習" } });
+    expect((screen.getByLabelText("1 行目の時限（自由入力）") as HTMLInputElement).value).toBe(
+      "補習",
+    );
+  });
+
   it("pattern2: 盤面の来校者をクリックすると盤面外の編集欄(anchor id)へスクロール+選択状態にする（#2 クロスコンポーネント）", () => {
     render(
       <WysiwygBoardEditor

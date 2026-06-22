@@ -235,6 +235,41 @@ describe("validateScheduleItems", () => {
       validateScheduleItems([{ period: 1, subject: "x", targetAudience: "あ".repeat(51) }]).ok,
     ).toBe(false);
   });
+
+  it("自由入力（その他）を受理する（{ custom } で trim 保存）", () => {
+    const r = validateScheduleItems([{ period: { custom: " 補習 " }, subject: "数学" }]);
+    expect(r.ok && r.value[0]?.period).toEqual({ custom: "補習" });
+  });
+
+  it("自由入力が空（trim 後 0 文字）は拒否", () => {
+    expect(validateScheduleItems([{ period: { custom: "   " }, subject: "x" }]).ok).toBe(false);
+  });
+
+  it("自由入力が長すぎる（17 文字 > CUSTOM_PERIOD_MAX 16）は拒否", () => {
+    expect(validateScheduleItems([{ period: { custom: "あ".repeat(17) }, subject: "x" }]).ok).toBe(
+      false,
+    );
+  });
+
+  it("自由入力の重複は許容する（数値時限の重複だけ拒否・入力順を保つ）", () => {
+    const r = validateScheduleItems([
+      { period: { custom: "補習" }, subject: "数学" },
+      { period: { custom: "補習" }, subject: "英語" },
+    ]);
+    expect(r.ok && r.value.map((i) => [i.period, i.subject])).toEqual([
+      [{ custom: "補習" }, "数学"],
+      [{ custom: "補習" }, "英語"],
+    ]);
+  });
+
+  it("自由入力は標準スロットの後ろに並ぶ（morning < 数値 < lunch < afterschool < その他）", () => {
+    const r = validateScheduleItems([
+      { period: { custom: "補習" }, subject: "数学" },
+      { period: 1, subject: "国語" },
+      { period: "afterschool", subject: "部活" },
+    ]);
+    expect(r.ok && r.value.map((i) => i.subject)).toEqual(["国語", "部活", "数学"]);
+  });
 });
 
 describe("scheduleSlotLabel", () => {
@@ -247,6 +282,9 @@ describe("scheduleSlotLabel", () => {
     expect(scheduleSlotLabel("lunch")).toBe("昼休み");
     expect(scheduleSlotLabel("afterschool")).toBe("放課後");
   });
+  it("自由入力（その他）はその文字列をそのまま返す", () => {
+    expect(scheduleSlotLabel({ custom: "補習" })).toBe("補習");
+  });
 });
 
 describe("scheduleSlotSortKey", () => {
@@ -254,6 +292,11 @@ describe("scheduleSlotSortKey", () => {
     const slots = ["afterschool", 12, "morning", 1, "lunch"] as const;
     const sorted = [...slots].sort((a, b) => scheduleSlotSortKey(a) - scheduleSlotSortKey(b));
     expect(sorted).toEqual(["morning", 1, 12, "lunch", "afterschool"]);
+  });
+  it("自由入力（その他）は afterschool より後ろに並ぶ", () => {
+    const slots = [{ custom: "補習" }, "afterschool", 1, "morning"] as const;
+    const sorted = [...slots].sort((a, b) => scheduleSlotSortKey(a) - scheduleSlotSortKey(b));
+    expect(sorted).toEqual(["morning", 1, "afterschool", { custom: "補習" }]);
   });
 });
 

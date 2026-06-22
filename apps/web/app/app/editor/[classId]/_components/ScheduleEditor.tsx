@@ -3,8 +3,10 @@
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import type { EditorTarget, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
 import {
+  CUSTOM_PERIOD_MAX,
   SCHEDULE_SLOT_OPTIONS,
   editorBasePath,
+  isCustomPeriod,
   isSpecialSlot,
   targetId,
 } from "@/lib/editor/schedule-core";
@@ -43,9 +45,26 @@ type Row = {
   targetAudience: string;
 };
 
-/** select の値（文字列）を Row.period（number | 特殊スロット）に戻す。数値時限は number 化。 */
+/** 「その他（自由入力）」を表す select の番兵値（実 period 値ではない・UI 専用）。 */
+const CUSTOM_SLOT_VALUE = "__custom__";
+
+/** select の値（文字列）を Row.period に戻す。数値時限は number 化・特殊はそのまま・「その他」は空の自由入力にする。 */
 function parseSlotValue(value: string): SchedulePeriod {
+  if (value === CUSTOM_SLOT_VALUE) {
+    return { custom: "" };
+  }
   return isSpecialSlot(value) ? value : Number(value);
+}
+
+/** 行の時限が「保存してよい」状態か。数値 1..12 / 特殊スロット / 中身のある自由入力。 */
+function isRowPeriodComplete(period: SchedulePeriod): boolean {
+  if (isCustomPeriod(period)) {
+    return period.custom.trim().length > 0;
+  }
+  if (isSpecialSlot(period)) {
+    return true;
+  }
+  return Number.isInteger(period) && period >= 1 && period <= 12;
 }
 
 /** 行 state を保存ペイロード（ScheduleItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
@@ -103,14 +122,12 @@ export function ScheduleEditor({
   // 特殊スロット（朝 / 昼休み / 放課後）は重複を許容する（例: 放課後に部活と三者面談）＝サーバ検証と整合。
   // 以前はここで全 period を一律に重複扱いしていたため、放課後を 2 つ入れると complete=false で**保存されなかった**
   // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
-  const numberedPeriods = rows.map((r) => r.period).filter((p): p is number => !isSpecialSlot(p));
+  const numberedPeriods = rows
+    .map((r) => r.period)
+    .filter((p): p is number => typeof p === "number");
   const complete =
-    rows.every(
-      (r) =>
-        r.subject.trim().length > 0 &&
-        (isSpecialSlot(r.period) ||
-          (Number.isInteger(r.period) && r.period >= 1 && r.period <= 12)),
-    ) && new Set(numberedPeriods).size === numberedPeriods.length;
+    rows.every((r) => r.subject.trim().length > 0 && isRowPeriodComplete(r.period)) &&
+    new Set(numberedPeriods).size === numberedPeriods.length;
   const auto = useAutoSaveSection({
     serialized,
     items,
@@ -128,7 +145,7 @@ export function ScheduleEditor({
     setRows((prev) => {
       const numericPeriods = prev
         .map((r) => r.period)
-        .filter((p): p is number => !isSpecialSlot(p));
+        .filter((p): p is number => typeof p === "number");
       const nextPeriod = numericPeriods.length > 0 ? Math.max(...numericPeriods) + 1 : 1;
       return [
         ...prev,
@@ -244,7 +261,7 @@ export function ScheduleEditor({
                 <td style={tdStyle}>
                   <select
                     ref={(el) => registerCell(i, 0, el)}
-                    value={String(r.period)}
+                    value={isCustomPeriod(r.period) ? CUSTOM_SLOT_VALUE : String(r.period)}
                     onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
                     onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                     style={{ ...inputStyle, width: "6rem" }}
@@ -255,7 +272,19 @@ export function ScheduleEditor({
                         {opt.label}
                       </option>
                     ))}
+                    {/* 「その他」を選ぶと下に自由入力欄が出る（番兵値・実 period ではない）。 */}
+                    <option value={CUSTOM_SLOT_VALUE}>その他</option>
                   </select>
+                  {isCustomPeriod(r.period) ? (
+                    <input
+                      value={r.period.custom}
+                      onChange={(e) => update(i, { period: { custom: e.target.value } })}
+                      placeholder="例: 補習"
+                      maxLength={CUSTOM_PERIOD_MAX}
+                      style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
+                      aria-label={`${i + 1} 行目の時限（自由入力）`}
+                    />
+                  ) : null}
                 </td>
                 <td style={tdStyle}>
                   <input

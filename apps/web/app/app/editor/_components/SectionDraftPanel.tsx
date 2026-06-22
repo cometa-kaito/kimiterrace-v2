@@ -10,7 +10,12 @@ import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import type { ActionResult, ScheduleItem } from "@/lib/editor/schedule-core";
-import { SCHEDULE_SLOT_OPTIONS, isSpecialSlot } from "@/lib/editor/schedule-core";
+import {
+  CUSTOM_PERIOD_MAX,
+  SCHEDULE_SLOT_OPTIONS,
+  isCustomPeriod,
+  isSpecialSlot,
+} from "@/lib/editor/schedule-core";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useRef, useState } from "react";
@@ -405,6 +410,9 @@ const fieldInput: React.CSSProperties = {
   borderRadius: "6px",
 };
 
+/** 「その他（自由入力）」を表す select の番兵値（実 period 値ではない・UI 専用）。ScheduleEditor と同方針。 */
+const CUSTOM_SLOT_VALUE = "__custom__";
+
 /** 予定(schedules) のセクション設定。period セレクタ + 科目/場所/対象者/補足。 */
 export const SCHEDULE_DRAFT_CONFIG: SectionDraftConfig<ScheduleItem> = {
   title: "AI で予定を作る",
@@ -426,20 +434,41 @@ export const SCHEDULE_DRAFT_CONFIG: SectionDraftConfig<ScheduleItem> = {
       <label style={fieldLabel}>
         時限{" "}
         <select
-          value={String(item.period)}
+          value={isCustomPeriod(item.period) ? CUSTOM_SLOT_VALUE : String(item.period)}
           aria-label="時限"
           style={{ ...fieldInput, width: "6rem" }}
-          onChange={(e) =>
-            set({ period: isSpecialSlot(e.target.value) ? e.target.value : Number(e.target.value) })
-          }
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === CUSTOM_SLOT_VALUE) {
+              // 「その他」: 既に自由入力ならテキストを保持、それ以外は空で開始。
+              set({ period: isCustomPeriod(item.period) ? item.period : { custom: "" } });
+            } else {
+              set({ period: isSpecialSlot(v) ? v : Number(v) });
+            }
+          }}
         >
           {SCHEDULE_SLOT_OPTIONS.map((opt) => (
             <option key={String(opt.value)} value={String(opt.value)}>
               {opt.label}
             </option>
           ))}
+          <option value={CUSTOM_SLOT_VALUE}>その他</option>
         </select>
       </label>
+      {isCustomPeriod(item.period) ? (
+        <label style={fieldLabel}>
+          時限（自由入力）{" "}
+          <input
+            type="text"
+            value={item.period.custom}
+            onChange={(e) => set({ period: { custom: e.target.value } })}
+            placeholder="例: 補習"
+            maxLength={CUSTOM_PERIOD_MAX}
+            aria-label="時限（自由入力）"
+            style={{ ...fieldInput, width: "8rem" }}
+          />
+        </label>
+      ) : null}
       <label style={fieldLabel}>
         科目{" "}
         <input

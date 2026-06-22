@@ -40,6 +40,18 @@ describe("formatSignageItem", () => {
       });
     });
 
+    it("自由入力（その他 { custom }）はその文字列をラベルに冠する", () => {
+      expect(
+        formatSignageItem("schedules", { period: { custom: "補習" }, subject: "数学" }),
+      ).toEqual({ text: "補習 数学" });
+      // 空の custom はラベルを出さない（fail-soft・防御的 narrow が null に倒す）。
+      expect(formatSignageItem("schedules", { period: { custom: "  " }, subject: "数学" })).toEqual(
+        {
+          text: "数学",
+        },
+      );
+    });
+
     it("subject 欠落は汎用フォールバック", () => {
       expect(formatSignageItem("schedules", { period: 2 })).toEqual({ text: '{"period":2}' });
     });

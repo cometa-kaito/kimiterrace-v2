@@ -237,15 +237,30 @@ export function isValidDate(value: unknown): value is string {
 export const SPECIAL_SLOTS = ["morning", "lunch", "afterschool"] as const;
 export type SpecialSlot = (typeof SPECIAL_SLOTS)[number];
 
+/** 自由入力の時限（select で「その他」を選んだとき。例: 補習 / 0限）。`{ custom }` でタグ付けし数値/特殊と区別する。 */
+export type CustomPeriod = { custom: string };
+/** 自由入力ラベルの最大長（暴走入力抑止・盤面の時限欄は短い）。 */
+export const CUSTOM_PERIOD_MAX = 16;
+
 /**
- * 予定 1 コマの時限。数値 (1..12) に加え、特殊スロット (朝 / 昼休み / 放課後) を取りうる。
+ * 予定 1 コマの時限。数値 (1..12) / 特殊スロット (朝 / 昼休み / 放課後) に加え、**自由入力 (`{ custom }`)** を取りうる。
  * **この union を単一ソースとする**（手書きで別宣言しない、ルール3）。
  */
-export type SchedulePeriod = number | SpecialSlot;
+export type SchedulePeriod = number | SpecialSlot | CustomPeriod;
 
 /** `period` が特殊スロット文字列か。 */
 export function isSpecialSlot(value: unknown): value is SpecialSlot {
   return typeof value === "string" && (SPECIAL_SLOTS as readonly string[]).includes(value);
+}
+
+/** `period` が自由入力（「その他」）か。 */
+export function isCustomPeriod(value: unknown): value is CustomPeriod {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "custom" in value &&
+    typeof (value as { custom: unknown }).custom === "string"
+  );
 }
 
 /** 特殊スロットの表示ラベル（select の選択肢・サイネージ整形で共有）。 */
@@ -266,15 +281,24 @@ const SPECIAL_SLOT_SORT_KEY: Record<SpecialSlot, number> = {
   lunch: 1000,
   afterschool: 1001,
 };
+/** 自由入力（その他）の並び順キー。標準スロット（morning 0 〜 afterschool 1001）より後ろに固定で置く。 */
+const CUSTOM_PERIOD_SORT_KEY = 2000;
 export function scheduleSlotSortKey(period: SchedulePeriod): number {
+  // 自由入力は標準スロットの後ろ。同値の複数件は安定ソートで入力順を保つ（保存・盤面描画で同一キー）。
+  if (isCustomPeriod(period)) {
+    return CUSTOM_PERIOD_SORT_KEY;
+  }
   if (isSpecialSlot(period)) {
     return SPECIAL_SLOT_SORT_KEY[period];
   }
   return period;
 }
 
-/** 時限の表示ラベル（数値→`N限`、特殊→朝 / 昼休み / 放課後）。サイネージ・エディタで共有。 */
+/** 時限の表示ラベル（数値→`N限`、特殊→朝 / 昼休み / 放課後、自由入力→その文字列）。サイネージ・エディタで共有。 */
 export function scheduleSlotLabel(period: SchedulePeriod): string {
+  if (isCustomPeriod(period)) {
+    return period.custom;
+  }
   if (isSpecialSlot(period)) {
     return SPECIAL_SLOT_LABEL[period];
   }
@@ -345,6 +369,14 @@ function normalizePeriod(raw: unknown): SchedulePeriod | null {
   if (isSpecialSlot(raw)) {
     return raw;
   }
+  // 自由入力（その他）: trim 後 1..CUSTOM_PERIOD_MAX 文字なら許容。空は不正（未入力）として弾く。
+  if (isCustomPeriod(raw)) {
+    const trimmed = raw.custom.trim();
+    if (trimmed.length === 0 || trimmed.length > CUSTOM_PERIOD_MAX) {
+      return null;
+    }
+    return { custom: trimmed };
+  }
   const n = typeof raw === "string" ? Number(raw) : raw;
   if (typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= MAX_ITEMS) {
     return n;
@@ -379,10 +411,11 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
     if (period === null) {
       return {
         ok: false,
-        message: `時限は 1〜${MAX_ITEMS} の整数、または 朝 / 昼休み / 放課後 を選択してください。`,
+        message: `時限は 1〜${MAX_ITEMS} の整数 / 朝・昼休み・放課後 / その他（自由入力）で指定してください。`,
       };
     }
-    if (!isSpecialSlot(period)) {
+    // 重複拒否は **数値時限のみ**。特殊スロット（朝 / 昼休み / 放課後）と自由入力（その他）は複数件を許容する。
+    if (typeof period === "number") {
       if (seenNumbered.has(period)) {
         return { ok: false, message: `「${scheduleSlotLabel(period)}」が重複しています。` };
       }
