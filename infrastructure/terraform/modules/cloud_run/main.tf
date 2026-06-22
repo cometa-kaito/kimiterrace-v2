@@ -93,6 +93,17 @@ resource "google_secret_manager_secret_iam_member" "runtime_dev_login_secret" {
   member    = "serviceAccount:${google_service_account.web_runtime[0].email}"
 }
 
+# staging 限定 dev-login の createCustomToken（パスワードレス セッション発行）に必要な signBlob 権限。
+# web 実行 SA が「自分自身」に対して serviceAccountTokenCreator を持つ（鍵ファイル無しの自己署名）。
+# dev_login_secret_id が空（= prod）なら付与しない＝prod では custom token 発行が原理的に不能（多層防御の追加層）。
+resource "google_service_account_iam_member" "runtime_dev_login_token_creator" {
+  count = var.enabled && var.dev_login_secret_id != "" ? 1 : 0
+
+  service_account_id = google_service_account.web_runtime[0].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.web_runtime[0].email}"
+}
+
 # Vertex AI 呼び出し（F03 抽出 / F06 生徒 Q&A / F08 効果コメントの Gemini）。project レベル
 # roles/aiplatform.user。送信前 PII マスキングは app 側（ルール4）。
 resource "google_project_iam_member" "runtime_vertex_user" {

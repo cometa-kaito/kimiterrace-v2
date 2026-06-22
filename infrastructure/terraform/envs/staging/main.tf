@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "c10e795" # 2026-06-21: 多ロール バグ修正リリース（deep research）。教員: AIチャット端末別パターン解決(#1101)/OCR egress 堅牢化(#1102)/連絡ドラフトSSE stall中断(#1104・#987)/逆マスクPII検査をマスク空間へ統一(#1105・#1108)。学校管理者: magic link一覧GET可視性チェック(#1111)。システム管理者: 運営広告CRM入稿の本番全断修正(#1106・ads created_by FK)。表示層+server actionのみ・schema/secret 無変更=migrate 不要。両env /api/health 200・/login private,no-cache（s-maxage退行なし）・apply 0add/1change/0destroy。live image=web:c10e795 突合
+  web_image_tag = "1faaa3d" # staging deploy 1faaa3d（内容は PR/commit に記述）
 }
 
 module "network" {
