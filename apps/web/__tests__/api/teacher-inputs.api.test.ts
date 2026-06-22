@@ -226,16 +226,19 @@ describe("DELETE /api/teacher-inputs/:id", () => {
 });
 
 describe("POST /api/teacher-inputs/:id/attachments (FR-05 メタ行)", () => {
-  it("正常で 201", async () => {
+  // 自校 (fakeUser.schoolId) の per-school upload prefix 内の正当な storagePath。
+  const OWN_PATH = `uploads/${fakeUser.schoolId}/att-uuid.pdf`;
+
+  it("正常で 201 (自校 prefix + 許可 MIME)", async () => {
     db.addAttachment.mockResolvedValue({ id: "att-1" });
     const r = new Request("http://localhost", {
       method: "POST",
-      body: JSON.stringify({ storagePath: "gs://b/x.pdf", mimeType: "application/pdf" }),
+      body: JSON.stringify({ storagePath: OWN_PATH, mimeType: "application/pdf" }),
     });
     const res = await attachPOST(r, ctx(VALID_ID));
     expect(res.status).toBe(201);
     expect(db.addAttachment).toHaveBeenCalledWith({}, fakeUser.uid, VALID_ID, {
-      storagePath: "gs://b/x.pdf",
+      storagePath: OWN_PATH,
       mimeType: "application/pdf",
     });
   });
@@ -244,7 +247,7 @@ describe("POST /api/teacher-inputs/:id/attachments (FR-05 メタ行)", () => {
     db.addAttachment.mockResolvedValue(null);
     const r = new Request("http://localhost", {
       method: "POST",
-      body: JSON.stringify({ storagePath: "gs://b/x.pdf", mimeType: "application/pdf" }),
+      body: JSON.stringify({ storagePath: OWN_PATH, mimeType: "application/pdf" }),
     });
     const res = await attachPOST(r, ctx(VALID_ID));
     expect(res.status).toBe(404);
@@ -257,6 +260,29 @@ describe("POST /api/teacher-inputs/:id/attachments (FR-05 メタ行)", () => {
     });
     const res = await attachPOST(r, ctx(VALID_ID));
     expect(res.status).toBe(400);
+  });
+
+  it("許可外 MIME で 415、addAttachment 未呼び出し", async () => {
+    const r = new Request("http://localhost", {
+      method: "POST",
+      body: JSON.stringify({ storagePath: OWN_PATH, mimeType: "application/x-msdownload" }),
+    });
+    const res = await attachPOST(r, ctx(VALID_ID));
+    expect(res.status).toBe(415);
+    expect(db.addAttachment).not.toHaveBeenCalled();
+  });
+
+  it("他校 prefix の storagePath は 403 (越境登録防止)、addAttachment 未呼び出し", async () => {
+    const r = new Request("http://localhost", {
+      method: "POST",
+      body: JSON.stringify({
+        storagePath: "uploads/99999999-9999-9999-9999-999999999999/x.pdf",
+        mimeType: "application/pdf",
+      }),
+    });
+    const res = await attachPOST(r, ctx(VALID_ID));
+    expect(res.status).toBe(403);
+    expect(db.addAttachment).not.toHaveBeenCalled();
   });
 });
 

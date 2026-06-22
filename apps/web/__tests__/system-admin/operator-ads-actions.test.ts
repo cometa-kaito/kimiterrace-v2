@@ -140,7 +140,7 @@ describe("createOperatorAdAction", () => {
 
   // BUG-6 回帰: system_admin は users に居ないため audit_log の actor 参照
   // (actor_user_id/created_by/updated_by=users(id) FK) に uid を入れると FK 違反で失敗する。
-  it("audit_log の actor 参照は system_admin では null（FK 違反回避）・本人は actor_identity_uid に保持", async () => {
+  it("audit_log と ads 本体の actor 参照は system_admin では null（FK 違反回避）・本人は actor_identity_uid に保持", async () => {
     await createOperatorAdAction(VALID);
     expect(auditInsert()).toMatchObject({
       operation: "insert",
@@ -149,9 +149,10 @@ describe("createOperatorAdAction", () => {
       updatedBy: null,
       actorIdentityUid: USER_ID,
     });
-    // ads には created_by の FK が無い（migration 0004 対象外）ので uid のままで良い＝
-    // 過剰に null 化していないことも確認。
-    expect(adsInsert()).toMatchObject({ createdBy: USER_ID, updatedBy: USER_ID });
+    // ads.created_by / updated_by **も** users(id) への FK（migration 0006 で付与・旧コメントの「0004 対象外で FK
+    // 無し」は誤り）。system_admin は users 行を持たないため uid を入れると 23503 FK 違反 → isConstraintViolation で
+    // "conflict" 化し入稿が本番で全断する。監査と同じく null 化する（過剰でなく必須）。
+    expect(adsInsert()).toMatchObject({ createdBy: null, updatedBy: null });
   });
 
   it("制約違反（Drizzle wrap, cause.code=23503 FK）は conflict に写像し 500 化させない", async () => {

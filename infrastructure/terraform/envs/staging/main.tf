@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "f25b610" # migration 0029-0033 (#1048/#1056/#1057/#1059/#1060): weather_warnings/heat_alerts/signage_snippets/school_calendar_*/air_quality_index + 公開型&tenant_isolation RLS + 監査FK（サイネージ自動コンテンツ・ADR-044/045/046・additive/後方互換。0028 news 含む既適用分は migrate-runner が冪等 skip）。staging Job 実行予定
+  migrate_image_tag = "ea93c5f" # 2026-06-20: news_items.summary 列追加（#1087・ALTER TABLE ADD COLUMN IF NOT EXISTS summary text・additive/後方互換・RLS監査不変）。0029-0033（weather/heat/snippets/calendar/air_quality・ADR-044/045/046）+0028 news も同梱し migrate-runner が未適用分のみ冪等適用。staging Job 適用済（staging 実 Job image=ea93c5f）
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "90878a3" # +#1065 大気質を実 keyless(そらまめくん)確定。+#1063 熱中症 HH 非依存。warnings/heat/calendar/大気 relay(ADR-044/045/046)+news 継続・railway/tv-liveness は同コードで image のみ更新
+  jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。staging 実 Job image=ea93c5f
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -130,6 +130,15 @@ locals {
   # TV 死活監視の Slack incoming webhook URL の Secret Manager secret ID（ルール5・値は別途投入）。
   # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
   slack_webhook_url_secret_id = "staging-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
+
+  # staging 限定 dev-login の設定（ゲート鍵 + 任意の解決ヒント。**password は持たない**）の JSON を保持する
+  # Secret Manager secret ID（ルール5・値は人間投入）。新スキーマ:
+  #   { "secret": "<ゲート鍵>", "keyVersion": "<任意・非秘密>", "teacher": { "schoolId": "<uuid>" }, "admin": { "uid": "<uuid>" } }
+  # secret は Authorization: Bearer 突合用。teacher/admin は任意の解決ヒントのみ（email/password は廃止・型が無視する）。
+  # Cloud Run web が DEV_LOGIN_CONFIG env として注入。**staging 専用**＝prod の envs/prod には同 secret も
+  # APP_ENV=staging も足さない（多層防御。dev-login が prod で機能しないことを保証）。
+  # 未投入なら dev-login は config 不在で常に 404（fail-closed）。
+  dev_login_secret_id = "staging-dev-login" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
   # 5300a20: pdfjs-dist standard_fonts を standalone に明示同梱（Issue #311 起動時 assert 修正）。
@@ -225,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "d0eff93" # 2026-06-20: エディタの浮遊AIチャットをドラッグ/矢印キー/ダブルクリック/Homeでリサイズ可能に（#1085）。表示層(apps/web)のみ・schema/migration なし・secret 変更なし。疎通 /api/health 200・/login private,no-cache（s-maxage 退行なし）
+  web_image_tag = "1faaa3d" # staging deploy 1faaa3d（内容は PR/commit に記述）
 }
 
 module "network" {
@@ -294,6 +303,9 @@ module "secret_manager" {
     }
     (local.slack_webhook_url_secret_id) = {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+    }
+    (local.dev_login_secret_id) = {
+      description = "staging 限定 dev-login の設定 JSON（{secret, keyVersion?, teacher:{schoolId?}, admin:{uid?}}・**password は持たない**）。secret は Authorization: Bearer 突合用のゲート鍵。teacher/admin は任意の解決ヒント（school/uid）のみで資格情報ではない。keyVersion（任意・非秘密）は鍵ローテ世代ラベルで監査 diff に記録。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
@@ -498,8 +510,13 @@ module "cloud_run" {
   tv_poll_secret_id             = local.tv_poll_secret_id
   tv_poll_secret_legacy_version = local.tv_poll_secret_legacy_version # 鍵ローテ移行期のみ旧版番号を設定（無停止）。完了後 "" へ
   provision_agent_secret_id     = local.provision_agent_secret_id     # C方式/PR4: /api/tv/provisioning/* agent 認証
-  vpc_connector                 = module.network.vpc_connector_id
-  vertex_location               = var.region
+  # staging 限定 dev-login（apps/web/app/api/dev-login）の多層防御の配線。
+  # APP_ENV=staging（第1ゲート）+ DEV_LOGIN_CONFIG secret（第2ゲート + テストアカウント）。
+  # **prod の envs/prod では両方とも設定しない**（dev-login が prod で機能しないことの terraform 側保証）。
+  app_env             = "staging"
+  dev_login_secret_id = local.dev_login_secret_id
+  vpc_connector       = module.network.vpc_connector_id
+  vertex_location     = var.region
   # #289 ④: 実 Vertex 有効化。前段の安全条件を満たして on にする — kill-switch (#592) + F03 soft-gate (#595)
   # を含む gated image (web:96769b2) deploy 済 + aiplatform.googleapis.com 有効化済。ユーザー go (2026-06-05)
   # で flip。停止/巻き戻しは ai_enabled = false に戻して apply で即 OFF（kill-switch が全 Vertex 入口を再封鎖）。

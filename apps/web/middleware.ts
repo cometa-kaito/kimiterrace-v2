@@ -101,6 +101,6 @@ export function middleware(request: NextRequest): NextResponse {
  */
 export const config = {
   matcher: [
-    "/((?!login(?:/|$)|reset-password(?:/|$)|s/|student(?:/|$)|signage/|ad-media/|guide(?:/|$)|api/auth(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/partner/|api/sensors/switchbot/webhook(?:/|$)|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
+    "/((?!login(?:/|$)|reset-password(?:/|$)|s/|student(?:/|$)|signage/|ad-media/|guide(?:/|$)|api/auth(?:/|$)|api/dev-login(?:/|$)|api/health(?:/|$)|api/guide/|api/student/|api/partner/|api/sensors/switchbot/webhook(?:/|$)|api/tv/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|css|js|map|woff|woff2|ttf)$).*)",
   ],
 };

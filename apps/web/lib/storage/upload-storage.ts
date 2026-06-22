@@ -50,6 +50,31 @@ export function buildUploadObjectPath(schoolId: string, objectId: string, ext: s
   return `uploads/${schoolId}/${objectId}.${ext}`;
 }
 
+/**
+ * 申告された `storagePath` が指定 school の per-school upload prefix 内かを検証する（越境登録防止）。
+ *
+ * `buildUploadObjectPath` が生成する `uploads/{schoolId}/...` 規約と **対になる検証関数**（規約の単一
+ * ソース・ルール3）。GCS は PostgreSQL RLS を尊重しないため、クライアント申告の object path をそのまま
+ * attachment として登録できると、他校 prefix の path を登録 → `listAttachments` / ダウンロードで
+ * cross-tenant な object を読まれる経路が開く。登録時に自校 prefix 内に限定して構造的に塞ぐ。
+ *
+ * - `schoolId` 空 / `/` 混入 → false（system_admin 等テナント文脈なしは登録不可）。
+ * - `storagePath` 空 / `..` 混入 → false（prefix 境界を跨ぐ path traversal を拒否）。
+ * - `uploads/{schoolId}/` で始まらない → false。
+ */
+export function isWithinSchoolUploadPrefix(
+  storagePath: string,
+  schoolId: string | null | undefined,
+): boolean {
+  if (!schoolId || schoolId.includes("/")) {
+    return false;
+  }
+  if (!storagePath || storagePath.includes("..")) {
+    return false;
+  }
+  return storagePath.startsWith(`uploads/${schoolId}/`);
+}
+
 /** `createGcsUploadStorage` の設定。 */
 export type GcsUploadStorageConfig = {
   /** 保存先バケット名（env `UPLOAD_BUCKET` 由来、ハードコード禁止・ルール5）。 */

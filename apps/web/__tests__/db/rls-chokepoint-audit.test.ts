@@ -58,6 +58,12 @@ const CHOKEPOINT_MODULE = "lib/db.ts";
  *   公開（セッション無し）学校解決。内部で **system_admin role 文脈**（withTenantContext）を張り
  *   BYPASSRLS 不使用（pollTvConfig と同型）。読み取りは学校 id/名のみで秘密は返さない。総当たり抑止は
  *   route 側（失敗のみ計上の IP レート制限 + CSRF）。
+ * - `findExistingTeacherLoginSchoolId` / `findExistingSchoolAdminUid` / `ensureDevLoginTestSchool` /
+ *   `ensureDevLoginTestUsers`: **staging 限定 dev-login**（パスワードレス）のアカウント解決 / 冪等作成
+ *   （packages/db queries/dev-login-accounts）。セッション無し経路ゆえ各扉が内部で **system_admin role 文脈**
+ *   （withTenantContext）を張り BYPASSRLS 不使用（teacher-login と同型）。read は id/uid のみ返し秘密は返さない。
+ *   write（dev 専用テスト校 / users 行の冪等作成）は **dev-login 経路かつ staging 多層ゲート内**（isProdLikeEnv /
+ *   APP_ENV==='staging' / ゲート鍵）を通った後のみ呼ばれ、prod では到達不能。
  *
  * 新たにこの集合へ追加するには allowlist 編集 = レビュー時の明示判断を要求する（生接続の使用面を固定）。
  */
@@ -73,6 +79,10 @@ const RLS_DOOR_FUNCTIONS = [
   "reportProvisioningStatus",
   "isTeacherLoginEnabled",
   "listTeacherLoginSchools",
+  "findExistingTeacherLoginSchoolId",
+  "findExistingSchoolAdminUid",
+  "ensureDevLoginTestSchool",
+  "ensureDevLoginTestUsers",
 ] as const;
 
 /** `getDb()` を第 1 引数に直接渡してよい呼び出し元（正規ラッパ + RLS の扉）。 */

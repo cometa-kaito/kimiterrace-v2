@@ -17,6 +17,8 @@ import { formatNewsDate, formatNewsUrl } from "@/lib/signage/news-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import type { SignageWeatherWarning } from "@/lib/signage/weather-warnings";
+import { AutoScroll } from "./AutoScroll";
+import { NewsCarousel } from "./NewsCarousel";
 import {
   BoardRegionEditButton,
   type EditRegion,
@@ -38,7 +40,8 @@ import styles from "./signage.module.css";
  * - **静的再利用（サムネ / エディタキャンバス）**: `ScaledSignageBoard` がスナップショット `SignagePayload` から
  *   `now=null`（時計非表示）・広告静止・タップ noop で `SignageBoardView` を縮小描画する（後続 A/B の土台）。
  *
- * **盤面レイアウトは旧キミテラス v1 を忠実移植**: 上段(横幅いっぱい)=予定(今後3平日の3列・各列5行) /
+ * **盤面レイアウトは旧キミテラス v1 を忠実移植**: 上段(横幅いっぱい)=予定(今後 N 平日の N 列・列数は
+ * `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝現在 5・各列5行) /
  * 左下=連絡(5行) / 右下=提出物(表・5行) / 右=広告(70:30)。天気は予定列の日付ヘッダーにアイコンで内包し、
  * 静粛時間は盤面に出さない(2026-06-06 ユーザー確定)。
  *
@@ -176,14 +179,24 @@ function AdAside({
   adCount,
   safeIndex,
   onAdTap,
+  editRegions,
 }: {
   ad: SignageBoardProps["ad"];
   adLink: string | null;
   adCount: number;
   safeIndex: number;
   onAdTap: SignageBoardProps["onAdTap"];
+  /**
+   * 編集モード（WYSIWYG エディタ）か否か。**渡るのはエディタプレビューのときだけ**で、live TV / モニタの壁は
+   * undefined＝出力不変。編集モードかつ広告未設定のときだけ、空の広告枠に「広告枠（広告管理で設定）」の
+   * 明示ラベルを出し、教員が黒帯を「壊れ／未表示」と誤認するのを防ぐ（指摘 v2-ed-ai5）。live TV では従来どおり
+   * 控えめなウォーターマーク（`.adArea::after`）のままにし、実機の見た目は 1px も変えない。
+   */
+  editRegions?: EditRegionsProps;
 }) {
   const hasMedia = ad != null;
+  // 編集モード（editRegions あり）かつ広告未設定のときだけ、空枠が「広告の場所」だと分かるラベルを出す。
+  const showEmptyLabel = editRegions != null && !hasMedia;
   return (
     <aside
       aria-label="広告"
@@ -210,7 +223,15 @@ function AdAside({
       ) : (
         <div className={styles.adContainer}>
           <div className={styles.adForeground}>
-            <p className={styles.adEmpty}>　</p>
+            {showEmptyLabel ? (
+              // 編集モードだけのプレースホルダ（live TV では出ない）。黒帯を「広告の入る場所」と明示する。
+              <p className={styles.adEditorPlaceholder}>
+                <span className={styles.adEditorPlaceholderTitle}>広告枠</span>
+                <span className={styles.adEditorPlaceholderSub}>広告管理で設定します</span>
+              </p>
+            ) : (
+              <p className={styles.adEmpty}>　</p>
+            )}
           </div>
         </div>
       )}
@@ -266,6 +287,7 @@ function Pattern1Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         {/* モバイル限定フッター（順序: タブ→広告→予定→連絡→提出物→フッター）。デスクトップは非表示。 */}
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
@@ -324,6 +346,7 @@ function Pattern2Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
@@ -382,6 +405,7 @@ function Pattern3Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
@@ -426,15 +450,18 @@ function Pattern4Board({
             />
             {/* 主役①: 天気ヒーロー（日付/曜日/天気マークを主・気温/降水を従に・本日以降7日）。fail-soft で null。 */}
             <Pattern4WeatherHero weather={data.weather ?? null} today={data.date} />
-            {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern2 と同一部品を再利用。pattern4 では
-                CC BY ソース（経産省 METI）の公式要約を箇条書きで添える（showSummary）。 */}
-            <Pattern2News news={data.news} showSummary />
-            {/* 唯一の教員入力: 連絡（フリーワード）。editRegions を渡し WYSIWYG ではここだけクリック編集可。 */}
-            <NoticeList section={data.daily.notices} editRegions={editRegions} />
-            {/* ステータス帯（自動）: 鉄道 + 人感センサを小さく 2 列。 */}
-            <div className={styles.p4Status}>
-              <Pattern2Train train={data.trainStatus} />
-              <Pattern2SensorCount count={data.presenceCount} />
+            {/* 主役②: 時事ニュース（自動取得キャッシュ・ADR-043）。pattern4 は 1 記事ずつ横スライドのカルーセル
+                で見せ、CC BY ソース（経産省 METI）の公式要約（先頭文抽出）を添える（showSummary・carousel）。 */}
+            <Pattern2News news={data.news} showSummary carousel />
+            {/* 下段（2026-06-20 ユーザー指示）: 連絡は横長だと読みにくいので左に縦長で大きく、鉄道・人感センサは
+                右に縦積みで小さく。連絡は唯一の教員入力（editRegions でクリック編集可）で、一定数を超えたら
+                オートスクロールで全件見せる（scroll）。 */}
+            <div className={styles.p4Bottom}>
+              <NoticeList section={data.daily.notices} editRegions={editRegions} scroll />
+              <div className={styles.p4SideStatus}>
+                <Pattern2Train train={data.trainStatus} />
+                <Pattern2SensorCount count={data.presenceCount} />
+              </div>
             </div>
           </div>
         </main>
@@ -444,6 +471,7 @@ function Pattern4Board({
           adCount={adCount}
           safeIndex={safeIndex}
           onAdTap={onAdTap}
+          editRegions={editRegions}
         />
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
@@ -1244,16 +1272,20 @@ function Pattern2Train({ train }: { train: SignagePayload["trainStatus"] }) {
  * （fail-soft）。キャッシュが古い時は注記する（鉄道 `Pattern2Train` と同作法）。pattern3 は news 非表示（#1080）。
  *
  * `showSummary`（pattern4 のみ true）が立つと、**CC BY ソースの公式要約**（`item.summary`・経産省 METI のみ非
- * null・gate は取得 Job 済）を見出しの下に **箇条書き（最大 4 文）** で添える（ADR-043 §2026-06-20 改訂・ユーザー
- * 指示「箇条書きで3〜4文」）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。要約の出典は既存の
- * 発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
+ * null・gate は取得 Job 済）を見出しの下に **箇条書きで先頭最大 2 文**添える（`splitNewsSummary`・①抽出/AI 不使用・
+ * 2026-06-20 ユーザー指示）。`showSummary` 無し（pattern2）は従来どおり見出しのみ＝出力不変。`carousel`（pattern4）
+ * では一覧の縦スクロールでなく 1 記事ずつ横スライドのカルーセル（{@link NewsCarousel}）で見せる。要約の出典は
+ * 既存の発表元ラベル（`p2NewsSource`）が担う（CC BY の出典明記要件）。
  */
 function Pattern2News({
   news,
   showSummary = false,
+  carousel = false,
 }: {
   news: SignagePayload["news"];
   showSummary?: boolean;
+  /** pattern4: 一覧の縦スクロールでなく「1 記事ずつ横スライドで差し替える」カルーセルで見せる。既定 false。 */
+  carousel?: boolean;
 }) {
   const items = news?.items ?? [];
   return (
@@ -1268,56 +1300,90 @@ function Pattern2News({
       </h2>
       {items.length === 0 ? (
         <p className={styles.p2Muted}>ニュースを取得できていません</p>
+      ) : carousel ? (
+        // pattern4: 1 記事だけ縦に収め、一定間隔で次の記事が横から「しゅん」とスライドして差し替わる
+        // （2026-06-20 ユーザー指示）。全件 DOM 保持で順送り＝文字切れせず 1 記事ずつ大きく読ませる。
+        <NewsCarousel>
+          {items.map((item) => (
+            <NewsItemBody key={item.id} item={item} showSummary={showSummary} />
+          ))}
+        </NewsCarousel>
       ) : (
-        <ul className={styles.p2NewsList}>
-          {items.map((item) => {
-            // 要約は pattern4（showSummary）かつ CC BY ソースで要約がある記事だけ。「。」で文分割し最大 4 文。
-            const summarySentences =
-              showSummary && item.summary ? splitNewsSummary(item.summary) : [];
-            return (
+        // pattern2: 一覧を縦オートスクロールで順に見せる（収まる時は静的＝回帰なし）。
+        <AutoScroll>
+          <ul className={styles.p2NewsList}>
+            {items.map((item) => (
               <li key={item.id} className={styles.p2NewsItem}>
-                <span className={styles.p2NewsTitle}>{item.title}</span>
-                {summarySentences.length > 0 ? (
-                  <ul className={styles.p2NewsSummary}>
-                    {summarySentences.map((s, i) => (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                <span className={styles.p2NewsMeta}>
-                  {/* 出典明記（発表元ラベル）は ADR-043 で必須。公開日があれば併記する。 */}
-                  <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
-                  {item.publishedAt ? (
-                    <>
-                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                        ／
-                      </span>
-                      <span>{formatNewsDate(item.publishedAt)}</span>
-                    </>
-                  ) : null}
-                </span>
-                {/* 出典 URL（記事原文）。サイネージは非操作だが出典として明示し QR の生成元にもなる。 */}
-                <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+                <NewsItemBody item={item} showSummary={showSummary} />
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );
 }
 
 /**
- * 要約（公式配信の説明文）を「。」で文分割し、各文末に「。」を付け直して**最大 4 文**返す（ユーザー指示
- * 「箇条書きで3〜4文」）。空要素は捨てる。「。」を含まない 1 文だけの要約はその 1 件を返す（末尾「。」付与）。
+ * 1 記事の中身（見出し ＋ 要約箇条書き ＋ 発表元/公開日 ＋ 出典ドメイン）。一覧（pattern2 の `<li>`）と
+ * カルーセル（pattern4 のスライド `<div>`）で**同一の中身を再利用**するため部品化（DRY）。要約は
+ * `showSummary`（pattern4）かつ CC BY ソースで要約がある記事だけ、`splitNewsSummary`（先頭文を抽出・AI 不使用）
+ * で「。」分割した箇条書き。出典明記（発表元ラベル）は ADR-043 で必須。
+ */
+function NewsItemBody({
+  item,
+  showSummary,
+}: {
+  item: NonNullable<SignagePayload["news"]>["items"][number];
+  showSummary: boolean;
+}) {
+  const summarySentences = showSummary && item.summary ? splitNewsSummary(item.summary) : [];
+  return (
+    <>
+      <span className={styles.p2NewsTitle}>{item.title}</span>
+      {/* 出典明記（発表元ラベル）は ADR-043 で必須。**見出し直後**に置き、要約が長くてカルーセルのスライドから
+          溢れても出典・公開日が必ず見える位置にする（2026-06-21 修正・旧: 要約の下で見切れていた）。 */}
+      <span className={styles.p2NewsMeta}>
+        <span className={styles.p2NewsSource}>{item.sourceLabel}</span>
+        {item.publishedAt ? (
+          <>
+            <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+              ／
+            </span>
+            <span>{formatNewsDate(item.publishedAt)}</span>
+          </>
+        ) : null}
+        {/* 出典 URL（記事原文）の出典ドメイン。QR の生成元にもなる。出典明記の一部として発表元の隣に置く。 */}
+        <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+          ／
+        </span>
+        <span className={styles.p2NewsUrl}>{formatNewsUrl(item.url)}</span>
+      </span>
+      {summarySentences.length > 0 ? (
+        <ul className={styles.p2NewsSummary}>
+          {summarySentences.map((s, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リスト（1 記事内の文分割）の描画
+            <li key={i}>{s}</li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * 要約（公式配信の説明文）を「。」で文分割し、各文末に「。」を付け直して**先頭最大 2 文**返す（2026-06-20
+ * ユーザー指示・①抽出方式＝AI 不使用）。公式配信は要点を先頭に書くため、先頭 1〜2 文がそのまま短い要約になる。
+ * カルーセルが 1 記事ずつ時間をかけて見せるので、長文を詰め込まず先頭文だけで読み切れる量に絞る。**生成・要約は
+ * 行わず原文の文をそのまま使う**（官公庁の公式文の正確性を保ち、CC BY「公式要約を出典明記で転載」の整理を維持）。
+ * 空要素は捨てる。「。」を含まない 1 文だけの要約はその 1 件を返す（末尾「。」付与）。
  */
 function splitNewsSummary(summary: string): string[] {
   return summary
     .split("。")
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
-    .slice(0, 4)
+    .slice(0, 2)
     .map((s) => `${s}。`);
 }
 
@@ -1428,21 +1494,58 @@ function ScheduleRow({ row }: { row: SignageScheduleRow }) {
   );
 }
 
-/** 連絡事項（左下・5行）。重要マーク(isHighlight)は赤強調 + 【重要】。空きはプレースホルダーで 5 行を保つ。 */
+/**
+ * 連絡事項。重要マーク(isHighlight)は赤強調 + 【重要】。
+ *
+ * - **既定（pattern1・グリッド）**: 左下・5 行固定。提出物表と行を揃えるため空きはプレースホルダーで 5 行を保つ。
+ * - **`scroll`（pattern4・フロー）**: 5 行固定をやめ全連絡を自然高さで縦に積み、枠に収まらなければ {@link AutoScroll}
+ *   で縦オートスクロールして全文を順に見せる（教員が入れた長文が切れて一部見えなくなる事象の解消・2026-06-20
+ *   ユーザー報告）。編集モード（`editRegions`）では動かさず静的（クリック編集を妨げない）。
+ */
 function NoticeList({
   section,
   editRegions,
+  scroll = false,
 }: {
   section: MergedSection;
   editRegions?: EditRegionsProps;
+  /** pattern4: 5 行固定をやめフロー＋オートスクロールで全連絡を切らずに見せる。既定 false（従来のグリッド）。 */
+  scroll?: boolean;
 }) {
   const lines = section.items.map((item) => formatSignageItem("notices", item));
-  const placeholders = Math.max(0, MIN_ROWS - lines.length);
+  // フロー（scroll）はプレースホルダーで詰めない（自然高さで積みオートスクロールに委ねる）。
+  const placeholders = scroll ? 0 : Math.max(0, MIN_ROWS - lines.length);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "notices",
     styles.card,
     "連絡",
     editRegions,
+  );
+  const list = (
+    <ul className={scroll ? styles.noticeFlow : styles.listGroup}>
+      {lines.length === 0 ? (
+        <li className={styles.empty}>連絡事項はありません</li>
+      ) : (
+        <>
+          {lines.map((line, i) => {
+            const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+              <li key={i} className={cls}>
+                {line.emphasis ? "【重要】" : ""}
+                {line.text}
+              </li>
+            );
+          })}
+          {Array.from({ length: placeholders }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+            <li key={`ph-${i}`} className={styles.noticePlaceholder}>
+              &nbsp;
+            </li>
+          ))}
+        </>
+      )}
+    </ul>
   );
   return (
     <section {...sectionProps}>
@@ -1455,30 +1558,7 @@ function NoticeList({
         連絡
         <SourceBadge source={section.source} />
       </h2>
-      <ul className={styles.listGroup}>
-        {lines.length === 0 ? (
-          <li className={styles.empty}>連絡事項はありません</li>
-        ) : (
-          <>
-            {lines.map((line, i) => {
-              const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
-              return (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                <li key={i} className={cls}>
-                  {line.emphasis ? "【重要】" : ""}
-                  {line.text}
-                </li>
-              );
-            })}
-            {Array.from({ length: placeholders }, (_, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-              <li key={`ph-${i}`} className={styles.noticePlaceholder}>
-                &nbsp;
-              </li>
-            ))}
-          </>
-        )}
-      </ul>
+      {scroll ? <AutoScroll play={!editRegions}>{list}</AutoScroll> : list}
     </section>
   );
 }

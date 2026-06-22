@@ -82,11 +82,20 @@ function auditRecordId(target: EditorTarget, actor: EditorActor): string {
   }
 }
 
+/**
+ * モデル応答のストール上限（ms）。進捗（要素確定）がこの時間途絶えたら Vertex 呼び出しを中断して
+ * `stream_failed` に畳む（#986 会話AI と同型の無応答ハング対策の notice-draft 横展開・#987）。Cloud Run の
+ * リクエストタイムアウト（~300s）まで「作成中…」で固まるのを防ぐ。
+ */
+const STREAM_STALL_MS = 60_000;
+
 /** テスト差し替え用の依存（既定は実 stream client + プロセス内 rate limiter）。 */
 export interface NoticeDraftDeps {
   streamClient: VertexNoticeStreamClient;
   rateLimiter: RateLimiter;
   nowMs?: number;
+  /** モデル応答のストール上限（ms）。既定 {@link STREAM_STALL_MS}。テストは小さい値で中断挙動を検証する。 */
+  streamStallMs?: number;
 }
 
 const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
@@ -206,25 +215,41 @@ export async function respondWithNoticeDraftStream(
         // 連絡を 1 件ずつ確定ストリーミング。要素ごとに逆マスク + fail-closed。
         let count = 0;
         let index = 0;
+        // 無応答/ストール対策（#986 会話AI 横展開・#987）: 進捗（要素確定）が一定時間途絶えたら Vertex を中断して
+        // stream_failed に畳む。初回要素待ちと途中ストールの両方を、要素確定毎にタイマを張り直して監視する。
+        const stallMs = deps.streamStallMs ?? STREAM_STALL_MS;
+        const stallController = new AbortController();
+        let stallTimer: ReturnType<typeof setTimeout> | undefined;
+        const armStall = () => {
+          if (stallTimer) clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => stallController.abort(), stallMs);
+        };
         try {
           // 調整指示 = トーン（サーバ定義の固定文）+ 自由指示（PII-free を確認済みの生文）。
           const adjustParts: string[] = [];
           if (tone) adjustParts.push(NOTICE_TONE_INSTRUCTIONS[tone]);
           if (instruction.length > 0) adjustParts.push(instruction);
           const adjust = adjustParts.length > 0 ? adjustParts.join(" / ") : undefined;
+          armStall();
           const result = deps.streamClient.stream({
             system: NOTICE_ASSIST_STREAM_SYSTEM,
             user: buildNoticeAssistUser(masked, jstDateLabel(now), adjust),
+            signal: stallController.signal,
           });
           for await (const el of result.elementStream) {
-            const unmasked = unmaskPII(el.text, dictionary);
-            // 逆マスク後の各要素にも PII 残存が無いか fail-closed（漏れた項目だけ落とす、ルール4）。
-            if (typeof unmasked !== "string" || unmasked.trim().length === 0) {
+            armStall(); // 進捗があるたびストール時計をリセット。
+            // 逆マスク**前**（マスク空間）で leak 検査する（会話AIチャット #1105 と同型）。辞書由来の正規復元値を
+            // 誤検知して教員が正しく書いた連絡（電話/メール入り）を無言で落とす（notice_redacted）のを防ぐ。検出
+            // されるのはモデルが生成した辞書に無い生 PII（真のリーク）のみ（マスク取りこぼしの echo も masked 側に
+            // 生で現れ捕捉でき検出力は落ちない・ルール4）。
+            if (findUnmaskedPii(el.text, []).length > 0) {
               send("notice_redacted", { index });
               index += 1;
               continue;
             }
-            if (findUnmaskedPii(unmasked, []).length > 0) {
+            const unmasked = unmaskPII(el.text, dictionary);
+            // 逆マスク後に空（空要素や辞書展開の結果）になった要素も落とす。
+            if (typeof unmasked !== "string" || unmasked.trim().length === 0) {
               send("notice_redacted", { index });
               index += 1;
               continue;
@@ -241,13 +266,17 @@ export async function respondWithNoticeDraftStream(
           // usage の解決を駆動（監査の token 数等。本MVPは件数監査のみだが done を待ち切る）。
           await result.done;
         } catch {
-          // モデル/通信障害。本文は出さない。既に送出済みの項目は UI 側で保持される。
+          // モデル/通信障害・ストール中断（stallController.abort）。本文は出さない。既に送出済みの項目は
+          // UI 側で保持される。クライアントは stream_failed を再試行可能として扱う。
           send("error", {
             status: 500,
             reason: "stream_failed",
             message: "応答の生成に失敗しました。",
           });
           return;
+        } finally {
+          // 正常完了・早期 return・中断のいずれでもストールタイマを必ず解除（遅延 abort を残さない）。
+          if (stallTimer) clearTimeout(stallTimer);
         }
 
         if (count === 0) {

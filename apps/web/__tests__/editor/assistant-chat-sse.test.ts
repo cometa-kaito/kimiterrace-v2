@@ -235,6 +235,67 @@ describe("respondWithAssistantChat", () => {
     expect(d.streamClient.stream).not.toHaveBeenCalled();
   });
 
+  it("reply の辞書由来 PII 復元値（教員自身の連絡先の round-trip）は pii_leak にしない（逆マスク前検査）", async () => {
+    // 教員が連絡に書いた電話をマスク → モデルが token を返す → 逆マスクで復元。復元値は PII 形だが正規（辞書由来）。
+    h.maskPII.mockReturnValue({
+      masked: "明日の1限を数学に",
+      dictionary: { "{{PHONE_1}}": "09012345678" },
+    });
+    // 生の電話番号を含む文字列だけ検出（マスク空間の {{PHONE_1}} は PII 形に見えない）。
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("09012345678") ? ["09012345678"] : [],
+    );
+    h.unmaskPII.mockImplementation((s: string) => s.replace("{{PHONE_1}}", "09012345678"));
+    const d = deps([{ reply: "連絡先は {{PHONE_1}} です" }]);
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    // 誤検知で中断しない（pii_leak なし）。message delta は復元済み本文を含む。監査も書く。
+    expect(fr.find((f) => f.event === "error")).toBeUndefined();
+    const deltas = fr
+      .filter((f) => f.event === "message")
+      .map((f) => (f.data as { delta: string }).delta);
+    expect(deltas.join("")).toContain("09012345678");
+    expect(h.insertValues).toHaveBeenCalledOnce();
+  });
+
+  it("モデルが生成した辞書に無い生 PII（真のリーク）は reply で pii_leak（検出力は維持）", async () => {
+    // 教員が入力していない生の電話番号をモデルが出力 = リーク。辞書に無いので masked 側にも生で現れ捕捉される。
+    h.maskPII.mockReturnValue({ masked: "明日の1限を数学に", dictionary: {} });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("08099998888") ? ["08099998888"] : [],
+    );
+    const d = deps([{ reply: "電話 08099998888 にどうぞ" }]);
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    expect(fr.find((f) => f.event === "error")?.data).toMatchObject({
+      status: 422,
+      reason: "pii_leak",
+    });
+    expect(h.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("下書きの辞書由来 PII 復元値も pii_leak にしない（draft もマスク空間で検査）", async () => {
+    h.maskPII.mockReturnValue({
+      masked: "明日の1限を数学に",
+      dictionary: { "{{PHONE_1}}": "09012345678" },
+    });
+    h.findUnmaskedPii.mockImplementation((s: string) =>
+      s.includes("09012345678") ? ["09012345678"] : [],
+    );
+    // unmaskDeep は draft 内の token を生 PII へ復元（マスク空間→逆マスク後で PII 形に変わる）。
+    h.unmaskDeep.mockImplementation((v: unknown) =>
+      JSON.parse(JSON.stringify(v).replace("{{PHONE_1}}", "09012345678")),
+    );
+    const d = deps([
+      { reply: "了解", notices: [{ text: "連絡先 {{PHONE_1}}", isHighlight: false }] },
+    ]);
+    const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);
+    const fr = await frames(res);
+    expect(fr.find((f) => f.event === "error")).toBeUndefined();
+    const drafts = fr.filter((f) => f.event === "draft");
+    expect(JSON.stringify(drafts.at(-1)?.data)).toContain("09012345678");
+  });
+
   it("reply も下書きも空なら no_result（監査なし）", async () => {
     const d = deps([{ reply: "" }]);
     const res = await respondWithAssistantChat(ARGS, req({ messages: USER_TURN }), d);

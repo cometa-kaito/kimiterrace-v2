@@ -28,7 +28,7 @@ import { type SignageHeatAlert, getSignageHeatAlerts } from "./heat-alerts";
 import { type SignageNews, getSignageNews } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
-import { signageScheduleDates } from "./rotation";
+import { SIGNAGE_SCHEDULE_DAY_COUNT, signageScheduleDates } from "./rotation";
 import {
   type SignageDesignPattern,
   getSignageDesignPattern,
@@ -86,8 +86,9 @@ export type SignagePayload = {
   designPattern: SignageDesignPattern;
   daily: EffectiveDailyData;
   /**
-   * v1 サイネージの「予定」3 列グリッド (今後 3 平日) 用。`date` を起点に土日を飛ばした 3 平日ぶんの
-   * 実効「予定」セクション。連絡/課題/静粛時間は当日のみで足りるので `daily` 側に持つ (本配列は予定専用)。
+   * サイネージの「予定」列グリッド用（列数は `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝現在 5 列）。`date` を
+   * 起点に土日を飛ばした N 平日ぶんの実効「予定」セクション。連絡/課題/静粛時間は当日のみで足りるので `daily`
+   * 側に持つ (本配列は予定専用)。盤面 CSS の `grid-template-columns: repeat(N, 1fr)` と列数を一致させること。
    */
   scheduleDays: ScheduleDay[];
   /**
@@ -253,15 +254,14 @@ export async function buildSignagePayloadForClass(
   const ads = monitorId
     ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
     : await getEffectiveAdsForClass(tx, classId);
-  // 予定グリッド。`date` を起点に土日を飛ばした平日ぶんの schedules を 1 クエリで取得（v1 ScheduleGrid の
-  // nextThreeWeekdays 移植）。pattern3（廊下版）は「平日5日」を出す（2026-06-22 ユーザー確定）。pattern1/2 は
-  // 従来どおり3平日（=完全不変）。designPattern は上で解決済みなので、ここで取得日数だけ出し分ける（pattern2/1
-  // への影響なし）。同一 tx 内なので追加コネクションは増やさない。
-  const scheduleDayCount = designPattern === "pattern3" ? 5 : 3;
+  // 予定グリッド (今後 N 平日・`SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝盤面 CSS の列数と一致・現在 5 列)。
+  // `date` を起点に土日を飛ばした N 平日ぶんの schedules を 1 クエリで取得。pattern3（廊下版）も同じ 5 列で出す
+  // （専用の Pattern3Schedule が 5 列レイアウトで描く）。列数を増やしても 1 クエリ（日付配列を渡すだけ）なので
+  // 追加コネクション・往復は増やさない。連絡/提出物/自動ブロックの取得範囲は不変。
   const scheduleDays = await getEffectiveScheduleDays(
     tx,
     classId,
-    signageScheduleDates(date, scheduleDayCount),
+    signageScheduleDates(date, SIGNAGE_SCHEDULE_DAY_COUNT),
   );
   // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
   // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む

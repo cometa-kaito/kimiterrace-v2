@@ -8,14 +8,14 @@ import {
 } from "@/lib/editor/editor-save-state";
 import { setCalloutsAction } from "@/lib/editor/callouts-actions";
 import type { StudentCallout } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
   dirtyTextStyle,
-  emptyPlaceholderRowStyle,
+  emptyPlaceholderStyle,
   inputStyle,
-  messageStyle,
-  noteTextStyle,
   primaryBtnDisabledStyle,
   primaryBtnStyle,
   removeBtnStyle,
@@ -27,7 +27,6 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
-import { OptionalMark, RequiredLegend, RequiredMark } from "./FieldMarks";
 
 /**
  * 生徒呼び出しエディタ（パターン2「生徒呼び出し」）。**Client Component** — クラス×日付の呼び出しを行で
@@ -35,7 +34,7 @@ import { OptionalMark, RequiredLegend, RequiredMark } from "./FieldMarks";
  * 監査・RLS・cross-tenant 防止は Server Action 側が担保する（VisitorsEditor と同部品）。
  *
  * **生徒実名（ADR-034）**: 氏名は教室サイネージにフルネーム表示される。出席番号でなく実名なのは呼び出しの
- * 取り違え防止（ADR-034）。生徒以外の機微情報は入れない。
+ * 取り違え防止。生徒以外の機微情報は入れない。教員向け注記には内部 ADR 番号を出さない（理由文のみ）。
  */
 type Row = { scheduledTime: string; studentName: string; location: string; reason: string };
 
@@ -100,41 +99,42 @@ export function CalloutsEditor({
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>生徒呼び出し</h2>
-      <p style={noteTextStyle}>
-        ※ 氏名は教室のサイネージに表示されます（呼び出しの取り違え防止のため実名で表示します）。
+      <p style={{ margin: 0, fontSize: "0.8rem", color: tokens.color.muted }}>
+        ※ 氏名は教室のサイネージに表示されます（呼び出しの取り違え防止のため実名表示）。
       </p>
-      <RequiredLegend requiredFieldLabel="生徒氏名" />
-      {msg ? <output style={messageStyle(msg.ok)}>{msg.text}</output> : null}
+      <FieldLegend />
+      {msg ? (
+        <output
+          style={{
+            display: "block",
+            color: msg.ok ? tokens.color.successFg : tokens.color.dangerFg,
+          }}
+        >
+          {msg.text}
+        </output>
+      ) : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={thStyle}>
-                時刻
-                <OptionalMark />
-              </th>
+              <th style={thStyle}>時刻</th>
               <th style={thStyle}>
                 生徒氏名
                 <RequiredMark />
               </th>
-              <th style={thStyle}>
-                呼び出し先
-                <OptionalMark />
-              </th>
-              <th style={thStyle}>
-                用件
-                <OptionalMark />
-              </th>
+              <th style={thStyle}>呼び出し先</th>
+              <th style={thStyle}>用件</th>
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              // 空状態は装飾枠でなく罫線プレースホルダで「ここに行が入る」投入位置を示唆（finding⑥）。
               <tr>
                 <td colSpan={5} style={{ ...tdStyle, padding: 0 }}>
-                  <div style={emptyPlaceholderRowStyle}>「呼び出しを追加」で行を追加します</div>
+                  <div style={emptyPlaceholderStyle}>
+                    まだ呼び出しがありません。「呼び出しを追加」から入力します。
+                  </div>
                 </td>
               </tr>
             ) : null}
@@ -164,7 +164,7 @@ export function CalloutsEditor({
                   <input
                     value={r.location}
                     onChange={(e) => update(i, { location: e.target.value })}
-                    placeholder="職員室 等"
+                    placeholder="(任意) 職員室 等"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の呼び出し先`}
                   />
@@ -173,7 +173,7 @@ export function CalloutsEditor({
                   <input
                     value={r.reason}
                     onChange={(e) => update(i, { reason: e.target.value })}
-                    placeholder="用件"
+                    placeholder="(任意) 用件"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の用件`}
                   />

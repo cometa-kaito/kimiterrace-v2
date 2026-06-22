@@ -8,13 +8,14 @@ import {
 } from "@/lib/editor/editor-save-state";
 import { setVisitorsAction } from "@/lib/editor/visitors-actions";
 import type { ClassVisitor } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
+import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
   dirtyTextStyle,
-  emptyPlaceholderRowStyle,
+  emptyPlaceholderStyle,
   inputStyle,
-  messageStyle,
   primaryBtnDisabledStyle,
   primaryBtnStyle,
   removeBtnStyle,
@@ -26,7 +27,6 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
-import { OptionalMark, RequiredLegend, RequiredMark } from "./FieldMarks";
 
 /**
  * 来校者一覧エディタ（パターン2「来校者一覧」）。**Client Component** — クラス×日付の来校者を行で
@@ -112,46 +112,41 @@ export function VisitorsEditor({
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "880px", marginTop: "1.5rem" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>来校者一覧</h2>
-      <RequiredLegend requiredFieldLabel="氏名" />
-      {msg ? <output style={messageStyle(msg.ok)}>{msg.text}</output> : null}
+      <FieldLegend />
+      {msg ? (
+        <output
+          style={{
+            display: "block",
+            color: msg.ok ? tokens.color.successFg : tokens.color.dangerFg,
+          }}
+        >
+          {msg.text}
+        </output>
+      ) : null}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={thStyle}>
-                時刻
-                <OptionalMark />
-              </th>
+              <th style={thStyle}>時刻</th>
               <th style={thStyle}>
                 氏名
                 <RequiredMark />
               </th>
-              <th style={thStyle}>
-                所属
-                <OptionalMark />
-              </th>
-              <th style={thStyle}>
-                用件
-                <OptionalMark />
-              </th>
-              <th style={thStyle}>
-                対応者
-                <OptionalMark />
-              </th>
-              <th style={thStyle}>
-                備考
-                <OptionalMark />
-              </th>
+              <th style={thStyle}>所属</th>
+              <th style={thStyle}>用件</th>
+              <th style={thStyle}>対応者</th>
+              <th style={thStyle}>備考</th>
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              // 空状態は装飾枠でなく罫線プレースホルダで「ここに行が入る」投入位置を示唆（finding⑥）。
               <tr>
                 <td colSpan={7} style={{ ...tdStyle, padding: 0 }}>
-                  <div style={emptyPlaceholderRowStyle}>「来校者を追加」で行を追加します</div>
+                  <div style={emptyPlaceholderStyle}>
+                    まだ来校者がありません。「来校者を追加」から入力します。
+                  </div>
                 </td>
               </tr>
             ) : null}
@@ -181,7 +176,7 @@ export function VisitorsEditor({
                   <input
                     value={r.affiliation}
                     onChange={(e) => update(i, { affiliation: e.target.value })}
-                    placeholder="所属"
+                    placeholder="(任意) 所属"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の所属`}
                   />
@@ -190,7 +185,7 @@ export function VisitorsEditor({
                   <input
                     value={r.purpose}
                     onChange={(e) => update(i, { purpose: e.target.value })}
-                    placeholder="用件"
+                    placeholder="(任意) 用件"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の用件`}
                   />
@@ -199,7 +194,7 @@ export function VisitorsEditor({
                   <input
                     value={r.host}
                     onChange={(e) => update(i, { host: e.target.value })}
-                    placeholder="対応者"
+                    placeholder="(任意) 対応者"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の対応者`}
                   />
@@ -208,7 +203,7 @@ export function VisitorsEditor({
                   <input
                     value={r.note}
                     onChange={(e) => update(i, { note: e.target.value })}
-                    placeholder="備考"
+                    placeholder="(任意) 備考"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 行目の備考`}
                   />

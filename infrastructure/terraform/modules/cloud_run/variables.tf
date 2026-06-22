@@ -104,6 +104,29 @@ variable "partner_api_secret_id" {
   default     = ""
 }
 
+variable "app_env" {
+  description = <<-EOT
+    実行環境名を app に伝える APP_ENV（非 secret・公開値）。`isStagingEnv()`（apps/web/lib/auth/app-env.ts）が
+    `APP_ENV === "staging"` の時だけ staging 限定 dev-login を許可する（多層防御の第1層・fail-closed）。
+    **prod 環境ルートでは設定しない**（既定 ""＝注入しない）。staging envs/staging のみ "staging" を渡す。
+    値はサインインバイパスのゲートに使うため、prod に "staging" を入れてはならない。
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "dev_login_secret_id" {
+  description = <<-EOT
+    staging 限定 dev-login の設定（ゲート鍵 + 任意の解決ヒント。**password は持たない**）の JSON を保持する
+    Secret Manager secret の ID（ルール5）。Cloud Run が DEV_LOGIN_CONFIG env として注入する。dev-login の
+    第2ゲート（Authorization: Bearer 突合）とアカウント解決（teacher.schoolId / admin.uid の任意ヒント）に使う。
+    **prod では設定しない**（既定 ""＝env / accessor を配線しない）。
+    空文字なら dev-login は config 不在で常に 404（fail-closed）。
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "vpc_connector" {
   description = <<-EOT
     Cloud SQL private IP 接続用の VPC connector（network モジュール出力 network.vpc_connector_id）。

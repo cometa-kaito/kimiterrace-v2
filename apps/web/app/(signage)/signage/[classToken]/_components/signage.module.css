@@ -202,16 +202,25 @@
   color: var(--accent-color);
 }
 
-/* ===================== 8. 予定グリッド（今後3平日・3列・5行） ===================== */
+/* ===================== 8. 予定グリッド（今後5平日・5列・5行） ===================== */
 .scheduleSection {
   grid-column: 1 / -1;
   min-height: 0;
   overflow: hidden;
 }
+/* 列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致させる（ドリフトすると列が溢れる/余る）。50 インチ TV では
+   5 列でも各列が十分な幅を保ち、本文は clamp で縮約されるので破綻しない。gap は列増に合わせ僅かに詰める。
+   ── staging 検証ゲート（レビュー P3 / item1）: 5 列化は live TV（pattern1/2/3）に直接出る。prod 反映前に
+   dev-login で pattern1/2 を実機（50インチ・長い予定行＋天気アイコン入り日付ヘッダー）で必ず目視する。**もし**
+   実機で詰まり/折返しが出た時だけ、列数（単一ソース）は変えず以下のノブで微調整する:
+     ・列間 = この `gap`（pattern1）/ `.p2Schedule` の `gap`（pattern2/3）
+     ・本文 = `.scheduleListItem` / `.p2ScheduleMain` の clamp 下限
+     ・日付 = `.scheduleDateHeader` / `.p2ScheduleDate` の clamp 下限（天気グリフ併設）
+   破綻が観測されない限りレンダリングは変更しない（推測でサイズを動かすと実機の見た目が変わる）。 */
 .scheduleGridContainer {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5vmin;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4vmin;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -360,6 +369,23 @@
   color: var(--text-muted);
   font-size: clamp(0.85rem, 1.2vw, 1.05rem);
   padding: 0.4rem 0;
+}
+/* 連絡のフロー版（pattern4・NoticeList scroll）。5 行固定グリッドをやめ、全連絡を自然高さで縦に積む。各行は
+   折り返して全文を出し（clip しない）、枠に収まらない分は親の AutoScroll が縦スクロールで順に見せる。
+   pattern1/2/3 の `.listGroup`（5 行固定）は無改修。 */
+.noticeFlow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.noticeFlow .listItem {
+  /* 自然高さで全文折り返し（固定行高でないので clip しない）。 */
+  overflow: visible;
+  justify-content: flex-start;
+  padding: 0.12rem 0;
 }
 
 /* ===================== 10. 提出物（右下・表・5行） ===================== */
@@ -529,6 +555,32 @@
   margin: auto;
   color: transparent;
 }
+/* 編集プレビュー専用の空き広告枠ラベル（live TV では出ない＝SignageBoardView 側で editRegions ありの時だけ描く）。
+   暗い広告ゾーン（--ad-bg: #111827）上に出すため文字は白系。タイトルは #fff（白地比 21:1 相当・AA 余裕）、補足は
+   rgba(255,255,255,0.78)（暗背景で 4.5:1 以上）で可読性を確保。点線枠で「ここに広告が入る場所」と直感させる。 */
+.adEditorPlaceholder {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+.adEditorPlaceholderTitle {
+  color: #fff;
+  font-weight: 700;
+  font-size: clamp(0.9rem, 1.6vw, 1.25rem);
+  letter-spacing: 0.04em;
+}
+.adEditorPlaceholderSub {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(0.65rem, 1vw, 0.85rem);
+  font-weight: 600;
+}
 .adDots {
   position: absolute;
   bottom: 8px;
@@ -572,13 +624,14 @@
   min-height: 0;
   overflow: hidden;
 }
-/* 第1段: 予定。見出し・外枠を持たず 3 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。 */
+/* 第1段: 予定。見出し・外枠を持たず 5 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。
+   列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致（ドリフトすると列が溢れる/余る）。列増に合わせ gap を詰める。 */
 .p2Schedule {
   flex: 46 1 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.6vmin;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5vmin;
   overflow: hidden;
 }
 /* 第2段: 人に関わる情報（呼び出し・来校者）を 2 列で対に。 */
@@ -816,11 +869,12 @@
   color: var(--text-muted);
   margin-left: 0.4rem;
 }
+/* ニュース一覧。高さ確保・はみ出し制御は親の AutoScroll ビューポートが担うので、ここは自然高さで縦に積むだけ
+   （全件 DOM 保持＝オートスクロールで順に見せる）。 */
 .p2NewsList {
   list-style: none;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -885,11 +939,8 @@
   font-size: clamp(0.66rem, 0.95vw, 0.86rem);
   line-height: 1.35;
   color: var(--text-color);
-  /* 各文は最大 2 行で省略（盤面を膨らませ過ぎない）。 */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+  /* 全文を折り返して表示する（行クランプ廃止）。枠に収まらない分は親の AutoScroll が縦スクロールで見せる
+     （旧: 2 行クランプで要約が途中で切れていた・2026-06-20 ユーザー報告の解消）。 */
 }
 .p2NewsSummary li::before {
   content: "・";
@@ -1506,13 +1557,14 @@
   min-height: 0;
   overflow: hidden;
 }
-/* 主役の 2 カード（ニュース・連絡）は縦に伸びる。ニュースを一段大きく（天気と並ぶ主役）。 */
+/* 主役カードは縦に伸びる。ニュースは 1 記事カルーセルなので過大な余白を避けて控えめに、連絡（下段）に縦の
+   余裕を回す（2026-06-20 レイアウト変更）。 */
 .p4Grid > .card {
   flex: 1 1 0;
   min-height: 0;
 }
 .p4Grid > .card.p2News {
-  flex: 1.8 1 0;
+  flex: 1.5 1 0;
 }
 
 /* (1) 枠（カード罫線・タイル背景）を外して無駄なスペースを無くし文字を拡大する（2026-06-20 ユーザー指示）。
@@ -1537,13 +1589,17 @@
 .p4Root .cardTitle {
   font-size: clamp(1.15rem, 1.75vw, 1.55rem);
 }
+/* pattern4 はニュースが主役。見出しは 1 行省略せず全文を折り返す（オートスクロールで縦の溢れを見せる）。 */
 .p4Root .p2NewsTitle {
   font-size: clamp(1.05rem, 1.7vw, 1.5rem);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 .p4Root .p2NewsMeta {
   font-size: clamp(0.78rem, 1.1vw, 1rem);
 }
-/* pattern4 は枠なし主役なので要約も少し大きめ。各文 2 行クランプは基底のまま（高さ破綻を防ぐ）。 */
+/* pattern4 は枠なし主役なので要約も少し大きめ（全文折り返し・縦溢れは AutoScroll が見せる）。 */
 .p4Root .p2NewsSummary li {
   font-size: clamp(0.82rem, 1.2vw, 1.1rem);
   line-height: 1.4;
@@ -1640,13 +1696,108 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
-/* ステータス帯（鉄道 + 人感センサ）。pattern2 と同じ 2 列・既存 .p2StatusTile を再利用。 */
-.p4Status {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* (3) 下段の 2 カラム（2026-06-20 ユーザー指示）: 連絡は横長だと読みにくいので**左に縦長で大きく**、鉄道・
+   人感センサは**右に縦積みで小さく**。連絡は唯一の教員入力で主役なので幅を広く取る。 */
+.p4Bottom {
+  flex: 1.6 1 0;
+  display: flex;
   gap: var(--content-gap);
   min-height: 0;
+}
+/* 連絡（左・縦長・主役）。一定数を超えたら中身が AutoScroll でスクロールする（NoticeList scroll）。 */
+.p4Bottom > .card {
+  flex: 1.9 1 0;
+  min-height: 0;
+}
+/* 鉄道 + 人感センサ（右・縦積み・従）。既存 .p2StatusTile を再利用。 */
+.p4SideStatus {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--content-gap);
+  min-height: 0;
+}
+.p4SideStatus > .p2StatusTile {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+/* (4) 時事ニュース カルーセル（pattern4・{@link NewsCarousel}）。**1 記事だけ縦に収め**、一定間隔で次の記事が
+   横から「しゅん」とスライドして差し替わる。ビューポートで 1 枠を切り出し、トラックを translateX で送る
+   （全スライドは DOM に残す＝アクセシビリティ/テスト不変）。 */
+.newsCarousel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.newsCarouselViewport {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.newsCarouselTrack {
+  display: flex;
+  height: 100%;
+  /* 「しゅん」と差し替わる横スライド。 */
+  transition: transform 0.42s cubic-bezier(0.45, 0, 0.15, 1);
+}
+.newsCarouselSlide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* 上揃え＝見出し・出典を必ずスライド上部に固定し、要約が長くても見切れさせない（2026-06-21 修正）。 */
+  justify-content: flex-start;
+  gap: 0.3rem;
+  overflow: hidden;
+  padding-right: 0.4rem;
+}
+/* カルーセルは 1 記事を 1 枠に収める。見出しは約 2 行で「いい感じに切る」が、**末尾に「…」を出さない**
+   （2026-06-21 ユーザー指示）。`-webkit-line-clamp` は自動で「…」を付けるため使わず、`max-height` +
+   `overflow:hidden` で行数を抑えて「…」なしにきれいに切る。
+   ★ 見出し・出典は `flex: 0 0 auto` で**縮ませない**（要約を「…」なし全文折り返しにした結果、要約が縦に
+   伸びて column の flex-shrink で見出し・出典まで潰れ消える不具合の修正・2026-06-21）。要約だけが残りスペースを
+   占有し、収まらない分はスライド下端で「…」なしに切れる（見出し・出典は常に全文表示）。 */
+.p4Root .newsCarouselSlide .p2NewsTitle {
+  display: block;
+  white-space: normal;
+  max-height: 2.6em; /* line-height 1.3 × 2 行ぶん。3 行目以降は overflow で「…」なしに切る。 */
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.p4Root .newsCarouselSlide .p2NewsMeta {
+  flex: 0 0 auto;
+}
+.p4Root .newsCarouselSlide .p2NewsSummary {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 何記事目かを示すドット（現在位置を横長・濃色で）。装飾なので aria-hidden（件数は読み上げ対象外）。 */
+.newsCarouselDots {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+  align-items: center;
+  padding-top: 0.3rem;
+  flex-shrink: 0;
+}
+.newsCarouselDot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--border-color);
+  transition:
+    width 0.3s,
+    background 0.3s;
+}
+.newsCarouselDotActive {
+  width: 1.1rem;
+  background: var(--primary-color);
 }
 /* パターン4 のモバイル（縦長・小型画面）: 縦積みの flex 比を解除し各カードを自然高さでスクロール、
    天気ヒーローは 7 日を 4 列に折り返す（p2Grid モバイルと同作法）。大型ヘッダーは下のレスポンシブ節で sticky 化。 */
@@ -1662,8 +1813,25 @@
   .p4Weather {
     grid-template-columns: repeat(4, 1fr);
   }
-  .p4Status {
-    grid-template-columns: 1fr;
+  /* 下段は縦長画面では 1 カラムに（連絡 → 鉄道/センサ の順で縦積み）。 */
+  .p4Bottom {
+    flex: none;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .p4Bottom > .card {
+    flex: none;
+  }
+  .p4SideStatus {
+    flex: none;
+  }
+  /* カルーセルはモバイルでも 1 記事ずつ（自然高さ）。 */
+  .newsCarousel {
+    flex: none;
+  }
+  .newsCarouselViewport {
+    flex: none;
+    min-height: 9rem;
   }
 }
 

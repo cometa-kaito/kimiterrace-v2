@@ -7,8 +7,9 @@ import {
   resolveManualSectionLabels,
 } from "@/lib/editor/assistant-sections";
 import { EDITOR_ROLES, parseEditorTarget, toEditorActor } from "@/lib/editor/schedule-core";
+import { resolveDesignPattern } from "@/lib/signage/design-pattern";
 import { getSignageDesignPattern } from "@/lib/signage/signage-design";
-import { type TenantContext, withTenantContext } from "@kimiterrace/db";
+import { type TenantContext, getClassSignageUrl, withTenantContext } from "@kimiterrace/db";
 
 /**
  * 会話型 AI アシスタント（finding 2b）の **SSE route** `POST /api/editor/assistant/chat`。
@@ -49,13 +50,23 @@ export async function POST(request: Request): Promise<Response> {
     role: user.role,
   };
 
-  // パターン準拠の許可セクション解決（finding①）。学校レベルの実効パターンを自校 RLS tx で読み（エディタは
-  // 端末別 ?design を持たないので学校既定）、其他レーンの**単一ソース `PATTERN_BLOCKS`** を consume して
-  // 会話型 AI が下書きできるセクション（pattern2 なら [schedules]）＋手入力誘導するセクション（来校者/呼び出し）を
-  // 導く。**AI レーンで独自の pattern→セクション表は定義しない**（二重化＝ドリフト回避・調整ポイント1）。
-  const pattern = await withTenantContext(getDb(), tenantContext, (tx) =>
-    getSignageDesignPattern(tx),
-  );
+  // パターン準拠の許可セクション解決（finding①）。**端末別 ?design > 学校レベル既定 > pattern1** の二段解決で、
+  // 盤面エディタ（[classId]/page.tsx）と同じ実効パターンを使う。class scope は当該クラスの実機 TV の
+  // `signage_url`（?design）を優先解決し（#1093 が read 側で確立した二段解決をチャット経路にも適用）、端末に
+  // 紐づかない school/department/grade scope は学校既定を使う。これで AI が下書きできるセクションが「その端末が
+  // 実際に表示するパターン」と一致し、pattern2/3/4 端末で「AI で作って反映したのに盤面に出ない／許可外
+  // セクションが保存される」ズレを解消する。其他レーンの**単一ソース `PATTERN_BLOCKS`** を consume して下書き
+  // 可能セクション（pattern2 なら [schedules]）＋手入力誘導セクション（来校者/呼び出し）を導く。**AI レーンで
+  // 独自の pattern→セクション表は定義しない**（二重化＝ドリフト回避・調整ポイント1）。
+  const pattern = await withTenantContext(getDb(), tenantContext, async (tx) => {
+    const schoolDefault = await getSignageDesignPattern(tx);
+    if (target.scope !== "class") {
+      return schoolDefault;
+    }
+    // class scope: 当該クラスの実機端末の signage_url から端末別パターンを解決（盤面 page.tsx と同一規約）。
+    const liveSignageUrl = await getClassSignageUrl(tx, target.classId);
+    return resolveDesignPattern(liveSignageUrl, schoolDefault);
+  });
   const allowedSections = resolveAllowedSections(pattern);
   const manualSectionLabels = resolveManualSectionLabels(pattern);
 

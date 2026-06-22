@@ -97,17 +97,18 @@ test.describe("クロステナント分離: SCHOOL2 vs SCHOOL1 リソース (#24
       expect(json.error).toBe("not_found_or_revoked");
     });
 
-    test("他校 (SCHOOL1) のクラスの magic link 一覧は RLS で空 (リーク無し)", async ({
+    test("他校 (SCHOOL1) のクラスの magic link 一覧は class_not_found (404・越境拒否・存在も漏らさない)", async ({
       request,
     }) => {
-      // GET /api/magic-links?classId=SCHOOL1 の classId。isIssuerRole は通過するが、listClassMagicLinks
-      // は SCHOOL2 RLS context で SCHOOL1 の link を 1 件も返さない (越境リーク無し)。200 + 空配列。
+      // GET /api/magic-links?classId=SCHOOL1 の classId。isIssuerRole は通過するが、発行 POST と対称に
+      // getVisibleClassSchoolId で可視性を先に検証し、SCHOOL2 RLS context では SCHOOL1 クラスが不可視
+      // → **404 class_not_found**（旧: 200 + 空配列）。**403 でも空一覧でもなく 404** であることが「存在を
+      // 漏らさず RLS で止める」証跡（revoke/extend と同じ規約・S1 hardening）。
       const res = await request.get(`/api/magic-links?classId=${SEED.CLASS_ID}`);
-      // classId 自体は UUID 形式なので 400 にはならず、RLS で 0 件の 200 になる。
-      expect(res.status(), "他校 classId の一覧は 200 (RLS で空)").toBe(200);
-      const json = (await res.json()) as { links: unknown[] };
-      expect(Array.isArray(json.links)).toBe(true);
-      expect(json.links.length, "他校 link はリークしない").toBe(0);
+      // classId 自体は UUID 形式なので 400 にはならず、可視性 precheck で 404 になる。
+      expect(res.status(), "他校 classId の一覧は 404 (可視性 precheck で拒否)").toBe(404);
+      const json = (await res.json()) as { error?: string };
+      expect(json.error, "存在を漏らさず class_not_found").toBe("class_not_found");
     });
   });
 });

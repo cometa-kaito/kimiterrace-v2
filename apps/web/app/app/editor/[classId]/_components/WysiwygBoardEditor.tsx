@@ -101,6 +101,16 @@ export function WysiwygBoardEditor({
     return () => ro.disconnect();
   }, []);
 
+  // 編集プレビューのヘッダー実時計を **live TV（SignageClient）と同じ作法**で動かす（マウント後のみ・1 秒刻み）。
+  // SSR/初回は null＝時計なしで描き（ハイドレーション不一致を避ける）、マウント後に実時計を出して実盤面の
+  // ヘッダーと一致させる（now の扱いの差を縮める）。これにより教員は「実機にどう出るか」をヘッダー込みで確認できる。
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const focusRegion = useCallback((region: Region) => {
     setActive(region);
     const card =
@@ -145,22 +155,12 @@ export function WysiwygBoardEditor({
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
 
-  // 盤面クリックで編集欄へジャンプできる領域だけを文言に並べる（過剰約束の解消・finding⑤）。盤面に出る
-  // ブロックのうち、このコンポーネント配下に編集欄を持つ 予定 / 連絡 / 提出物 だけがジャンプ対応。来校者 /
-  // 生徒呼び出しは親（page.tsx）が盤面の外（下）に出すためジャンプ非対応 → 文言に含めない（言わない＝嘘を作らない）。
-  const jumpableRegions = [
-    "予定",
-    ...(showNotice ? ["連絡"] : []),
-    ...(showAssignment ? ["提出物"] : []),
-  ];
-
   return (
     <div className={styles.root}>
       {previewPayload ? (
         <>
-          {/* 説明文は最小限に（finding④: 「見れば分かる」冗長文を圧縮）。実際にジャンプできる領域だけを名指しする。 */}
           <p className={styles.hint}>
-            盤面の{jumpableRegions.join("・")}をクリックすると、その編集欄へ移動します。
+            実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
           </p>
 
           {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
@@ -170,14 +170,19 @@ export function WysiwygBoardEditor({
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
           <div ref={canvasRef} className={styles.canvas}>
-            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。 */}
+            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
+                幅計測（ResizeObserver / マウント）が済むまでは盤面を出せないので、その間は真っ白な空箱ではなく
+                スケルトンを敷く（LEDGER v2-ed-uo11: 読み込み中の "白い空箱" を解消）。 */}
             {boardWidth != null ? (
               <ScaledSignageBoard
                 payload={previewPayload}
                 width={boardWidth}
                 editRegions={{ active, onRegion: focusRegion }}
+                now={now}
               />
-            ) : null}
+            ) : (
+              <div className={styles.skeleton} aria-hidden="true" />
+            )}
           </div>
         </>
       ) : null}

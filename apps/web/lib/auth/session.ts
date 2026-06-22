@@ -2,6 +2,7 @@ import type { TenantRole } from "@kimiterrace/db";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { getAdminAuth } from "./adminApp";
+import { exchangeCustomTokenForIdToken } from "./custom-token-sign-in";
 
 /**
  * Identity Platform セッション cookie の発行・検証 (ADR-003)。
@@ -125,6 +126,41 @@ function normalizeClaims(claims: RawClaims): AuthUser | null {
  */
 export async function createSessionCookie(idToken: string, expiresInMs: number): Promise<string> {
   return await getAdminAuth().createSessionCookie(idToken, { expiresIn: expiresInMs });
+}
+
+/**
+ * **uid から直接** session cookie を発行する（**パスワード不要**の Admin SDK 経路）。**サーバー専用**。
+ *
+ * ## 用途と適用範囲（staging 限定 dev-login だけが呼ぶ）
+ * 通常ログイン（ADR-003 / ADR-032）は email+password を IdP REST `signInWithPassword` で検証して idToken を
+ * 得る。一方 staging の dev-login は「**パスワードを保存も要求もしない**」のが要件であり、検証すべき秘密が
+ * 無い。そこで Admin SDK の **custom token → idToken → session cookie** の標準フローで、uid だけからセッションを
+ * 発行する。発行する `idToken` は IdP アカウントに**設定済みの custom claims（role / school_id）をそのまま帯びる**
+ * （custom token は claims を持ち回らない）。よって `verifySessionCookie` / RLS context は通常ログインと完全に同一に
+ * 機能する（= 本物のセッション。auth core seam を弱めない）。
+ *
+ * ## なぜ通常ログイン経路（ADR-032）が createCustomToken を避け、ここでは使うか
+ * ADR-032 は **prod の教員共通ログイン**で `createCustomToken`（`iam.serviceAccounts.signBlob` 権限が要る）を
+ * 避け、追加 IAM 無しの `signInWithPassword` を選んだ。本関数は **staging の dev-login 専用**で、prod では
+ * 多層ゲート（isProdLikeEnv / APP_ENV!=='staging' / ゲート鍵不在）により**到達不能**（呼ばれない）。よって
+ * staging 実行 SA にのみ `signBlob`（Service Account Token Creator）を付与すれば足り、prod の認証経路（ADR-032）は
+ * 一切変えない。**この関数を通常ログインから呼んではならない**（呼ぶと prod でも custom-token 経路が生き、ADR-032 の
+ * 判断を覆す）。
+ *
+ * 失敗（custom token 生成失敗・signInWithCustomToken REST 失敗・cookie 発行失敗）はすべて throw する。呼出側
+ * （dev-login route）が握り潰して 404 に畳む（ルート存在秘匿・列挙対策）。秘密値・トークン断片はログに出さない（ルール5）。
+ *
+ * @param uid Identity Platform localId（= users.id / system_admins.id。ADR-003 provisioning 前提）。
+ * @param expiresInMs cookie の有効期間（ミリ秒）。Identity Platform は 5分〜14日を許容。
+ */
+export async function createSessionCookieForUid(uid: string, expiresInMs: number): Promise<string> {
+  // (1) Admin SDK で custom token を生成（uid のみ。claims は IdP アカウント側に設定済みのものが idToken に乗る）。
+  const customToken = await getAdminAuth().createCustomToken(uid);
+  // (2) REST `signInWithCustomToken`（公開 API キー）で idToken に交換（別モジュール = SEC-002 で session.ts は
+  //     クライアント公開 env を参照しない不変条件のため。custom-token-sign-in.ts 参照）。
+  const idToken = await exchangeCustomTokenForIdToken(customToken);
+  // (3) 既存の createSessionCookie 経路を再利用して __session を発行（通常ログインと同一）。
+  return await createSessionCookie(idToken, expiresInMs);
 }
 
 /**
