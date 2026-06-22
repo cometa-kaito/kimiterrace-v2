@@ -11,9 +11,14 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *
  * JSON 形:
  * ```json
- * { "secret": "<長いランダム>", "teacher": { "email": "...", "password": "..." },
+ * { "secret": "<長いランダム>", "keyVersion": "2026-06",
+ *   "teacher": { "email": "...", "password": "..." },
  *   "admin": { "email": "...", "password": "..." } }
  * ```
+ *
+ * `keyVersion`（任意・非 PII・非秘密）はキーのローテ世代を示すラベル。監査 diff に載せて「どの世代の鍵で
+ * dev-login されたか」を後追いできるようにする（濫用調査の粒度向上・ADR-032 共通アカウントゆえ個人特定は不能）。
+ * 秘密値そのものは決して載せない。未設定なら監査では `"unknown"` 相当（フィールド省略）として扱う。
  *
  * ## fail-closed 不変条件
  * - env 未設定 / 空 / JSON parse 失敗 / 必須欠落 → すべて **null**（= route が 404 を返す）。
@@ -30,8 +35,10 @@ type DevLoginAccount = { email: string; password: string };
 
 /** dev-login の解決済み設定（secret + 各ロールのテストアカウント）。 */
 export type DevLoginConfig = {
-  /** ?key= と定数時間で突合する秘密キー。 */
+  /** Authorization ヘッダの Bearer トークンと定数時間で突合する秘密キー。 */
   secret: string;
+  /** 鍵ローテ世代ラベル（任意・非 PII・非秘密）。監査 diff に記録する。未設定なら null。 */
+  keyVersion: string | null;
   /** ?role=teacher で使う staging テスト教員アカウント。 */
   teacher: DevLoginAccount;
   /** ?role=admin で使う staging テスト学校管理者アカウント。 */
@@ -67,8 +74,9 @@ export function getDevLoginConfig(): DevLoginConfig | null {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const { secret, teacher, admin } = parsed as {
+  const { secret, keyVersion, teacher, admin } = parsed as {
     secret?: unknown;
+    keyVersion?: unknown;
     teacher?: unknown;
     admin?: unknown;
   };
@@ -76,7 +84,9 @@ export function getDevLoginConfig(): DevLoginConfig | null {
   const teacherAccount = parseAccount(teacher);
   const adminAccount = parseAccount(admin);
   if (!teacherAccount || !adminAccount) return null;
-  return { secret, teacher: teacherAccount, admin: adminAccount };
+  // keyVersion は任意。文字列でなければ無視（null）。不正値でも config 全体は無効化しない（秘密ではないため）。
+  const version = typeof keyVersion === "string" && keyVersion.length > 0 ? keyVersion : null;
+  return { secret, keyVersion: version, teacher: teacherAccount, admin: adminAccount };
 }
 
 /**
@@ -100,4 +110,12 @@ export function getDevLoginAccount(role: DevLoginRole): DevLoginAccount | null {
   const config = getDevLoginConfig();
   if (!config) return null;
   return role === "teacher" ? config.teacher : config.admin;
+}
+
+/**
+ * 監査記録用の鍵世代ラベル（非 PII・非秘密）。config 未解決 / 未設定なら null。
+ * **秘密値（secret 本体）は決して返さない**。返すのはローテ世代の識別ラベルのみ。
+ */
+export function getDevLoginKeyVersion(): string | null {
+  return getDevLoginConfig()?.keyVersion ?? null;
 }

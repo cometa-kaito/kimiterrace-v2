@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { isStagingEnv } from "../../lib/auth/app-env";
+import { isProdLikeEnv, isStagingEnv } from "../../lib/auth/app-env";
 import {
   getDevLoginAccount,
   getDevLoginConfig,
+  getDevLoginKeyVersion,
   toDevLoginRole,
   verifyDevLoginKey,
 } from "../../lib/auth/dev-login-config";
@@ -14,9 +15,11 @@ import {
 
 const ORIGINAL_APP_ENV = process.env.APP_ENV;
 const ORIGINAL_CONFIG = process.env.DEV_LOGIN_CONFIG;
+const ORIGINAL_PROJECT = process.env.GOOGLE_CLOUD_PROJECT;
 
 const VALID_CONFIG = JSON.stringify({
   secret: "super-long-staging-only-secret-value",
+  keyVersion: "2026-06",
   teacher: { email: "dev-teacher@teacher.kimiterrace.invalid", password: "tpw-staging" },
   admin: { email: "dev-admin@example.invalid", password: "apw-staging" },
 });
@@ -26,6 +29,58 @@ afterEach(() => {
   else process.env.APP_ENV = ORIGINAL_APP_ENV;
   if (ORIGINAL_CONFIG === undefined) delete process.env.DEV_LOGIN_CONFIG;
   else process.env.DEV_LOGIN_CONFIG = ORIGINAL_CONFIG;
+  if (ORIGINAL_PROJECT === undefined) delete process.env.GOOGLE_CLOUD_PROJECT;
+  else process.env.GOOGLE_CLOUD_PROJECT = ORIGINAL_PROJECT;
+});
+
+describe("isProdLikeEnv — prod 打消しゲート (多層防御の第3層)", () => {
+  it("APP_ENV=prod / production は true", () => {
+    process.env.APP_ENV = "prod";
+    expect(isProdLikeEnv()).toBe(true);
+    process.env.APP_ENV = "production";
+    expect(isProdLikeEnv()).toBe(true);
+  });
+
+  it("プロジェクト名に prod が含まれれば true (別プロジェクトで独立に弾く)", () => {
+    delete process.env.APP_ENV;
+    process.env.GOOGLE_CLOUD_PROJECT = "kimiterrace-prod";
+    expect(isProdLikeEnv()).toBe(true);
+  });
+
+  it("staging を巻き込まない: APP_ENV=staging + staging プロジェクトは false", () => {
+    process.env.APP_ENV = "staging";
+    process.env.GOOGLE_CLOUD_PROJECT = "kimiterrace-staging";
+    expect(isProdLikeEnv()).toBe(false);
+  });
+
+  it("prod 信号が無ければ false (NODE_ENV=production でも判定に使わない)", () => {
+    // テスト実行環境では NODE_ENV が production 系のことがあるが、isProdLikeEnv は NODE_ENV を見ない。
+    delete process.env.APP_ENV;
+    delete process.env.GOOGLE_CLOUD_PROJECT;
+    expect(isProdLikeEnv()).toBe(false);
+  });
+});
+
+describe("getDevLoginKeyVersion — 非秘密ラベルのみ", () => {
+  it("config の keyVersion を返す", () => {
+    process.env.DEV_LOGIN_CONFIG = VALID_CONFIG;
+    expect(getDevLoginKeyVersion()).toBe("2026-06");
+  });
+
+  it("keyVersion 未設定なら null（config は有効のまま）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({
+      secret: "x-very-long-secret",
+      teacher: { email: "a", password: "b" },
+      admin: { email: "c", password: "d" },
+    });
+    expect(getDevLoginConfig()).not.toBeNull();
+    expect(getDevLoginKeyVersion()).toBeNull();
+  });
+
+  it("config 不在 (prod) なら null", () => {
+    delete process.env.DEV_LOGIN_CONFIG;
+    expect(getDevLoginKeyVersion()).toBeNull();
+  });
 });
 
 describe("isStagingEnv — env ゲート (fail-closed)", () => {

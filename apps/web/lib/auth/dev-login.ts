@@ -47,6 +47,7 @@ export async function recordDevLoginAudit(
   user: AuthUser,
   role: DevLoginRole,
   requestHeaders: Headers,
+  keyVersion: string | null,
 ): Promise<void> {
   const { ip, userAgent } = extractClientMeta(requestHeaders);
   const isSystemAdmin = user.role === "system_admin";
@@ -62,8 +63,9 @@ export async function recordDevLoginAudit(
         tableName: "dev_login_access",
         recordId: null,
         operation: "insert",
-        // PII / 秘密値は載せない。どのロールで staging dev-login したかのメタのみ。
-        diff: { action: "dev_login", role },
+        // PII / 秘密値は載せない。どのロールで・どの鍵世代で staging dev-login したかのメタのみ。
+        // keyVersion は非秘密のローテ世代ラベル（未設定なら "unknown"）。濫用調査で鍵世代の追跡に使う。
+        diff: { action: "dev_login", role, keyVersion: keyVersion ?? "unknown" },
         ipAddress: ip,
         userAgent,
         rowHash: "",

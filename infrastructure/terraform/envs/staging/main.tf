@@ -302,7 +302,7 @@ module "secret_manager" {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
     (local.dev_login_secret_id) = {
-      description = "staging 限定 dev-login の設定 JSON（{secret, teacher:{email,password}, admin:{email,password}}）。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+      description = "staging 限定 dev-login の設定 JSON（{secret, keyVersion?, teacher:{email,password}, admin:{email,password}}）。secret は Authorization Bearer 突合用。keyVersion（任意・非秘密）は鍵ローテ世代ラベルで監査 diff に記録。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }
