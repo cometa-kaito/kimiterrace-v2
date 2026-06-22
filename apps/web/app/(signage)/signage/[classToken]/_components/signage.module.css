@@ -1667,3 +1667,70 @@
   inset: 0;
   background-color: #000000;
 }
+
+/* ===================== 14. 「50インチ機 相当」固定アスペクト・スケール表示（タブレット/PC プレビュー） =====================
+   公開 /signage を **タブレット/PC（≥900px）で開いたとき**に、盤面を実機モニタ（16:9・1920×1080）の
+   **忠実な縮小コピー**として見せるためのラッパ（2026-06-22 ユーザー確定「PC/タブレットでは常にこの見え方」）。
+   現状の盤面（`.signageRoot { position:absolute; inset:0 }`）は開いた窓いっぱいに広がり、clamp(vw)/ブレークポイントで
+   **窓の形・大きさに合わせて作り直す**ため、PC/タブレットでは 50 インチ機の見た目（縦横比・相対文字サイズ）と一致しない。
+   ここでは盤面を **1920×1080 の固定ステージ**に置き `transform: scale()` でウィンドウへ一律縮小・中央寄せ（余白は
+   レターボックス）する。エディタの「実画面モニタの壁」（{@link ScaledSignageBoard}）と同じ手法の **ライブ版**。
+
+   ## 設計上の不変条件
+   - **実機 1080p モニタは不変**: ビューポートが 1920×1080 のとき `100cqw/1920 = 1.0`＝等倍。レターボックスも出ず、
+     盤面は今までと完全に同一に描かれる（現場の実機表示を 1px も変えない）。実機 TV は 16:9 全画面なので、
+     16:9 ビューポートでは `min(100vw, 100vh*16/9)=100vw`＝サイザが全画面に一致しレターボックスは生じない。
+   - **スマホ（≤899px）は対象外**: 既定では 3 つのラッパを `display: contents` にして DOM 上消し、盤面が従来どおり
+     レイアウトのフルスクリーン直下に来る＝12 章のモバイル縦スクロール挙動を一切変えない（ユーザー指示：スマホは保留）。
+   - **ビューポート基準ブレークポイントの中和**: ステージ内では `@media (min-width:1800px)` 等が**実デバイスの**
+     ビューポートで評価されるため、小さめのノート PC では `--scale-factor` 等が実機（1080p）と食い違う。1080p 機に
+     合わせて `--scale-factor:1.35` / `--content-gap:12px` / `--header-height:46px`（= 12 章の min-width:1800 プロファイル）を
+     ステージ内で固定し、どのデバイスで開いても **1080p モニタと同じ相対サイズ**で描く。pattern3 は専用ヘッダー高
+     （58px）を持つので header-height の固定対象から外す（`:not(.p3Root)`）。
+   - **新クラスのみ追加**: 既存 `.signageRoot` 等のルールは触らない（実機経路・サムネ・エディタの ScaledSignageBoard は
+     無改修）。本ラッパは公開ルートの page.tsx だけが巻く。 */
+.fitViewport,
+.fitStageSizer,
+.fitStage {
+  /* 既定（スマホ ≤899px）: ラッパを DOM から消し、盤面を従来どおりレイアウト直下に置く（モバイル挙動不変）。 */
+  display: contents;
+}
+@media (min-width: 900px) {
+  /* 外殻: ビューポート全面の中央寄せコンテナ（レターボックス余白は盤面と同じ白で「枠」に見せる）。 */
+  .fitViewport {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: var(--bg-color, #ffffff);
+  }
+  /* サイザ: ビューポート内に収まる最大の 16:9 枠（幅は窓幅と「窓高×16/9」の小さい方）。cqw の計測元コンテナ。 */
+  .fitStageSizer {
+    display: block;
+    position: relative;
+    width: min(100vw, calc(100vh * 16 / 9));
+    aspect-ratio: 16 / 9;
+    container-type: inline-size;
+    overflow: hidden;
+  }
+  /* ステージ: 実機解像度 1920×1080 で盤面を配置し、サイザ幅へ一律縮小（16:9 同士なので高さも一致）。 */
+  .fitStage {
+    display: block;
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    transform-origin: top left;
+    transform: scale(calc(100cqw / 1920));
+  }
+  /* ステージ内では 1080p（min-width:1800）プロファイルを固定し、どのデバイスでも実機と同じ相対サイズで描く。 */
+  .fitStage .signageRoot {
+    --scale-factor: 1.35;
+    --content-gap: 12px;
+  }
+  /* header-height は pattern3 が専用値（58px）を持つので、それ以外（pattern1/2）だけ 1080p 値に固定する。 */
+  .fitStage .signageRoot:not(.p3Root) {
+    --header-height: 46px;
+  }
+}
