@@ -5,8 +5,8 @@ import { formatNewsDate } from "@/lib/signage/news-format";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import styles from "./signage.module.css";
 
-/** 1 ニュースの表示時間（ms）。これ経過ごとに次の記事へ切り替える。 */
-const NEWS_DWELL_MS = 8_000;
+/** 1 ニュースの表示時間（ms）。これ経過ごとに次の記事へ切り替える（2026-06-22 ユーザー指定 15 秒）。 */
+const NEWS_DWELL_MS = 15_000;
 
 /** フッタのニュースカードに出す本文（公式要約）の最大文数。先頭 N 文をコンパクトに添える。 */
 const FOOTER_SUMMARY_SENTENCES = 2;
@@ -39,7 +39,12 @@ function footerSummary(summary: string): string[] {
  *   無し / 取得失敗（`null` / 空）は「ニュースを取得できていません」（fail-soft）。
  */
 export function Pattern3NewsTicker({ news }: { news: SignagePayload["news"] }) {
-  const items = news?.items ?? [];
+  // **本文（公式要約）がある記事だけ**を出す（2026-06-22 ユーザー指定）。要約は CC BY ソース（経産省 METI）のみ
+  // 非 null なので、実質 CC BY 記事のみが廊下フッタに回る（見出しのみの記事は出さない）。
+  const items = (news?.items ?? []).filter(
+    (item): item is typeof item & { summary: string } =>
+      typeof item.summary === "string" && item.summary.trim().length > 0,
+  );
   const [active, setActive] = useState(0);
 
   useEffect(() => {
@@ -71,7 +76,7 @@ export function Pattern3NewsTicker({ news }: { news: SignagePayload["news"] }) {
       ) : (
         <div className={styles.p3NewsViewport}>
           {items.map((item, i) => {
-            const summary = item.summary ? footerSummary(item.summary) : [];
+            const summary = footerSummary(item.summary);
             return (
               <article
                 key={item.id}
