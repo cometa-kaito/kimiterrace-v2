@@ -209,7 +209,14 @@
   overflow: hidden;
 }
 /* 列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致させる（ドリフトすると列が溢れる/余る）。50 インチ TV では
-   5 列でも各列が十分な幅を保ち、本文は clamp で縮約されるので破綻しない。gap は列増に合わせ僅かに詰める。 */
+   5 列でも各列が十分な幅を保ち、本文は clamp で縮約されるので破綻しない。gap は列増に合わせ僅かに詰める。
+   ── staging 検証ゲート（レビュー P3 / item1）: 5 列化は live TV（pattern1/2/3）に直接出る。prod 反映前に
+   dev-login で pattern1/2 を実機（50インチ・長い予定行＋天気アイコン入り日付ヘッダー）で必ず目視する。**もし**
+   実機で詰まり/折返しが出た時だけ、列数（単一ソース）は変えず以下のノブで微調整する:
+     ・列間 = この `gap`（pattern1）/ `.p2Schedule` の `gap`（pattern2/3）
+     ・本文 = `.scheduleListItem` / `.p2ScheduleMain` の clamp 下限
+     ・日付 = `.scheduleDateHeader` / `.p2ScheduleDate` の clamp 下限（天気グリフ併設）
+   破綻が観測されない限りレンダリングは変更しない（推測でサイズを動かすと実機の見た目が変わる）。 */
 .scheduleGridContainer {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

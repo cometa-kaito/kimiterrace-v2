@@ -159,6 +159,9 @@ export function WysiwygBoardEditor({
   // クリック対象ではなく、編集欄は盤面の**下**に別カードで出る。ヒント文がここを「クリックで移動」と
   // 一括で言い切ると嘘になる（指摘 v2-ed-uo2）ので、当該パターンに来校者/呼び出しがある時だけ「下の編集欄で」
   // と但し書きを足し、過剰主張を避ける（実装を増やさずに文言整合・finding①の半端ジャンプの誠実化）。
+  // 但し書きは `patternIncludesBlock` 駆動なので、PATTERN_BLOCKS に visitor/callout を持つ新パターンが増えても
+  // 自動追従する。⚠ 将来クリックジャンプ未配線の**別ブロック**を新パターンに足す PR では、ここのヒント文が
+  // その新ブロックも網羅できているか（「下の編集欄で編集」に含めるべきか）を必ず再確認すること（レビュー P3 / item2）。
   const hasBelowEditors =
     patternIncludesBlock(pattern, "visitor") || patternIncludesBlock(pattern, "callout");
 
