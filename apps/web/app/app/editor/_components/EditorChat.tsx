@@ -69,7 +69,14 @@ function willWriteSection(
   draft: AssistantDraft,
   board: AssistantDraft,
   allowed: ReadonlySet<DraftSectionKind>,
+  additiveOnly = false,
 ): boolean {
+  // additiveOnly: 当日の「空配列=削除」を抑止し、items を持つ（追加/編集）ときだけ書く。複数日まとめ（days）が
+  // あるターンで使う＝『来週の予定を入れて』のような未来日指示で、当日 top-level が空になっても**今日の盤面を
+  // 消さない**（データロス防止・安全側）。単一日（days 無し）では従来どおり削除も検出する（既存挙動は不変）。
+  if (additiveOnly) {
+    return allowed.has(kind) && draft[kind].length > 0;
+  }
   return allowed.has(kind) && (draft[kind].length > 0 || board[kind].length > 0);
 }
 
@@ -271,25 +278,28 @@ export function EditorChat({
     setSaveMsg(null);
     const d = state.draft;
     const allowed = allowedSetOf(state.allowedSections);
+    const days = multiDayWrites(
+      d,
+      state.allowedSections.length > 0 ? state.allowedSections : DRAFT_SECTION_KINDS,
+    );
+    // 複数日まとめがあるターンでは当日 top-level を追加専用にする（当日の盤面を空配列で消さない・上記述語参照）。
+    const additiveCurrentDay = days.length > 0;
     try {
-      // 当日 1 日分（top-level）: 編集/削除（盤面との差分）対応の従来経路。盤面に項目があれば空でも置換（削除）。
+      // 当日 1 日分（top-level）: 編集/削除（盤面との差分）対応の従来経路。days 同梱時は追加専用（削除抑止）。
       const ops: (ReturnType<typeof setScheduleAction> | null)[] = [
-        willWriteSection("schedules", d, board, allowed)
+        willWriteSection("schedules", d, board, allowed, additiveCurrentDay)
           ? setScheduleAction(scope, targetId, date, d.schedules)
           : null,
-        willWriteSection("notices", d, board, allowed)
+        willWriteSection("notices", d, board, allowed, additiveCurrentDay)
           ? setNoticesAction(scope, targetId, date, d.notices)
           : null,
-        willWriteSection("assignments", d, board, allowed)
+        willWriteSection("assignments", d, board, allowed, additiveCurrentDay)
           ? setAssignmentsAction(scope, targetId, date, d.assignments)
           : null,
       ];
       // 複数日まとめ（days）: 各日の **非空セクションのみ**を、その日付へ置換保存する。未来日には盤面スナップ
       // ショットが無いため削除検出は行わない（追加的）。許可セクション絞りは multiDayWrites 済み（meta 由来）。
-      for (const day of multiDayWrites(
-        d,
-        state.allowedSections.length > 0 ? state.allowedSections : DRAFT_SECTION_KINDS,
-      )) {
+      for (const day of days) {
         if (day.schedules.length > 0) {
           ops.push(setScheduleAction(scope, targetId, day.date, day.schedules));
         }
@@ -367,15 +377,22 @@ export function EditorChat({
     state.allowedSections.length > 0 &&
     !state.allowedSections.includes("notices") &&
     !state.allowedSections.includes("assignments");
-  // 反映で盤面が変わりうるセクション（追加 / 編集 = 下書きに items、削除 = 盤面に items があり下書きは空）。
-  // onApply と同じ述語で導く（カード表示と実反映が必ず一致する）。
-  const pendingWrites = DRAFT_SECTION_KINDS.filter((k) =>
-    willWriteSection(k, state.draft, board, allowedSetOf(state.allowedSections)),
-  );
   // 複数日まとめ（days）の反映単位（許可セクション絞り済・空日は除外）。当日 top-level とは別に各日付へ書く。
   const dayWrites = multiDayWrites(
     state.draft,
     state.allowedSections.length > 0 ? state.allowedSections : DRAFT_SECTION_KINDS,
+  );
+  // 反映で盤面が変わりうるセクション（追加 / 編集 = 下書きに items、削除 = 盤面に items があり下書きは空）。
+  // onApply と同じ述語で導く（カード表示と実反映が必ず一致する）。days 同梱時は当日を追加専用にし、未来日
+  // 指示で当日の削除予告（clearedSections）が誤って出ないようにする（onApply の additiveCurrentDay と一致）。
+  const pendingWrites = DRAFT_SECTION_KINDS.filter((k) =>
+    willWriteSection(
+      k,
+      state.draft,
+      board,
+      allowedSetOf(state.allowedSections),
+      dayWrites.length > 0,
+    ),
   );
   // 会話インラインの確認カード: AI が下書きをまとめ終え（done）・未確定（閉じてない）で、反映で盤面が変わる
   // ものがあるとき。下書きも盤面も空（＝空盤面への純粋な聞き返し）では出さない。これで「全部削除」も確認
