@@ -1,10 +1,13 @@
 import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  SIGNAGE_DESIGN_PATTERNS,
+  SIGNAGE_SCHEDULE_DAY_COUNT,
   applyDesignPatternToUrl,
   getDesignPatternFromUrl,
   isSignageDesignPattern,
   parseSignageDesignPattern,
   resolveDesignPattern,
+  signageScheduleDayCount,
   stripDesignParam,
 } from "@/lib/signage/design-pattern";
 import { describe, expect, it } from "vitest";
@@ -29,6 +32,23 @@ describe("isSignageDesignPattern", () => {
   });
   it("既定は pattern1", () => {
     expect(DEFAULT_SIGNAGE_DESIGN_PATTERN).toBe("pattern1");
+  });
+});
+
+describe("signageScheduleDayCount（予定セクションの表示日数 = 列数の単一ソース・パターン別）", () => {
+  it("パターン別の既定日数を返す（日数を変えるのはここ 1 か所）", () => {
+    // #1127 で全パターン共通 5 日になり pattern1/2 も 5 日化していたのをパターン別に分離し直した回帰固定。
+    expect(signageScheduleDayCount("pattern1")).toBe(3);
+    expect(signageScheduleDayCount("pattern2")).toBe(3);
+    expect(signageScheduleDayCount("pattern3")).toBe(5);
+    // pattern4 は予定を描画しないため 0（= データ取得もしない）。
+    expect(signageScheduleDayCount("pattern4")).toBe(0);
+  });
+  it("全パターンに 0 以上の数値が定義されている（漏れをランタイムでも防ぐ）", () => {
+    for (const p of SIGNAGE_DESIGN_PATTERNS) {
+      expect(typeof SIGNAGE_SCHEDULE_DAY_COUNT[p]).toBe("number");
+      expect(SIGNAGE_SCHEDULE_DAY_COUNT[p]).toBeGreaterThanOrEqual(0);
+    }
   });
 });
 

@@ -202,24 +202,24 @@
   color: var(--accent-color);
 }
 
-/* ===================== 8. 予定グリッド（今後5平日・5列・5行） ===================== */
+/* ===================== 8. 予定グリッド（pattern1: 今後3平日・3列・5行） ===================== */
 .scheduleSection {
   grid-column: 1 / -1;
   min-height: 0;
   overflow: hidden;
 }
-/* 列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致させる（ドリフトすると列が溢れる/余る）。50 インチ TV では
-   5 列でも各列が十分な幅を保ち、本文は clamp で縮約されるので破綻しない。gap は列増に合わせ僅かに詰める。
-   ── staging 検証ゲート（レビュー P3 / item1）: 5 列化は live TV（pattern1/2/3）に直接出る。prod 反映前に
-   dev-login で pattern1/2 を実機（50インチ・長い予定行＋天気アイコン入り日付ヘッダー）で必ず目視する。**もし**
-   実機で詰まり/折返しが出た時だけ、列数（単一ソース）は変えず以下のノブで微調整する:
+/* 列数はパターン別 SIGNAGE_SCHEDULE_DAY_COUNT（pattern1=3）を単一ソースとし、描画した days.length を
+   インライン CSS 変数 --schedule-cols で流して自動追従する（JS と CSS の二重管理を排す）。実機（50インチ TV・
+   長い予定行＋天気アイコン入り日付ヘッダー）で詰まり/折返しが出た時は、列数（単一ソース）は変えず以下のノブで
+   微調整する:
      ・列間 = この `gap`（pattern1）/ `.p2Schedule` の `gap`（pattern2/3）
      ・本文 = `.scheduleListItem` / `.p2ScheduleMain` の clamp 下限
      ・日付 = `.scheduleDateHeader` / `.p2ScheduleDate` の clamp 下限（天気グリフ併設）
    破綻が観測されない限りレンダリングは変更しない（推測でサイズを動かすと実機の見た目が変わる）。 */
 .scheduleGridContainer {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 列数は表示日数に追従（インライン --schedule-cols。未指定時の既定は 3 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern1）。 */
+  grid-template-columns: repeat(var(--schedule-cols, 3), 1fr);
   gap: 0.4vmin;
   flex: 1;
   min-height: 0;
@@ -625,12 +625,12 @@
   overflow: hidden;
 }
 /* 第1段: 予定。見出し・外枠を持たず 5 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。
-   列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致（ドリフトすると列が溢れる/余る）。列増に合わせ gap を詰める。 */
+   列数は表示日数に追従（インライン --schedule-cols。未指定時の既定は 3 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern2）。 */
 .p2Schedule {
   flex: 46 1 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--schedule-cols, 3), 1fr);
   gap: 0.5vmin;
   overflow: hidden;
 }
@@ -1160,7 +1160,8 @@
   /* 主役（盤面の大半を占める）。残り高さを人物エリアと 3:2 で分け合って盤面を埋める（下に余白を作らない）。 */
   flex: 3 1 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 列数は表示日数に追従（インライン --p3-schedule-cols。未指定時の既定は 5 = SIGNAGE_SCHEDULE_DAY_COUNT.pattern3）。 */
+  grid-template-columns: repeat(var(--p3-schedule-cols, 5), 1fr);
   gap: 0;
   min-height: 0;
   /* 1 列に表示するコマ数。これが行高（=列高/可視数）と自動スクロール距離の基準。コンポーネント定数

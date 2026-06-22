@@ -159,6 +159,43 @@ describe("SignageBoardView（純粋な盤面描画層）", () => {
   });
 });
 
+describe("予定グリッドの列数がデータ日数に追従する（#1127 全パターン5日化の退行ガード）", () => {
+  /** N 件の空き予定日を作る（列数の検証用・中身は問わない）。 */
+  function scheduleDaysOf(n: number): SignagePayload["scheduleDays"] {
+    return Array.from({ length: n }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, "0")}`,
+      schedule: { source: null, items: [] as unknown[] },
+    }));
+  }
+
+  it("pattern1: scheduleDays が 3 件なら予定グリッドは 3 列（--schedule-cols=3）", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({ designPattern: "pattern1", scheduleDays: scheduleDaysOf(3) }),
+        )}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "予定" });
+    const grid = region.querySelector('[style*="--schedule-cols"]') as HTMLElement;
+    expect(grid).not.toBeNull();
+    expect(grid.style.getPropertyValue("--schedule-cols")).toBe("3");
+  });
+
+  it("pattern3: scheduleDays が 5 件なら予定は 5 列（--p3-schedule-cols=5）", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({ designPattern: "pattern3", scheduleDays: scheduleDaysOf(5) }),
+        )}
+      />,
+    );
+    // pattern3 は予定 section 自身（region）に列数変数を載せる。
+    const region = screen.getByRole("region", { name: "予定" });
+    expect(region.style.getPropertyValue("--p3-schedule-cols")).toBe("5");
+  });
+});
+
 describe("SignageBoardView 編集モード（Approach A・実エリア直接クリック）", () => {
   it("editRegions を渡すと予定/連絡/提出物の編集ボタンが実セクションを覆い、region 名/装飾見出しは AT から外れる", () => {
     const onRegion = vi.fn();

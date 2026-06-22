@@ -28,11 +28,12 @@ import { type SignageHeatAlert, getSignageHeatAlerts } from "./heat-alerts";
 import { type SignageNews, getSignageNews } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
-import { SIGNAGE_SCHEDULE_DAY_COUNT, signageScheduleDates } from "./rotation";
+import { signageScheduleDates } from "./rotation";
 import {
   type SignageDesignPattern,
   getSignageDesignPattern,
   isSignageDesignPattern,
+  signageScheduleDayCount,
 } from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
 import { type SignageWeatherWarning, getSignageWeatherWarnings } from "./weather-warnings";
@@ -86,9 +87,10 @@ export type SignagePayload = {
   designPattern: SignageDesignPattern;
   daily: EffectiveDailyData;
   /**
-   * サイネージの「予定」列グリッド用（列数は `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝現在 5 列）。`date` を
-   * 起点に土日を飛ばした N 平日ぶんの実効「予定」セクション。連絡/課題/静粛時間は当日のみで足りるので `daily`
-   * 側に持つ (本配列は予定専用)。盤面 CSS の `grid-template-columns: repeat(N, 1fr)` と列数を一致させること。
+   * サイネージの「予定」列グリッド用（列数はパターン別 `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝pattern1/2=3,
+   * pattern3=5, pattern4=0）。`date` を起点に土日を飛ばした N 平日ぶんの実効「予定」セクション。連絡/課題/静粛
+   * 時間は当日のみで足りるので `daily` 側に持つ (本配列は予定専用)。盤面 CSS の列数は描画時に `days.length` を
+   * CSS 変数で流して自動追従させる（`SignageBoardView`）。
    */
   scheduleDays: ScheduleDay[];
   /**
@@ -254,14 +256,15 @@ export async function buildSignagePayloadForClass(
   const ads = monitorId
     ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
     : await getEffectiveAdsForClass(tx, classId);
-  // 予定グリッド (今後 N 平日・`SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝盤面 CSS の列数と一致・現在 5 列)。
-  // `date` を起点に土日を飛ばした N 平日ぶんの schedules を 1 クエリで取得。pattern3（廊下版）も同じ 5 列で出す
-  // （専用の Pattern3Schedule が 5 列レイアウトで描く）。列数を増やしても 1 クエリ（日付配列を渡すだけ）なので
-  // 追加コネクション・往復は増やさない。連絡/提出物/自動ブロックの取得範囲は不変。
+  // 予定グリッド (今後 N 平日)。表示日数（= 盤面の列数）は**パターン別**に `SIGNAGE_SCHEDULE_DAY_COUNT`
+  // （design-pattern.ts）が単一ソース＝そこを変えればデータ取得日数と CSS 列数が同時に追従する。pattern1/2=3、
+  // pattern3（廊下版）=5、pattern4=0（予定を描画しないので取得もしない）。`date` を起点に土日を飛ばした N 平日
+  // ぶんを 1 クエリで取得（列数を変えても日付配列を渡すだけ＝追加コネクション・往復は増やさない）。連絡/提出物/
+  // 自動ブロックの取得範囲は不変。
   const scheduleDays = await getEffectiveScheduleDays(
     tx,
     classId,
-    signageScheduleDates(date, SIGNAGE_SCHEDULE_DAY_COUNT),
+    signageScheduleDates(date, signageScheduleDayCount(designPattern)),
   );
   // 天気は **fail-soft** (F14 §3 / NFR02): 自校地域の解決失敗・キャッシュ無し・読み取り例外が起きても
   // サイネージ本体 (予定/連絡/提出物/広告) は壊さず、weather=null で天気枠だけ落とす。同一 tx 内で読む

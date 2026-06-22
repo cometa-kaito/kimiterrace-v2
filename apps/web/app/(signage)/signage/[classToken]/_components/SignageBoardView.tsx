@@ -41,7 +41,7 @@ import styles from "./signage.module.css";
  *   `now=null`（時計非表示）・広告静止・タップ noop で `SignageBoardView` を縮小描画する（後続 A/B の土台）。
  *
  * **盤面レイアウトは旧キミテラス v1 を忠実移植**: 上段(横幅いっぱい)=予定(今後 N 平日の N 列・列数は
- * `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝現在 5・各列5行) /
+ * パターン別 `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝pattern1 は 3・各列5行) /
  * 左下=連絡(5行) / 右下=提出物(表・5行) / 右=広告(70:30)。天気は予定列の日付ヘッダーにアイコンで内包し、
  * 静粛時間は盤面に出さない(2026-06-06 ユーザー確定)。
  *
@@ -691,7 +691,15 @@ function Pattern3Schedule({
     editRegions,
   );
   return (
-    <section {...sectionProps}>
+    <section
+      {...sectionProps}
+      // 列数は表示日数に自動追従（単一ソース = SIGNAGE_SCHEDULE_DAY_COUNT）。0 件時は CSS 既定に委ねる。
+      style={
+        days.length > 0
+          ? ({ "--p3-schedule-cols": String(days.length) } as React.CSSProperties)
+          : undefined
+      }
+    >
       {button}
       {days.map((day) => {
         const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
@@ -1065,7 +1073,15 @@ function Pattern2Schedule({
     editRegions,
   );
   return (
-    <section {...sectionProps}>
+    <section
+      {...sectionProps}
+      // 列数は表示日数に自動追従（単一ソース = SIGNAGE_SCHEDULE_DAY_COUNT）。0 件時は CSS 既定に委ねる。
+      style={
+        days.length > 0
+          ? ({ "--schedule-cols": String(days.length) } as React.CSSProperties)
+          : undefined
+      }
+    >
       {button}
       {days.map((day) => {
         const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
@@ -1418,7 +1434,15 @@ function ScheduleGrid({
           古い予報
         </span>
       ) : null}
-      <div className={styles.scheduleGridContainer}>
+      <div
+        className={styles.scheduleGridContainer}
+        // 列数は表示日数に自動追従（単一ソース = SIGNAGE_SCHEDULE_DAY_COUNT）。0 件時は CSS 既定に委ねる。
+        style={
+          days.length > 0
+            ? ({ "--schedule-cols": String(days.length) } as React.CSSProperties)
+            : undefined
+        }
+      >
         {days.map((day) => {
           const weatherDay = weather?.days.find((d) => d.forecastDate === day.date) ?? null;
           return (

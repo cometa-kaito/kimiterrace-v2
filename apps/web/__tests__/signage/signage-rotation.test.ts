@@ -10,7 +10,6 @@ import {
   jstDateString,
   nextIndex,
   parseSignageDate,
-  SIGNAGE_SCHEDULE_DAY_COUNT,
   signageScheduleDates,
 } from "@/lib/signage/rotation";
 import { describe, expect, it } from "vitest";
@@ -55,11 +54,11 @@ describe("signageScheduleDates", () => {
     expect(signageScheduleDates("2026-06-06", 0)).toEqual([]);
   });
 
-  // 盤面の予定列数の単一ソース（2026-06-22 に 3→5 拡張）。盤面 CSS の repeat(N,1fr) と一致させる前提を固定する。
-  it("SIGNAGE_SCHEDULE_DAY_COUNT は 5（予定 5 列）で、水曜起点なら 5 平日を返す", () => {
-    expect(SIGNAGE_SCHEDULE_DAY_COUNT).toBe(5);
-    // 2026-06-03(水) 起点 → 水木金月火（土日 06-06/07 をスキップ）。
-    expect(signageScheduleDates("2026-06-03", SIGNAGE_SCHEDULE_DAY_COUNT)).toEqual([
+  // pattern3（廊下版）の 5 平日ケース。日数の単一ソースは design-pattern.ts の SIGNAGE_SCHEDULE_DAY_COUNT
+  // （パターン別）へ移管済（design-pattern.test.ts で値を検証）。ここは date 生成器が count=5 で 5 平日を
+  // 返すことだけを固定する。2026-06-03(水) 起点 → 水木金月火（土日 06-06/07 をスキップ）。
+  it("count=5 は水曜起点で 5 平日を返す（pattern3 廊下版の列数）", () => {
+    expect(signageScheduleDates("2026-06-03", 5)).toEqual([
       "2026-06-03",
       "2026-06-04",
       "2026-06-05",
