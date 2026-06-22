@@ -66,9 +66,9 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     const assertExactlyOneEach = () => {
       expect(screen.getAllByRole("heading", { name: "来校者一覧", level: 2 })).toHaveLength(1);
       expect(screen.getAllByRole("heading", { name: "生徒呼び出し", level: 2 })).toHaveLength(1);
-      // 順序: 来校者一覧 → 生徒呼び出し（盤面の 2 カラム対応・押し出されない）。
+      // 順序: 生徒呼び出し → 来校者一覧（盤面 pattern2/3 の左右順に一致・#12／押し出されない）。
       const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-      expect(headings).toEqual(["来校者一覧", "生徒呼び出し"]);
+      expect(headings).toEqual(["生徒呼び出し", "来校者一覧"]);
     };
     assertExactlyOneEach();
 
@@ -115,7 +115,27 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     expect(screen.getAllByRole("heading", { name: "来校者一覧", level: 2 })).toHaveLength(1);
     expect(screen.getAllByRole("heading", { name: "生徒呼び出し", level: 2 })).toHaveLength(1);
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(headings).toEqual(["来校者一覧", "生徒呼び出し"]);
+    // 順序: 生徒呼び出し → 来校者一覧（盤面 pattern2/3 の左右順に一致・#12）。
+    expect(headings).toEqual(["生徒呼び出し", "来校者一覧"]);
+  });
+
+  it("各編集欄を盤面ジャンプ用の anchor id を持つラッパで囲む（#2 のジャンプ先・順序は呼び出し→来校者）", () => {
+    const { container } = render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        date="2026-06-21"
+        showVisitors
+        showCallouts
+        visitors={[visitor("v1", "来校 太郎")]}
+        callouts={[callout("c1", "生徒 花子")]}
+      />,
+    );
+    // focusRegion が getElementById で到達する anchor。両方とも存在する。
+    expect(container.querySelector("#editor-region-callouts")).not.toBeNull();
+    expect(container.querySelector("#editor-region-visitors")).not.toBeNull();
+    // DOM 上の左右順は 呼び出し(left) → 来校者(right)（盤面 pattern2/3 と一致・#12）。
+    const ids = Array.from(container.querySelectorAll("[id^='editor-region-']")).map((el) => el.id);
+    expect(ids).toEqual(["editor-region-callouts", "editor-region-visitors"]);
   });
 
   it("パターンに含まれないブロックは出さない（visitors のみ）", () => {
