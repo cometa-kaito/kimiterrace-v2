@@ -101,6 +101,16 @@ export function WysiwygBoardEditor({
     return () => ro.disconnect();
   }, []);
 
+  // 編集プレビューのヘッダー実時計を **live TV（SignageClient）と同じ作法**で動かす（マウント後のみ・1 秒刻み）。
+  // SSR/初回は null＝時計なしで描き（ハイドレーション不一致を避ける）、マウント後に実時計を出して実盤面の
+  // ヘッダーと一致させる（now の扱いの差を縮める）。これにより教員は「実機にどう出るか」をヘッダー込みで確認できる。
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const focusRegion = useCallback((region: Region) => {
     setActive(region);
     const card =
@@ -144,15 +154,23 @@ export function WysiwygBoardEditor({
   const showSchedule = patternIncludesBlock(pattern, "schedule");
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
+  // 盤面クリックジャンプは「予定 / 連絡 / 提出物」の実セクション（`EditRegion`）にだけ配線されている
+  // （クリックボタンは `BoardRegionEditButton` が敷くこの 3 種のみ）。来校者 / 生徒呼び出しは盤面に出ても
+  // クリック対象ではなく、編集欄は盤面の**下**に別カードで出る。ヒント文がここを「クリックで移動」と
+  // 一括で言い切ると嘘になる（指摘 v2-ed-uo2）ので、当該パターンに来校者/呼び出しがある時だけ「下の編集欄で」
+  // と但し書きを足し、過剰主張を避ける（実装を増やさずに文言整合・finding①の半端ジャンプの誠実化）。
+  const hasBelowEditors =
+    patternIncludesBlock(pattern, "visitor") || patternIncludesBlock(pattern, "callout");
 
   return (
     <div className={styles.root}>
       {previewPayload ? (
         <>
           <p className={styles.hint}>
-            サイネージ（教室の 50
-            インチ画面）にどう出るかを見ながら編集できます。盤面の領域をクリックすると、その項目の
-            編集欄に移動します。広告は編集できません（広告管理で設定）。
+            サイネージ（教室の 50 インチ画面）にどう出るかを見ながら編集できます。盤面の「予定 /
+            連絡 / 提出物」の領域をクリックすると、 その項目の編集欄に移動します。
+            {hasBelowEditors ? "来校者一覧・生徒呼び出しは盤面の下の編集欄で編集します。" : ""}
+            広告は編集できません（広告管理で設定）。
           </p>
 
           {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
@@ -168,6 +186,7 @@ export function WysiwygBoardEditor({
                 payload={previewPayload}
                 width={boardWidth}
                 editRegions={{ active, onRegion: focusRegion }}
+                now={now}
               />
             ) : null}
           </div>

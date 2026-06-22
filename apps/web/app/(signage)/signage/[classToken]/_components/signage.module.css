@@ -202,16 +202,18 @@
   color: var(--accent-color);
 }
 
-/* ===================== 8. 予定グリッド（今後3平日・3列・5行） ===================== */
+/* ===================== 8. 予定グリッド（今後5平日・5列・5行） ===================== */
 .scheduleSection {
   grid-column: 1 / -1;
   min-height: 0;
   overflow: hidden;
 }
+/* 列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致させる（ドリフトすると列が溢れる/余る）。50 インチ TV では
+   5 列でも各列が十分な幅を保ち、本文は clamp で縮約されるので破綻しない。gap は列増に合わせ僅かに詰める。 */
 .scheduleGridContainer {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5vmin;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4vmin;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -546,6 +548,32 @@
   margin: auto;
   color: transparent;
 }
+/* 編集プレビュー専用の空き広告枠ラベル（live TV では出ない＝SignageBoardView 側で editRegions ありの時だけ描く）。
+   暗い広告ゾーン（--ad-bg: #111827）上に出すため文字は白系。タイトルは #fff（白地比 21:1 相当・AA 余裕）、補足は
+   rgba(255,255,255,0.78)（暗背景で 4.5:1 以上）で可読性を確保。点線枠で「ここに広告が入る場所」と直感させる。 */
+.adEditorPlaceholder {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem 1.25rem;
+  border: 2px dashed rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+.adEditorPlaceholderTitle {
+  color: #fff;
+  font-weight: 700;
+  font-size: clamp(0.9rem, 1.6vw, 1.25rem);
+  letter-spacing: 0.04em;
+}
+.adEditorPlaceholderSub {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(0.65rem, 1vw, 0.85rem);
+  font-weight: 600;
+}
 .adDots {
   position: absolute;
   bottom: 8px;
@@ -589,13 +617,14 @@
   min-height: 0;
   overflow: hidden;
 }
-/* 第1段: 予定。見出し・外枠を持たず 3 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。 */
+/* 第1段: 予定。見出し・外枠を持たず 5 列をそのまま開放配置（主役を「枠なし」で見せ階層を作る）。
+   列数は JS 側 SIGNAGE_SCHEDULE_DAY_COUNT（=5）と一致（ドリフトすると列が溢れる/余る）。列増に合わせ gap を詰める。 */
 .p2Schedule {
   flex: 46 1 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.6vmin;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5vmin;
   overflow: hidden;
 }
 /* 第2段: 人に関わる情報（呼び出し・来校者）を 2 列で対に。 */

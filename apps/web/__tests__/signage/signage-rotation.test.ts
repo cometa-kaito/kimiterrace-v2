@@ -10,6 +10,7 @@ import {
   jstDateString,
   nextIndex,
   parseSignageDate,
+  SIGNAGE_SCHEDULE_DAY_COUNT,
   signageScheduleDates,
 } from "@/lib/signage/rotation";
 import { describe, expect, it } from "vitest";
@@ -52,6 +53,19 @@ describe("signageScheduleDates", () => {
     expect(signageScheduleDates("2026-13-40", 3)).toEqual([]);
     expect(signageScheduleDates("not-a-date", 3)).toEqual([]);
     expect(signageScheduleDates("2026-06-06", 0)).toEqual([]);
+  });
+
+  // 盤面の予定列数の単一ソース（2026-06-22 に 3→5 拡張）。盤面 CSS の repeat(N,1fr) と一致させる前提を固定する。
+  it("SIGNAGE_SCHEDULE_DAY_COUNT は 5（予定 5 列）で、水曜起点なら 5 平日を返す", () => {
+    expect(SIGNAGE_SCHEDULE_DAY_COUNT).toBe(5);
+    // 2026-06-03(水) 起点 → 水木金月火（土日 06-06/07 をスキップ）。
+    expect(signageScheduleDates("2026-06-03", SIGNAGE_SCHEDULE_DAY_COUNT)).toEqual([
+      "2026-06-03",
+      "2026-06-04",
+      "2026-06-05",
+      "2026-06-08",
+      "2026-06-09",
+    ]);
   });
 });
 
