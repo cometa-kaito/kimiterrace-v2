@@ -1,19 +1,28 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { isProdLikeEnv, isStagingEnv } from "@/lib/auth/app-env";
-import { devLoginSignIn, recordDevLoginAudit } from "@/lib/auth/dev-login";
+import { recordDevLoginAudit, resolveDevLoginUid } from "@/lib/auth/dev-login";
 import {
   getDevLoginKeyVersion,
   toDevLoginRole,
   verifyDevLoginKey,
 } from "@/lib/auth/dev-login-config";
-import { SESSION_COOKIE_NAME, createSessionCookie, verifySessionCookie } from "@/lib/auth/session";
+import {
+  SESSION_COOKIE_NAME,
+  createSessionCookieForUid,
+  verifySessionCookie,
+} from "@/lib/auth/session";
 
 /**
  * POST /api/dev-login — **staging 限定** dev-login（ADR-003 / ADR-032 / ADR-008 Route Handlers）。
  *
  * 運用者 / エージェントが**パスワードを打たずに**教員 / 学校管理者のセッションを得るための、**staging 専用**
  * 開発支援ルート。成功時は `__session` cookie をセットして 303 でアプリへリダイレクトする。
+ *
+ * ## 真のパスワードレス（password を保存も要求もしない）
+ * 旧実装は config に保存した teacher/admin の password で `signInWithPassword` していたが、staging の実 password を
+ * 誰も知らず運用不能だった。新方式は **対象 uid を DB / IdP から解決し、Admin SDK の custom token → idToken →
+ * session cookie で直接発行**する（`createSessionCookieForUid`）。config が持つのは**ゲート鍵のみ**。
  *
  * ## なぜ GET ではなく POST + Authorization ヘッダか（秘密キーのログ露出を消す）
  * 旧実装は `?key=<secret>` を URL クエリで受けていたが、クエリは Cloud Run / LB のアクセスログ・ブラウザ履歴・
@@ -34,8 +43,9 @@ import { SESSION_COOKIE_NAME, createSessionCookie, verifySessionCookie } from "@
  * → いずれか一つが破られても他が残る。3 層すべてを prod に入れない限り機能しない（= prodAuthPossible=false）。
  *
  * ## 任意アカウント禁止
- * 受け付けるのは `role=teacher` / `role=admin` のみ。email/uid は一切受け取らず、config に静的に書かれた
- * staging テストアカウントだけをサインインさせる（新規ユーザーは作らない）。
+ * 受け付けるのは `role=teacher` / `role=admin` のみ。email/uid は一切リクエストから受け取らない。対象は
+ * **staging DB / IdP の既存アカウント**（teacher=共通教員 / admin=既存 school_admin）を解決し、無ければ
+ * **dev 専用テスト校 "DEVLOGIN_TEST" 配下の teacher/admin を冪等作成**する（staging ゲート内のみ。dev-login.ts）。
  *
  * ## 列挙対策
  * env / key / role / サインインの失敗はすべて **404 `not_found`** に畳む（このルートの存在自体を秘匿し、
@@ -109,15 +119,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return notFound();
   }
 
-  // 既存の認証経路を再利用して本物の idToken を得る（config の staging テストアカウントのみ）。
-  const idToken = await devLoginSignIn(role);
-  if (!idToken) {
+  // 対象 uid を解決（既存 teacher/admin → 無ければ dev 専用テストアカウントを冪等作成）。任意 email/uid は受けない。
+  const uid = await resolveDevLoginUid(role);
+  if (!uid) {
     return notFound();
   }
 
+  // **パスワード不要**で session cookie を発行（custom token → idToken → __session。createSessionCookie 経路を再利用）。
   let sessionCookie: string;
   try {
-    sessionCookie = await createSessionCookie(idToken, SESSION_EXPIRES_IN_MS);
+    sessionCookie = await createSessionCookieForUid(uid, SESSION_EXPIRES_IN_MS);
   } catch {
     return notFound();
   }

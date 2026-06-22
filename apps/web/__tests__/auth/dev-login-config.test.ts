@@ -1,27 +1,31 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { isProdLikeEnv, isStagingEnv } from "../../lib/auth/app-env";
 import {
-  getDevLoginAccount,
   getDevLoginConfig,
   getDevLoginKeyVersion,
+  getDevLoginResolveHint,
   toDevLoginRole,
   verifyDevLoginKey,
 } from "../../lib/auth/dev-login-config";
 
 /**
- * staging 限定 dev-login の **多層防御の素**（env ゲート / 秘密キー突合 / config パース / ロール allowlist）を
+ * staging 限定 dev-login の **多層防御の素**（env ゲート / ゲート鍵突合 / config パース / ロール allowlist）を
  * pure に固定する。route 統合テスト（dev-login-route.test.ts）と合わせて「prod では機能しない」を担保する。
+ *
+ * **パスワードレス化後**: config は **ゲート鍵（secret）のみ必須**で、teacher/admin の password は持たない
+ * （任意の解決ヒント schoolId/uid だけ）。password を required にする旧テストは撤廃した。
  */
 
 const ORIGINAL_APP_ENV = process.env.APP_ENV;
 const ORIGINAL_CONFIG = process.env.DEV_LOGIN_CONFIG;
 const ORIGINAL_PROJECT = process.env.GOOGLE_CLOUD_PROJECT;
 
+// 新・最小 config: secret のみ必須（password 無し）。任意で解決ヒント（schoolId/uid）。
 const VALID_CONFIG = JSON.stringify({
   secret: "super-long-staging-only-secret-value",
   keyVersion: "2026-06",
-  teacher: { email: "dev-teacher@teacher.kimiterrace.invalid", password: "tpw-staging" },
-  admin: { email: "dev-admin@example.invalid", password: "apw-staging" },
+  teacher: { schoolId: "22222222-2222-4222-8222-222222222222" },
+  admin: { uid: "33333333-3333-4333-8333-333333333333" },
 });
 
 afterEach(() => {
@@ -67,12 +71,8 @@ describe("getDevLoginKeyVersion — 非秘密ラベルのみ", () => {
     expect(getDevLoginKeyVersion()).toBe("2026-06");
   });
 
-  it("keyVersion 未設定なら null（config は有効のまま）", () => {
-    process.env.DEV_LOGIN_CONFIG = JSON.stringify({
-      secret: "x-very-long-secret",
-      teacher: { email: "a", password: "b" },
-      admin: { email: "c", password: "d" },
-    });
+  it("keyVersion 未設定なら null（config は有効のまま・secret だけで足りる）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ secret: "x-very-long-secret" });
     expect(getDevLoginConfig()).not.toBeNull();
     expect(getDevLoginKeyVersion()).toBeNull();
   });
@@ -123,12 +123,30 @@ describe("toDevLoginRole — ロール allowlist", () => {
 });
 
 describe("getDevLoginConfig — fail-closed パース", () => {
-  it("正しい JSON を解決", () => {
+  it("正しい JSON を解決（secret + 任意ヒント。password は持たない）", () => {
     process.env.DEV_LOGIN_CONFIG = VALID_CONFIG;
     const config = getDevLoginConfig();
     expect(config?.secret).toBe("super-long-staging-only-secret-value");
-    expect(config?.teacher.email).toBe("dev-teacher@teacher.kimiterrace.invalid");
-    expect(config?.admin.password).toBe("apw-staging");
+    expect(config?.teacher?.schoolId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(config?.admin?.uid).toBe("33333333-3333-4333-8333-333333333333");
+    // password が残っていても拾わない（型にも存在しない＝秘密を持ち回らない）。
+    expect(JSON.stringify(config)).not.toContain("password");
+  });
+
+  it("secret のみでも有効（teacher/admin ヒントは任意 → null）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ secret: "only-the-gate-key-value" });
+    const config = getDevLoginConfig();
+    expect(config?.secret).toBe("only-the-gate-key-value");
+    expect(config?.teacher).toBeNull();
+    expect(config?.admin).toBeNull();
+  });
+
+  it("config に password が混入していても無視する（拾わない）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({
+      secret: "gate-key",
+      teacher: { schoolId: "abc", password: "leak" },
+    });
+    expect(JSON.stringify(getDevLoginConfig())).not.toContain("leak");
   });
 
   it("env 未設定 → null (prod 既定)", () => {
@@ -141,13 +159,10 @@ describe("getDevLoginConfig — fail-closed パース", () => {
     expect(getDevLoginConfig()).toBeNull();
   });
 
-  it("必須欠落 (secret / teacher / admin) → null", () => {
-    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ teacher: {}, admin: {} });
+  it("secret 欠落 → null（teacher/admin だけでは機能しない）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ teacher: { schoolId: "x" }, admin: {} });
     expect(getDevLoginConfig()).toBeNull();
-    process.env.DEV_LOGIN_CONFIG = JSON.stringify({
-      secret: "x",
-      admin: { email: "a", password: "b" },
-    });
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ keyVersion: "2026-06" });
     expect(getDevLoginConfig()).toBeNull();
   });
 });
@@ -178,15 +193,23 @@ describe("verifyDevLoginKey — 定数時間突合 (fail-closed)", () => {
   });
 });
 
-describe("getDevLoginAccount — config の固定アカウントのみ", () => {
-  it("ロールに対応するアカウントを返す", () => {
+describe("getDevLoginResolveHint — 任意の解決ヒント（password は無い）", () => {
+  it("ロールに対応するヒント（teacher=schoolId / admin=uid）を返す", () => {
     process.env.DEV_LOGIN_CONFIG = VALID_CONFIG;
-    expect(getDevLoginAccount("teacher")?.email).toBe("dev-teacher@teacher.kimiterrace.invalid");
-    expect(getDevLoginAccount("admin")?.email).toBe("dev-admin@example.invalid");
+    expect(getDevLoginResolveHint("teacher")?.schoolId).toBe(
+      "22222222-2222-4222-8222-222222222222",
+    );
+    expect(getDevLoginResolveHint("admin")?.uid).toBe("33333333-3333-4333-8333-333333333333");
+  });
+
+  it("ヒント未設定（secret のみ）は null（= DB から既存解決 or 冪等作成へ）", () => {
+    process.env.DEV_LOGIN_CONFIG = JSON.stringify({ secret: "gate-key-only" });
+    expect(getDevLoginResolveHint("teacher")).toBeNull();
+    expect(getDevLoginResolveHint("admin")).toBeNull();
   });
 
   it("config 不在は null", () => {
     delete process.env.DEV_LOGIN_CONFIG;
-    expect(getDevLoginAccount("teacher")).toBeNull();
+    expect(getDevLoginResolveHint("teacher")).toBeNull();
   });
 });

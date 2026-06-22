@@ -8,6 +8,8 @@ export * from "./queries/effective-ads.js";
 export * from "./queries/contents-publish.js";
 // F05: クラス magic link (発行 / 失効 / 一覧 + 生徒匿名解決 resolve_magic_link)
 export * from "./queries/magic-links.js";
+// staging 限定 dev-login のアカウント解決 / 冪等作成 (既存 teacher/admin 解決 + dev 専用テスト校/users 作成)
+export * from "./queries/dev-login-accounts.js";
 // F04: content 読み取りクエリ層 (一覧 / 詳細 + バージョン履歴 + 公開状態、エディタ UI 用)
 export * from "./queries/content-detail.js";
 // F02: 教員音声 / チャット入力 (作成 / 一覧 / 詳細 / transcript 編集 / 下書き / submit / 削除 / 添付メタ)
