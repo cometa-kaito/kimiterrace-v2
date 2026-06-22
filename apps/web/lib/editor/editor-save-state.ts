@@ -114,6 +114,9 @@ export function useAutoSaveSection<I>({
   const dirty = serialized !== baselineRef.current;
   const [status, setStatus] = useState<AutoSaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  // アンマウント後に状態更新（setStatus/setError）を呼ばないためのフラグ。unmount flush では保存だけ
+  // 走らせ、アンマウント済みコンポーネントへの state 更新を抑止する。
+  const mountedRef = useRef(true);
 
   // タイマー経由で最新値を読むための ref（stale closure 回避）。
   const itemsRef = useRef(items);
@@ -135,14 +138,18 @@ export function useAutoSaveSection<I>({
     }
     const snapshot = itemsRef.current;
     const snapSerialized = serializedRef.current;
-    setStatus("saving");
-    setError(null);
+    if (mountedRef.current) {
+      setStatus("saving");
+      setError(null);
+    }
     const res = await saveRef.current(snapshot);
     if (res.ok) {
       baselineRef.current = snapSerialized;
       // 保存中にさらに編集されていれば dirty が残る（次の周期で再保存）。
-      setStatus(serializedRef.current === baselineRef.current ? "saved" : "idle");
-    } else {
+      if (mountedRef.current) {
+        setStatus(serializedRef.current === baselineRef.current ? "saved" : "idle");
+      }
+    } else if (mountedRef.current) {
       setStatus("error");
       setError(res.error.message);
     }
@@ -168,6 +175,17 @@ export function useAutoSaveSection<I>({
     }, debounceMs);
     return () => clearTimeout(timer);
   }, [serialized, dirty, complete, debounceMs]);
+
+  // アンマウント時に未保存の有効な変更を取りこぼさない（対象日切替での再マウント・パターン変更による
+  // セクション消滅・画面離脱）。`runSave` は dirty かつ complete のときだけ実際に保存し、未変更/不完全なら
+  // 何もしない（不正データを保存しない・無駄な通信もしない）。これで debounce 待ち（最大 debounceMs）の編集が
+  // 消える窓を全セクション一律に塞ぐ。setStatus はアンマウント後に呼ばない（mountedRef ガード）。
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      void runSave.current();
+    };
+  }, []);
 
   return {
     status,

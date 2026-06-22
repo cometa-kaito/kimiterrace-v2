@@ -20,11 +20,11 @@ function setup(
   initial: Props,
   save: (items: unknown[]) => Promise<SaveResult> = vi.fn(async () => ({ ok: true as const })),
 ) {
-  const { result, rerender } = renderHook(
+  const { result, rerender, unmount } = renderHook(
     (props: Props) => useAutoSaveSection({ ...props, save, debounceMs: 800 }),
     { initialProps: initial },
   );
-  return { save, result, rerender };
+  return { save, result, rerender, unmount };
 }
 
 describe("useAutoSaveSection", () => {
@@ -98,6 +98,43 @@ describe("useAutoSaveSection", () => {
     });
     expect(result.current.status).toBe("error");
     expect(result.current.error).toBe("失敗理由");
+  });
+
+  it("アンマウント時に未保存の有効な変更を flush する（debounce 待ちでも取りこぼさない）", async () => {
+    const { save, rerender, unmount } = setup({
+      serialized: "A",
+      items: [{ a: 1 }],
+      complete: true,
+    });
+    rerender({ serialized: "B", items: [{ a: 2 }], complete: true });
+    // debounce 満了前にアンマウント（対象日切替での再マウントを模擬）。
+    expect(save).not.toHaveBeenCalled();
+    await act(async () => {
+      unmount();
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith([{ a: 2 }]);
+  });
+
+  it("アンマウント時でも未完成（complete=false）なら保存しない", async () => {
+    const { save, rerender, unmount } = setup({
+      serialized: "A",
+      items: [{ a: 1 }],
+      complete: true,
+    });
+    rerender({ serialized: "B", items: [{ a: 2 }], complete: false });
+    await act(async () => {
+      unmount();
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("アンマウント時に未変更なら保存しない（無駄な通信をしない）", async () => {
+    const { save, unmount } = setup({ serialized: "A", items: [{ a: 1 }], complete: true });
+    await act(async () => {
+      unmount();
+    });
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("未入力行を消して baseline に戻ると incomplete を解除し idle にする", async () => {
