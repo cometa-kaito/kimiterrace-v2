@@ -662,14 +662,14 @@ function Pattern3WeeklyWeather({
 }
 
 /** pattern3（廊下版）予定で「1 列に何コマまで出すか」。これを超える日は CSS で自動縦スクロールする。 */
-const P3_SCHEDULE_VISIBLE_ROWS = 6;
+const P3_SCHEDULE_VISIBLE_ROWS = 5;
 
 /**
  * パターン3（廊下版）専用の予定。pattern2 の 3 列とは別物で、廊下の「遠目・一瞥」に最適化する（2026-06-22 ユーザー確定）:
  *   - **平日 5 日**を 5 列で出す（データ層が pattern3 だけ 5 平日を供給。pattern1/2 は 3 列のまま無改修）。
  *   - **箱をやめ**、日ごとは**縦線**（列の border-left）、コマは**横線**（行の border-bottom）で区切る。
  *   - 日付は **`M/D(曜)`** 表記（{@link p3ScheduleHeaderLabel}）。**天気アイコンは出さない**（週間天気帯が担う）。
- *   - 1 列 **6 コマ**まで表示し、超える日は **CSS のみで自動縦スクロール**（{@link P3_SCHEDULE_VISIBLE_ROWS} /
+ *   - 1 列 **5 コマ**まで表示し、超える日は **CSS のみで自動縦スクロール**（{@link P3_SCHEDULE_VISIBLE_ROWS} /
  *     `.p3SchScrollerAuto`）。hooks を持たないので `SignageBoardView` の server 描画可能性（ScaledSignageBoard）は不変。
  *
  * region は pattern2 と同じ `aria-label="予定"`（編集配線 `regionEditProps("schedules", …)` を共有＝WYSIWYG「盤面を
@@ -717,7 +717,7 @@ function Pattern3Schedule({
               ) : (
                 <div
                   className={`${styles.p3SchScroller} ${overflow ? styles.p3SchScrollerAuto : ""}`}
-                  // 超過時のみ: 行数を CSS 変数で渡し、スクロール距離（(行数-6)×行高）と所要時間を CSS 側で算出する。
+                  // 超過時のみ: 行数を CSS 変数で渡し、スクロール距離（(行数-可視数)×行高）と所要時間を CSS 側で算出する。
                   style={
                     overflow
                       ? ({ "--p3-sch-rows": String(rows.length) } as React.CSSProperties)
@@ -751,7 +751,7 @@ function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
 }
 
 /** pattern3（廊下版）人物エリアで「1 列に何件まで出すか」。これを超えると CSS で自動縦スクロールする。 */
-const P3_PEOPLE_VISIBLE_ROWS = 3;
+const P3_PEOPLE_VISIBLE_ROWS = 4;
 
 /**
  * パターン3（廊下版）専用の生徒呼び出し。pattern2 の `card`（囲み枠）はやめ、見出し（アクセント下線の名札）＋
@@ -814,7 +814,7 @@ function Pattern3Callouts({
 
 /**
  * パターン3（廊下版）専用の来校者一覧。{@link Pattern3Callouts} と同じく囲み枠をやめ、固定高ビューポート＋
- * 6 件超の自動縦スクロールにする。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
+ * {@link P3_PEOPLE_VISIBLE_ROWS} 件超の自動縦スクロールにする。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
  * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」・2026-06-10 ユーザー確定）。
  */
 function Pattern3Visitors({
@@ -930,7 +930,7 @@ function Pattern3Footer({
           {presenceCount == null ? (
             <span className={styles.p3FootMuted}>計測なし</span>
           ) : (
-            <span className={styles.p3FootChipVal}>
+            <span className={`${styles.p3FootChipVal} ${styles.p3FootChipValNum}`}>
               {presenceCount.toLocaleString("ja-JP")}
               <span className={styles.p3FootChipUnit}>回</span>
             </span>

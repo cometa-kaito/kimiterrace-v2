@@ -20,13 +20,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * 保存・自動保存・検証は各エディタが温存して担うため、ここでは server action をモックして UI 連動のみ見る。
  */
 
-// 保存アクションは実体（Server Action）と同じ { ok: true, data } 形を返すモックにする。自動保存
+// 保存アクションは実体（Server Action）と同じ成功結果（{ ok: true }）を返すモックにする。自動保存
 // （useAutoSaveSection）の flush-on-unmount が cleanup 時に dirty な編集を保存しようとするため、undefined を
-// 返すと res.ok 参照で unhandled rejection になる（実体は必ず結果オブジェクトを返す）。
+// 返すと `res.ok` 参照で unhandled rejection になる（実体は必ず結果オブジェクトを返す・#1136/#1138）。
 const h = vi.hoisted(() => ({
-  setScheduleAction: vi.fn(async (..._a: unknown[]) => ({ ok: true, data: { count: 0 } })),
-  setNoticesAction: vi.fn(async (..._a: unknown[]) => ({ ok: true, data: { count: 0 } })),
-  setAssignmentsAction: vi.fn(async (..._a: unknown[]) => ({ ok: true, data: { count: 0 } })),
+  setScheduleAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  setNoticesAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
+  setAssignmentsAction: vi.fn(async (..._a: unknown[]) => ({ ok: true })),
   refresh: vi.fn(),
   push: vi.fn(),
 }));
