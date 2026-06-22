@@ -31,7 +31,7 @@
 
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem, SchedulePeriod } from "@/lib/editor/schedule-core";
-import { isSpecialSlot, scheduleSlotLabel } from "@/lib/editor/schedule-core";
+import { isCustomPeriod, isSpecialSlot, scheduleSlotLabel } from "@/lib/editor/schedule-core";
 import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
 import type { EffectiveDailyData } from "@/lib/signage/effective-daily-data";
 
@@ -77,7 +77,8 @@ function shortDate(deadline: string): string {
 
 /**
  * opaque JSONB の `period` を表示用 `SchedulePeriod` に防御的に narrow する（fail-soft）。
- * 正の整数（数値時限）または特殊スロット文字列（朝 / 昼休み / 放課後）のみ採用し、それ以外は null。
+ * 正の整数（数値時限）/ 特殊スロット文字列（朝 / 昼休み / 放課後）/ 中身のある自由入力（その他 `{ custom }`）
+ * のみ採用し、それ以外は null（時限ラベルを出さない）。
  */
 function slotOf(rec: Record<string, unknown>): SchedulePeriod | null {
   const period = field<ScheduleItem>(rec, "period");
@@ -85,6 +86,9 @@ function slotOf(rec: Record<string, unknown>): SchedulePeriod | null {
     return period;
   }
   if (isSpecialSlot(period)) {
+    return period;
+  }
+  if (isCustomPeriod(period) && period.custom.trim().length > 0) {
     return period;
   }
   return null;
