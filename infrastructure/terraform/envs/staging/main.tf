@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "d374f6e" # staging #1130(学校管理UX監査クローズ)+#1129(signage pattern3) schema/secret無変更 疎通200/no-cache
+  web_image_tag = "97a6159" # staging #1132 予定日数をパターン別化（pattern1/2=3・pattern3=5・全パターン5日化#1127の是正）schema/secret無変更 疎通200・/login no-cache
 }
 
 module "network" {
