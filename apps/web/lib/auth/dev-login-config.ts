@@ -1,48 +1,59 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 /**
- * staging 限定 **dev-login** の設定（秘密キー + テストアカウント資格情報）の単一ソース。**サーバー専用**。
+ * staging 限定 **dev-login** の設定（**ゲート鍵のみ**）の単一ソース。**サーバー専用**。
+ *
+ * ## 真のパスワードレス化（password を保存も要求もしない）
+ * 旧実装は teacher/admin の **email + password** を config に保存し `signInWithPassword` でサインインしていた
+ * （staging の実パスワードを誰も知らず運用不能だった）。新方式は **uid から直接セッションを発行**する
+ * （apps/web の session.createSessionCookieForUid: custom token → idToken → session cookie）。よって config に
+ * **パスワードは一切持たない**。config が持つのは「dev-login を起動してよいか」を判定する **ゲート鍵（secret）**
+ * だけに縮小する。対象アカウント（teacher/admin の uid）は DB / IdP 側から解決する（dev-login.ts）。
  *
  * ## なぜ単一の JSON secret か（ルール5 Secret Manager / 最小権限）
- * dev-login は「秘密キー（?key= 突合用）」と「許可された staging テストアカウントの email+password」を必要と
- * する。これらを個別 env に散らすと secret/accessor が増え、prod へ漏れ込む面が広がる。よって **1 つの
- * Secret Manager secret（`staging-dev-login`）の JSON 値**にまとめ、Cloud Run が `DEV_LOGIN_CONFIG` env として
- * **staging のコンテナにだけ**注入する（terraform envs/staging のみ。**prod の cloud_run には配線しない**）。
+ * ゲート鍵を 1 つの Secret Manager secret（`staging-dev-login`）の JSON 値にまとめ、Cloud Run が
+ * `DEV_LOGIN_CONFIG` env として **staging のコンテナにだけ**注入する（terraform envs/staging のみ。**prod の
+ * cloud_run には配線しない**）。
  *
- * JSON 形:
+ * JSON 形（新・最小）:
  * ```json
- * { "secret": "<長いランダム>", "keyVersion": "2026-06",
- *   "teacher": { "email": "...", "password": "..." },
- *   "admin": { "email": "...", "password": "..." } }
+ * { "secret": "<長いランダム>", "keyVersion": "2026-06" }
+ * ```
+ * 任意で「解決対象を固定したい」場合のみ email/校ヒントを足せる（password は決して持たない）:
+ * ```json
+ * { "secret": "...", "teacher": { "schoolId": "<uuid>" }, "admin": { "uid": "<uuid>" } }
  * ```
  *
- * `keyVersion`（任意・非 PII・非秘密）はキーのローテ世代を示すラベル。監査 diff に載せて「どの世代の鍵で
- * dev-login されたか」を後追いできるようにする（濫用調査の粒度向上・ADR-032 共通アカウントゆえ個人特定は不能）。
- * 秘密値そのものは決して載せない。未設定なら監査では `"unknown"` 相当（フィールド省略）として扱う。
+ * `keyVersion`（任意・非 PII・非秘密）はキーのローテ世代ラベル。監査 diff に載せて追跡する。秘密値（secret）は
+ * 決して例外メッセージ・ログに出さない（ルール5）。
  *
  * ## fail-closed 不変条件
- * - env 未設定 / 空 / JSON parse 失敗 / 必須欠落 → すべて **null**（= route が 404 を返す）。
- *   prod は `DEV_LOGIN_CONFIG` が存在しないため常に null（鍵検証もアカウント解決も不能）。
- * - **任意 email/uid は受け取らない**: 解決できるアカウントは config に静的に書かれた teacher / admin のみ。
- * - 秘密値（password / secret）は決して例外メッセージ・ログに出さない（ルール5）。
+ * - env 未設定 / 空 / JSON parse 失敗 / secret 欠落 → すべて **null**（= route が 404）。prod は env 不在で常に null。
+ * - **任意 email/uid をリクエストから受け取らない**: ロールは teacher / admin の固定 allowlist のみ。
+ * - 秘密値（secret）は決して例外メッセージ・ログに出さない（ルール5）。
  */
 
-/** dev-login が受け付けるロール（固定 allowlist）。これ以外のアカウントは決して解決しない。 */
+/** dev-login が受け付けるロール（固定 allowlist）。これ以外は決して解決しない。 */
 export type DevLoginRole = "teacher" | "admin";
 
-/** dev-login テストアカウント 1 件分の資格情報。 */
-type DevLoginAccount = { email: string; password: string };
+/**
+ * 解決対象の任意ヒント（password を持たない）。指定があれば dev-login.ts の解決がこれを優先する。
+ * - teacher: `schoolId` を指定するとその学校の共通教員を対象にする。
+ * - admin: `uid` を指定するとその school_admin（users.id）を対象にする。
+ * いずれも未指定なら DB から既存解決し、無ければ dev 専用テストアカウントを冪等作成する。
+ */
+export type DevLoginResolveHint = { schoolId?: string; uid?: string };
 
-/** dev-login の解決済み設定（secret + 各ロールのテストアカウント）。 */
+/** dev-login の解決済み設定（ゲート鍵 + 任意の解決ヒント）。**password は持たない**。 */
 export type DevLoginConfig = {
-  /** Authorization ヘッダの Bearer トークンと定数時間で突合する秘密キー。 */
+  /** Authorization ヘッダの Bearer トークンと定数時間で突合するゲート鍵。 */
   secret: string;
   /** 鍵ローテ世代ラベル（任意・非 PII・非秘密）。監査 diff に記録する。未設定なら null。 */
   keyVersion: string | null;
-  /** ?role=teacher で使う staging テスト教員アカウント。 */
-  teacher: DevLoginAccount;
-  /** ?role=admin で使う staging テスト学校管理者アカウント。 */
-  admin: DevLoginAccount;
+  /** teacher 解決の任意ヒント（schoolId）。password は含まない。 */
+  teacher: DevLoginResolveHint | null;
+  /** admin 解決の任意ヒント（uid）。password は含まない。 */
+  admin: DevLoginResolveHint | null;
 };
 
 /** 入力文字列を DevLoginRole に正規化する。許可外は null（任意ロール禁止）。 */
@@ -50,18 +61,24 @@ export function toDevLoginRole(value: string | null | undefined): DevLoginRole |
   return value === "teacher" || value === "admin" ? value : null;
 }
 
-function parseAccount(value: unknown): DevLoginAccount | null {
+/**
+ * 解決ヒントをパースする。object 以外 / 未指定は null。`schoolId` / `uid` は string のときだけ採る。
+ * **password 等の余分なキーは無視**（万一 config に残っていても拾わない＝秘密を持ち回らない）。
+ */
+function parseHint(value: unknown): DevLoginResolveHint | null {
   if (typeof value !== "object" || value === null) return null;
-  const { email, password } = value as { email?: unknown; password?: unknown };
-  if (typeof email !== "string" || email.length === 0) return null;
-  if (typeof password !== "string" || password.length === 0) return null;
-  return { email, password };
+  const { schoolId, uid } = value as { schoolId?: unknown; uid?: unknown };
+  const hint: DevLoginResolveHint = {};
+  if (typeof schoolId === "string" && schoolId.length > 0) hint.schoolId = schoolId;
+  if (typeof uid === "string" && uid.length > 0) hint.uid = uid;
+  return hint.schoolId || hint.uid ? hint : null;
 }
 
 /**
- * `DEV_LOGIN_CONFIG` env を読み、検証済み設定を返す。未設定 / 不正はすべて null（fail-closed）。
+ * `DEV_LOGIN_CONFIG` env を読み、検証済み設定を返す。未設定 / 不正 / secret 欠落はすべて null（fail-closed）。
  *
  * **この関数が null を返すこと = dev-login が機能しないこと**。prod では env 不在で常に null。
+ * 必須は secret のみ（旧実装の teacher/admin password 必須は撤廃）。
  */
 export function getDevLoginConfig(): DevLoginConfig | null {
   const raw = process.env.DEV_LOGIN_CONFIG;
@@ -81,12 +98,14 @@ export function getDevLoginConfig(): DevLoginConfig | null {
     admin?: unknown;
   };
   if (typeof secret !== "string" || secret.length === 0) return null;
-  const teacherAccount = parseAccount(teacher);
-  const adminAccount = parseAccount(admin);
-  if (!teacherAccount || !adminAccount) return null;
   // keyVersion は任意。文字列でなければ無視（null）。不正値でも config 全体は無効化しない（秘密ではないため）。
   const version = typeof keyVersion === "string" && keyVersion.length > 0 ? keyVersion : null;
-  return { secret, keyVersion: version, teacher: teacherAccount, admin: adminAccount };
+  return {
+    secret,
+    keyVersion: version,
+    teacher: parseHint(teacher),
+    admin: parseHint(admin),
+  };
 }
 
 /**
@@ -105,8 +124,8 @@ export function verifyDevLoginKey(provided: string | null | undefined): boolean 
   return timingSafeEqual(digest(provided), digest(config.secret));
 }
 
-/** 指定ロールの staging テストアカウント資格情報を返す。config 未解決なら null。 */
-export function getDevLoginAccount(role: DevLoginRole): DevLoginAccount | null {
+/** 指定ロールの解決ヒントを返す（任意）。config 未解決 / ヒント無しは null。password は決して返さない。 */
+export function getDevLoginResolveHint(role: DevLoginRole): DevLoginResolveHint | null {
   const config = getDevLoginConfig();
   if (!config) return null;
   return role === "teacher" ? config.teacher : config.admin;

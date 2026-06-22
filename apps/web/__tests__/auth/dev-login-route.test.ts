@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * - env!=='staging' → 404（prod を含むすべての非 staging で機能しない）
  * - Authorization Bearer 不一致 / 欠如 → 404（秘密はヘッダ受け＝クエリ露出なし）
  * - 指定 role 以外（任意ロール）→ 404
- * - すべて揃ったときだけ session cookie を発行してリダイレクト + keyVersion を監査へ渡す
+ * - すべて揃ったときだけ **uid から直接** session cookie を発行（パスワードレス）してリダイレクト + keyVersion を監査へ
  *
- * IdP / DB に到達しないよう、dev-login（サインイン + 監査）と session（cookie 発行 / 検証）をモックする。
+ * IdP / DB に到達しないよう、dev-login（uid 解決 + 監査）と session（**uid からの cookie 発行** / 検証）をモックする。
  */
 
-// 監査 / DB / IdP を叩かないようモック。idToken 取得とセッション発行のみ制御する。
+// 監査 / DB / IdP を叩かないようモック。uid 解決とセッション発行のみ制御する。
 vi.mock("../../lib/auth/dev-login", () => ({
-  devLoginSignIn: vi.fn(async () => "fake-id-token"),
+  resolveDevLoginUid: vi.fn(async () => "11111111-1111-4111-8111-111111111111"),
   recordDevLoginAudit: vi.fn(async () => {}),
 }));
 vi.mock("../../lib/auth/session", async () => {
@@ -22,7 +22,8 @@ vi.mock("../../lib/auth/session", async () => {
     await vi.importActual<typeof import("../../lib/auth/session")>("../../lib/auth/session");
   return {
     ...actual,
-    createSessionCookie: vi.fn(async () => "fake-session-cookie"),
+    // パスワードレス発行: uid から直接 session cookie を作る経路をモック。
+    createSessionCookieForUid: vi.fn(async () => "fake-session-cookie"),
     verifySessionCookie: vi.fn(async () => ({
       uid: "11111111-1111-4111-8111-111111111111",
       role: "teacher",
@@ -36,16 +37,12 @@ vi.mock("next/headers", () => ({
 }));
 
 import { POST } from "../../app/api/dev-login/route";
-import { devLoginSignIn, recordDevLoginAudit } from "../../lib/auth/dev-login";
+import { recordDevLoginAudit, resolveDevLoginUid } from "../../lib/auth/dev-login";
 
 const SECRET = "super-long-staging-only-secret-value";
 const KEY_VERSION = "2026-06";
-const CONFIG = JSON.stringify({
-  secret: SECRET,
-  keyVersion: KEY_VERSION,
-  teacher: { email: "dev-teacher@teacher.kimiterrace.invalid", password: "tpw" },
-  admin: { email: "dev-admin@example.invalid", password: "apw" },
-});
+// 新・最小 config: ゲート鍵のみ（password は持たない）。
+const CONFIG = JSON.stringify({ secret: SECRET, keyVersion: KEY_VERSION });
 
 const ORIGINAL_APP_ENV = process.env.APP_ENV;
 const ORIGINAL_CONFIG = process.env.DEV_LOGIN_CONFIG;
@@ -85,7 +82,7 @@ describe("POST /api/dev-login — prod 打消しゲート (最優先)", () => {
     process.env.DEV_LOGIN_CONFIG = CONFIG; // 万一 prod に config があっても打消しゲートで落ちる
     const res = await POST(req({ key: SECRET, role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 
   it("prod プロジェクト痕跡 (APP_ENV=staging でも) → 404", async () => {
@@ -95,7 +92,7 @@ describe("POST /api/dev-login — prod 打消しゲート (最優先)", () => {
     process.env.DEV_LOGIN_CONFIG = CONFIG;
     const res = await POST(req({ key: SECRET, role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 });
 
@@ -105,7 +102,7 @@ describe("POST /api/dev-login — env ゲート", () => {
     process.env.DEV_LOGIN_CONFIG = CONFIG;
     const res = await POST(req({ key: SECRET, role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 });
 
@@ -118,20 +115,20 @@ describe("POST /api/dev-login — 秘密キーゲート (staging・Authorization
   it("キー不一致 → 404、サインインに進まない", async () => {
     const res = await POST(req({ key: "wrong", role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 
   it("Authorization ヘッダ欠如 → 404", async () => {
     const res = await POST(req({ role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 
   it("config 不在 (staging でも secret 未投入) → 404", async () => {
     delete process.env.DEV_LOGIN_CONFIG;
     const res = await POST(req({ key: SECRET, role: "teacher" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 });
 
@@ -144,13 +141,13 @@ describe("POST /api/dev-login — ロール allowlist (staging + 正キー)", ()
   it("指定 role 以外 (system_admin) → 404、サインインに進まない", async () => {
     const res = await POST(req({ key: SECRET, role: "system_admin" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 
   it("任意の不正 role → 404", async () => {
     const res = await POST(req({ key: SECRET, role: "root" }));
     expect(res.status).toBe(404);
-    expect(devLoginSignIn).not.toHaveBeenCalled();
+    expect(resolveDevLoginUid).not.toHaveBeenCalled();
   });
 
   it("role 欠如 → 404", async () => {
@@ -173,7 +170,7 @@ describe("POST /api/dev-login — 成功経路 (staging + 正キー + 正 role)"
     expect(cookie?.value).toBe("fake-session-cookie");
     expect(cookie?.httpOnly).toBe(true);
     expect(cookie?.path).toBe("/");
-    expect(devLoginSignIn).toHaveBeenCalledWith("teacher");
+    expect(resolveDevLoginUid).toHaveBeenCalledWith("teacher");
     expect(recordDevLoginAudit).toHaveBeenCalledTimes(1);
     // 監査呼び出しに keyVersion（非秘密ラベル）が渡る（user, role, headers, keyVersion の 4 引数）。
     expect(vi.mocked(recordDevLoginAudit).mock.calls[0]?.[3]).toBe(KEY_VERSION);
@@ -183,7 +180,7 @@ describe("POST /api/dev-login — 成功経路 (staging + 正キー + 正 role)"
     const res = await POST(req({ key: SECRET, role: "admin" }));
     expect(res.status).toBe(303);
     expect(res.cookies.get("__session")?.value).toBe("fake-session-cookie");
-    expect(devLoginSignIn).toHaveBeenCalledWith("admin");
+    expect(resolveDevLoginUid).toHaveBeenCalledWith("admin");
   });
 
   it("role を form-urlencoded で渡しても成功する", async () => {
@@ -198,11 +195,11 @@ describe("POST /api/dev-login — 成功経路 (staging + 正キー + 正 role)"
       }),
     );
     expect(res.status).toBe(303);
-    expect(devLoginSignIn).toHaveBeenCalledWith("teacher");
+    expect(resolveDevLoginUid).toHaveBeenCalledWith("teacher");
   });
 
   it("サインイン失敗 (idToken null) → 404、cookie を発行しない", async () => {
-    vi.mocked(devLoginSignIn).mockResolvedValueOnce(null);
+    vi.mocked(resolveDevLoginUid).mockResolvedValueOnce(null);
     const res = await POST(req({ key: SECRET, role: "teacher" }));
     expect(res.status).toBe(404);
     expect(res.cookies.get("__session")).toBeUndefined();

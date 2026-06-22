@@ -131,9 +131,12 @@ locals {
   # PR7 / F16 §9: device_down / device_recovered を Slack に配信する URL。未投入だと Slack 送信は no-op。
   slack_webhook_url_secret_id = "staging-slack-webhook-url" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
-  # staging 限定 dev-login の設定（秘密キー + テストアカウント資格情報の JSON）の Secret Manager secret ID
-  # （ルール5・値は人間投入）。Cloud Run web が DEV_LOGIN_CONFIG env として注入。**staging 専用**＝prod の
-  # envs/prod には同 secret も APP_ENV=staging も足さない（多層防御。dev-login が prod で機能しないことを保証）。
+  # staging 限定 dev-login の設定（ゲート鍵 + 任意の解決ヒント。**password は持たない**）の JSON を保持する
+  # Secret Manager secret ID（ルール5・値は人間投入）。新スキーマ:
+  #   { "secret": "<ゲート鍵>", "keyVersion": "<任意・非秘密>", "teacher": { "schoolId": "<uuid>" }, "admin": { "uid": "<uuid>" } }
+  # secret は Authorization: Bearer 突合用。teacher/admin は任意の解決ヒントのみ（email/password は廃止・型が無視する）。
+  # Cloud Run web が DEV_LOGIN_CONFIG env として注入。**staging 専用**＝prod の envs/prod には同 secret も
+  # APP_ENV=staging も足さない（多層防御。dev-login が prod で機能しないことを保証）。
   # 未投入なら dev-login は config 不在で常に 404（fail-closed）。
   dev_login_secret_id = "staging-dev-login" # gitleaks:allow（secret の ID であり値ではない・ルール5値は人間投入）
 
@@ -302,7 +305,7 @@ module "secret_manager" {
       description = "TV 死活監視の Slack incoming webhook URL（PR7/F16 §9）。tv-liveness Cloud Run Job が device_down/device_recovered の配信に使う。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
     (local.dev_login_secret_id) = {
-      description = "staging 限定 dev-login の設定 JSON（{secret, keyVersion?, teacher:{email,password}, admin:{email,password}}）。secret は Authorization Bearer 突合用。keyVersion（任意・非秘密）は鍵ローテ世代ラベルで監査 diff に記録。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
+      description = "staging 限定 dev-login の設定 JSON（{secret, keyVersion?, teacher:{schoolId?}, admin:{uid?}}・**password は持たない**）。secret は Authorization: Bearer 突合用のゲート鍵。teacher/admin は任意の解決ヒント（school/uid）のみで資格情報ではない。keyVersion（任意・非秘密）は鍵ローテ世代ラベルで監査 diff に記録。Cloud Run web が DEV_LOGIN_CONFIG env で注入。**staging 専用**（prod には作らない）。値は人間が投入（ルール5・Terraform は値を扱わない）。"
     }
   }
 }

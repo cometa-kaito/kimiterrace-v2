@@ -1,40 +1,159 @@
-import { auditLog } from "@kimiterrace/db";
-import { withUserSession } from "../db";
+import {
+  DEVLOGIN_TEST_ADMIN_EMAIL,
+  DEVLOGIN_TEST_ADMIN_UID,
+  auditLog,
+  ensureDevLoginTestSchool,
+  ensureDevLoginTestUsers,
+  findExistingSchoolAdminUid,
+  findExistingTeacherLoginSchoolId,
+} from "@kimiterrace/db";
+import { getAdminAuth } from "./adminApp";
+import { getDb, withUserSession } from "../db";
 import { extractClientMeta } from "../magic-link/client-meta";
-import { type DevLoginRole, getDevLoginAccount } from "./dev-login-config";
-import { signInWithEmailPassword } from "./password-sign-in";
+import { type DevLoginRole, getDevLoginResolveHint } from "./dev-login-config";
 import type { AuthUser } from "./session";
+import { sharedTeacherUid, teacherAccountEmail } from "./teacher-account";
 
 /**
- * staging 限定 **dev-login** のサインインと監査記録（ADR-003 / ADR-032）。**サーバー専用**。
+ * staging 限定 **dev-login** の uid 解決 / 冪等プロビジョニングと監査記録（ADR-003 / ADR-032）。**サーバー専用**。
  *
- * 「パスワードを打たずに」セッションを得る手段だが、**任意の email/uid を受け取らない**。許可ロール
- * （teacher / admin）に静的に紐づく **staging のテストアカウント**（`DEV_LOGIN_CONFIG` JSON、Secret Manager）
- * のみを `signInWithEmailPassword`（既存の認証経路を再利用）でサインインして idToken を得る。idToken は
- * route 側で `createSessionCookie` に渡し、通常ログインと同一の `__session` を発行する（= 本物のセッション。
- * RLS の school スコープが正しく効く）。
+ * 「**パスワードを打たない・保存しない**」でセッションを得る手段。任意の email/uid をリクエストから受け取らず、
+ * 許可ロール（teacher / admin）に対応する **既存アカウントの uid を DB / IdP から解決**する。解決できた uid は
+ * route 側で `createSessionCookieForUid`（custom token → idToken → session cookie）に渡し、通常ログインと同一の
+ * `__session` を発行する（= 本物のセッション。RLS の school スコープが正しく効く）。
  *
- * ## 「新規ユーザーを作らない」不変条件
- * 本モジュールは `createUser` / `setCustomUserClaims` を**一切呼ばない**。config に書かれた既存テスト
- * アカウントの email + password で signIn するだけ。dev-login が新しい IdP アカウントを生やすことはない。
+ * ## アカウント解決方式（既存解決 → 無ければ冪等作成）
+ * - **teacher**: ① config ヒント（schoolId）or ② DB の `teacher_login_enabled` 有効校を 1 校解決し、その学校の
+ *   共通教員 uid（`sharedTeacherUid`）を対象にする。無ければ **dev 専用テスト校 "DEVLOGIN_TEST" を冪等作成**し、
+ *   その共通教員を対象にする。
+ * - **admin**: ① config ヒント（uid）or ② DB の既存 school_admin を 1 件解決。②は **DEVLOGIN_TEST 校配下を最優先**
+ *   で選ぶため（findExistingSchoolAdminUid）、staging に複数テナントのテストデータがあっても既定で dev 専用テナントに
+ *   収束する。**特定の実在校の admin を使いたい場合は `DEV_LOGIN_CONFIG.admin.uid` ヒントで明示**する（①が②に優先）。
+ *   無ければ dev 専用テスト校配下に **dev 専用 school_admin を冪等作成**する。
+ *
+ * 新規作成は **dev-login 経路かつ staging ゲート内のみ**（route が isProdLikeEnv / APP_ENV / ゲート鍵を通した後に
+ * だけ本モジュールを呼ぶ）。IdP アカウント（custom claims = role/school_id）と `users` 行の両方を冪等に用意する。
+ *
+ * ## 秘密を持たない（ルール5）
+ * パスワードは IdP にも本 DB にも作らない（custom token 経路ゆえ password 不要）。IdP アカウントは password 未設定
+ * のまま `createUser` + `setCustomUserClaims` で用意する（通常ログイン経路では password 未設定ゆえサインイン不可。
+ * dev-login の custom token 経路のみがセッションを得られる = 攻撃面を増やさない）。
  */
 
+/** dev-login の対象アカウント解決結果（uid のみ。PII / 秘密は持たない）。 */
+type DevLoginTarget = { uid: string };
+
+/** firebase-admin のエラーコードを取り出す（既存衝突の冪等判定用）。 */
+function adminErrorCode(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = (error as { code: unknown }).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
+function isUserAlreadyExists(error: unknown): boolean {
+  const code = adminErrorCode(error);
+  return code === "auth/uid-already-exists" || code === "auth/email-already-exists";
+}
+
 /**
- * 指定ロールの staging テストアカウントでサインインし idToken を得る。
+ * IdP アカウントを **password 無し**で冪等に用意し、role/school_id の custom claims を張る。
  *
- * 資格情報未設定（config 不在）/ サインイン失敗（パスワード不一致・アカウント不在）はすべて **null**
- * （route が 404 に写像）。**任意 email/uid は受け取らず**、config で固定されたテストアカウントのみ。
+ * 既存（uid/email 衝突）なら custom claims の再設定のみ（idempotent）。password は決して設定しない
+ * （dev-login の custom token 経路だけがこのアカウントでセッションを得られる）。
  */
-export async function devLoginSignIn(role: DevLoginRole): Promise<string | null> {
-  const account = getDevLoginAccount(role);
-  if (!account) return null;
-  return await signInWithEmailPassword(account.email, account.password);
+async function ensureIdpAccount(params: {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: "teacher" | "school_admin";
+  schoolId: string;
+}): Promise<void> {
+  const auth = getAdminAuth();
+  try {
+    await auth.createUser({
+      uid: params.uid,
+      email: params.email,
+      displayName: params.displayName,
+    });
+  } catch (error) {
+    if (!isUserAlreadyExists(error)) throw error;
+    // 既存アカウントはそのまま使う（password 未設定のまま）。email 等は触らない。
+  }
+  // role/school_id を claim にセット（session token → RLS context）。uid は localId（claim ではない、ADR-003）。
+  await auth.setCustomUserClaims(params.uid, { role: params.role, school_id: params.schoolId });
+}
+
+/**
+ * 指定ロールの **既存** uid を解決する。無ければ null（呼出側が冪等作成へフォールバック）。
+ * config ヒント（schoolId / uid）があればそれを最優先する。
+ */
+async function resolveExistingTarget(role: DevLoginRole): Promise<DevLoginTarget | null> {
+  const hint = getDevLoginResolveHint(role);
+  if (role === "teacher") {
+    // ヒント schoolId → その共通教員 uid。無ければ DB の有効校を 1 校解決。
+    const schoolId = hint?.schoolId ?? (await findExistingTeacherLoginSchoolId(getDb()));
+    return schoolId ? { uid: sharedTeacherUid(schoolId) } : null;
+  }
+  // admin: ヒント uid → そのまま（実在校を固定したい時はこれ）。無ければ DB の既存 school_admin を 1 件解決
+  // （DEVLOGIN_TEST 校配下を最優先＝多テナント staging でも既定で dev 専用テナントに収束）。
+  const uid = hint?.uid ?? (await findExistingSchoolAdminUid(getDb()));
+  return uid ? { uid } : null;
+}
+
+/**
+ * 既存解決に失敗したときの **冪等作成**フォールバック。dev 専用テスト校 "DEVLOGIN_TEST" を作り、
+ * teacher / admin の IdP アカウント + `users` 行を用意して uid を返す。**staging ゲート内のみ呼ばれる**。
+ */
+async function provisionTestTarget(role: DevLoginRole): Promise<DevLoginTarget> {
+  // 各扉に getDb() を直接渡す（RLS チョークポイント監査の「扉」allowlist 経路。内部で system_admin 文脈を張る）。
+  const schoolId = await ensureDevLoginTestSchool(getDb());
+  const teacherUid = sharedTeacherUid(schoolId);
+  // users 行（teacher + school_admin）を冪等作成（FK / created_by 充足）。
+  await ensureDevLoginTestUsers(getDb(), { schoolId, teacherUid });
+  if (role === "teacher") {
+    await ensureIdpAccount({
+      uid: teacherUid,
+      email: teacherAccountEmail(schoolId),
+      displayName: "教員（dev-login テスト）",
+      role: "teacher",
+      schoolId,
+    });
+    return { uid: teacherUid };
+  }
+  await ensureIdpAccount({
+    uid: DEVLOGIN_TEST_ADMIN_UID,
+    email: DEVLOGIN_TEST_ADMIN_EMAIL,
+    displayName: "学校管理者（dev-login テスト）",
+    role: "school_admin",
+    schoolId,
+  });
+  return { uid: DEVLOGIN_TEST_ADMIN_UID };
+}
+
+/**
+ * 指定ロールの dev-login 対象 uid を解決する（既存解決 → 無ければ冪等作成）。
+ *
+ * 失敗（DB / IdP エラー）は **null**（route が 404 に写像）。任意 email/uid は受け取らない。
+ * 既存解決時は IdP アカウントが既に provisioning 済（通常運用のアカウント）である前提。冪等作成パスのみが
+ * IdP アカウントを生やす（dev 専用テストアカウント）。秘密値は throw メッセージ・ログに出さない（ルール5）。
+ */
+export async function resolveDevLoginUid(role: DevLoginRole): Promise<string | null> {
+  try {
+    const existing = await resolveExistingTarget(role);
+    const target = existing ?? (await provisionTestTarget(role));
+    return target.uid;
+  } catch {
+    // 解決 / プロビジョニング失敗は 404 に畳む（列挙対策・理由はログに出さない、ルール5）。
+    return null;
+  }
 }
 
 /**
  * dev-login の使用を `audit_log` に追記する（CLAUDE.md ルール1 / NFR04）。
  *
- * **既に発行済みセッションの actor（解決済み AuthUser）として記録する**: dev-login で得た idToken を
+ * **既に発行済みセッションの actor（解決済み AuthUser）として記録する**: dev-login で得た session cookie を
  * `verifySessionCookie` で検証した結果の user をそのまま RLS context に張り（`withUserSession`）、その user の
  * `actor_user_id` / `school_id` で 1 行 insert する。これにより「staging で誰のセッションとして dev-login が
  * 使われたか」を、漏洩時にも append-only chain で立証できる。`audit_op` に read が無いため

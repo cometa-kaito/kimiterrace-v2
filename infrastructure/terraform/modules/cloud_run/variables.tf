@@ -117,9 +117,10 @@ variable "app_env" {
 
 variable "dev_login_secret_id" {
   description = <<-EOT
-    staging 限定 dev-login の設定（秘密キー + テストアカウント資格情報の JSON）を保持する Secret Manager
-    secret の ID（ルール5）。Cloud Run が DEV_LOGIN_CONFIG env として注入する。dev-login の第2ゲート
-    （?key= 突合）とアカウント解決に使う。**prod では設定しない**（既定 ""＝env / accessor を配線しない）。
+    staging 限定 dev-login の設定（ゲート鍵 + 任意の解決ヒント。**password は持たない**）の JSON を保持する
+    Secret Manager secret の ID（ルール5）。Cloud Run が DEV_LOGIN_CONFIG env として注入する。dev-login の
+    第2ゲート（Authorization: Bearer 突合）とアカウント解決（teacher.schoolId / admin.uid の任意ヒント）に使う。
+    **prod では設定しない**（既定 ""＝env / accessor を配線しない）。
     空文字なら dev-login は config 不在で常に 404（fail-closed）。
   EOT
   type        = string
