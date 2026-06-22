@@ -98,11 +98,12 @@ export default async function ClassEditorPage({
     const blackout = await getClassSignageBlackout(tx, classId);
     // WYSIWYG（盤面を編集タブ）の実機ライブプレビュー用に、実機 `getSignageDisplayData` と同じ基底データを
     // **同一 tx・RLS 自校限定**で取得する（盤面 `SignageBoardView` を実機と一致させるため・重複実装しない）。
-    // 予定は今後 3 平日の 3 列（実機と同じ），クラス文脈（ヘッダー識別ラベル），天気は予定列ヘッダーのアイコン。
+    // 予定の列数は実機と同じく pattern3（廊下版）は平日5日、pattern1/2 は3平日（実機 signage-display と一致）。
+    // クラス文脈（ヘッダー識別ラベル），天気は予定列ヘッダーのアイコン。
     const previewScheduleDays = await getEffectiveScheduleDays(
       tx,
       classId,
-      signageScheduleDates(date, 3),
+      signageScheduleDates(date, pattern === "pattern3" ? 5 : 3),
     );
     const previewClassContext = await getSignageClassContext(tx, classId);
     // 天気は fail-soft（取得失敗・地域未解決でも盤面の他要素は壊さない）。実機経路と同思想で null に倒す。
