@@ -102,3 +102,49 @@ export const primaryBtnDisabledStyle: React.CSSProperties = {
   background: color.muted,
   cursor: "not-allowed",
 };
+
+/* ------------------------------------------------------------------ *
+ *  並べ替え（D&D / 上へ下へ）— 連絡など「配列順 = サイネージ表示順」のセクション用（D 群）
+ *
+ *  学校管理 #1116 の grip（⠿）と同じ視覚言語。色だけに頼らず、ドラッグ中は半透明・ドロップ先は左辺に
+ *  ブランド色の差し込み線でヒントする。キーボード/タッチ経路は「上へ」「下へ」ボタンを別途用意する。
+ * ------------------------------------------------------------------ */
+
+/** ドラッグハンドル（グリップ ⠿）。掴めることを示すカーソル＋控えめ色。タップ領域も確保する。 */
+export const gripStyle: React.CSSProperties = {
+  cursor: "grab",
+  color: color.muted,
+  fontSize: fontSize.md,
+  lineHeight: 1,
+  padding: "0.25rem 0.15rem",
+  userSelect: "none",
+  touchAction: "none",
+};
+/** ドラッグ中の行（半透明＝掴んでいることを示す）。 */
+export const draggingRowStyle: React.CSSProperties = {
+  opacity: 0.5,
+};
+/** ドロップ先候補の行（左辺にブランド色の差し込み線で「ここに入る」を示す）。 */
+export const dropOverRowStyle: React.CSSProperties = {
+  boxShadow: `inset 3px 0 0 0 ${color.primary}`,
+  borderRadius: radius.sm,
+};
+/** 上へ/下へ移動ボタン（キーボード/タッチ経路。アイコンのみだが aria-label を必ず添える）。 */
+export const moveBtnStyle: React.CSSProperties = {
+  minWidth: "1.9rem",
+  minHeight: "1.9rem",
+  padding: "0 0.35rem",
+  background: "#fff",
+  color: color.ink,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
+  cursor: "pointer",
+  fontSize: fontSize.sm,
+  lineHeight: 1,
+};
+/** 無効な移動ボタン（端の行）。 */
+export const moveBtnDisabledStyle: React.CSSProperties = {
+  ...moveBtnStyle,
+  color: color.border,
+  cursor: "not-allowed",
+};
