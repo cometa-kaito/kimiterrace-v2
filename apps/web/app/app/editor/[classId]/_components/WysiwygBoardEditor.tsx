@@ -7,6 +7,7 @@ import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
 import { blockRowCapacity, patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import { useAdRotation } from "@/lib/signage/useAdRotation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
@@ -41,6 +42,9 @@ import { editorRegionAnchorId } from "./region-anchor";
  */
 // 領域識別子は盤面の編集ボタンと**単一ソース**を共有する（`EditRegion`）。ここで再定義してドリフトさせない。
 type Region = EditRegion;
+
+/** previewPayload 未確定（base=null）時に {@link useAdRotation} へ渡す安定参照の空広告列（毎レンダーの再生成を避ける）。 */
+const EMPTY_ADS: readonly never[] = [];
 
 export function WysiwygBoardEditor({
   classId,
@@ -167,6 +171,10 @@ export function WysiwygBoardEditor({
     () => (base ? buildEditorPreviewPayload(base, { schedules, notices, assignments }) : null),
     [base, schedules, notices, assignments],
   );
+  // 盤面プレビューでも実機と同じく広告を**ローテーション表示**する（要望 2026-06-23: エディタ画面でも広告が
+  // 回るように）。回転 index の算出は実機（SignageClient）と同じ共有フック {@link useAdRotation} に寄せる。
+  // 広告 0/1 件なら 0 のまま回らない・base 未取得（previewPayload=null）時は空配列で no-op。
+  const adIndex = useAdRotation(previewPayload?.ads ?? EMPTY_ADS);
 
   // このクラスの実機が出すパターンに含まれる**編集対象ブロックだけ**を出す（`PATTERN_BLOCKS` 単一ソース駆動）。
   // 予定は pattern1/2/3 共通だが **pattern4 だけは予定を持たない**（教員入力最小・連絡のみ編集）ので、予定の
@@ -209,6 +217,8 @@ export function WysiwygBoardEditor({
                 width={boardWidth}
                 editRegions={{ active, onRegion: focusRegion }}
                 now={now}
+                // 実機と同じく広告をローテーション表示（要望）。index は useAdRotation が duration 秒ごとに進める。
+                adIndex={adIndex}
               />
             ) : (
               <div className={styles.skeleton} aria-hidden="true" />

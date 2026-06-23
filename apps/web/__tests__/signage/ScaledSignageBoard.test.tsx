@@ -342,6 +342,45 @@ describe("ScaledSignageBoard（静的・縮小ラッパ）", () => {
   });
 });
 
+describe("ScaledSignageBoard 広告ローテーション（adIndex prop・要望: エディタ画面でも広告が回る）", () => {
+  /** 区別できるよう caption だけ差し替えた広告（現在広告の caption が盤面に出るので index を判定できる）。 */
+  const captioned = (adId: string, caption: string): SignagePayload["ads"][number] => ({
+    ...ad(adId),
+    caption,
+  });
+  const ads = [
+    captioned("ad-a", "広告アルファ"),
+    captioned("ad-b", "広告ベータ"),
+    captioned("ad-c", "広告ガンマ"),
+  ];
+
+  it("adIndex を渡すとその広告を表示し、index を進めると切り替わる（＝ローテーション）", () => {
+    const payload = samplePayload({ ads });
+    const { rerender } = render(<ScaledSignageBoard payload={payload} adIndex={1} />);
+    const aside = screen.getByRole("complementary", { name: "広告" });
+    // 先頭ではなく 2 番目の広告が出る（回転している証）。
+    expect(within(aside).getByText("広告ベータ")).toBeInTheDocument();
+    expect(within(aside).queryByText("広告アルファ")).toBeNull();
+    // index が進むと次の広告へ切り替わる。
+    rerender(<ScaledSignageBoard payload={payload} adIndex={2} />);
+    expect(within(aside).getByText("広告ガンマ")).toBeInTheDocument();
+    expect(within(aside).queryByText("広告ベータ")).toBeNull();
+  });
+
+  it("範囲外の adIndex は件数で丸める（落ちない）", () => {
+    render(<ScaledSignageBoard payload={samplePayload({ ads })} adIndex={4} />); // 4 % 3 = 1
+    const aside = screen.getByRole("complementary", { name: "広告" });
+    expect(within(aside).getByText("広告ベータ")).toBeInTheDocument();
+  });
+
+  it("adIndex 省略時は従来どおり先頭広告を静止表示する（サムネ / モニタの壁は不変）", () => {
+    render(<ScaledSignageBoard payload={samplePayload({ ads })} />);
+    const aside = screen.getByRole("complementary", { name: "広告" });
+    expect(within(aside).getByText("広告アルファ")).toBeInTheDocument();
+    expect(within(aside).queryByText("広告ベータ")).toBeNull();
+  });
+});
+
 /**
  * PR-B（規定超過 → 汎用オートスクロール §11a）の**構造ガード**。視覚的なスクロール挙動（translateY アニメ）は
  * jsdom で検証できない（[[ref_apps_web_tsx_tests_need_full_suite]]）ので、ここで担保するのは:
