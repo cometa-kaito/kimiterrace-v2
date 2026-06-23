@@ -6,11 +6,12 @@ import { validateCalloutItems } from "@/lib/editor/callouts-core";
 import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { StudentCallout } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
+  detailPanelStyle,
   draggingRowStyle,
   dropOverRowStyle,
   emptyPlaceholderStyle,
@@ -23,6 +24,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { DetailField, RowDetailToggle, useRowDisclosure } from "./RowDetails";
 import { useGridTabNavigation } from "./useGridTabNavigation";
 import { moveItem, useRowReorder } from "./useRowReorder";
 
@@ -82,6 +84,14 @@ function isBlankCalloutRow(r: Row): boolean {
   );
 }
 
+/**
+ * 任意項目（呼び出し先 / 用件）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定（入力済みを
+ * 隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
+ */
+function hasCalloutDetail(r: { location: string; reason: string }): boolean {
+  return r.location.trim() !== "" || r.reason.trim() !== "";
+}
+
 export function CalloutsEditor({
   classId,
   date,
@@ -118,6 +128,17 @@ export function CalloutsEditor({
   );
   // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
   const nextId = useRef(Math.max(initialItems.length, prefillRows));
+  // 行ごとの「詳細（任意項目）」開閉。**初期に値の入っている行は最初から開く**（入力済みを隠さない）。
+  // 初期 id 付番（`r${idx}`）と一致させる（state 初期化と同じ index 基準）。
+  const disclosure = useRowDisclosure(
+    initialItems
+      .map((i, idx) => ({
+        id: `r${idx}`,
+        has: hasCalloutDetail({ location: i.location ?? "", reason: i.reason ?? "" }),
+      }))
+      .filter((x) => x.has)
+      .map((x) => x.id),
+  );
 
   // 事前生成した空行（全欄空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
   // 空の呼び出しを保存しない／空行を掴ませない）。教員が氏名等を入れた行だけが盤面・保存に反映される。
@@ -166,8 +187,9 @@ export function CalloutsEditor({
     });
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
-  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。col: 0=生徒氏名 / 1=呼び出し先 /
-  // 2=用件。時刻は native time ピッカー（内部セグメント間 Tab を残す）なので登録せず既定動作のまま。
+  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。col: 0=生徒氏名（コア＝常時表示）のみ。
+  // 呼び出し先 / 用件は「詳細」パネルに畳んだ任意項目なので登録せず通常 Tab に委ねる（開いている時だけ存在）。
+  // 時刻は native time ピッカー（内部セグメント間 Tab を残す）なので登録せず既定動作のまま。
   const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
@@ -188,15 +210,14 @@ export function CalloutsEditor({
                 生徒氏名
                 <RequiredMark />
               </th>
-              <th style={thStyle}>呼び出し先</th>
-              <th style={thStyle}>用件</th>
+              <th style={thStyle} aria-label="詳細" />
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...tdStyle, padding: 0 }}>
+                <td colSpan={5} style={{ ...tdStyle, padding: 0 }}>
                   <div style={emptyPlaceholderStyle}>
                     まだ呼び出しがありません。「呼び出しを追加」から入力します。
                   </div>
@@ -205,74 +226,94 @@ export function CalloutsEditor({
             ) : null}
             {rows.map((r, i) => {
               const reorder = rowReorder(i);
+              const open = disclosure.isOpen(r.id);
+              const detailId = `callout-detail-${r.id}`;
               return (
                 // 安定キー `r.id` で並べ替え時も行の同一性を保つ（NoticeEditor / VisitorsEditor と同方式）。
-                <tr
-                  key={r.id}
-                  {...reorder.rowProps}
-                  style={{
-                    ...(reorder.isDragging ? draggingRowStyle : {}),
-                    ...(reorder.isOver ? dropOverRowStyle : {}),
-                  }}
-                >
-                  <td style={tdStyle}>
-                    {reorderable && !isBlankCalloutRow(r) ? (
-                      <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
-                    ) : null}
-                  </td>
-                  <td style={tdStyle}>
-                    <input
-                      type="time"
-                      value={r.scheduledTime}
-                      onChange={(e) => update(i, { scheduledTime: e.target.value })}
-                      style={{ ...inputStyle, width: "8rem" }}
-                      aria-label={`${i + 1} 行目の時刻`}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <input
-                      ref={(el) => registerCell(i, 0, el)}
-                      value={r.studentName}
-                      onChange={(e) => update(i, { studentName: e.target.value })}
-                      onKeyDown={(e) => onCellKeyDown(e, i, 0)}
-                      placeholder="生徒氏名"
-                      style={{ ...inputStyle, width: "100%" }}
-                      aria-label={`${i + 1} 行目の生徒氏名`}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <input
-                      ref={(el) => registerCell(i, 1, el)}
-                      value={r.location}
-                      onChange={(e) => update(i, { location: e.target.value })}
-                      onKeyDown={(e) => onCellKeyDown(e, i, 1)}
-                      placeholder="(任意) 職員室 等"
-                      style={{ ...inputStyle, width: "100%" }}
-                      aria-label={`${i + 1} 行目の呼び出し先`}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <input
-                      ref={(el) => registerCell(i, 2, el)}
-                      value={r.reason}
-                      onChange={(e) => update(i, { reason: e.target.value })}
-                      onKeyDown={(e) => onCellKeyDown(e, i, 2)}
-                      placeholder="(任意) 用件"
-                      style={{ ...inputStyle, width: "100%" }}
-                      aria-label={`${i + 1} 行目の用件`}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <button
-                      type="button"
-                      onClick={() => removeRow(i)}
-                      style={removeBtnStyle}
-                      aria-label={`${i + 1} 行目を削除`}
-                    >
-                      削除
-                    </button>
-                  </td>
-                </tr>
+                // 主役 `<tr>` と詳細 `<tr>` の 2 行を 1 行として束ねるため Fragment に key を置く。
+                <Fragment key={r.id}>
+                  {/* 主役行（時刻 / 生徒氏名）。D&D / ↑↓ の対象はこの行だけ（reorder.rowProps は詳細 tr に付けない）。 */}
+                  <tr
+                    {...reorder.rowProps}
+                    style={{
+                      ...(reorder.isDragging ? draggingRowStyle : {}),
+                      ...(reorder.isOver ? dropOverRowStyle : {}),
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      {reorderable && !isBlankCalloutRow(r) ? (
+                        <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
+                      ) : null}
+                    </td>
+                    <td style={tdStyle}>
+                      <input
+                        type="time"
+                        value={r.scheduledTime}
+                        onChange={(e) => update(i, { scheduledTime: e.target.value })}
+                        style={{ ...inputStyle, width: "8rem" }}
+                        aria-label={`${i + 1} 行目の時刻`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <input
+                        ref={(el) => registerCell(i, 0, el)}
+                        value={r.studentName}
+                        onChange={(e) => update(i, { studentName: e.target.value })}
+                        onKeyDown={(e) => onCellKeyDown(e, i, 0)}
+                        placeholder="生徒氏名"
+                        style={{ ...inputStyle, width: "100%" }}
+                        aria-label={`${i + 1} 行目の生徒氏名`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <RowDetailToggle
+                        open={open}
+                        hasValue={hasCalloutDetail(r)}
+                        onToggle={() => disclosure.toggle(r.id)}
+                        controlsId={detailId}
+                        label={`${i + 1} 行目の詳細項目`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        style={removeBtnStyle}
+                        aria-label={`${i + 1} 行目を削除`}
+                      >
+                        削除
+                      </button>
+                    </td>
+                  </tr>
+                  {/* 詳細行（呼び出し先 / 用件）。開いている時だけ描画。D&D のドロップ先にしないため
+                      reorder.rowProps を付けない（data-reorder-index を持たせない）。 */}
+                  {open ? (
+                    <tr>
+                      <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
+                        <div id={detailId} style={detailPanelStyle}>
+                          <DetailField label="呼び出し先">
+                            <input
+                              value={r.location}
+                              onChange={(e) => update(i, { location: e.target.value })}
+                              placeholder="(任意) 職員室 等"
+                              style={{ ...inputStyle, width: "100%" }}
+                              aria-label={`${i + 1} 行目の呼び出し先`}
+                            />
+                          </DetailField>
+                          <DetailField label="用件">
+                            <input
+                              value={r.reason}
+                              onChange={(e) => update(i, { reason: e.target.value })}
+                              placeholder="(任意) 用件"
+                              style={{ ...inputStyle, width: "100%" }}
+                              aria-label={`${i + 1} 行目の用件`}
+                            />
+                          </DetailField>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               );
             })}
           </tbody>
