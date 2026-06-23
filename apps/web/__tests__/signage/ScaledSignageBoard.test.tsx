@@ -341,3 +341,175 @@ describe("ScaledSignageBoard（静的・縮小ラッパ）", () => {
     expect(screen.queryByText(/^\d{2}:\d{2}$/)).toBeNull();
   });
 });
+
+/**
+ * PR-B（規定超過 → 汎用オートスクロール §11a）の**構造ガード**。視覚的なスクロール挙動（translateY アニメ）は
+ * jsdom で検証できない（[[ref_apps_web_tsx_tests_need_full_suite]]）ので、ここで担保するのは:
+ *   1. **超過時のみ** track に超過マーカー（inline `--total-rows`）が付く＝`.autoScrollActive` が有効化される。
+ *   2. **未超過時**は超過マーカーが付かない（原点で静止＝従来のプレースホルダー固定枠の見た目を保つ）。
+ *   3. 超過時も**全件が DOM に残る**（クリップ/hide でなく窓内スクロールで全件見せる＝文字切れの解消）。
+ * 規定行数（可視数）は単一ソース `blockRowCapacity(pattern, kind)`（=5）。可視数 inline（`--visible-rows`）は常に付く。
+ */
+describe("PR-B 規定超過の自動スクロール（汎用機構 §11a の構造ガード）", () => {
+  /** N 件の連絡 section を作る。 */
+  function noticesOf(n: number): SignagePayload["daily"]["notices"] {
+    return {
+      items: Array.from({ length: n }, (_, i) => ({ text: `連絡${i + 1}` })),
+      source: null,
+    };
+  }
+  /** 1 日に N コマの予定を持つ scheduleDays（1 列）を作る。 */
+  function scheduleDayWith(n: number): SignagePayload["scheduleDays"] {
+    return [
+      {
+        date: "2026-05-31",
+        schedule: {
+          source: null,
+          items: Array.from({ length: n }, (_, i) => ({ period: i + 1, subject: `コマ${i + 1}` })),
+        },
+      },
+    ];
+  }
+  /** N 件の来校者を作る（氏名 + 用件のメタ 2 行目を持つ＝可変高アイテムのクリップ検証用）。 */
+  function visitorsOf(n: number): SignagePayload["visitors"] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `v-${i + 1}`,
+      scheduledTime: "10:00",
+      visitorName: `来校者${i + 1}`,
+      affiliation: "ABC社",
+      purpose: `用件${i + 1}`,
+      host: "担任",
+    })) as NonNullable<SignagePayload["visitors"]>;
+  }
+  /** N 件の生徒呼び出しを作る。 */
+  function calloutsOf(n: number): SignagePayload["callouts"] {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `c-${i + 1}`,
+      scheduledTime: "10:00",
+      studentName: `生徒${i + 1}`,
+      location: "進路指導室",
+      reason: `用件${i + 1}`,
+    })) as NonNullable<SignagePayload["callouts"]>;
+  }
+  /**
+   * region 内の汎用オートスクロール（§11a）の状態を取る。viewport（外側 .autoScroll）は常に inline
+   * `--visible-rows` を持ち、track（内側）は**超過時だけ** inline `--total-rows` を持つ（未超過は付かない＝原点静止）。
+   * `total` は超過時の実行数、未超過は `""`（属性なし）。
+   */
+  function scrollStateIn(region: HTMLElement): { visible: string; total: string } {
+    const viewport = region.querySelector('[style*="--visible-rows"]') as HTMLElement | null;
+    expect(viewport).not.toBeNull();
+    const track = region.querySelector('[style*="--total-rows"]') as HTMLElement | null;
+    return {
+      visible: (viewport as HTMLElement).style.getPropertyValue("--visible-rows"),
+      total: track ? track.style.getPropertyValue("--total-rows") : "",
+    };
+  }
+
+  it("pattern1 連絡: 6 件（規定 5 超過）で track に --total-rows が付き全 6 件が DOM に残る", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({ daily: { ...samplePayload().daily, notices: noticesOf(6) } }),
+        )}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "連絡" });
+    const state = scrollStateIn(region);
+    expect(state.visible).toBe("5");
+    expect(state.total).toBe("6");
+    // 全件が DOM に残る（クリップせず窓内スクロールで全件見せる）。
+    expect(region).toHaveTextContent("連絡1");
+    expect(region).toHaveTextContent("連絡6");
+  });
+
+  it("pattern1 連絡: 3 件（規定 5 未満）では --total-rows を付けない（原点静止・固定枠の見た目維持）", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({ daily: { ...samplePayload().daily, notices: noticesOf(3) } }),
+        )}
+      />,
+    );
+    expect(scrollStateIn(screen.getByRole("region", { name: "連絡" })).total).toBe("");
+  });
+
+  it("pattern1 予定列: 6 コマ（規定 5 超過）で track に --total-rows が付き全コマが DOM に残る", () => {
+    render(
+      <SignageBoardView {...boardProps(samplePayload({ scheduleDays: scheduleDayWith(6) }))} />,
+    );
+    const region = screen.getByRole("region", { name: "予定" });
+    expect(scrollStateIn(region).total).toBe("6");
+    expect(region).toHaveTextContent("コマ1");
+    expect(region).toHaveTextContent("コマ6");
+  });
+
+  it("pattern2 予定列: 6 コマ（規定 5 超過）で track に --visible-rows=5 / --total-rows=6 が付く", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({ designPattern: "pattern2", scheduleDays: scheduleDayWith(6) }),
+        )}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "予定" });
+    const state = scrollStateIn(region);
+    expect(state.visible).toBe("5");
+    expect(state.total).toBe("6");
+    // 超過コマも全件 DOM に残る（固定高でも clip でなくスクロールで見せる）。
+    expect(region).toHaveTextContent("コマ6");
+  });
+
+  it("pattern2 来校者: 6 件（メタ 2 行目あり）超過で --total-rows が付き全件 + 用件メタが DOM に残る", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(samplePayload({ designPattern: "pattern2", visitors: visitorsOf(6) }))}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "来校者一覧" });
+    expect(scrollStateIn(region).total).toBe("6");
+    // 氏名（主行）も用件（メタ 2 行目）も全件 DOM に残る＝固定高でも clip でなくスクロールで見せる前提。
+    expect(region).toHaveTextContent("来校者6");
+    expect(region).toHaveTextContent("用件6");
+  });
+
+  it("pattern2 呼び出し: 6 件超過で --total-rows、2 件では付けない（固定枠静止）", () => {
+    const { rerender } = render(
+      <SignageBoardView
+        {...boardProps(samplePayload({ designPattern: "pattern2", callouts: calloutsOf(6) }))}
+      />,
+    );
+    expect(scrollStateIn(screen.getByRole("region", { name: "生徒呼び出し" })).total).toBe("6");
+    rerender(
+      <SignageBoardView
+        {...boardProps(samplePayload({ designPattern: "pattern2", callouts: calloutsOf(2) }))}
+      />,
+    );
+    expect(scrollStateIn(screen.getByRole("region", { name: "生徒呼び出し" })).total).toBe("");
+  });
+
+  it("提出物テーブルは sticky thead のため自動スクロール対象外＝track（--visible-rows）を持たない", () => {
+    render(
+      <SignageBoardView
+        {...boardProps(
+          samplePayload({
+            daily: {
+              ...samplePayload().daily,
+              assignments: {
+                items: Array.from({ length: 6 }, (_, i) => ({
+                  subject: `科目${i + 1}`,
+                  task: `課題${i + 1}`,
+                  deadline: "2026-06-05",
+                })),
+                source: null,
+              },
+            },
+          }),
+        )}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "提出物" });
+    // 提出物は <table>＝汎用オートスクロール track を持たない（現状維持・CSS の nth-of-type hide のまま）。
+    expect(region.querySelector('[style*="--visible-rows"]')).toBeNull();
+  });
+});
