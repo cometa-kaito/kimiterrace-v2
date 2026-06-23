@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import {
+  detailPanelStyle,
   draggingRowStyle,
   dropOverRowStyle,
   inputStyle,
@@ -16,6 +17,7 @@ import {
   saveBarStyle,
   secondaryBtnStyle,
 } from "./editor-styles";
+import { RowDetailToggle, useRowDisclosure } from "./RowDetails";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
 import { useGridTabNavigation } from "./useGridTabNavigation";
@@ -63,6 +65,14 @@ function clampDisplayDays(n: number): number {
     return 1;
   }
   return Math.min(DISPLAY_DAYS_MAX, Math.max(1, Math.round(n)));
+}
+
+/**
+ * 任意設定（重要 / 表示日数）が**既定でない**か。重要 ON / 表示日数が 1（今日のみ）以外 / プリセット外（カスタム）の
+ * いずれかなら詳細を初期から開く（設定済みを隠さない・{@link useRowDisclosure}）。折りたたみ中の「設定あり」表示にも使う。
+ */
+function hasNoticeDetail(r: { isHighlight: boolean; displayDays: number }): boolean {
+  return r.isHighlight || r.displayDays !== 1 || !PRESET_VALUES.has(r.displayDays);
 }
 
 /** 行 state を保存ペイロード（NoticeItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
@@ -125,6 +135,20 @@ export function NoticeEditor({
   );
   // 新規行の安定キー用カウンタ。初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない。
   const nextId = useRef(Math.max(initialItems.length, prefillRows));
+  // 行ごとの「詳細（任意設定）」開閉。**既定でない設定（重要 / 表示日数>1 / カスタム）の行は最初から開く**
+  // （設定済みを隠さない）。初期 id 付番（`r${idx}`）と一致させる（state 初期化と同じ index 基準）。
+  const disclosure = useRowDisclosure(
+    initialItems
+      .map((i, idx) => ({
+        id: `r${idx}`,
+        has: hasNoticeDetail({
+          isHighlight: i.isHighlight ?? false,
+          displayDays: i.displayDays ?? 1,
+        }),
+      }))
+      .filter((x) => x.has)
+      .map((x) => x.id),
+  );
 
   // 事前生成した空行（本文が空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
   // 空の連絡を保存しない／空行を掴ませない）。教員が埋めた行だけが盤面・保存に反映される。
@@ -168,7 +192,8 @@ export function NoticeEditor({
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
   // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。連絡は本文 1 列なので col 0 のみ
-  // （本文で Tab → 次の行の本文へ。最終行で行追加）。重要チェック / 表示日数は副次入力なので登録しない。
+  // （本文で Tab → 次の行の本文へ。最終行で行追加）。重要チェック / 表示日数は「詳細」パネルに畳んだ任意設定なので
+  // 登録せず通常 Tab に委ねる（開いている時だけ存在）。
   const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
@@ -176,6 +201,8 @@ export function NoticeEditor({
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.5rem" }}>
         {rows.map((r, i) => {
           const reorder = rowReorder(i);
+          const open = disclosure.isOpen(r.id);
+          const detailId = `notice-detail-${r.id}`;
           return (
             <li
               key={r.id}
@@ -192,6 +219,7 @@ export function NoticeEditor({
               {reorderable && r.text.trim().length > 0 ? (
                 <DragHandle reorder={reorder} label={`${i + 1} 件目を並べ替え`} />
               ) : null}
+              {/* 主役（連絡事項）。重要 / 表示日数は「詳細」に畳む。 */}
               <input
                 ref={(el) => registerCell(i, 0, el)}
                 value={r.text}
@@ -201,74 +229,13 @@ export function NoticeEditor({
                 style={{ ...inputStyle, flex: 1, minWidth: "12rem" }}
                 aria-label={`${i + 1} 件目の連絡事項`}
               />
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.25rem",
-                  fontSize: "0.85rem",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={r.isHighlight}
-                  onChange={(e) => update(i, { isHighlight: e.target.checked })}
-                />
-                重要
-              </label>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.25rem",
-                  fontSize: "0.85rem",
-                }}
-              >
-                表示
-                <select
-                  value={r.custom ? "custom" : String(r.displayDays)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === "custom") {
-                      update(i, { custom: true });
-                    } else {
-                      update(i, { custom: false, displayDays: Number(v) });
-                    }
-                  }}
-                  style={inputStyle}
-                  aria-label={`${i + 1} 件目の表示日数`}
-                >
-                  {DISPLAY_DAYS_PRESETS.map((p) => (
-                    <option key={p.value} value={String(p.value)}>
-                      {p.label}
-                    </option>
-                  ))}
-                  <option value="custom">カスタム</option>
-                </select>
-              </label>
-              {r.custom ? (
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.25rem",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  <input
-                    type="number"
-                    min={1}
-                    max={DISPLAY_DAYS_MAX}
-                    value={r.displayDays}
-                    onChange={(e) =>
-                      update(i, { displayDays: clampDisplayDays(Number(e.target.value)) })
-                    }
-                    style={{ ...inputStyle, width: "4rem" }}
-                    aria-label={`${i + 1} 件目の表示日数 (日)`}
-                  />
-                  日間
-                </label>
-              ) : null}
+              <RowDetailToggle
+                open={open}
+                hasValue={hasNoticeDetail(r)}
+                onToggle={() => disclosure.toggle(r.id)}
+                controlsId={detailId}
+                label={`${i + 1} 件目の詳細項目`}
+              />
               <button
                 type="button"
                 onClick={() => removeRow(i)}
@@ -277,6 +244,80 @@ export function NoticeEditor({
               >
                 削除
               </button>
+              {/* 詳細（重要 / 表示日数）。開いている時だけ、行下に全幅で開く（flexBasis:100% で次行へ折返す）。
+                  重要 / 表示日数の onChange ロジックは従来と同一（挙動不変・畳んでも state は保持）。 */}
+              {open ? (
+                <div id={detailId} style={{ ...detailPanelStyle, flexBasis: "100%" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.25rem",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={r.isHighlight}
+                      onChange={(e) => update(i, { isHighlight: e.target.checked })}
+                    />
+                    重要
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.25rem",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    表示
+                    <select
+                      value={r.custom ? "custom" : String(r.displayDays)}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === "custom") {
+                          update(i, { custom: true });
+                        } else {
+                          update(i, { custom: false, displayDays: Number(v) });
+                        }
+                      }}
+                      style={inputStyle}
+                      aria-label={`${i + 1} 件目の表示日数`}
+                    >
+                      {DISPLAY_DAYS_PRESETS.map((p) => (
+                        <option key={p.value} value={String(p.value)}>
+                          {p.label}
+                        </option>
+                      ))}
+                      <option value="custom">カスタム</option>
+                    </select>
+                  </label>
+                  {r.custom ? (
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.25rem",
+                        fontSize: "0.85rem",
+                      }}
+                    >
+                      <input
+                        type="number"
+                        min={1}
+                        max={DISPLAY_DAYS_MAX}
+                        value={r.displayDays}
+                        onChange={(e) =>
+                          update(i, { displayDays: clampDisplayDays(Number(e.target.value)) })
+                        }
+                        style={{ ...inputStyle, width: "4rem" }}
+                        aria-label={`${i + 1} 件目の表示日数 (日)`}
+                      />
+                      日間
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
             </li>
           );
         })}

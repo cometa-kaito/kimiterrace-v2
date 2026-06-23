@@ -13,9 +13,10 @@ import {
 } from "@/lib/editor/schedule-core";
 import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
+  detailPanelStyle,
   inputStyle,
   removeBtnStyle,
   saveBarStyle,
@@ -25,6 +26,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { DetailField, RowDetailToggle, useRowDisclosure } from "./RowDetails";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
 import { useGridTabNavigation } from "./useGridTabNavigation";
@@ -41,6 +43,8 @@ import { useGridTabNavigation } from "./useGridTabNavigation";
  * 切替時は debounce 取りこぼしを防ぐため確実に保存してから遷移する（flush）。
  */
 type Row = {
+  /** 行の安定キー（「詳細」開閉状態を行に結ぶための描画用 id。保存対象外）。 */
+  id: string;
   period: SchedulePeriod;
   subject: string;
   note: string;
@@ -125,6 +129,14 @@ function isBlankScheduleRow(r: Row): boolean {
   return noText && !customLabel;
 }
 
+/**
+ * 任意項目（補足 / 場所 / 対象者）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定（入力済みを
+ * 隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
+ */
+function hasScheduleDetail(r: { note: string; location: string; targetAudience: string }): boolean {
+  return r.note.trim() !== "" || r.location.trim() !== "" || r.targetAudience.trim() !== "";
+}
+
 /** 曜日（日始まり）。日付文字列から決まり today に依存しないので SSR/クライアントで一致する。 */
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
@@ -175,7 +187,8 @@ export function ScheduleEditor({
   const { setSchedule } = useScopedDailyDataActions();
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(() => {
-    const initial: Row[] = initialItems.map((i) => ({
+    const initial: Row[] = initialItems.map((i, idx) => ({
+      id: `r${idx}`,
       period: i.period,
       subject: i.subject,
       note: i.note ?? "",
@@ -184,7 +197,8 @@ export function ScheduleEditor({
     }));
     // 盤面の規定枠（prefillRows）まで空行を足す。時限は**未選択（空欄）**で始める（自動で 1限〜5限 を割り当て
     // ない・要望 2026-06-23）。教員が各行を埋めるとき時限を選ぶ。prefillRows=0（scope/ops 等）は no-op で従来どおり。
-    return padBlankRows(initial, prefillRows, () => ({
+    return padBlankRows(initial, prefillRows, (index) => ({
+      id: `r${index}`,
       period: UNSELECTED_PERIOD,
       subject: "",
       note: "",
@@ -192,6 +206,23 @@ export function ScheduleEditor({
       targetAudience: "",
     }));
   });
+  // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
+  const nextId = useRef(Math.max(initialItems.length, prefillRows));
+  // 行ごとの「詳細（任意項目）」開閉。**初期に値の入っている行は最初から開く**（入力済みを隠さない）。
+  // 初期 id 付番（`r${idx}`）と一致させる（state 初期化と同じ index 基準）。
+  const disclosure = useRowDisclosure(
+    initialItems
+      .map((i, idx) => ({
+        id: `r${idx}`,
+        has: hasScheduleDetail({
+          note: i.note ?? "",
+          location: i.location ?? "",
+          targetAudience: i.targetAudience ?? "",
+        }),
+      }))
+      .filter((x) => x.has)
+      .map((x) => x.id),
+  );
 
   // 事前生成した空行（{@link isBlankScheduleRow}）は保存ペイロード・complete から除外する。教員が触れていない
   // 空枠で自動保存をブロックせず、空の予定も保存しない（埋めた行だけが盤面・保存に反映）。部分入力行は残る。
@@ -232,9 +263,11 @@ export function ScheduleEditor({
   // 特殊スロットは max 計算に含めない）。
   const addRow = useCallback(() => {
     // 新規行も時限は未選択（空欄）で始める（自動採番しない・事前生成行と一貫・要望 2026-06-23）。
+    const id = `r${nextId.current}`;
+    nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { period: UNSELECTED_PERIOD, subject: "", note: "", location: "", targetAudience: "" },
+      { id, period: UNSELECTED_PERIOD, subject: "", note: "", location: "", targetAudience: "" },
     ]);
   }, []);
   function removeRow(index: number) {
@@ -242,8 +275,9 @@ export function ScheduleEditor({
   }
 
   // --- Tab 縦移動（スプレッドシート風の連続入力・共有フック {@link useGridTabNavigation}） ---
-  // col: 0=時限 / 1=科目 / 2=補足 / 3=場所 / 4=対象者。Tab=同 col の次行 / Shift+Tab=同 col の前行 /
-  // 最終行 Tab で行追加。連絡・提出物・来校者・呼び出しと同じ共有フックに寄せた（要望 2026-06-23・重複排除）。
+  // col: 0=時限 / 1=科目（いずれもコア＝常時表示）のみ。Tab=同 col の次行 / Shift+Tab=同 col の前行 /
+  // 最終行 Tab で行追加。補足 / 場所 / 対象者は「詳細」パネルに畳んだ任意項目なので登録せず通常 Tab に委ねる
+  // （開いている時だけ存在）。連絡・提出物・来校者・呼び出しと同じ共有フックに寄せた（要望 2026-06-23・重複排除）。
   const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   async function changeDate(next: string) {
@@ -288,103 +322,120 @@ export function ScheduleEditor({
             <tr>
               <th style={thStyle}>時限</th>
               <th style={thStyle}>科目</th>
-              <th style={thStyle}>補足</th>
-              <th style={thStyle}>場所</th>
-              <th style={thStyle}>対象者</th>
+              <th style={thStyle} aria-label="詳細" />
               <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              // 行は順序が UI 状態なので index key で十分 (保存時に period でソート/検証)。
-              // biome-ignore lint/suspicious/noArrayIndexKey: 可変フォーム行
-              <tr key={i}>
-                <td style={tdStyle}>
-                  <select
-                    ref={(el) => registerCell(i, 0, el)}
-                    value={slotSelectValue(r.period)}
-                    onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
-                    onKeyDown={(e) => onCellKeyDown(e, i, 0)}
-                    style={{ ...inputStyle, width: "6rem" }}
-                    aria-label={`${i + 1} 行目の時限`}
-                  >
-                    {/* 未選択（空欄）。事前生成・新規行はここで始まり、時限を選ぶまで盤面に出ない。 */}
-                    <option value="">（時限を選択）</option>
-                    {SCHEDULE_SLOT_OPTIONS.map((opt) => (
-                      <option key={String(opt.value)} value={String(opt.value)}>
-                        {opt.label}
-                      </option>
-                    ))}
-                    {/* 「その他」を選ぶと下に自由入力欄が出る（番兵値・実 period ではない）。 */}
-                    <option value={CUSTOM_SLOT_VALUE}>その他</option>
-                  </select>
-                  {isCustomPeriod(r.period) ? (
-                    <input
-                      value={r.period.custom}
-                      onChange={(e) => update(i, { period: { custom: e.target.value } })}
-                      placeholder="例: 補習"
-                      maxLength={CUSTOM_PERIOD_MAX}
-                      style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
-                      aria-label={`${i + 1} 行目の時限（自由入力）`}
-                    />
+            {rows.map((r, i) => {
+              const open = disclosure.isOpen(r.id);
+              const detailId = `schedule-detail-${r.id}`;
+              return (
+                // 安定キー `r.id`（「詳細」開閉を行に結ぶ）。主役 `<tr>` と詳細 `<tr>` の 2 行を 1 行として
+                // 束ねるため Fragment に key を置く（保存は period でソート/検証＝順序は UI 状態のまま）。
+                <Fragment key={r.id}>
+                  {/* 主役行（時限 / 科目）。 */}
+                  <tr>
+                    <td style={tdStyle}>
+                      <select
+                        ref={(el) => registerCell(i, 0, el)}
+                        value={slotSelectValue(r.period)}
+                        onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
+                        onKeyDown={(e) => onCellKeyDown(e, i, 0)}
+                        style={{ ...inputStyle, width: "6rem" }}
+                        aria-label={`${i + 1} 行目の時限`}
+                      >
+                        {/* 未選択（空欄）。事前生成・新規行はここで始まり、時限を選ぶまで盤面に出ない。 */}
+                        <option value="">（時限を選択）</option>
+                        {SCHEDULE_SLOT_OPTIONS.map((opt) => (
+                          <option key={String(opt.value)} value={String(opt.value)}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        {/* 「その他」を選ぶと下に自由入力欄が出る（番兵値・実 period ではない）。 */}
+                        <option value={CUSTOM_SLOT_VALUE}>その他</option>
+                      </select>
+                      {isCustomPeriod(r.period) ? (
+                        <input
+                          value={r.period.custom}
+                          onChange={(e) => update(i, { period: { custom: e.target.value } })}
+                          placeholder="例: 補習"
+                          maxLength={CUSTOM_PERIOD_MAX}
+                          style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
+                          aria-label={`${i + 1} 行目の時限（自由入力）`}
+                        />
+                      ) : null}
+                    </td>
+                    <td style={tdStyle}>
+                      <input
+                        ref={(el) => registerCell(i, 1, el)}
+                        value={r.subject}
+                        onChange={(e) => update(i, { subject: e.target.value })}
+                        onKeyDown={(e) => onCellKeyDown(e, i, 1)}
+                        placeholder="科目名"
+                        style={{ ...inputStyle, width: "100%" }}
+                        aria-label={`${i + 1} 行目の科目名`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <RowDetailToggle
+                        open={open}
+                        hasValue={hasScheduleDetail(r)}
+                        onToggle={() => disclosure.toggle(r.id)}
+                        controlsId={detailId}
+                        label={`${i + 1} 行目の詳細項目`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        style={removeBtnStyle}
+                        aria-label={`${i + 1} 行目を削除`}
+                      >
+                        削除
+                      </button>
+                    </td>
+                  </tr>
+                  {/* 詳細行（補足 / 場所 / 対象者）。開いている時だけ描画。 */}
+                  {open ? (
+                    <tr>
+                      <td colSpan={4} style={{ ...tdStyle, paddingTop: 0 }}>
+                        <div id={detailId} style={detailPanelStyle}>
+                          <DetailField label="補足">
+                            <input
+                              value={r.note}
+                              onChange={(e) => update(i, { note: e.target.value })}
+                              placeholder="(任意)"
+                              style={{ ...inputStyle, width: "100%" }}
+                              aria-label={`${i + 1} 行目の補足`}
+                            />
+                          </DetailField>
+                          <DetailField label="場所">
+                            <input
+                              value={r.location}
+                              onChange={(e) => update(i, { location: e.target.value })}
+                              placeholder="(任意) 体育館 等"
+                              style={{ ...inputStyle, width: "100%" }}
+                              aria-label={`${i + 1} 行目の場所`}
+                            />
+                          </DetailField>
+                          <DetailField label="対象者">
+                            <input
+                              value={r.targetAudience}
+                              onChange={(e) => update(i, { targetAudience: e.target.value })}
+                              placeholder="(任意) 3年生 等"
+                              style={{ ...inputStyle, width: "100%" }}
+                              aria-label={`${i + 1} 行目の対象者`}
+                            />
+                          </DetailField>
+                        </div>
+                      </td>
+                    </tr>
                   ) : null}
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    ref={(el) => registerCell(i, 1, el)}
-                    value={r.subject}
-                    onChange={(e) => update(i, { subject: e.target.value })}
-                    onKeyDown={(e) => onCellKeyDown(e, i, 1)}
-                    placeholder="科目名"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の科目名`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    ref={(el) => registerCell(i, 2, el)}
-                    value={r.note}
-                    onChange={(e) => update(i, { note: e.target.value })}
-                    onKeyDown={(e) => onCellKeyDown(e, i, 2)}
-                    placeholder="(任意)"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の補足`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    ref={(el) => registerCell(i, 3, el)}
-                    value={r.location}
-                    onChange={(e) => update(i, { location: e.target.value })}
-                    onKeyDown={(e) => onCellKeyDown(e, i, 3)}
-                    placeholder="(任意) 体育館 等"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の場所`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <input
-                    ref={(el) => registerCell(i, 4, el)}
-                    value={r.targetAudience}
-                    onChange={(e) => update(i, { targetAudience: e.target.value })}
-                    onKeyDown={(e) => onCellKeyDown(e, i, 4)}
-                    placeholder="(任意) 3年生 等"
-                    style={{ ...inputStyle, width: "100%" }}
-                    aria-label={`${i + 1} 行目の対象者`}
-                  />
-                </td>
-                <td style={tdStyle}>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(i)}
-                    style={removeBtnStyle}
-                    aria-label={`${i + 1} 行目を削除`}
-                  >
-                    削除
-                  </button>
-                </td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
