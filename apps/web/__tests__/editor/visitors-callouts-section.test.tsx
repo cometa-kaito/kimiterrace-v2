@@ -168,11 +168,11 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
   });
 });
 
-describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上へ/下へ）", () => {
+describe("VisitorsEditor — 来校者の表示順を並べ替え（ドラッグ / ↑↓キー・上下ボタンは廃止）", () => {
   const nameAt = (row: number) =>
     (screen.getByLabelText(`${row} 行目の氏名`) as HTMLInputElement).value;
 
-  it("下の行を上へ移動すると順序が入れ替わる（配列順 = 保存順 = 盤面の表示順）", () => {
+  it("グリップに ↑ キーで 2 行目が 1 行目になる（配列順 = 保存順 = 盤面の表示順）", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -186,13 +186,14 @@ describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上
     expect(nameAt(1)).toBe("来校 太郎");
     expect(nameAt(2)).toBe("来校 次郎");
 
-    fireEvent.click(screen.getByRole("button", { name: "2 行目を上へ移動（全 2 行中）" }));
+    // ポインタ D&D は jsdom に座標/elementFromPoint が無く検証できないため、同じ並べ替え経路をキーボードで叩く。
+    fireEvent.keyDown(screen.getByRole("button", { name: "2 行目を並べ替え" }), { key: "ArrowUp" });
 
     expect(nameAt(1)).toBe("来校 次郎");
     expect(nameAt(2)).toBe("来校 太郎");
   });
 
-  it("先頭の上 / 末尾の下は無効（端で押せない）", () => {
+  it("上へ/下へボタンは出さない・各行にドラッグハンドル（role=button）を出す", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -203,17 +204,12 @@ describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上
         callouts={null}
       />,
     );
-    expect(
-      (screen.getByRole("button", { name: "1 行目を上へ移動（全 2 行中）" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "2 行目を下へ移動（全 2 行中）" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect(screen.queryByRole("button", { name: /上へ移動/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /下へ移動/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /行目を並べ替え/ })).toHaveLength(2);
   });
 
-  it("来校者が 1 行のときは並べ替えコントロールを出さない", () => {
+  it("来校者が 1 行のときはドラッグハンドルを出さない", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -224,15 +220,15 @@ describe("VisitorsEditor — 来校者の表示順を並べ替えできる（上
         callouts={null}
       />,
     );
-    expect(screen.queryByRole("button", { name: /行目を上へ移動/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /行目を並べ替え/ })).toBeNull();
   });
 });
 
-describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替えできる（上へ/下へ）", () => {
+describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替え（ドラッグ / ↑↓キー・上下ボタンは廃止）", () => {
   const nameAt = (row: number) =>
     (screen.getByLabelText(`${row} 行目の生徒氏名`) as HTMLInputElement).value;
 
-  it("下の行を上へ移動すると順序が入れ替わる（配列順 = 保存順 = 盤面の表示順）", () => {
+  it("グリップに ↑ キーで 2 行目が 1 行目になる（配列順 = 保存順 = 盤面の表示順）", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -246,13 +242,13 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替えでき
     expect(nameAt(1)).toBe("生徒 花子");
     expect(nameAt(2)).toBe("生徒 桃子");
 
-    fireEvent.click(screen.getByRole("button", { name: "2 行目を上へ移動（全 2 行中）" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "2 行目を並べ替え" }), { key: "ArrowUp" });
 
     expect(nameAt(1)).toBe("生徒 桃子");
     expect(nameAt(2)).toBe("生徒 花子");
   });
 
-  it("先頭の上 / 末尾の下は無効（端で押せない）", () => {
+  it("上へ/下へボタンは出さない・各行にドラッグハンドル（role=button）を出す", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -263,17 +259,12 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替えでき
         callouts={[callout("c1", "生徒 花子"), callout("c2", "生徒 桃子")]}
       />,
     );
-    expect(
-      (screen.getByRole("button", { name: "1 行目を上へ移動（全 2 行中）" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "2 行目を下へ移動（全 2 行中）" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect(screen.queryByRole("button", { name: /上へ移動/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /下へ移動/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /行目を並べ替え/ })).toHaveLength(2);
   });
 
-  it("呼び出しが 1 行のときは並べ替えコントロールを出さない", () => {
+  it("呼び出しが 1 行のときはドラッグハンドルを出さない", () => {
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
@@ -284,6 +275,6 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替えでき
         callouts={[callout("c1", "生徒 花子")]}
       />,
     );
-    expect(screen.queryByRole("button", { name: /行目を上へ移動/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /行目を並べ替え/ })).toBeNull();
   });
 });

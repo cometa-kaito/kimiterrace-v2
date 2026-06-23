@@ -58,6 +58,23 @@ describe("ScheduleEditor 対象日切替（改善3: scroll 位置保持）", () 
   });
 });
 
+describe("ScheduleEditor 日付表示（showDateNav=false: クラス編集はカレンダーが日付ナビ）", () => {
+  it("対象日 input を出さず、編集中の日付をテキストで表示する", () => {
+    render(
+      <ScheduleEditor
+        classId={CLASS_ID}
+        date="2026-06-23"
+        initialItems={items()}
+        showDateNav={false}
+      />,
+    );
+    // 対象日の date input は出さない（日付ナビはページ下部のカレンダーが担う）。
+    expect(screen.queryByLabelText("対象日")).toBeNull();
+    // 代わりに編集中の日付をテキストで示す。
+    expect(screen.getByText(/2026年6月23日/)).toBeTruthy();
+  });
+});
+
 describe("ScheduleEditor Tab 縦移動（改善4）", () => {
   it("Tab で同じ列の次の行へフォーカスが移る（縦移動）", () => {
     render(<ScheduleEditor classId={CLASS_ID} date={DATE} initialItems={items()} />);

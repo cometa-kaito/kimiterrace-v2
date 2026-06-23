@@ -6,20 +6,18 @@ import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
 import { useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
+import { DragHandle } from "./DragHandle";
 import {
   draggingRowStyle,
   dropOverRowStyle,
-  gripStyle,
   inputStyle,
-  moveBtnDisabledStyle,
-  moveBtnStyle,
   removeBtnStyle,
   saveBarStyle,
   secondaryBtnStyle,
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
-import { type RowReorder, moveItem, useRowReorder } from "./useRowReorder";
+import { moveItem, useRowReorder } from "./useRowReorder";
 
 /**
  * 連絡 (お知らせ) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
@@ -34,10 +32,11 @@ import { type RowReorder, moveItem, useRowReorder } from "./useRowReorder";
  * 行があるうちは保存しない（入力が揃った時点で保存）。
  *
  * D 群（並べ替え）: 連絡は **配列順 = サイネージ表示順**（`validateNoticeItems` が入力順を保持し、盤面も
- * 同じ配列順で描画する）ため、行をドラッグ&ドロップ / 「上へ・下へ」で並べ替えると、その順序が既存の
- * 自動保存経路でそのまま保存・反映される（migration 不要・盤面の表示物は増減しない＝順序だけ変わる）。
- * アクセシビリティ: マウスは grip の D&D、キーボード/タッチは「上へ・下へ」ボタン（色だけに依存しない）。
- * 時刻/時限でサーバ再ソートされる予定・提出物・来校者・呼び出しは本機構の対象外（盤面順を変えないため）。
+ * 同じ配列順で描画する）ため、行を**ドラッグ&ドロップ**で並べ替えると、その順序が既存の自動保存経路で
+ * そのまま保存・反映される（migration 不要・盤面の表示物は増減しない＝順序だけ変わる）。操作はマウス/
+ * タッチ/ペン共通のポインタ D&D ＋ フォーカス時の ↑↓ キー（要望 2026-06-23: 上下ボタンは廃止・
+ * {@link DragHandle} / {@link useRowReorder}）。時刻/時限でサーバ再ソートされる予定・提出物・来校者・
+ * 呼び出しは本機構の対象外（盤面順を変えないため）。
  */
 type Row = {
   id: string;
@@ -72,51 +71,6 @@ function toNoticeItems(rows: Row[]): NoticeItem[] {
     // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
     ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
   }));
-}
-
-/**
- * 1 行ぶんの並べ替えコントロール（grip + 上へ/下へ）。マウスは grip を掴んでドラッグ、キーボード/タッチは
- * 「上へ」「下へ」ボタン（aria-label 付き・色だけに依存しない）。`position`/`total` で読み上げ位置を伝える。
- */
-function ReorderControls({
-  reorder,
-  position,
-  total,
-}: {
-  reorder: RowReorder;
-  position: number;
-  total: number;
-}) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
-      <span
-        {...reorder.handleProps}
-        aria-hidden
-        title="ドラッグして並べ替え（または 上へ/下へ ボタン）"
-        style={gripStyle}
-      >
-        ⠿
-      </span>
-      <button
-        type="button"
-        onClick={() => reorder.onMove(-1)}
-        disabled={!reorder.canUp}
-        style={reorder.canUp ? moveBtnStyle : moveBtnDisabledStyle}
-        aria-label={`${position} 件目を上へ移動（全 ${total} 件中）`}
-      >
-        <span aria-hidden>↑</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => reorder.onMove(1)}
-        disabled={!reorder.canDown}
-        style={reorder.canDown ? moveBtnStyle : moveBtnDisabledStyle}
-        aria-label={`${position} 件目を下へ移動（全 ${total} 件中）`}
-      >
-        <span aria-hidden>↓</span>
-      </button>
-    </span>
-  );
 }
 
 export function NoticeEditor({
@@ -199,7 +153,7 @@ export function NoticeEditor({
           return (
             <li
               key={r.id}
-              {...reorder.dropProps}
+              {...reorder.rowProps}
               style={{
                 display: "flex",
                 gap: "0.5rem",
@@ -210,7 +164,7 @@ export function NoticeEditor({
               }}
             >
               {rows.length > 1 ? (
-                <ReorderControls reorder={reorder} position={i + 1} total={rows.length} />
+                <DragHandle reorder={reorder} label={`${i + 1} 件目を並べ替え`} />
               ) : null}
               <input
                 value={r.text}

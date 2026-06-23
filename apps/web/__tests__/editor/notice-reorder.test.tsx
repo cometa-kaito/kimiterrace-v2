@@ -47,7 +47,7 @@ describe("moveItem", () => {
   });
 });
 
-describe("NoticeEditor 並べ替え", () => {
+describe("NoticeEditor 並べ替え（ドラッグ / ↑↓キー・上下ボタンは廃止）", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     h.setNoticesAction.mockClear();
@@ -57,13 +57,14 @@ describe("NoticeEditor 並べ替え", () => {
     cleanup();
   });
 
-  it("「上へ」ボタンで 2 件目が 1 件目になり、その順序で自動保存される", async () => {
+  it("グリップに ↑ キーで 2 件目が 1 件目になり、その順序で自動保存される", async () => {
     render(<NoticeEditor classId={CLASS_ID} date={DATE} initialItems={items()} />);
 
-    // 2 件目（連絡B）を上へ。aria-label で位置を特定（色だけに依存しない操作経路）。
-    const upB = screen.getByLabelText("2 件目を上へ移動（全 3 件中）");
+    // 2 件目（連絡B）のグリップで ↑。ポインタ D&D は jsdom 非対応なので同じ並べ替え経路をキーボードで叩く。
     act(() => {
-      fireEvent.click(upB);
+      fireEvent.keyDown(screen.getByRole("button", { name: "2 件目を並べ替え" }), {
+        key: "ArrowUp",
+      });
     });
 
     // 並べ替えで serialized が変化 → debounce 後に自動保存。最新順序 [B, A, C] で呼ばれる。
@@ -76,14 +77,20 @@ describe("NoticeEditor 並べ替え", () => {
     expect(savedItems.map((n) => n.text)).toEqual(["連絡B", "連絡A", "連絡C"]);
   });
 
-  it("先頭の「上へ」と末尾の「下へ」は無効（端の行は動かせない）", () => {
+  it("先頭で ↑ / 末尾で ↓ は順序を変えない（端の行は動かせない）", () => {
     render(<NoticeEditor classId={CLASS_ID} date={DATE} initialItems={items()} />);
-    expect(screen.getByLabelText("1 件目を上へ移動（全 3 件中）")).toBeDisabled();
-    expect(screen.getByLabelText("3 件目を下へ移動（全 3 件中）")).toBeDisabled();
+    const textAt = (row: number) =>
+      (screen.getByLabelText(`${row} 件目の連絡事項`) as HTMLInputElement).value;
+    fireEvent.keyDown(screen.getByRole("button", { name: "1 件目を並べ替え" }), { key: "ArrowUp" });
+    expect(textAt(1)).toBe("連絡A");
+    fireEvent.keyDown(screen.getByRole("button", { name: "3 件目を並べ替え" }), {
+      key: "ArrowDown",
+    });
+    expect(textAt(3)).toBe("連絡C");
   });
 
-  it("行が 1 件だけのときは並べ替えコントロールを出さない", () => {
+  it("連絡が 1 件だけのときはドラッグハンドルを出さない", () => {
     render(<NoticeEditor classId={CLASS_ID} date={DATE} initialItems={[{ text: "唯一" }]} />);
-    expect(screen.queryByLabelText(/上へ移動/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /件目を並べ替え/ })).toBeNull();
   });
 });

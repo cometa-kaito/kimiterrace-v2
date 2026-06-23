@@ -210,6 +210,7 @@ export function WysiwygBoardEditor({
               date={date}
               initialItems={initialSchedules}
               onItemsChange={onSchedules}
+              showDateNav={false}
             />
           </EditorCard>
         ) : null}
