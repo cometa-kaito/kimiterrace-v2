@@ -49,6 +49,7 @@ export function WysiwygBoardEditor({
   initialSchedules,
   initialNotices,
   initialAssignments,
+  showBoard = true,
 }: {
   classId: string;
   date: string;
@@ -61,6 +62,12 @@ export function WysiwygBoardEditor({
   initialSchedules: ScheduleItem[];
   initialNotices: NoticeItem[];
   initialAssignments: AssignmentItem[];
+  /**
+   * 盤面ライブプレビューを描くか。既定 true（今日の編集＝WYSIWYG）。false にすると盤面を出さず編集セクション
+   * （予定/連絡/提出物）だけを出す＝「選択した日（未来）の編集」をフォームのみで軽く見せる用（要望 2026-06-23）。
+   * パターン別の出し分け・保存・検証・自動保存は変わらない。
+   */
+  showBoard?: boolean;
 }) {
   // ライブプレビュー用の下書き集約。各エディタの onItemsChange で更新され、盤面再描画のみに使う（保存は各エディタ）。
   const [schedules, setSchedules] = useState<ScheduleItem[]>(initialSchedules);
@@ -165,7 +172,7 @@ export function WysiwygBoardEditor({
 
   return (
     <div className={styles.root}>
-      {previewPayload ? (
+      {showBoard && previewPayload ? (
         <>
           <p className={styles.hint}>
             実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
