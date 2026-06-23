@@ -7,22 +7,22 @@ import { getClientAuth } from "../../../lib/auth/clientApp";
 /**
  * ログインフォーム（ADR-003 / ADR-032）。**Client Component**。
  *
- * 教員ロールが最多のため **教員ログインを既定**（先頭表示）にする（ユーザー要望）。教員は学校共通
- * パスワードのみ（必要なら学校選択）で `POST /api/auth/teacher-login` → サーバーが session cookie を発行。
+ * 教員ロールが最多のため **教員ログインを既定**（先頭表示）にする（ユーザー要望）。教員は学校を選ばず
+ * **学校共通パスワードのみ**を入力して `POST /api/auth/teacher-login` → サーバーが入力パスワードで学校を
+ * 自動判定し session cookie を発行する（ADR-032 追補：学校選択を廃止）。
  * 職員・管理者は従来の email + password（Identity Platform client SDK → `/api/auth/session`）。
  *
- * 学校が 1 校のみ共通ログイン有効なら学校選択は出さず「パスワードのみ」。複数校なら選択を出す。
- * 共通ログイン有効校が 0 なら教員モードは出さず職員ログインを既定にする。
+ * 共通ログイン有効校が 1 校以上あれば教員モードを既定表示、0 校なら教員モードは出さず職員ログインを既定にする
+ * （`teacherLoginAvailable` で受け取る。学校の id/名はクライアントへ渡さない）。
  */
-type SchoolOption = { id: string; name: string };
 type Mode = "teacher" | "staff";
 
 export function LoginForm({
   next,
-  teacherSchools,
+  teacherLoginAvailable,
 }: {
   next: string;
-  teacherSchools: SchoolOption[];
+  teacherLoginAvailable: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -30,15 +30,11 @@ export function LoginForm({
   const rawNext = searchParams.get("next");
   const safeNext = rawNext && /^\/(?![/\\])/.test(rawNext) ? rawNext : next;
 
-  const teacherAvailable = teacherSchools.length > 0;
-  const [mode, setMode] = useState<Mode>(teacherAvailable ? "teacher" : "staff");
+  const [mode, setMode] = useState<Mode>(teacherLoginAvailable ? "teacher" : "staff");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 教員モード
-  const [schoolId, setSchoolId] = useState<string>(
-    teacherSchools.length === 1 ? (teacherSchools[0]?.id ?? "") : "",
-  );
+  // 教員モード（学校選択なし＝パスワードのみ）
   const [teacherPassword, setTeacherPassword] = useState("");
 
   // 職員モード
@@ -53,10 +49,7 @@ export function LoginForm({
       const res = await fetch("/api/auth/teacher-login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          password: teacherPassword,
-          ...(schoolId ? { schoolId } : {}),
-        }),
+        body: JSON.stringify({ password: teacherPassword }),
       });
       if (res.ok) {
         router.push(safeNext);
@@ -67,9 +60,7 @@ export function LoginForm({
         setError("試行回数が多すぎます。しばらく時間をおいてからお試しください。");
       } else {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (body.error === "select_required") {
-          setError("学校を選択してください。");
-        } else if (body.error === "missing_password") {
+        if (body.error === "missing_password") {
           setError("パスワードを入力してください。");
         } else {
           setError("パスワードが正しくありません。");
@@ -115,24 +106,6 @@ export function LoginForm({
           <>
             <h1 className="login-title">教員ログイン</h1>
             <form onSubmit={onTeacherSubmit}>
-              {teacherSchools.length > 1 ? (
-                <label className="login-field">
-                  学校
-                  <select
-                    className="login-input"
-                    value={schoolId}
-                    onChange={(e) => setSchoolId(e.target.value)}
-                    required
-                  >
-                    <option value="">学校を選択してください</option>
-                    {teacherSchools.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
               <label className="login-field">
                 パスワード
                 <input
@@ -196,7 +169,7 @@ export function LoginForm({
                 {submitting ? "ログイン中..." : "ログイン"}
               </button>
             </form>
-            {teacherAvailable ? (
+            {teacherLoginAvailable ? (
               <p className="login-switch">
                 教員の方は{" "}
                 <button type="button" className="login-link-btn" onClick={() => setMode("teacher")}>
