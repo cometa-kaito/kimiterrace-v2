@@ -22,6 +22,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { useGridTabNavigation } from "./useGridTabNavigation";
 import { moveItem, useRowReorder } from "./useRowReorder";
 
 /**
@@ -175,6 +176,9 @@ export function VisitorsEditor({
     });
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
+  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。col: 0=氏名 / 1=所属 / 2=用件 /
+  // 3=対応者 / 4=備考。時刻は native time ピッカー（内部セグメント間 Tab を残す）なので登録せず既定動作のまま。
+  const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "880px" }}>
@@ -236,8 +240,10 @@ export function VisitorsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 0, el)}
                       value={r.visitorName}
                       onChange={(e) => update(i, { visitorName: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                       placeholder="氏名"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の氏名`}
@@ -245,8 +251,10 @@ export function VisitorsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 1, el)}
                       value={r.affiliation}
                       onChange={(e) => update(i, { affiliation: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 1)}
                       placeholder="(任意) 所属"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の所属`}
@@ -254,8 +262,10 @@ export function VisitorsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 2, el)}
                       value={r.purpose}
                       onChange={(e) => update(i, { purpose: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 2)}
                       placeholder="(任意) 用件"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の用件`}
@@ -263,8 +273,10 @@ export function VisitorsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 3, el)}
                       value={r.host}
                       onChange={(e) => update(i, { host: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 3)}
                       placeholder="(任意) 対応者"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の対応者`}
@@ -272,8 +284,10 @@ export function VisitorsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 4, el)}
                       value={r.note}
                       onChange={(e) => update(i, { note: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 4)}
                       placeholder="(任意) 備考"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の備考`}

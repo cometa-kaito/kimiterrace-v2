@@ -19,6 +19,7 @@ import {
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
+import { useGridTabNavigation } from "./useGridTabNavigation";
 
 /**
  * 提出物 (課題) エディタ (#48-I、段A-2 で scope 汎用化)。**Client Component** — 件の追加/削除/編集を
@@ -111,6 +112,9 @@ export function AssignmentEditor({
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
+  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。col: 0=科目 / 1=提出物。
+  // 提出期限は native date ピッカー（内部セグメント間 Tab を残す）なので登録せず既定動作のまま。
+  const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
     <div style={{ display: "grid", gap: "0.75rem", maxWidth: "640px" }}>
@@ -140,8 +144,10 @@ export function AssignmentEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 0, el)}
                     value={r.subject}
                     onChange={(e) => update(i, { subject: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                     placeholder="科目名"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 件目の科目名`}
@@ -149,8 +155,10 @@ export function AssignmentEditor({
                 </td>
                 <td style={tdStyle}>
                   <input
+                    ref={(el) => registerCell(i, 1, el)}
                     value={r.task}
                     onChange={(e) => update(i, { task: e.target.value })}
+                    onKeyDown={(e) => onCellKeyDown(e, i, 1)}
                     placeholder="提出物の内容"
                     style={{ ...inputStyle, width: "100%" }}
                     aria-label={`${i + 1} 件目の提出物`}

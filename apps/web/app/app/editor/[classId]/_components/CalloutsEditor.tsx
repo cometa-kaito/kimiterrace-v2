@@ -23,6 +23,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
+import { useGridTabNavigation } from "./useGridTabNavigation";
 import { moveItem, useRowReorder } from "./useRowReorder";
 
 /**
@@ -165,6 +166,9 @@ export function CalloutsEditor({
     });
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
+  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。col: 0=生徒氏名 / 1=呼び出し先 /
+  // 2=用件。時刻は native time ピッカー（内部セグメント間 Tab を残す）なので登録せず既定動作のまま。
+  const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
     <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px" }}>
@@ -227,8 +231,10 @@ export function CalloutsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 0, el)}
                       value={r.studentName}
                       onChange={(e) => update(i, { studentName: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                       placeholder="生徒氏名"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の生徒氏名`}
@@ -236,8 +242,10 @@ export function CalloutsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 1, el)}
                       value={r.location}
                       onChange={(e) => update(i, { location: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 1)}
                       placeholder="(任意) 職員室 等"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の呼び出し先`}
@@ -245,8 +253,10 @@ export function CalloutsEditor({
                   </td>
                   <td style={tdStyle}>
                     <input
+                      ref={(el) => registerCell(i, 2, el)}
                       value={r.reason}
                       onChange={(e) => update(i, { reason: e.target.value })}
+                      onKeyDown={(e) => onCellKeyDown(e, i, 2)}
                       placeholder="(任意) 用件"
                       style={{ ...inputStyle, width: "100%" }}
                       aria-label={`${i + 1} 行目の用件`}

@@ -18,6 +18,7 @@ import {
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
+import { useGridTabNavigation } from "./useGridTabNavigation";
 import { moveItem, useRowReorder } from "./useRowReorder";
 
 /**
@@ -166,6 +167,9 @@ export function NoticeEditor({
     setRows((prev) => moveItem(prev, from, to));
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
+  // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。連絡は本文 1 列なので col 0 のみ
+  // （本文で Tab → 次の行の本文へ。最終行で行追加）。重要チェック / 表示日数は副次入力なので登録しない。
+  const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   return (
     <div style={{ display: "grid", gap: "0.75rem", maxWidth: "720px" }}>
@@ -189,8 +193,10 @@ export function NoticeEditor({
                 <DragHandle reorder={reorder} label={`${i + 1} 件目を並べ替え`} />
               ) : null}
               <input
+                ref={(el) => registerCell(i, 0, el)}
                 value={r.text}
                 onChange={(e) => update(i, { text: e.target.value })}
+                onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                 placeholder="連絡事項"
                 style={{ ...inputStyle, flex: 1, minWidth: "12rem" }}
                 aria-label={`${i + 1} 件目の連絡事項`}
