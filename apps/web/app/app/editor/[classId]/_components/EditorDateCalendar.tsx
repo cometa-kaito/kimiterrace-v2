@@ -50,9 +50,9 @@ export function EditorDateCalendar({
   // 内容のある日の集合（点の有無判定）。親（page.tsx）が選択月±1 か月ぶんを渡す。
   const contentSet = useMemo(() => new Set(contentDates ?? []), [contentDates]);
 
-  // 折りたたみ: 既定は畳む。編集中（selectedDate あり）なら開いて出す。初期値は決定的なのでハイドレーション安全。
-  // 日付選択は ?plan ソフトナビ（本コンポーネントは再マウントしない）なので、一度開いた状態はそのまま保たれる。
-  const [open, setOpen] = useState(selectedDate != null);
+  // 折りたたみ: 既定は**開く**（要望 2026-06-23: 初見ユーザーがカレンダーに気づけるように）。
+  // 日付選択は ?plan ソフトナビ（本コンポーネントは再マウントしない）なので、一度閉じた状態はそのまま保たれる。
+  const [open, setOpen] = useState(true);
 
   // 表示中の年月（初期は選択日があればその月・無ければ今日の月）。どちらも決定的なので SSR/クライアントで一致する。
   const initial = useMemo(() => {

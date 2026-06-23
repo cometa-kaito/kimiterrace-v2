@@ -52,10 +52,10 @@ type Row = {
 const CUSTOM_SLOT_VALUE = "__custom__";
 
 /**
- * 時限が「未選択（空欄）」を表す番兵（UI 専用）。`0` は有効時限(1..12)でも特殊スロットでもないので
- * {@link isRowPeriodComplete} が false を返し、時限を選ぶまで保存・盤面表示をブロックする（要望 2026-06-23:
- * 事前生成・新規行の時限は最初は空欄＝1限〜5限 を自動で入れない）。`ScheduleItem.period` は number のままで
- * 型・スキーマ・サーバ検証は不変（`normalizePeriod` も 0 を弾く）。
+ * 時限が「未選択（空欄）」を表す番兵（UI 専用）。事前生成行・新規行は自動割り当てを優先するが、
+ * 教員が明示的に「（時限を選択）」に戻したときだけこの値になる。`0` は有効時限(1..12)でも特殊スロットでも
+ * ないので {@link isRowPeriodComplete} が false を返し、保存・盤面表示をブロックする。
+ * `ScheduleItem.period` は number のままで型・スキーマ・サーバ検証は不変（`normalizePeriod` も 0 を弾く）。
  */
 const UNSELECTED_PERIOD = 0;
 
@@ -182,10 +182,21 @@ export function ScheduleEditor({
       location: i.location ?? "",
       targetAudience: i.targetAudience ?? "",
     }));
-    // 盤面の規定枠（prefillRows）まで空行を足す。時限は**未選択（空欄）**で始める（自動で 1限〜5限 を割り当て
-    // ない・要望 2026-06-23）。教員が各行を埋めるとき時限を選ぶ。prefillRows=0（scope/ops 等）は no-op で従来どおり。
+    // 盤面の規定枠（prefillRows）まで空行を足す。時限は**既存行が使っていない最小の正整数**を自動割り当て
+    // する（科目を入力するだけで保存できる・2026-06-23 要望）。初期が空なら 1限・2限・3限…と順番に割り当て
+    // られるため、3行目に入力すると 3限として保存され盤面の3番目に出る（位置が保たれる）。
+    // prefillRows=0（scope/ops 等）は no-op で従来どおり。
+    const usedInitialPeriods = new Set<number>(
+      initial.flatMap((r) => (typeof r.period === "number" && r.period >= 1 ? [r.period] : [])),
+    );
+    let nextAutoNumeric = 1;
+    const nextAutoPeriod = (): number => {
+      while (usedInitialPeriods.has(nextAutoNumeric)) nextAutoNumeric++;
+      usedInitialPeriods.add(nextAutoNumeric);
+      return nextAutoNumeric++;
+    };
     return padBlankRows(initial, prefillRows, () => ({
-      period: UNSELECTED_PERIOD,
+      period: nextAutoPeriod(),
       subject: "",
       note: "",
       location: "",
@@ -231,11 +242,16 @@ export function ScheduleEditor({
   // rows に依存せず、Tab 縦移動の最終行追加でも常に最新行を基準にできる。挙動は従来と同一（数値時限のみ対象・
   // 特殊スロットは max 計算に含めない）。
   const addRow = useCallback(() => {
-    // 新規行も時限は未選択（空欄）で始める（自動採番しない・事前生成行と一貫・要望 2026-06-23）。
-    setRows((prev) => [
-      ...prev,
-      { period: UNSELECTED_PERIOD, subject: "", note: "", location: "", targetAudience: "" },
-    ]);
+    // 新規行も時限を自動割り当て（既存行が使っていない最小の正整数）。科目を入力するだけで保存できる
+    // 一貫した体験（事前生成行と同じ仕様）。updater 内で prev を参照するので常に最新状態を基準にできる。
+    setRows((prev) => {
+      const usedPeriods = new Set<number>(
+        prev.flatMap((r) => (typeof r.period === "number" && r.period >= 1 ? [r.period] : [])),
+      );
+      let next = 1;
+      while (usedPeriods.has(next)) next++;
+      return [...prev, { period: next, subject: "", note: "", location: "", targetAudience: "" }];
+    });
   }, []);
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
