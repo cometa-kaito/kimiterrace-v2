@@ -39,12 +39,10 @@ function footerSummary(summary: string): string[] {
  *   無し / 取得失敗（`null` / 空）は「ニュースを取得できていません」（fail-soft）。
  */
 export function Pattern3NewsTicker({ news }: { news: SignagePayload["news"] }) {
-  // **本文（公式要約）がある記事だけ**を出す（2026-06-22 ユーザー指定）。要約は CC BY ソース（経産省 METI）のみ
-  // 非 null なので、実質 CC BY 記事のみが廊下フッタに回る（見出しのみの記事は出さない）。
-  const items = (news?.items ?? []).filter(
-    (item): item is typeof item & { summary: string } =>
-      typeof item.summary === "string" && item.summary.trim().length > 0,
-  );
+  // 表示する記事はサーバ側（getSignagePattern3News）が選別済み: 通常は要約あり（METI）のみ、METI が数日空いた
+  // 時だけ見出しのみ記事も混ぜて鮮度を回復する（2026-06-23 ユーザー確定の「要約あり優先＋不足時補完」）。ここでは
+  // 渡された items をそのまま出し、要約があれば本文も、無ければ見出しのみ表示する（下の summary 出し分けが担う）。
+  const items = news?.items ?? [];
   const [active, setActive] = useState(0);
 
   useEffect(() => {
@@ -76,7 +74,8 @@ export function Pattern3NewsTicker({ news }: { news: SignagePayload["news"] }) {
       ) : (
         <div className={styles.p3NewsViewport}>
           {items.map((item, i) => {
-            const summary = footerSummary(item.summary);
+            // 要約あり（METI）は先頭2文を本文に、見出しのみ記事（補完時の JST/文科省）は本文なし（空配列）。
+            const summary = item.summary ? footerSummary(item.summary) : [];
             return (
               <article
                 key={item.id}
