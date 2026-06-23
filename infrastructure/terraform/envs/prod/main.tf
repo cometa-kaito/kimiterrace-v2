@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "39fdb3d" # #1151 反映: スマートTV内蔵ブラウザに fit-stage を当て 50inch モニタ盤面崩れ修正（fit-mode.ts を `; wv)`=実機WebViewのみ端末判定に narrow・既設端末は全画面のまま不変）。schema変更なし・secret増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage退行なし）。前 sha=bcaa715（rollback先）
+  web_image_tag = "abd2cde" # #1153 反映: エディタ画面の二重スクロールバーを一本化（app shell の .admin-main に position:relative を付与＝absolute な sr-only 子「（必須）」を本文スクロール内に閉じ込め、初期含みブロック html へ逃げて生えていた2本目のスクロールを止める）。schema変更なし・secret増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage退行なし）・実機 prod で html scrollH 1182→575/単一スクロール確認。前 sha=39fdb3d（rollback先）
 }
 
 module "network" {
