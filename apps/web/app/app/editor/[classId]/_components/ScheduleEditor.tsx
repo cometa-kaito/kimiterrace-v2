@@ -1,6 +1,7 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
+import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { EditorTarget, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
 import {
   CUSTOM_PERIOD_MAX,
@@ -79,6 +80,22 @@ function toScheduleItems(rows: Row[]): ScheduleItem[] {
   }));
 }
 
+/**
+ * 事前生成した「空行」か（保存ペイロード・complete から除外する判定）。時限は既定値を持つので無視し、教員が
+ * 入力しうるテキスト欄（科目 / 補足 / 場所 / 対象者）がすべて空、かつ「その他（自由入力）」の時限ラベルも空の
+ * ときだけ空行とみなす。部分入力（例: 科目未入力で場所だけ入れた）は空行ではない＝従来どおり「未入力の項目が
+ * あります」を出し、空の予定を保存しない。
+ */
+function isBlankScheduleRow(r: Row): boolean {
+  const noText =
+    r.subject.trim() === "" &&
+    r.note.trim() === "" &&
+    r.location.trim() === "" &&
+    r.targetAudience.trim() === "";
+  const customLabel = isCustomPeriod(r.period) && r.period.custom.trim().length > 0;
+  return noText && !customLabel;
+}
+
 /** 曜日（日始まり）。日付文字列から決まり today に依存しないので SSR/クライアントで一致する。 */
 const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
@@ -99,6 +116,7 @@ export function ScheduleEditor({
   initialItems,
   onItemsChange,
   showDateNav = true,
+  prefillRows = 0,
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -116,38 +134,60 @@ export function ScheduleEditor({
    * だけにする（要望 2026-06-23: 予定セクションの対象日設定は廃止し日付を書いておく）。
    */
   showDateNav?: boolean;
+  /**
+   * 盤面の規定枠ぶん**空行を事前生成**する数（{@link blockRowCapacity}）。教員が「盤面に出る予定の枠」を入力前
+   * から把握できるよう、最初から空の入力行を並べる。既定 0（scope/ops エディタ等は事前生成せず従来挙動）。
+   * 空行は保存ペイロード・自動保存判定から除外されるので、埋めなくても保存をブロックしない（{@link isBlankScheduleRow}）。
+   */
+  prefillRows?: number;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
   const { setSchedule } = useScopedDailyDataActions();
   const router = useRouter();
-  const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i) => ({
+  const [rows, setRows] = useState<Row[]>(() => {
+    const initial: Row[] = initialItems.map((i) => ({
       period: i.period,
       subject: i.subject,
       note: i.note ?? "",
       location: i.location ?? "",
       targetAudience: i.targetAudience ?? "",
-    })),
-  );
+    }));
+    // 盤面の規定枠（prefillRows）まで空行を足す。空行の時限は既存の**数値時限の最大**から連番で割り当てる
+    // （addRow と同じ採番＝数値時限が重複しない）。prefillRows=0（scope/ops 等）は no-op で従来どおり。
+    const maxNumbered = Math.max(
+      0,
+      ...initial.map((r) => (typeof r.period === "number" ? r.period : 0)),
+    );
+    return padBlankRows(initial, prefillRows, (index) => ({
+      period: maxNumbered + 1 + (index - initial.length),
+      subject: "",
+      note: "",
+      location: "",
+      targetAudience: "",
+    }));
+  });
 
-  const items = toScheduleItems(rows);
+  // 事前生成した空行（{@link isBlankScheduleRow}）は保存ペイロード・complete から除外する。教員が触れていない
+  // 空枠で自動保存をブロックせず、空の予定も保存しない（埋めた行だけが盤面・保存に反映）。部分入力行は残る。
+  const filledRows = rows.filter((r) => !isBlankScheduleRow(r));
+  const items = toScheduleItems(filledRows);
   const serialized = serializeForDirty(items);
   // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（レンダー後に副作用で。保存ロジックとは独立）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ（items 直接 dep だと毎回新規参照で無限ループ）
   useEffect(() => {
     onItemsChange?.(items);
   }, [serialized, onItemsChange]);
-  // 全行が有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ **数値時限**が重複しないなら自動保存。
+  // 埋めた行が全て有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ **数値時限**が重複しないなら自動保存。
   // 未入力/数値時限の重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
   // 特殊スロット（朝 / 昼休み / 放課後）は重複を許容する（例: 放課後に部活と三者面談）＝サーバ検証と整合。
   // 以前はここで全 period を一律に重複扱いしていたため、放課後を 2 つ入れると complete=false で**保存されなかった**
   // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
-  const numberedPeriods = rows
+  const numberedPeriods = filledRows
     .map((r) => r.period)
     .filter((p): p is number => typeof p === "number");
   const complete =
-    rows.every((r) => r.subject.trim().length > 0 && isRowPeriodComplete(r.period)) &&
+    filledRows.every((r) => r.subject.trim().length > 0 && isRowPeriodComplete(r.period)) &&
     new Set(numberedPeriods).size === numberedPeriods.length;
   const auto = useAutoSaveSection({
     serialized,

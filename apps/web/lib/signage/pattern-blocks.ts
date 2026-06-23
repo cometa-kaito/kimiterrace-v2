@@ -160,3 +160,40 @@ export function patternIncludesBlock(
 ): boolean {
   return blocksForPattern(pattern).includes(kind);
 }
+
+/**
+ * **パターン × 編集ブロック → 盤面の「固定表示行数（＝規定枠）」の単一ソース**。
+ *
+ * 盤面は各編集ブロックを**この行数ぶんの枠**で見せ、規定を超えた分は**自動スクロール**で順送りする（pattern3 が
+ * 先行採用した「固定枠＋超過は縦スクロール」を全パターン共通の挙動として単一ソース化する）。同じ値をエディタが
+ * 引き、各編集ブロックを**空行でこの数まで事前生成**する（教員が「盤面に出る枠」を入力前から把握できる・2026-06-23
+ * ユーザー要望）。盤面側の旧ハードコード（pattern1 の `MIN_ROWS` / pattern3 の `P3_*_VISIBLE_ROWS` / CSS の
+ * `--p3-*-visible`）も後続でこの定数へ寄せ、二重管理を排す。
+ *
+ * - `schedule` は **1 日（1 列）あたり**の行数（列数＝表示日数は別ソース `SIGNAGE_SCHEDULE_DAY_COUNT`）。
+ * - `notice` / `assignment` / `callout` / `visitor` は件数。
+ * - **パターンが出さないブロックは持たない**（= 事前生成も盤面枠も無し。{@link PATTERN_BLOCKS} の editable 集合と一致）。
+ *
+ * 値はすべて **5**（2026-06-23 ユーザー確定。本番 pattern1/pattern3 の実表示行数に合わせ、固定枠の無かった
+ * pattern2／スクロールだった pattern4 連絡も 5 に固定）。将来パターン追加＝ここに 1 行で全消費者（盤面・エディタ）が追従。
+ */
+export const PATTERN_BLOCK_ROW_CAPACITY: Record<
+  SignageDesignPattern,
+  Partial<Record<SignageBlockKind, number>>
+> = {
+  pattern1: { schedule: 5, notice: 5, assignment: 5 },
+  pattern2: { schedule: 5, callout: 5, visitor: 5 },
+  pattern3: { schedule: 5, callout: 5, visitor: 5 },
+  pattern4: { notice: 5 },
+};
+
+/**
+ * パターン × ブロックの固定表示行数（規定枠）。当該パターンがそのブロックを出さない場合は `0`（事前生成しない／
+ * 盤面の固定枠も無い）。未知パターンは既定 `pattern1` にフォールバックする（fail-soft・他ヘルパと同作法）。
+ */
+export function blockRowCapacity(pattern: SignageDesignPattern, kind: SignageBlockKind): number {
+  const table =
+    PATTERN_BLOCK_ROW_CAPACITY[pattern] ??
+    PATTERN_BLOCK_ROW_CAPACITY[DEFAULT_SIGNAGE_DESIGN_PATTERN];
+  return table[kind] ?? 0;
+}
