@@ -124,3 +124,36 @@
 .empty {
   visibility: hidden;
 }
+
+/* 折りたたみ用ヘッダー（クリックで開閉）。普段は畳み、使いたいときに開く（要望 2026-06-23）。 */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--brand-ink, #1f2937);
+  text-align: left;
+}
+/* 開閉インジケータ（▸ 畳む / ▾ 開く）。色だけに頼らず形でも分かるようにする。 */
+.toggleIcon {
+  flex: 0 0 auto;
+  width: 1rem;
+  font-size: 0.85rem;
+  color: var(--brand-muted, #6b7280);
+}
+/* 畳んでいる間に編集中の日を控えめに併記する。 */
+.toggleSelected {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--brand-primary-hover, #c2410c);
+}
+/* 開いたときの中身（ヘッダーの下に少し余白）。 */
+.body {
+  margin-top: 0.6rem;
+}
