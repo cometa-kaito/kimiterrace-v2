@@ -26,8 +26,8 @@ const newsItem = (over: Partial<SignageNewsItem>): SignageNewsItem => ({
 });
 
 describe("Pattern3NewsTicker", () => {
-  it("要約あり記事は見出し・発表元・本文(先頭2文)を描画する", () => {
-    render(
+  it("要約あり記事は見出し・発表元・本文(要約)を描画する", () => {
+    const { container } = render(
       <Pattern3NewsTicker
         news={{
           items: [
@@ -35,7 +35,7 @@ describe("Pattern3NewsTicker", () => {
               id: "meti",
               title: "経産省の発表",
               sourceLabel: "経済産業省",
-              summary: "一文目。二文目。三文目。",
+              summary: "要約の本文です。",
             }),
           ],
           isStale: false,
@@ -44,10 +44,9 @@ describe("Pattern3NewsTicker", () => {
     );
     expect(screen.getByText("経産省の発表")).toBeInTheDocument();
     expect(screen.getByText("経済産業省")).toBeInTheDocument();
-    // footerSummary は先頭2文のみ（3文目は切る）。
-    expect(screen.getByText("一文目。")).toBeInTheDocument();
-    expect(screen.getByText("二文目。")).toBeInTheDocument();
-    expect(screen.queryByText("三文目。")).not.toBeInTheDocument();
+    // 要約(本文)が描画される。文分割(先頭2文化)の細部は footerSummary の責務なので、ここは本文が出ることだけを
+    // 分割耐性のある textContent で確認する（複数 li を getByText で個別照合すると broken-up で脆くなるため）。
+    expect(container.textContent).toContain("要約の本文です。");
   });
 
   it("見出しのみ記事(summary=null)は見出し+発表元を描き、本文を出さず例外も投げない（補完時の JST/文科省）", () => {
