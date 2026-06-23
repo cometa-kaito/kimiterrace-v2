@@ -42,6 +42,7 @@ export function VisitorsCalloutsSection({
   showCallouts,
   visitors,
   callouts,
+  anchored = true,
 }: {
   classId: string;
   date: string;
@@ -49,6 +50,12 @@ export function VisitorsCalloutsSection({
   showCallouts: boolean;
   visitors: ClassVisitor[] | null;
   callouts: StudentCallout[] | null;
+  /**
+   * 盤面クリックのジャンプ先 anchor id（`editor-region-*`）を付けるか。既定 true（今日の編集＝盤面あり）。
+   * 「選択した日の編集」は盤面なし（showBoard=false で盤面クリックが無い）なので false にし、同一 id を
+   * 今日のセクションと二重に持たない（Reviewer 指摘・要望 2026-06-23）。
+   */
+  anchored?: boolean;
 }) {
   if (!(showVisitors || showCallouts)) {
     return null;
@@ -62,7 +69,7 @@ export function VisitorsCalloutsSection({
       {showCallouts && callouts ? (
         <div
           key={`callouts-${date}`}
-          id={editorRegionAnchorId("callouts")}
+          id={anchored ? editorRegionAnchorId("callouts") : undefined}
           className={boardLayout.card}
         >
           <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
@@ -71,7 +78,7 @@ export function VisitorsCalloutsSection({
       {showVisitors && visitors ? (
         <div
           key={`visitors-${date}`}
-          id={editorRegionAnchorId("visitors")}
+          id={anchored ? editorRegionAnchorId("visitors") : undefined}
           className={boardLayout.card}
         >
           <VisitorsEditor classId={classId} date={date} initialItems={visitors} />

@@ -114,10 +114,15 @@ export function WysiwygBoardEditor({
   // ヘッダーと一致させる（now の扱いの差を縮める）。これにより教員は「実機にどう出るか」をヘッダー込みで確認できる。
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    // 盤面を描かない（showBoard=false の「選択した日」フォームのみ）ときは実時計を回さない（now は盤面でしか
+    // 使わない・1Hz の空回り再描画を避ける・Reviewer 指摘）。
+    if (!showBoard) {
+      return;
+    }
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [showBoard]);
 
   const focusRegion = useCallback((region: Region) => {
     setActive(region);

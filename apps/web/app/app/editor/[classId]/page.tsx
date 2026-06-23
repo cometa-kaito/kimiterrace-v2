@@ -255,6 +255,7 @@ export default async function ClassEditorPage({
           <VisitorsCalloutsSection
             classId={classId}
             date={plan}
+            anchored={false}
             showVisitors={showVisitors}
             showCallouts={showCallouts}
             visitors={planData.board?.visitors ?? null}
