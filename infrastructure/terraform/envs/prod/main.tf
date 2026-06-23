@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "bcaa715" # prod main HEAD 正規リリース（#1149 の 9285fbc 隔離デプロイを supersede）。#1145 予定の時限「その他（自由入力）」+ #1146 生徒呼び出しD&D + #1148 複数日AIまとめ下書き 反映。schema=migration 0035(student_callouts.sort_order)を本番に手動適用済(0034 既適用)・他に新規 migration なし。secret 無変更。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
+  web_image_tag = "39fdb3d" # #1151 反映: スマートTV内蔵ブラウザに fit-stage を当て 50inch モニタ盤面崩れ修正（fit-mode.ts を `; wv)`=実機WebViewのみ端末判定に narrow・既設端末は全画面のまま不変）。schema変更なし・secret増減なし。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage退行なし）。前 sha=bcaa715（rollback先）
 }
 
 module "network" {
