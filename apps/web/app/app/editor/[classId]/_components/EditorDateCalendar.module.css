@@ -1,0 +1,126 @@
+/*
+ * EditorDateCalendar.module.css — クラスエディタ最下部の「日付を選んで編集」月カレンダー。
+ *
+ * 枠は来校者/呼び出し・予定の各カード（.editorCard / board-layout .card）と同じ見た目で揃える。
+ * 色はハードコードせず globals.css の既存ブランド変数（--brand-*）を参照し、未定義環境向けに
+ * トークン同値の hex フォールバックを添える（WysiwygBoardEditor.module.css と同方式）。
+ */
+
+.card {
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1.5rem;
+  max-width: 360px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--brand-ink, #1f2937);
+  margin: 0;
+}
+/* 月送りボタン。タップ領域（最小 44px 弱）を確保し、色だけに頼らずホバーで面を出す。 */
+.nav {
+  min-width: 2.2rem;
+  min-height: 2.2rem;
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--brand-surface, #fff);
+  color: var(--brand-ink, #1f2937);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.nav:hover {
+  background: var(--brand-bg-soft, #f7f8fa);
+}
+.hint {
+  font-size: 0.78rem;
+  color: var(--brand-muted, #6b7280);
+  margin: 0 0 0.6rem;
+}
+
+.week,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.week {
+  margin-bottom: 4px;
+}
+.wd {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--brand-muted, #6b7280);
+}
+/* 日曜=赤系 / 土曜=ブランド青で曜日を一目で分かるようにする（標準的な和暦カレンダーの配色）。 */
+.wdSun {
+  color: #b91c1c;
+}
+.wdSat {
+  color: var(--brand-blue-strong, #2b4acb);
+}
+
+.day {
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand-ink, #1f2937);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.day:hover {
+  background: var(--brand-bg-soft, #f7f8fa);
+}
+.dayNum {
+  line-height: 1;
+}
+/* 内容（予定/連絡/提出物）のある日に打つ点。選択中（オレンジ地）では白で出す。 */
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand-blue-strong, #2b4acb);
+}
+/* 内容なしの日も同じ高さを確保して数字位置がずれないようにする（場所だけ取り不可視）。 */
+.dotHidden {
+  visibility: hidden;
+}
+/* 今日（ブランド青の枠＋文字）。選択中とは別表現にして両立させる。 */
+.today {
+  border-color: var(--brand-blue-strong, #2b4acb);
+  color: var(--brand-blue-strong, #2b4acb);
+  font-weight: 600;
+}
+/* 編集中の日（ブランドのアクション色で塗る）。.today より後に定義し、両方該当時はこちらを優先。 */
+.selected {
+  background: var(--brand-primary, #ea580c);
+  border-color: var(--brand-primary, #ea580c);
+  color: #fff;
+  font-weight: 600;
+}
+.selected:hover {
+  background: var(--brand-primary-hover, #c2410c);
+}
+.selected .dot {
+  background: #fff;
+}
+/* 月初の曜日合わせの空白セル（クリック不可・場所だけ確保）。 */
+.empty {
+  visibility: hidden;
+}

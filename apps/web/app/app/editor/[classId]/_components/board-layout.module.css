@@ -20,3 +20,15 @@
     grid-column: 1 / -1;
   }
 }
+
+/*
+ * 各編集セクション（来校者一覧 / 生徒呼び出し）を予定/連絡/提出物の EditorCard と同じ枠で囲む
+ * （要望 2026-06-23: 予定だけ四角で囲まれていて不揃い → 全セクションを枠で揃える）。値は
+ * WysiwygBoardEditor.module.css の .editorCard と意図的に同一にする（枠の見た目の基準を 1 つに保つ）。
+ */
+.card {
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  scroll-margin-top: 1rem;
+}

@@ -10,6 +10,7 @@ import {
   isSpecialSlot,
   targetId,
 } from "@/lib/editor/schedule-core";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
@@ -78,12 +79,26 @@ function toScheduleItems(rows: Row[]): ScheduleItem[] {
   }));
 }
 
+/** 曜日（日始まり）。日付文字列から決まり today に依存しないので SSR/クライアントで一致する。 */
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** "2026-06-23" → "2026年6月23日（火）"。対象日を切り替えない場面（クラス編集）で日付を読みやすく示す。 */
+function formatEditorDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) {
+    return date;
+  }
+  const weekday = WEEKDAY_JP[new Date(y, m - 1, d).getDay()] ?? "";
+  return `${y}年${m}月${d}日（${weekday}）`;
+}
+
 export function ScheduleEditor({
   classId,
   target: targetProp,
   date,
   initialItems,
   onItemsChange,
+  showDateNav = true,
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -95,6 +110,12 @@ export function ScheduleEditor({
    * 影響しない**（観測専用の副作用。既定 undefined = 何もしない＝従来挙動）。
    */
   onItemsChange?: (items: ScheduleItem[]) => void;
+  /**
+   * 対象日ナビ（`<input type="date">`）を出すか。既定 true（scope/ops エディタは従来どおりここで日付を切替）。
+   * クラス編集はページ最下部の常設カレンダーが日付ナビを担うので false にし、編集中の日付をテキスト表示する
+   * だけにする（要望 2026-06-23: 予定セクションの対象日設定は廃止し日付を書いておく）。
+   */
+  showDateNav?: boolean;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
@@ -231,15 +252,29 @@ export function ScheduleEditor({
 
   return (
     <div style={{ display: "grid", gap: "1rem", maxWidth: "640px" }}>
-      <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        対象日
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => changeDate(e.target.value)}
-          style={inputStyle}
-        />
-      </label>
+      {showDateNav ? (
+        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          対象日
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => changeDate(e.target.value)}
+            style={inputStyle}
+          />
+        </label>
+      ) : (
+        // クラス編集では対象日はカレンダーで切替。ここは編集中の日付をテキストで示すだけ（要望 2026-06-23）。
+        <p
+          style={{
+            margin: 0,
+            fontSize: tokens.fontSize.md,
+            fontWeight: 600,
+            color: tokens.color.ink,
+          }}
+        >
+          {formatEditorDate(date)}
+        </p>
+      )}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
@@ -348,7 +383,7 @@ export function ScheduleEditor({
 
       <div style={saveBarStyle}>
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
-          コマを追加
+          予定を追加
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />
       </div>
