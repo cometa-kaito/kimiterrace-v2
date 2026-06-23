@@ -25,7 +25,7 @@ import {
   mergeDailySections,
 } from "./effective-daily-data";
 import { type SignageHeatAlert, getSignageHeatAlerts } from "./heat-alerts";
-import { type SignageNews, getSignageNews } from "./news";
+import { type SignageNews, getSignageNews, getSignagePattern3News } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
 import { signageScheduleDates } from "./rotation";
@@ -295,11 +295,14 @@ export async function buildSignagePayloadForClass(
   const trainStatus = patternIncludesBlock(designPattern, "train")
     ? await getSignageRailwayStatus(tx).catch(() => null)
     : null;
-  // 「時事ニュース」= 外部取得キャッシュ（news_items）の最新見出しを公開日降順で読む。端末は閉域（政府系/JST
-  // の RSS 直叩きしない・ADR-043）。RLS read_all で匿名でも読める。取得失敗は空リスト（fail-soft）に倒す。
-  // パターン非該当（pattern1/pattern3）は引かず null（盤面でも出さない）。pattern2/pattern4 が取得・表示。
+  // 「時事ニュース」= 外部取得キャッシュ（news_items）を読む。端末は閉域（政府系/JST の RSS 直叩きしない・
+  // ADR-043）。RLS read_all で匿名でも読める。取得失敗は空リスト（fail-soft）に倒す。news ブロックを持つのは
+  // pattern2/3/4（pattern1 は対象外）。pattern3 廊下フッタだけは要約優先＋不足時のみ見出し補完で鮮度を保つ
+  // （getSignagePattern3News）、pattern2/4 は最新 N 件（getSignageNews）。
   const news = patternIncludesBlock(designPattern, "news")
-    ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
+    ? await (designPattern === "pattern3" ? getSignagePattern3News(tx) : getSignageNews(tx)).catch(
+        () => ({ items: [], isStale: false }),
+      )
     : null;
   // 「防災・安全」= 自校地域の気象警報・注意報 + 熱中症警戒アラートをキャッシュ（weather_warnings / heat_alerts）
   // から読む。端末は閉域（JMA / 環境省を直叩きしない・ADR-044）。RLS read_all で匿名でも読める。pattern1/pattern4
@@ -401,8 +404,11 @@ async function buildSignagePayloadForMonitorOnly(
   const trainStatus = patternIncludesBlock(designPattern, "train")
     ? await getSignageRailwayStatus(tx).catch(() => null)
     : null;
+  // pattern3 廊下フッタは要約優先＋不足時のみ見出し補完（getSignagePattern3News）、pattern2/4 は最新 N 件。
   const news = patternIncludesBlock(designPattern, "news")
-    ? await getSignageNews(tx).catch(() => ({ items: [], isStale: false }))
+    ? await (designPattern === "pattern3" ? getSignagePattern3News(tx) : getSignageNews(tx)).catch(
+        () => ({ items: [], isStale: false }),
+      )
     : null;
   // 防災・安全帯（気象警報/熱中症）は学校地域単位（クラス非依存）。クラス版と同規約で safety_alert
   // パターン該当時のみ・fail-soft。廊下端末でも防災情報は出す価値があるため同様に読む。
