@@ -1161,8 +1161,6 @@ function Pattern2Schedule({
     "予定",
     editRegions,
   );
-  // 1 日（1 列）あたりの規定表示行数（単一ソース）。超過コマは汎用オートスクロール（§11a）で順送り。
-  const visibleScheduleRows = blockRowCapacity("pattern2", "schedule");
   return (
     <section
       {...sectionProps}
@@ -1201,18 +1199,17 @@ function Pattern2Schedule({
                 <span className={styles.p2Muted}>予定はありません</span>
               </div>
             ) : (
-              // 規定 5 行ぶんの固定枠で見せ、超過コマは汎用オートスクロール（§11a）で順送り。各コマは固定高
-              // （.autoScrollItem 併設）。pattern3 の予定スクローラと同作法で多行（場所/対象者メタ）も収まる。
-              <AutoScrollViewport
-                visibleRows={visibleScheduleRows}
-                totalRows={rows.length}
-                trackClassName={styles.p2ScheduleRows}
-              >
-                {rows.map((row, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                  <Pattern2ScheduleRow key={i} row={row} />
-                ))}
-              </AutoScrollViewport>
+              // 各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積み、列の残り高さに収まらない
+              // 分だけ JS AutoScroll（Element.animate・ping-pong）で縦オートスクロールして順送りする（5 件以下でも
+              // 2 行アイテムを切らない・2026-06-23 ユーザー要望）。編集モードでは動かさず静的（クリック編集を妨げない）。
+              <AutoScroll play={!editRegions}>
+                <div className={styles.p2ScheduleRows}>
+                  {rows.map((row, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                    <Pattern2ScheduleRow key={i} row={row} />
+                  ))}
+                </div>
+              </AutoScroll>
             )}
           </div>
         );
@@ -1225,8 +1222,8 @@ function Pattern2Schedule({
 function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
   const hasMeta = row.location != null || row.targetAudience != null;
   return (
-    // .autoScrollItem を併設して窓高/可視数の固定行高にする（汎用オートスクロール §11a の item 役）。
-    <div className={`${styles.p2ScheduleItem} ${styles.autoScrollItem}`}>
+    // 自然高さ（場所/対象者メタは 2 行目に伸びる）。超過分は親の JS AutoScroll が縦スクロールで順送りする。
+    <div className={styles.p2ScheduleItem}>
       <span className={styles.p2ScheduleMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         {row.content}
@@ -1259,8 +1256,6 @@ function Pattern2Visitors({
   editRegions?: EditRegionsProps;
 }) {
   const list = visitors ?? [];
-  // 規定 5 件ぶんの固定枠で見せ、超過は汎用オートスクロール（§11a）で順送り（各件は固定高 .autoScrollItem）。
-  const visibleRows = blockRowCapacity("pattern2", "visitor");
   const { sectionProps, hideHeading, button } = regionEditProps(
     "visitors",
     styles.card,
@@ -1277,37 +1272,37 @@ function Pattern2Visitors({
       {list.length === 0 ? (
         <p className={styles.p2Muted}>本日の来校者はありません</p>
       ) : (
-        <AutoScrollViewport
-          visibleRows={visibleRows}
-          totalRows={list.length}
-          trackAs="ul"
-          trackClassName={styles.p2VisitorList}
-        >
-          {list.map((v) => (
-            <li key={v.id} className={`${styles.p2VisitorItem} ${styles.autoScrollItem}`}>
-              <span className={styles.p2VisitorMain}>
-                {v.scheduledTime ? (
-                  <span className={styles.scheduleTime}>{v.scheduledTime}</span>
-                ) : null}
-                <span className={styles.p2VisitorName}>{v.visitorName}</span>
-                {v.affiliation ? (
-                  <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
-                ) : null}
-              </span>
-              {v.purpose || v.host ? (
-                <span className={styles.p2ScheduleMeta}>
-                  {v.purpose ? <span>{v.purpose}</span> : null}
-                  {v.purpose && v.host ? (
-                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                      ／
-                    </span>
+        // 各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ
+        // JS AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
+        // 編集モードでは静的（クリック編集を妨げない）。
+        <AutoScroll play={!editRegions}>
+          <ul className={styles.p2VisitorList}>
+            {list.map((v) => (
+              <li key={v.id} className={styles.p2VisitorItem}>
+                <span className={styles.p2VisitorMain}>
+                  {v.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{v.scheduledTime}</span>
                   ) : null}
-                  {v.host ? <span>対応: {v.host}</span> : null}
+                  <span className={styles.p2VisitorName}>{v.visitorName}</span>
+                  {v.affiliation ? (
+                    <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
+                  ) : null}
                 </span>
-              ) : null}
-            </li>
-          ))}
-        </AutoScrollViewport>
+                {v.purpose || v.host ? (
+                  <span className={styles.p2ScheduleMeta}>
+                    {v.purpose ? <span>{v.purpose}</span> : null}
+                    {v.purpose && v.host ? (
+                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                        ／
+                      </span>
+                    ) : null}
+                    {v.host ? <span>対応: {v.host}</span> : null}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );
@@ -1329,8 +1324,6 @@ function Pattern2Callouts({
   // 呼び出しが 1 件以上ある時だけ左にアクセント線を立て、名指しされた生徒が気づきやすくする（提出物の
   // 期限切れ行と同じ inset box-shadow 作法）。0 件は線なしで他カードと等価に保つ（ユーザー指定 2026-06-13）。
   const hasCallouts = list.length > 0;
-  // 規定 5 件ぶんの固定枠で見せ、超過は汎用オートスクロール（§11a）で順送り（各件は固定高 .autoScrollItem）。
-  const visibleRows = blockRowCapacity("pattern2", "callout");
   const { sectionProps, hideHeading, button } = regionEditProps(
     "callouts",
     `${styles.card} ${hasCallouts ? styles.p2CalloutsActive : ""}`,
@@ -1347,25 +1340,25 @@ function Pattern2Callouts({
       {list.length === 0 ? (
         <p className={styles.p2Muted}>呼び出しはありません</p>
       ) : (
-        <AutoScrollViewport
-          visibleRows={visibleRows}
-          totalRows={list.length}
-          trackAs="ul"
-          trackClassName={styles.p2VisitorList}
-        >
-          {list.map((c) => (
-            <li key={c.id} className={`${styles.p2VisitorItem} ${styles.autoScrollItem}`}>
-              <span className={styles.p2VisitorMain}>
-                {c.scheduledTime ? (
-                  <span className={styles.scheduleTime}>{c.scheduledTime}</span>
-                ) : null}
-                <span className={styles.p2VisitorName}>{c.studentName}</span>
-                {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
-              </span>
-              {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
-            </li>
-          ))}
-        </AutoScrollViewport>
+        // 各件は**自然高さ**（用件の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ JS
+        // AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
+        // 編集モードでは静的（クリック編集を妨げない）。
+        <AutoScroll play={!editRegions}>
+          <ul className={styles.p2VisitorList}>
+            {list.map((c) => (
+              <li key={c.id} className={styles.p2VisitorItem}>
+                <span className={styles.p2VisitorMain}>
+                  {c.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                  ) : null}
+                  <span className={styles.p2VisitorName}>{c.studentName}</span>
+                  {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
+                </span>
+                {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );

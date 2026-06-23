@@ -745,22 +745,24 @@
   font-size: 1.15em;
   line-height: 1;
 }
-/* pattern2 予定の行トラック。**汎用オートスクロール**（§11a）の track 役。可視数（規定 5 行・
-   `blockRowCapacity('pattern2','schedule')`）を inline の --visible-rows で渡し、超過は親 `.autoScroll` 窓内を
-   縦スクロール（旧: 上限なしで clip＝見切れ）。各コマは `.autoScrollItem` 併設で固定高。 */
+/* pattern2 予定の行トラック。各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積む。空状態
+   （「予定はありません」）はこの要素を直接置くので `flex:1; min-height:0` で列の残り高さを満たす。予定がある時は
+   親の JS `AutoScroll`（viewport が flex:1 で残り高さを占有・overflow:hidden）の中に入り、自然高さの track を
+   なすので `flex:1` は実質ノーオペ＝自然高さのまま（収まらない分だけ JS が縦スクロール）。 */
 .p2ScheduleRows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 0.12rem;
 }
 .p2ScheduleItem {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   min-width: 0;
   border-bottom: 1px dotted var(--border-color);
   padding: 0.12rem 0;
-  /* 汎用オートスクロール（§11a）で固定高（.autoScrollItem）を併設するため、はみ出しは枠内で clip する。 */
-  overflow: hidden;
 }
 /* 時限 + 内容（1 行・はみ出しは省略）。視認性のため本文を一段大きく。 */
 .p2ScheduleMain {
@@ -806,26 +808,24 @@
   color: var(--primary-color);
 }
 /* 生徒呼び出し / 来校者一覧: 時刻 + 氏名（+所属/呼出先）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。
-   **汎用オートスクロール**（§11a）の track 役（`<ul>` 自身が track）。可視数（規定 5 件・
-   `blockRowCapacity('pattern2','callout'|'visitor')`）を inline の --visible-rows で渡し、超過は親 `.autoScroll`
-   窓内を縦スクロール（旧: 上限なしで clip）。各件は `.autoScrollItem` 併設で固定高。 */
+   各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積む。親の JS `AutoScroll`（viewport が flex:1 で
+   残り高さを占有・overflow:hidden）の中で自然高さの track をなすので `flex:1` は実質ノーオペ＝自然高さのまま
+   （収まらない分だけ JS が縦スクロール）。 */
 .p2VisitorList {
   list-style: none;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  gap: 0.12rem;
 }
 .p2VisitorItem {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   min-width: 0;
   border-bottom: 1px dotted var(--border-color);
   padding: 0.15rem 0;
-  /* 汎用オートスクロール（§11a）で固定高（.autoScrollItem）を併設するため、はみ出しは枠内で clip する。 */
-  overflow: hidden;
 }
 .p2VisitorMain {
   font-size: clamp(0.82rem, 1.2vw, 1.1rem);
