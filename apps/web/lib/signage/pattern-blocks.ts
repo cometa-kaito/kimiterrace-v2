@@ -162,34 +162,42 @@ export function patternIncludesBlock(
 }
 
 /**
- * **パターン × 編集ブロック → 盤面の「固定表示行数（＝規定枠）」の単一ソース**。
+ * **パターン × 編集ブロック → エディタの「空行事前生成数（＝盤面に出る規定枠の目安）」の単一ソース**。
  *
- * 盤面は各編集ブロックを**この行数ぶんの枠**で見せ、規定を超えた分は**自動スクロール**で順送りする（pattern3 が
- * 先行採用した「固定枠＋超過は縦スクロール」を全パターン共通の挙動として単一ソース化する）。同じ値をエディタが
- * 引き、各編集ブロックを**空行でこの数まで事前生成**する（教員が「盤面に出る枠」を入力前から把握できる・2026-06-23
- * ユーザー要望）。盤面側の旧ハードコード（pattern1 の `MIN_ROWS` / pattern3 の `P3_*_VISIBLE_ROWS` / CSS の
- * `--p3-*-visible`）も後続でこの定数へ寄せ、二重管理を排す。
+ * **全パターンのエディタ**がこの値を引き、各編集ブロックを**空行でこの数まで事前生成**する（教員が「盤面に出る枠」を
+ * 入力前から把握できる・2026-06-23 ユーザー要望）。これが本定数の**普遍的な consumer**（`WysiwygBoardEditor` /
+ * `VisitorsCalloutsSection` が `blockRowCapacity(pattern, kind)` を引く）。
+ *
+ * 一方**盤面側**でこの値を「固定表示行数（規定枠＋超過は自動スクロール）」として引くのは現状 **pattern1 のみ**
+ * （`SignageBoardView`）。pattern2 の盤面は #1179（PR-B）以降 **自然高さ＋JS AutoScroll** で固定枠を持たないため、
+ * `blockRowCapacity("pattern2", …)` は**盤面の行キャップではなくエディタ事前生成だけ**を駆動する（pattern3 盤面は
+ * 独自の `P3_*_VISIBLE_ROWS`、pattern4 連絡はフロー＋スクロールで、いずれも盤面側では本定数を引かない）。盤面側の旧
+ * ハードコード（pattern1 の `MIN_ROWS` / pattern3 の `P3_*_VISIBLE_ROWS` / CSS の `--p3-*-visible`）を後続でこの
+ * 定数へ寄せ二重管理を排す方針は維持する。
  *
  * - `schedule` は **1 日（1 列）あたり**の行数（列数＝表示日数は別ソース `SIGNAGE_SCHEDULE_DAY_COUNT`）。
  * - `notice` / `assignment` / `callout` / `visitor` は件数。
  * - **パターンが出さないブロックは持たない**（= 事前生成も盤面枠も無し。{@link PATTERN_BLOCKS} の editable 集合と一致）。
  *
- * 値はすべて **5**（2026-06-23 ユーザー確定。本番 pattern1/pattern3 の実表示行数に合わせ、固定枠の無かった
- * pattern2／スクロールだった pattern4 連絡も 5 に固定）。将来パターン追加＝ここに 1 行で全消費者（盤面・エディタ）が追従。
+ * 値はすべて **5**（2026-06-23 ユーザー確定。本番 pattern1/pattern3 の実表示行数に合わせ、pattern2／pattern4 連絡の
+ * エディタ事前生成も 5 に揃える）。将来パターン追加＝ここに 1 行で全消費者（エディタ・pattern1 盤面）が追従。
  */
 export const PATTERN_BLOCK_ROW_CAPACITY: Record<
   SignageDesignPattern,
   Partial<Record<SignageBlockKind, number>>
 > = {
   pattern1: { schedule: 5, notice: 5, assignment: 5 },
+  // pattern2: 盤面は #1179 以降 自然高さ＋JS AutoScroll で固定枠を持たない＝この値はエディタの空行事前生成のみを
+  // 駆動する（盤面の行キャップではない）。同ブロック構成の pattern3 と件数を揃える。
   pattern2: { schedule: 5, callout: 5, visitor: 5 },
   pattern3: { schedule: 5, callout: 5, visitor: 5 },
   pattern4: { notice: 5 },
 };
 
 /**
- * パターン × ブロックの固定表示行数（規定枠）。当該パターンがそのブロックを出さない場合は `0`（事前生成しない／
- * 盤面の固定枠も無い）。未知パターンは既定 `pattern1` にフォールバックする（fail-soft・他ヘルパと同作法）。
+ * パターン × ブロックのエディタ空行事前生成数（pattern1 盤面では固定表示行数も兼ねる・上記参照）。当該パターンが
+ * そのブロックを出さない場合は `0`（事前生成しない／盤面の固定枠も無い）。未知パターンは既定 `pattern1` に
+ * フォールバックする（fail-soft・他ヘルパと同作法）。
  */
 export function blockRowCapacity(pattern: SignageDesignPattern, kind: SignageBlockKind): number {
   const table =
