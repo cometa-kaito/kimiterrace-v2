@@ -128,4 +128,32 @@ describe("NoticeEditor 並べ替え（ドラッグ / ↑↓キー・上下ボタ
     expect(screen.getByRole("button", { name: "2 件目を並べ替え" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "3 件目を並べ替え" })).toBeNull();
   });
+
+  // #1175 と同型のバグ: 事前生成（盤面の規定枠ぶん）の空行があると、最後の実入力行で ↓ を押したとき
+  // useRowReorder.move が `to < count`(=空行込み rows.length) しか境界チェックしないため、行き先が末尾の
+  // 空行スロットでも moveItem が実入力行をそこへ swap し、実入力行どうしの間に空行が挟まって「行間が空いて
+  // 盤面が崩れて見える」見た目バグになっていた。moveRow の空行ドロップ先ガードで no-op になることを固定する。
+  it("末尾の実入力行で ↓ を押しても空行へ移らず順序不変（事前生成の空行へ落とさない）", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡A" }, { text: "連絡B" }]}
+        prefillRows={5}
+      />,
+    );
+    const textAt = (row: number) =>
+      (screen.getByLabelText(`${row} 件目の連絡事項`) as HTMLInputElement).value;
+    // 2 件入力 + 空行 3 行（事前生成 5 枠）。最後の実入力行（2 件目 = 連絡B）のグリップで ↓。
+    // ポインタ D&D は jsdom 非対応なので同じ並べ替え経路をキーボードで叩く（↓ は move(1, 2) を呼ぶ）。
+    act(() => {
+      fireEvent.keyDown(screen.getByRole("button", { name: "2 件目を並べ替え" }), {
+        key: "ArrowDown",
+      });
+    });
+    // 行き先（3 行目）は空行 → no-op。実入力行は [連絡A, 連絡B] のまま（間に空行が挟まらない）。
+    expect(textAt(1)).toBe("連絡A");
+    expect(textAt(2)).toBe("連絡B");
+    expect(textAt(3)).toBe("");
+  });
 });
