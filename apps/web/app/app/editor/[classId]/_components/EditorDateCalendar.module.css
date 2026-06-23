@@ -119,25 +119,70 @@
 .selected .dot {
   background: #fff;
 }
+/* 過去日（昨日以前）。準備用途では押せない＝薄く出してホバー面も出さない（内容ドットは残す）。選択中の日は
+ * disabled にしないので（.tsx 側 isPast && !isSelected）、この .past 単独でも橙の .selected が後勝ちで色は保たれる。 */
+.past {
+  color: var(--brand-muted, #6b7280);
+}
+.day:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.day:disabled:hover {
+  background: transparent;
+}
 /* 月初の曜日合わせの空白セル（クリック不可・場所だけ確保）。 */
 .empty {
   visibility: hidden;
 }
 
-/* 折りたたみ用ヘッダー（クリックで開閉）。普段は畳み、使いたいときに開く（要望 2026-06-23）。 */
-.toggle {
+/* ヘッダー行: トグル（月グリッド開閉）＋クイックチップ（明日/あさって）を横並びにする。狭い幅では折り返す。 */
+.headerRow {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 折りたたみ用トグル。付属機能だと分かるよう枠つきボタン然とさせる（要望 2026-06-23: 素テキストは気づきにくい）。 */
+.toggle {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  width: 100%;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--brand-surface, #fff);
   cursor: pointer;
-  padding: 2px 0;
-  font-size: 1.05rem;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--brand-ink, #1f2937);
   text-align: left;
+}
+.toggle:hover {
+  background: var(--brand-bg-soft, #f7f8fa);
+}
+
+/* クイックチップ「明日 / あさって」。月グリッドを開かず 1 タップで先の日へ（タップ 40px）。 */
+.chips {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--brand-surface, #fff);
+  color: var(--brand-blue-strong, #2b4acb);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip:hover {
+  background: var(--brand-bg-soft, #f7f8fa);
 }
 /* 開閉インジケータ（▸ 畳む / ▾ 開く）。色だけに頼らず形でも分かるようにする。 */
 .toggleIcon {

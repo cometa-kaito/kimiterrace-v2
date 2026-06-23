@@ -17,7 +17,11 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
-import { EditorDateCalendar } from "./_components/EditorDateCalendar";
+import {
+  EditorDateCalendar,
+  SELECTED_DAY_ANCHOR_ID,
+  TODAY_ANCHOR_ID,
+} from "./_components/EditorDateCalendar";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
@@ -198,8 +202,11 @@ export default async function ClassEditorPage({
           key={date}: 対象日変更時に再マウントして新日付のデータで初期化する。これが無いと配下エディタの
           useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
           混線バグになる（ユーザー報告 2026-06-16）。 */}
-      {/* 上＝「今日の編集」。常にここ（先の日の選択では動かさない）・盤面プレビュー付き（要望 2026-06-23）。 */}
-      <p style={todayHeadingStyle}>今日の編集 — {jpDate(today)}</p>
+      {/* 上＝「今日の編集」。常にここ（先の日の選択では動かさない）・盤面プレビュー付き（要望 2026-06-23）。
+          id はカレンダーで「今日」を押したときのスクロール戻り先（TODAY_ANCHOR_ID・空振り解消）。 */}
+      <p id={TODAY_ANCHOR_ID} style={todayHeadingStyle}>
+        今日の編集 — {jpDate(today)}
+      </p>
       <WysiwygBoardEditor
         key={date}
         classId={classId}
@@ -243,7 +250,7 @@ export default async function ClassEditorPage({
           保存・検証・RLS は今日と同じ部品を date=plan で再利用（key={plan} で日付ごとに初期化）。来校者/呼び出しも
           pattern2/3 なら同様に出す。plan 未選択 or その日が取得不能なら出さない。 */}
       {plan && planData ? (
-        <section aria-label={`選択した日の編集 ${jpDate(plan)}`}>
+        <section id={SELECTED_DAY_ANCHOR_ID} aria-label={`選択した日の編集 ${jpDate(plan)}`}>
           <p style={futureHeadingStyle}>選択した日の編集 — {jpDate(plan)}</p>
           <WysiwygBoardEditor
             key={plan}
