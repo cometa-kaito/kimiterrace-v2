@@ -50,12 +50,34 @@ type Row = {
 /** 「その他（自由入力）」を表す select の番兵値（実 period 値ではない・UI 専用）。 */
 const CUSTOM_SLOT_VALUE = "__custom__";
 
-/** select の値（文字列）を Row.period に戻す。数値時限は number 化・特殊はそのまま・「その他」は空の自由入力にする。 */
+/**
+ * 時限が「未選択（空欄）」を表す番兵（UI 専用）。`0` は有効時限(1..12)でも特殊スロットでもないので
+ * {@link isRowPeriodComplete} が false を返し、時限を選ぶまで保存・盤面表示をブロックする（要望 2026-06-23:
+ * 事前生成・新規行の時限は最初は空欄＝1限〜5限 を自動で入れない）。`ScheduleItem.period` は number のままで
+ * 型・スキーマ・サーバ検証は不変（`normalizePeriod` も 0 を弾く）。
+ */
+const UNSELECTED_PERIOD = 0;
+
+/** select の値（文字列）を Row.period に戻す。空=未選択 / 「その他」=空の自由入力 / 特殊はそのまま / それ以外は数値化。 */
 function parseSlotValue(value: string): SchedulePeriod {
+  if (value === "") {
+    return UNSELECTED_PERIOD;
+  }
   if (value === CUSTOM_SLOT_VALUE) {
     return { custom: "" };
   }
   return isSpecialSlot(value) ? value : Number(value);
+}
+
+/** Row.period を select の現在値（文字列）へ。未選択=空 / その他=番兵 / 特殊・数値はその文字列。 */
+function slotSelectValue(period: SchedulePeriod): string {
+  if (isCustomPeriod(period)) {
+    return CUSTOM_SLOT_VALUE;
+  }
+  if (period === UNSELECTED_PERIOD) {
+    return "";
+  }
+  return String(period);
 }
 
 /** 行の時限が「保存してよい」状態か。数値 1..12 / 特殊スロット / 中身のある自由入力。 */
@@ -153,14 +175,10 @@ export function ScheduleEditor({
       location: i.location ?? "",
       targetAudience: i.targetAudience ?? "",
     }));
-    // 盤面の規定枠（prefillRows）まで空行を足す。空行の時限は既存の**数値時限の最大**から連番で割り当てる
-    // （addRow と同じ採番＝数値時限が重複しない）。prefillRows=0（scope/ops 等）は no-op で従来どおり。
-    const maxNumbered = Math.max(
-      0,
-      ...initial.map((r) => (typeof r.period === "number" ? r.period : 0)),
-    );
-    return padBlankRows(initial, prefillRows, (index) => ({
-      period: maxNumbered + 1 + (index - initial.length),
+    // 盤面の規定枠（prefillRows）まで空行を足す。時限は**未選択（空欄）**で始める（自動で 1限〜5限 を割り当て
+    // ない・要望 2026-06-23）。教員が各行を埋めるとき時限を選ぶ。prefillRows=0（scope/ops 等）は no-op で従来どおり。
+    return padBlankRows(initial, prefillRows, () => ({
+      period: UNSELECTED_PERIOD,
       subject: "",
       note: "",
       location: "",
@@ -173,19 +191,22 @@ export function ScheduleEditor({
   const filledRows = rows.filter((r) => !isBlankScheduleRow(r));
   const items = toScheduleItems(filledRows);
   const serialized = serializeForDirty(items);
-  // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（レンダー後に副作用で。保存ロジックとは独立）。
+  // ライブプレビュー連動: **時限が確定した行だけ**盤面へ通知する（未選択=0 の行は "0限" を盤面に出さない）。
+  // 保存ロジックとは独立（レンダー後に副作用で）。
+  const previewItems = items.filter((it) => isRowPeriodComplete(it.period));
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ（items 直接 dep だと毎回新規参照で無限ループ）
   useEffect(() => {
-    onItemsChange?.(items);
+    onItemsChange?.(previewItems);
   }, [serialized, onItemsChange]);
   // 埋めた行が全て有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ **数値時限**が重複しないなら自動保存。
   // 未入力/数値時限の重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
   // 特殊スロット（朝 / 昼休み / 放課後）は重複を許容する（例: 放課後に部活と三者面談）＝サーバ検証と整合。
   // 以前はここで全 period を一律に重複扱いしていたため、放課後を 2 つ入れると complete=false で**保存されなかった**
   // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
+  // 重複判定は**有効な数値時限(1..12)のみ**。未選択(0)は除外する（複数行が未選択でも重複扱いにしない）。
   const numberedPeriods = filledRows
     .map((r) => r.period)
-    .filter((p): p is number => typeof p === "number");
+    .filter((p): p is number => typeof p === "number" && p >= 1);
   const complete =
     filledRows.every((r) => r.subject.trim().length > 0 && isRowPeriodComplete(r.period)) &&
     new Set(numberedPeriods).size === numberedPeriods.length;
@@ -203,16 +224,11 @@ export function ScheduleEditor({
   // rows に依存せず、Tab 縦移動の最終行追加でも常に最新行を基準にできる。挙動は従来と同一（数値時限のみ対象・
   // 特殊スロットは max 計算に含めない）。
   const addRow = useCallback(() => {
-    setRows((prev) => {
-      const numericPeriods = prev
-        .map((r) => r.period)
-        .filter((p): p is number => typeof p === "number");
-      const nextPeriod = numericPeriods.length > 0 ? Math.max(...numericPeriods) + 1 : 1;
-      return [
-        ...prev,
-        { period: nextPeriod, subject: "", note: "", location: "", targetAudience: "" },
-      ];
-    });
+    // 新規行も時限は未選択（空欄）で始める（自動採番しない・事前生成行と一貫・要望 2026-06-23）。
+    setRows((prev) => [
+      ...prev,
+      { period: UNSELECTED_PERIOD, subject: "", note: "", location: "", targetAudience: "" },
+    ]);
   }, []);
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
@@ -336,12 +352,14 @@ export function ScheduleEditor({
                 <td style={tdStyle}>
                   <select
                     ref={(el) => registerCell(i, 0, el)}
-                    value={isCustomPeriod(r.period) ? CUSTOM_SLOT_VALUE : String(r.period)}
+                    value={slotSelectValue(r.period)}
                     onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
                     onKeyDown={(e) => onCellKeyDown(e, i, 0)}
                     style={{ ...inputStyle, width: "6rem" }}
                     aria-label={`${i + 1} 行目の時限`}
                   >
+                    {/* 未選択（空欄）。事前生成・新規行はここで始まり、時限を選ぶまで盤面に出ない。 */}
+                    <option value="">（時限を選択）</option>
                     {SCHEDULE_SLOT_OPTIONS.map((opt) => (
                       <option key={String(opt.value)} value={String(opt.value)}>
                         {opt.label}
