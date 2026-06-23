@@ -301,7 +301,8 @@ describe("scheduleSlotSortKey", () => {
 });
 
 describe("SCHEDULE_SLOT_OPTIONS", () => {
-  it("morning / 1..12 / lunch / afterschool を順に並べた 15 件", () => {
+  // 数値時限は 1〜6 のみ（2026-06-23 要望: 7〜12 限の構造化選択肢を撤去）。7 限以上は「その他（自由入力）」で。
+  it("morning / 1..6 / lunch / afterschool を順に並べた 9 件", () => {
     expect(SCHEDULE_SLOT_OPTIONS.map((o) => o.value)).toEqual([
       "morning",
       1,
@@ -310,16 +311,22 @@ describe("SCHEDULE_SLOT_OPTIONS", () => {
       4,
       5,
       6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      12,
       "lunch",
       "afterschool",
     ]);
     expect(SCHEDULE_SLOT_OPTIONS[0]).toEqual({ value: "morning", label: "朝" });
     expect(SCHEDULE_SLOT_OPTIONS[1]).toEqual({ value: 1, label: "1限" });
+  });
+
+  it("7〜12 限は構造化選択肢から除外（自由入力でのみ入力可・サーバ検証は 1〜12 のまま緩い）", () => {
+    const numeric = SCHEDULE_SLOT_OPTIONS.map((o) => o.value).filter(
+      (v): v is number => typeof v === "number",
+    );
+    expect(Math.max(...numeric)).toBe(6);
+    expect(numeric).not.toContain(7);
+    expect(numeric).not.toContain(12);
+    // サーバ検証は 7〜12 を引き続き受理（既存 JSONB データを壊さない）。
+    expect(validateScheduleItems([{ period: 7, subject: "補習" }]).ok).toBe(true);
+    expect(validateScheduleItems([{ period: 12, subject: "補習" }]).ok).toBe(true);
   });
 });

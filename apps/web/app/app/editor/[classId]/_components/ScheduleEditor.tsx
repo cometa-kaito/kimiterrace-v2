@@ -80,7 +80,13 @@ function slotSelectValue(period: SchedulePeriod): string {
   return String(period);
 }
 
-/** 行の時限が「保存してよい」状態か。数値 1..12 / 特殊スロット / 中身のある自由入力。 */
+/**
+ * 行の時限が「保存してよい」状態か。数値 1..12 / 特殊スロット / 中身のある自由入力。
+ *
+ * **上限は 12 のまま**にする。新規入力の構造化選択肢は 1〜6 限のみに絞った（{@link SCHEDULE_SLOT_OPTIONS}・
+ * 2026-06-23 要望）が、過去に保存された 7〜12 限の行をここで「未完了」と見なすと自動保存をブロックして
+ * しまうため。サーバ検証（`normalizePeriod`）と同じく 1〜12 を許容し、既存データを壊さない。
+ */
 function isRowPeriodComplete(period: SchedulePeriod): boolean {
   if (isCustomPeriod(period)) {
     return period.custom.trim().length > 0;
