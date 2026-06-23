@@ -48,8 +48,9 @@ export type SignageNewsItem = {
   /** 出典 URL（記事原文へのリンク / QR 生成元）。 */
   url: string;
   /**
-   * 公式が配信する要約（CC BY ソース = 経産省 METI のみ非 null・要許諾ソースは null）。盤面の pattern4 でのみ
-   * 出典明記の上で箇条書き表示する（pattern2 は見出しのみ。ADR-043 §2026-06-20 改訂・gate は取得 Job 側）。
+   * 公式が配信する要約（CC BY ソース = 経産省 METI のみ非 null・要許諾ソースは null）。pattern3 廊下フッタ
+   * （要約優先＋不足時のみ見出し補完・#1156）と pattern4 が出典明記の上で箇条書き表示する（pattern2 は見出し
+   * のみ。ADR-043 §2026-06-20 改訂・gate は取得 Job 側）。
    */
   summary: string | null;
   /** 公開日時（RSS の pubDate）。無ければ null。 */
