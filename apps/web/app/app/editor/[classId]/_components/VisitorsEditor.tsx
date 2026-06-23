@@ -161,8 +161,18 @@ export function VisitorsEditor({
   }
   // 並べ替え: 行を from→to へ移す。並べ替え後の配列順がそのまま保存ペイロード順になり、既存の自動保存
   // （dirty 判定 = serialized 変化）が走って sort_order が採番・保存される（盤面の表示順が変わる）。
+  // **事前生成の空行をドロップ先にしない**: ハンドルは実入力行にしか出ない（= from は実入力行）が、`to` は
+  // ↑↓ キー / ポインタのヒットテストで末尾の空行スロットを指しうる。実入力行を空行スロットへ落とすと実入力
+  // 行どうしの間に空行が挟まり「行間が空いて盤面が崩れて見える」（順序は実入力行のみで保存され無害だが見た目
+  // バグ）。行き先が空行なら no-op（参照同一で返し再描画も増やさない・useRowReorder の範囲外チェックと同作法）。
   function moveRow(from: number, to: number) {
-    setRows((prev) => moveItem(prev, from, to));
+    setRows((prev) => {
+      const dest = prev[to];
+      if (!dest || isBlankVisitorRow(dest)) {
+        return prev;
+      }
+      return moveItem(prev, from, to);
+    });
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
 
