@@ -15,30 +15,29 @@ export const dynamic = "force-dynamic";
 /**
  * ログイン画面 (ADR-003 / ADR-032)。**Server Component**。
  *
- * 教員ロールが最多のため **教員ログイン（学校共通パスワード）を中心**に設計する（ユーザー要望）。本サーバー
- * コンポーネントは「共通ログインが有効な学校」を列挙して `LoginForm`（Client）へ渡す:
- *  - 1 校のみ有効 → 学校選択を出さず「パスワードのみ」。
- *  - 複数校 → 学校選択を出す。
- *  - 0 校 → 教員モードは出さず職員ログインを既定にする。
+ * 教員ロールが最多のため **教員ログイン（学校共通パスワード）を中心**に設計する（ユーザー要望）。教員は
+ * 学校を選ばず**パスワードのみ**を入力し、サーバーが入力パスワードで学校を自動判定する（ADR-032 追補）。
+ * 本サーバーコンポーネントは「共通ログインが有効な学校が 1 校以上あるか」だけを判定し、教員モードを出すか
+ * （= 有効校あり → 教員ログインを既定表示 / 0 校 → 職員ログインを既定）を `LoginForm` に渡す。
  *
  * 学校解決は `listTeacherLoginSchools(getDb())`（RLS の扉、内部で system_admin 文脈、ADR-032）。公開
- * （未認証）経路だが返すのは有効校の id/名のみ（秘密なし）。DB 障害時も**職員ログインは使えるべき**なので
- * 失敗は握りつぶして空配列にフォールバックする（教員モードが出ないだけ）。
+ * （未認証）経路だが、クライアントへ渡すのは**有無の真偽値のみ**（学校 id/名は出さない）。DB 障害時も
+ * **職員ログインは使えるべき**なので失敗は握りつぶして「教員モードなし」にフォールバックする。
  *
  * `LoginForm` は `useSearchParams`（next）を使うため Suspense 境界で包む（Next のビルド要件）。
  */
 export default async function LoginPage(): Promise<React.ReactElement> {
-  let teacherSchools: { id: string; name: string }[] = [];
+  let teacherLoginAvailable = false;
   try {
-    teacherSchools = await listTeacherLoginSchools(getDb());
+    teacherLoginAvailable = (await listTeacherLoginSchools(getDb())).length > 0;
   } catch {
     // DB 障害でも職員ログインは出す（教員モードのみ抑止）。理由はログに出さない（ルール5）。
-    teacherSchools = [];
+    teacherLoginAvailable = false;
   }
 
   return (
     <Suspense fallback={null}>
-      <LoginForm next="/app" teacherSchools={teacherSchools} />
+      <LoginForm next="/app" teacherLoginAvailable={teacherLoginAvailable} />
     </Suspense>
   );
 }
