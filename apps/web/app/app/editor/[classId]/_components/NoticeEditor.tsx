@@ -1,6 +1,7 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
+import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { targetId } from "@/lib/editor/schedule-core";
@@ -79,6 +80,7 @@ export function NoticeEditor({
   date,
   initialItems,
   onItemsChange,
+  prefillRows = 0,
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -89,34 +91,52 @@ export function NoticeEditor({
    * 正規化後）を親へ通知する。**保存・検証・自動保存・RLS/監査の挙動には一切影響しない**（観測専用）。
    */
   onItemsChange?: (items: NoticeItem[]) => void;
+  /**
+   * 盤面の規定枠ぶん**空行を事前生成**する数（{@link blockRowCapacity}）。既定 0（scope/ops 等は事前生成せず
+   * 従来挙動）。空行（本文が空）は保存ペイロード・自動保存判定から除外され、埋めなくても保存をブロックしない。
+   */
+  prefillRows?: number;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
   const { setNotices } = useScopedDailyDataActions();
-  const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i, idx) => {
-      const dd = i.displayDays ?? 1;
-      return {
-        id: `r${idx}`,
-        text: i.text,
-        isHighlight: i.isHighlight ?? false,
-        displayDays: dd,
-        custom: !PRESET_VALUES.has(dd),
-      };
-    }),
+  const [rows, setRows] = useState<Row[]>(() =>
+    padBlankRows(
+      initialItems.map((i, idx) => {
+        const dd = i.displayDays ?? 1;
+        return {
+          id: `r${idx}`,
+          text: i.text,
+          isHighlight: i.isHighlight ?? false,
+          displayDays: dd,
+          custom: !PRESET_VALUES.has(dd),
+        };
+      }),
+      prefillRows,
+      (index) => ({
+        id: `r${index}`,
+        text: "",
+        isHighlight: false,
+        displayDays: 1,
+        custom: false,
+      }),
+    ),
   );
-  // 新規行の安定キー用カウンタ。初期行は r0.. を使うので length から続け、衝突しない。
-  const nextId = useRef(initialItems.length);
+  // 新規行の安定キー用カウンタ。初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない。
+  const nextId = useRef(Math.max(initialItems.length, prefillRows));
 
-  const items = toNoticeItems(rows);
+  // 事前生成した空行（本文が空）は保存ペイロード・complete から除外する（空枠で保存をブロックせず、空の連絡を
+  // 保存しない）。教員が埋めた行だけが盤面・保存に反映される。
+  const filledRows = rows.filter((r) => r.text.trim().length > 0);
+  const items = toNoticeItems(filledRows);
   const serialized = serializeForDirty(items);
   // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（観測専用・保存ロジックとは独立）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ
   useEffect(() => {
     onItemsChange?.(items);
   }, [serialized, onItemsChange]);
-  // 本文が空の行があるうちは保存しない（入力が揃った時点で自動保存）。
-  const complete = rows.every((r) => r.text.trim().length > 0);
+  // 本文の入った行はそれ自体で有効（連絡は本文のみ必須）＝埋まった行があれば自動保存する。
+  const complete = filledRows.every((r) => r.text.trim().length > 0);
   const auto = useAutoSaveSection({
     serialized,
     items,

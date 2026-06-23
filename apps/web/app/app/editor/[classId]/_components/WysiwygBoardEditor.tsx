@@ -6,7 +6,7 @@ import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/ed
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
-import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import { blockRowCapacity, patternIncludesBlock } from "@/lib/signage/pattern-blocks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
@@ -150,11 +150,15 @@ export function WysiwygBoardEditor({
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     card.scrollIntoView?.({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
-    // カード内の最初のフォーカス可能要素（入力欄）へフォーカス。フォーカス自体はスクロールを誘発させない
-    //（preventScroll: true）= 上の滑らかな最小寄せだけが効く。無ければカード自体は素通り。
-    const focusable = card.querySelector<HTMLElement>(
-      "input, select, textarea, button:not([disabled])",
-    );
+    // カード内の最初の**編集可能フィールド**（入力 / 選択）へフォーカスする。フォーカス自体はスクロールを
+    // 誘発させない（preventScroll: true）= 上の滑らかな最小寄せだけが効く。
+    // 操作ボタン（ドラッグ並べ替えハンドル / 削除）より編集欄を優先する: 行を事前生成すると連絡などが複数行に
+    // なりハンドルが先頭の focusable になるため、ボタンに乗ると「クリックしてすぐ入力」を阻害する。ただし編集欄が
+    // 一つも無いカード（例: 0 件の来校者/呼び出しで「追加」ボタンだけ）はそのボタンにフォールバックする
+    // （操作の起点を失わない）。どちらも無ければ素通り。
+    const focusable =
+      card.querySelector<HTMLElement>("input, select, textarea") ??
+      card.querySelector<HTMLElement>("button:not([disabled])");
     focusable?.focus({ preventScroll: true });
   }, []);
 
@@ -174,6 +178,12 @@ export function WysiwygBoardEditor({
   const showSchedule = patternIncludesBlock(pattern, "schedule");
   const showNotice = patternIncludesBlock(pattern, "notice");
   const showAssignment = patternIncludesBlock(pattern, "assignment");
+  // このクラスの実機が出すパターンの**規定枠ぶん**、各エディタに空行を事前生成させる（盤面に出る行数を入力前から
+  // 提示する・2026-06-23 ユーザー要望）。値は単一ソース {@link blockRowCapacity}。空行は保存・自動保存判定から
+  // 除外されるので埋めなくても保存をブロックしない（各エディタの isBlank*Row）。
+  const schedulePrefill = blockRowCapacity(pattern, "schedule");
+  const noticePrefill = blockRowCapacity(pattern, "notice");
+  const assignmentPrefill = blockRowCapacity(pattern, "assignment");
 
   return (
     <div className={styles.root}>
@@ -223,6 +233,7 @@ export function WysiwygBoardEditor({
               initialItems={initialSchedules}
               onItemsChange={onSchedules}
               showDateNav={false}
+              prefillRows={schedulePrefill}
             />
           </EditorCard>
         ) : null}
@@ -238,6 +249,7 @@ export function WysiwygBoardEditor({
               date={date}
               initialItems={initialNotices}
               onItemsChange={onNotices}
+              prefillRows={noticePrefill}
             />
           </EditorCard>
         ) : null}
@@ -253,6 +265,7 @@ export function WysiwygBoardEditor({
               date={date}
               initialItems={initialAssignments}
               onItemsChange={onAssignments}
+              prefillRows={assignmentPrefill}
             />
           </EditorCard>
         ) : null}

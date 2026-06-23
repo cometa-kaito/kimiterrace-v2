@@ -1,6 +1,7 @@
 "use client";
 
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
+import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { isValidDate, targetId } from "@/lib/editor/schedule-core";
@@ -36,12 +37,21 @@ function toAssignmentItems(rows: Row[]): AssignmentItem[] {
   return rows.map((r) => ({ deadline: r.deadline, subject: r.subject, task: r.task }));
 }
 
+/**
+ * 事前生成した「空行」か。締切は既定で対象日が入るので無視し、教員が入力する科目・提出物が**両方**空のとき空行。
+ * 片方だけ入力（例: 科目だけ）の行は空行ではない＝従来どおり「未入力の項目があります」を出し、保存しない。
+ */
+function isBlankAssignmentRow(r: Row): boolean {
+  return r.subject.trim() === "" && r.task.trim() === "";
+}
+
 export function AssignmentEditor({
   classId,
   target: targetProp,
   date,
   initialItems,
   onItemsChange,
+  prefillRows = 0,
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -52,15 +62,28 @@ export function AssignmentEditor({
    * 正規化後）を親へ通知する。**保存・検証・自動保存・RLS/監査の挙動には一切影響しない**（観測専用）。
    */
   onItemsChange?: (items: AssignmentItem[]) => void;
+  /**
+   * 盤面の規定枠ぶん**空行を事前生成**する数（{@link blockRowCapacity}）。既定 0（scope/ops 等は事前生成せず
+   * 従来挙動）。空行（科目・提出物が両方空）は保存ペイロード・自動保存判定から除外され、保存をブロックしない。
+   */
+  prefillRows?: number;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
   const { setAssignments } = useScopedDailyDataActions();
-  const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i) => ({ deadline: i.deadline, subject: i.subject, task: i.task })),
+  const [rows, setRows] = useState<Row[]>(() =>
+    padBlankRows(
+      initialItems.map((i) => ({ deadline: i.deadline, subject: i.subject, task: i.task })),
+      prefillRows,
+      // 事前生成の空行は提出期限を対象日で初期化（addRow と同じ既定。そのまま使えることが多い）。
+      () => ({ deadline: date, subject: "", task: "" }),
+    ),
   );
 
-  const items = toAssignmentItems(rows);
+  // 事前生成した空行（科目・提出物が両方空）は保存ペイロード・complete から除外する（空枠で保存をブロックせず、
+  // 空の提出物を保存しない）。片方だけ入力した行は残り、従来どおり必須項目チェックの対象になる。
+  const filledRows = rows.filter((r) => !isBlankAssignmentRow(r));
+  const items = toAssignmentItems(filledRows);
   const serialized = serializeForDirty(items);
   // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（観測専用・保存ロジックとは独立）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ
@@ -68,7 +91,7 @@ export function AssignmentEditor({
     onItemsChange?.(items);
   }, [serialized, onItemsChange]);
   // 科目名・提出物名が空 / 締切が不正な行があるうちは保存しない（サーバ必須項目が揃った時点で自動保存）。
-  const complete = rows.every(
+  const complete = filledRows.every(
     (r) => r.subject.trim().length > 0 && r.task.trim().length > 0 && isValidDate(r.deadline),
   );
   const auto = useAutoSaveSection({

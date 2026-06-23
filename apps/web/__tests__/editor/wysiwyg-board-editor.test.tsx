@@ -105,7 +105,7 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.queryByRole("region", { name: "連絡" })).toBeNull();
     expect(screen.queryByRole("region", { name: "提出物" })).toBeNull();
     // golden-path が NoticeEditor を掴む placeholder（行があるときに出る）。
-    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("連絡事項")[0]).toBeTruthy();
   });
 
   it("実機と同一の盤面ライブプレビュー（SignageBoardView 再利用）を描画する", () => {
@@ -143,7 +143,7 @@ describe("WysiwygBoardEditor", () => {
     Element.prototype.scrollIntoView = vi.fn();
     fireEvent.click(screen.getByRole("button", { name: "連絡を編集" }));
     // 連絡の入力（placeholder 連絡事項）にフォーカスが当たる。
-    expect(document.activeElement).toBe(screen.getByPlaceholderText("連絡事項"));
+    expect(document.activeElement).toBe(screen.getAllByPlaceholderText("連絡事項")[0]);
     // 押した領域ボタンは選択状態（aria-pressed）。
     expect(screen.getByRole("button", { name: "連絡を編集" }).getAttribute("aria-pressed")).toBe(
       "true",
@@ -167,7 +167,7 @@ describe("WysiwygBoardEditor", () => {
     // prefers-reduced-motion: reduce ではない既定（matchMedia.matches=false）→ smooth。
     window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as unknown as typeof matchMedia;
     // フォーカス対象（連絡入力）の focus 呼び出し引数（preventScroll）を観測。
-    const noticeInput = screen.getByPlaceholderText("連絡事項") as HTMLInputElement;
+    const noticeInput = screen.getAllByPlaceholderText("連絡事項")[0] as HTMLInputElement;
     const focusSpy = vi.spyOn(noticeInput, "focus");
 
     fireEvent.click(screen.getByRole("button", { name: "連絡を編集" }));
@@ -208,7 +208,7 @@ describe("WysiwygBoardEditor", () => {
         initialAssignments={[]}
       />,
     );
-    const input = screen.getByPlaceholderText("連絡事項") as HTMLInputElement;
+    const input = screen.getAllByPlaceholderText("連絡事項")[0] as HTMLInputElement;
     fireEvent.change(input, { target: { value: "プレビュー連動テスト連絡" } });
     // 盤面（aria-hidden の装飾プレビュー）は編集に即時連動する。AT 非公開なので DOM テキストで照合する。
     expect(container.textContent).toContain("プレビュー連動テスト連絡");
@@ -228,7 +228,7 @@ describe("WysiwygBoardEditor", () => {
     // 盤面プレビュー（領域ボタン）は出ないが、編集器（見出し + placeholder）は出る。
     expect(screen.queryByRole("button", { name: "連絡を編集" })).toBeNull();
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
-    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("連絡事項")[0]).toBeTruthy();
   });
 
   it("showBoard=false では盤面プレビューを出さず編集セクションだけ出す（選択した日の編集＝フォームのみ）", () => {
@@ -249,7 +249,7 @@ describe("WysiwygBoardEditor", () => {
     // 編集セクション（見出し + placeholder）は出る（パターン別の出し分けは維持）。
     expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
-    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("連絡事項")[0]).toBeTruthy();
   });
 
   it("pattern2 ではパターンに含まれない編集欄（連絡 / 提出物）を出さず、予定の編集欄だけ出す（全パターン対応・完全な出し分け）", () => {
@@ -289,7 +289,7 @@ describe("WysiwygBoardEditor", () => {
     );
     // 連絡の編集欄（見出し + placeholder）と盤面のクリック編集ボタンは出る（pattern4 唯一の編集ブロック）。
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
-    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("連絡事項")[0]).toBeTruthy();
     expect(screen.getByRole("button", { name: "連絡を編集" })).toBeTruthy();
     // 予定 / 提出物の編集欄は出さない（pattern4 の盤面に無い＝死セクション防止）。盤面のクリック編集も予定は無い。
     expect(screen.queryByRole("heading", { name: "予定", level: 2 })).toBeNull();

@@ -5,8 +5,10 @@ import {
 } from "../../lib/signage/design-pattern";
 import {
   PATTERN_BLOCKS,
+  PATTERN_BLOCK_ROW_CAPACITY,
   SIGNAGE_BLOCK_META,
   type SignageBlockKind,
+  blockRowCapacity,
   blocksForPattern,
   editableBlocksForPattern,
   isEditableBlock,
@@ -142,6 +144,49 @@ describe("patternIncludesBlock（データ層の取得ゲート）", () => {
     expect(patternIncludesBlock("pattern4", "callout")).toBe(false);
     expect(patternIncludesBlock("pattern4", "visitor")).toBe(false);
     expect(patternIncludesBlock("pattern4", "assignment")).toBe(false);
+  });
+});
+
+describe("PATTERN_BLOCK_ROW_CAPACITY / blockRowCapacity（盤面の固定表示行数 = エディタ事前生成数の単一ソース）", () => {
+  it("固定枠を持つ編集ブロックはすべて 5 行（2026-06-23 ユーザー確定・本番 pattern1/3 の実表示行数に合わせる）", () => {
+    expect(blockRowCapacity("pattern1", "schedule")).toBe(5);
+    expect(blockRowCapacity("pattern1", "notice")).toBe(5);
+    expect(blockRowCapacity("pattern1", "assignment")).toBe(5);
+    expect(blockRowCapacity("pattern2", "schedule")).toBe(5);
+    expect(blockRowCapacity("pattern2", "callout")).toBe(5);
+    expect(blockRowCapacity("pattern2", "visitor")).toBe(5);
+    expect(blockRowCapacity("pattern3", "schedule")).toBe(5);
+    expect(blockRowCapacity("pattern3", "callout")).toBe(5);
+    expect(blockRowCapacity("pattern3", "visitor")).toBe(5);
+    expect(blockRowCapacity("pattern4", "notice")).toBe(5);
+  });
+
+  it("パターンが盤面に出さないブロックは 0（事前生成しない / 盤面の固定枠も無い）", () => {
+    expect(blockRowCapacity("pattern1", "callout")).toBe(0);
+    expect(blockRowCapacity("pattern1", "visitor")).toBe(0);
+    expect(blockRowCapacity("pattern2", "notice")).toBe(0);
+    expect(blockRowCapacity("pattern2", "assignment")).toBe(0);
+    expect(blockRowCapacity("pattern4", "schedule")).toBe(0);
+    expect(blockRowCapacity("pattern4", "assignment")).toBe(0);
+    // 自動ブロック（教員入力でない）には容量を持たせない。
+    expect(blockRowCapacity("pattern1", "weather")).toBe(0);
+    expect(blockRowCapacity("pattern2", "news")).toBe(0);
+  });
+
+  it("容量を定義したブロックは必ずそのパターンの編集対象ブロック（盤面に出ない/自動ブロックに枠を作らない）", () => {
+    for (const pattern of SIGNAGE_DESIGN_PATTERNS) {
+      const editable = new Set(editableBlocksForPattern(pattern));
+      for (const kind of Object.keys(PATTERN_BLOCK_ROW_CAPACITY[pattern]) as SignageBlockKind[]) {
+        expect(editable.has(kind), `${pattern} の容量 ${kind} が編集対象でない`).toBe(true);
+      }
+    }
+  });
+
+  it("未知パターン（型外の値）は既定 pattern1 の容量に倒す（fail-soft）", () => {
+    const unknown = "pattern999" as SignageDesignPattern;
+    expect(blockRowCapacity(unknown, "schedule")).toBe(5);
+    expect(blockRowCapacity(unknown, "notice")).toBe(5);
+    expect(blockRowCapacity(unknown, "callout")).toBe(0);
   });
 });
 
