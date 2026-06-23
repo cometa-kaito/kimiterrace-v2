@@ -309,12 +309,28 @@ export function scheduleSlotLabel(period: SchedulePeriod): string {
 export type ScheduleSlotOption = { value: SchedulePeriod; label: string };
 
 /**
- * select の選択肢列（並び順 morning < 1..12 < lunch < afterschool）。エディタ各所で共有する単一ソース。
+ * select の構造化選択肢に出す数値時限の上限。**1〜6 限のみ**（2026-06-23 要望: 7〜12 限の選択肢を撤去）。
+ * 検証上限 {@link MAX_ITEMS}（12）とは**意図的に別**にする — UI から消すのは「これから 7〜12 を新規に
+ * 構造化選択肢から選べない」ことだけで、サーバ検証は 1〜12 のまま緩く保ち既存データを壊さない。
+ */
+const SCHEDULE_SLOT_NUMERIC_MAX = 6;
+
+/**
+ * select の選択肢列（並び順 morning < 1..6 < lunch < afterschool）。エディタ各所で共有する単一ソース。
  * value は数値時限なら number、特殊スロットなら文字列。
+ *
+ * **数値時限は 1〜6 のみ**（{@link SCHEDULE_SLOT_NUMERIC_MAX}）。7 限以上が要る場合は「その他（自由入力）」で
+ * 打てる（特殊スロット 朝 / 昼休み / 放課後 は据え置き）。**サーバ検証（`normalizePeriod` /
+ * `validateScheduleItems`）は 1〜12 のまま**なので、過去に保存された 7〜12 限（daily_data.schedules は
+ * opaque JSONB で prod 実データを照会できない）は引き続き検証を通り、盤面（`scheduleSlotLabel`）も「7限」等と
+ * 描画できる＝表示・保存を壊さない。UI の選択肢だけ削る。
  */
 export const SCHEDULE_SLOT_OPTIONS: readonly ScheduleSlotOption[] = [
   { value: "morning", label: SPECIAL_SLOT_LABEL.morning },
-  ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}限` })),
+  ...Array.from({ length: SCHEDULE_SLOT_NUMERIC_MAX }, (_, i) => ({
+    value: i + 1,
+    label: `${i + 1}限`,
+  })),
   { value: "lunch", label: SPECIAL_SLOT_LABEL.lunch },
   { value: "afterschool", label: SPECIAL_SLOT_LABEL.afterschool },
 ];
@@ -364,6 +380,10 @@ function normalizeString(value: unknown, max: number): string | null {
  * 入力の `period` を正規化する。number 1..12 / 数値文字列 "1".."12" は number 化し、特殊スロット 3 文字列
  * (morning / lunch / afterschool) はそのまま通す。いずれにも該当しなければ null（不正）。
  * 既存の numeric データは後方互換でそのまま有効。
+ *
+ * **検証上限は 12 のまま据え置く**。select の構造化選択肢は 1〜6 のみだが（{@link SCHEDULE_SLOT_OPTIONS} /
+ * {@link SCHEDULE_SLOT_NUMERIC_MAX}・2026-06-23 要望）、過去に保存された 7〜12 限（opaque JSONB・prod 実データ
+ * 未照会）を引き続き受理して表示・保存を壊さないため。UI から消すのは新規入力の選択肢だけ。
  */
 function normalizePeriod(raw: unknown): SchedulePeriod | null {
   if (isSpecialSlot(raw)) {
