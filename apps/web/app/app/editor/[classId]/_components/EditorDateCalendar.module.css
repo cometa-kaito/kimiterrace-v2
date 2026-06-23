@@ -11,7 +11,6 @@
   border-radius: 12px;
   padding: 1rem 1.25rem;
   margin-top: 1.5rem;
-  max-width: 360px;
 }
 
 .head {
@@ -153,7 +152,9 @@
   font-weight: 400;
   color: var(--brand-primary-hover, #c2410c);
 }
-/* 開いたときの中身（ヘッダーの下に少し余白）。 */
+/* 開いたときの中身（カレンダー本体）。枠（.card）は全幅だが、カレンダー自体は 360px に抑えて中央寄せにする
+ * （要望 2026-06-23: 四角は横幅一杯・カレンダーは画面中央ぞろえ）。 */
 .body {
-  margin-top: 0.6rem;
+  max-width: 360px;
+  margin: 0.6rem auto 0;
 }
