@@ -9,15 +9,13 @@ import {
 } from "@/lib/signage/media-cache";
 import {
   VIEW_HEARTBEAT_MS,
-  clampAdDurationMs,
-  clampIndex,
   jitteredPollMs,
   jstDateString,
-  nextIndex,
   reviveSignageDate,
 } from "@/lib/signage/rotation";
 import type { SignagePayload } from "@/lib/signage/signage-display";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useAdRotation } from "@/lib/signage/useAdRotation";
+import { useCallback, useEffect, useState } from "react";
 import { SignageBoardView } from "./SignageBoardView";
 import { SignageInvalid } from "./SignageInvalid";
 import styles from "./signage.module.css";
@@ -47,7 +45,6 @@ export function SignageClient({
 }) {
   const [data, setData] = useState<SignagePayload>(initial);
   const [invalid, setInvalid] = useState(false);
-  const [adIndex, setAdIndex] = useState(0);
   // ヘッダー帯の実時計。SSR と初回クライアント描画を一致させるため null 始まり、マウント後に effect で埋める。
   const [now, setNow] = useState<Date | null>(null);
 
@@ -113,17 +110,8 @@ export function SignageClient({
   }, []);
 
   // --- 広告ローテーション (現在広告の duration で次へ。件数変動時は index を丸める) ---
-  const safeIndex = clampIndex(adIndex, adCount);
-  const adsRef = useRef(ads);
-  adsRef.current = ads;
-  useEffect(() => {
-    if (adCount <= 1) {
-      return;
-    }
-    const ms = clampAdDurationMs(adsRef.current[safeIndex]?.durationSec ?? 0);
-    const id = setTimeout(() => setAdIndex((i) => nextIndex(i, adCount)), ms);
-    return () => clearTimeout(id);
-  }, [safeIndex, adCount]);
+  // 回転 glue は共有フックに集約（エディタの WYSIWYG プレビューと単一ソース。{@link useAdRotation}）。
+  const safeIndex = useAdRotation(ads);
 
   // --- 広告 impression テレメトリ (#43 / F07) + 分粒度ハートビート (#322 / ADR-025)。表示中広告の view を
   //     表示開始時 + `VIEW_HEARTBEAT_MS` ごとに送る。到達は (client_id, ad_id, JST分) で dedup されるので

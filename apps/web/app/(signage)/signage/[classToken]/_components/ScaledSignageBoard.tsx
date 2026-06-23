@@ -1,3 +1,4 @@
+import { clampIndex } from "@/lib/signage/rotation";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { EditRegionsProps } from "./BoardRegionEditButton";
 import scaler from "./ScaledSignageBoard.module.css";
@@ -9,9 +10,14 @@ import { SignageBoardView } from "./SignageBoardView";
  * 後続のエディタキャンバス（実画面モニタの壁 / WYSIWYG エディタ）の土台として使う。
  *
  * ## 静的描画（再生制御を持たない）
- * ポーリング・実時計・広告ローテーション・テレメトリは**一切持たない**（hooks/effect 無し）。`SignageBoardView`
- * へ `now=null`（時計非表示）・広告は `payload.ads` の**先頭を静止表示**・`adLink=null`（リンク非生成）・
- * `onAdTap=noop` で渡す。クリックは親（エディタ）が扱うので盤面自身はリンクを張らない（read-only）。
+ * ポーリング・実時計・広告ローテーション・テレメトリは**自身では一切持たない**（hooks/effect 無し＝Server
+ * Component 互換）。`SignageBoardView` へ `adLink=null`（リンク非生成）・`onAdTap=noop` で渡す。クリックは親
+ * （エディタ）が扱うので盤面自身はリンクを張らない（read-only）。
+ *
+ * 広告は既定で `payload.ads` の**先頭を静止表示**する。ただし `adIndex` を渡すと**そのインデックスの広告**を
+ * 出し、ローテーションドットも表示する（回転の駆動＝`setTimeout` は持たず、index は client の親が
+ * {@link useAdRotation} で供給する＝本部品は hooks-free のまま）。サムネ / モニタの壁は `adIndex` を渡さず従来の
+ * 先頭静止のまま。時計（`now`）も同様で、省略時は非表示。
  *
  * ## レイアウト / スケール
  * - 外枠 `.frame` が `aspect-ratio: 16/9` でレイアウト領域を確保する。
@@ -28,6 +34,7 @@ export function ScaledSignageBoard({
   width,
   editRegions,
   now = null,
+  adIndex,
 }: {
   /** 表示する盤面のスナップショット（Server 側で取得した確定 `SignagePayload`）。 */
   payload: SignagePayload;
@@ -49,9 +56,22 @@ export function ScaledSignageBoard({
    * 静的に渡るサムネ等は now を渡さない（SSR/サーバ描画でも非決定にならない）。
    */
   now?: Date | null;
+  /**
+   * **表示する広告のインデックス**（任意）。**省略時（既定 undefined）は従来どおり先頭広告を静止表示**し
+   * ドットも出さない（サムネ / モニタの壁は不変）。client の親（WYSIWYG エディタ）が {@link useAdRotation} で
+   * 算出した回転 index を渡すと、その広告を表示しローテーションドットも出る＝実機の見え方に一致する。
+   * 本部品は依然 hooks-free（回転の `setTimeout` は親が持つ）。範囲外値は内部で丸める。
+   */
+  adIndex?: number;
 }) {
-  // 広告は payload.ads の先頭のみ静止表示（ローテーションしない）。空なら null（広告枠は空表示）。
-  const ad = payload.ads.length > 0 ? (payload.ads[0] ?? null) : null;
+  // 広告: adIndex 指定時はその（範囲内に丸めた）広告を表示しドットを出す（親が供給する回転 index）。未指定は
+  // 先頭を静止表示（サムネ / モニタの壁の従来挙動）。空なら null（広告枠は空表示）。回転の駆動は親が持つ。
+  const adCount = payload.ads.length;
+  const rotating = adIndex != null;
+  const safeIndex = rotating ? clampIndex(adIndex, adCount) : 0;
+  const ad = adCount > 0 ? (payload.ads[safeIndex] ?? null) : null;
+  // ドットは adCount>1 のとき出る。静止表示（未指定）時は従来どおり ad?1:0 でドットを出さない。
+  const displayAdCount = rotating ? adCount : ad ? 1 : 0;
   // width 指定時のみインラインでスケールを固定する（未指定時は CSS の cqw 既定にまかせる）。
   const frameStyle: React.CSSProperties | undefined =
     width != null
@@ -65,9 +85,9 @@ export function ScaledSignageBoard({
           ad={ad}
           // 静的サムネはタップ不可・リンク非生成。クリックは親が扱う（read-only）。
           adLink={null}
-          // ローテーション無し（先頭広告を静止表示）。ドットは出さない。
-          adCount={ad ? 1 : 0}
-          safeIndex={0}
+          // adIndex 指定時は実件数 + 回転 index（ドット表示）。未指定は先頭静止（ドット無し）。
+          adCount={displayAdCount}
+          safeIndex={safeIndex}
           // 時計は呼び出し側が渡したときだけ出す（既定 null＝静的スナップショットは従来どおり時計なし）。
           now={now}
           // タップ計測はしない（read-only）。
