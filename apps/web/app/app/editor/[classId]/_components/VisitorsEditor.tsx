@@ -3,6 +3,7 @@
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setVisitorsAction } from "@/lib/editor/visitors-actions";
 import { validateVisitorItems } from "@/lib/editor/visitors-core";
+import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { ClassVisitor } from "@kimiterrace/db";
 import { useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
@@ -70,32 +71,71 @@ function toItems(rows: Row[]): VisitorPayload[] {
   }));
 }
 
+/**
+ * 事前生成した「空行」か（6 欄すべて空）。全欄空の行は保存ペイロード・complete から除外し、並べ替えハンドルも
+ * 出さない（教員が触れていない空枠で保存・並べ替えをさせない）。氏名未入力で時刻だけ等の**部分入力**行は空行では
+ * ない＝従来どおり氏名必須エラーで保存待ちにし、入力漏れに気づける。
+ */
+function isBlankVisitorRow(r: Row): boolean {
+  return (
+    r.scheduledTime.trim() === "" &&
+    r.visitorName.trim() === "" &&
+    r.affiliation.trim() === "" &&
+    r.purpose.trim() === "" &&
+    r.host.trim() === "" &&
+    r.note.trim() === ""
+  );
+}
+
 export function VisitorsEditor({
   classId,
   date,
   initialItems,
+  prefillRows = 0,
 }: {
   classId: string;
   date: string;
   initialItems: ClassVisitor[];
+  /**
+   * 盤面の規定枠ぶん**空行を事前生成**する数（{@link blockRowCapacity}）。既定 0（事前生成せず従来挙動）。
+   * 空行（全欄空）は保存ペイロード・自動保存判定・並べ替えハンドルから除外され、埋めなくても保存をブロックしない。
+   */
+  prefillRows?: number;
 }) {
-  const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i, idx) => ({
-      id: `r${idx}`,
-      scheduledTime: i.scheduledTime ?? "",
-      visitorName: i.visitorName,
-      affiliation: i.affiliation ?? "",
-      purpose: i.purpose ?? "",
-      host: i.host ?? "",
-      note: i.note ?? "",
-    })),
+  const [rows, setRows] = useState<Row[]>(() =>
+    padBlankRows(
+      initialItems.map((i, idx) => ({
+        id: `r${idx}`,
+        scheduledTime: i.scheduledTime ?? "",
+        visitorName: i.visitorName,
+        affiliation: i.affiliation ?? "",
+        purpose: i.purpose ?? "",
+        host: i.host ?? "",
+        note: i.note ?? "",
+      })),
+      prefillRows,
+      (index) => ({
+        id: `r${index}`,
+        scheduledTime: "",
+        visitorName: "",
+        affiliation: "",
+        purpose: "",
+        host: "",
+        note: "",
+      }),
+    ),
   );
-  // 新規行の安定キー用カウンタ（初期行は r0.. を使うので length から続け、衝突しない）。NoticeEditor と同方式。
-  const nextId = useRef(initialItems.length);
+  // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
+  const nextId = useRef(Math.max(initialItems.length, prefillRows));
 
-  const items = toItems(rows);
+  // 事前生成した空行（全欄空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
+  // 空の来校者を保存しない／空行を掴ませない）。教員が氏名等を入れた行だけが盤面・保存に反映される。
+  const filledRows = rows.filter((r) => !isBlankVisitorRow(r));
+  // 並べ替えハンドルは**実入力行が 2 件以上**のときだけ各実入力行に出す（空行には出さない・1 件では並べ替え不要）。
+  const reorderable = filledRows.length > 1;
+  const items = toItems(filledRows);
   const serialized = serializeForDirty(items);
-  // 全行が有効（氏名必須・時刻は指定時のみ HH:MM）なら自動保存する。判定はサーバと同じ純関数
+  // 埋めた行が全て有効（氏名必須・時刻は指定時のみ HH:MM）なら自動保存する。判定はサーバと同じ純関数
   // `validateVisitorItems` を再利用し、client/server で検証規則が drift しないようにする（ルール3 の精神）。
   const complete = validateVisitorItems(items).ok;
   const auto = useAutoSaveSection({
@@ -171,7 +211,7 @@ export function VisitorsEditor({
                   }}
                 >
                   <td style={tdStyle}>
-                    {rows.length > 1 ? (
+                    {reorderable && !isBlankVisitorRow(r) ? (
                       <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
                     ) : null}
                   </td>

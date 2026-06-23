@@ -124,6 +124,7 @@ export default async function ClassEditorPage({
       schedule,
       notices,
       assignments,
+      pattern,
       showVisitors,
       showCallouts,
       board,
@@ -140,6 +141,7 @@ export default async function ClassEditorPage({
     schedule,
     notices,
     assignments,
+    pattern,
     showVisitors,
     showCallouts,
     board,
@@ -221,6 +223,7 @@ export default async function ClassEditorPage({
       <VisitorsCalloutsSection
         classId={classId}
         date={date}
+        pattern={pattern}
         showVisitors={showVisitors}
         showCallouts={showCallouts}
         visitors={board?.visitors ?? null}
@@ -255,6 +258,7 @@ export default async function ClassEditorPage({
           <VisitorsCalloutsSection
             classId={classId}
             date={plan}
+            pattern={pattern}
             anchored={false}
             showVisitors={showVisitors}
             showCallouts={showCallouts}
