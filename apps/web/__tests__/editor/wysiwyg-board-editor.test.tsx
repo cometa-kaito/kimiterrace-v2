@@ -231,6 +231,27 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
   });
 
+  it("showBoard=false では盤面プレビューを出さず編集セクションだけ出す（選択した日の編集＝フォームのみ）", () => {
+    const { container } = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        showBoard={false}
+        initialSchedules={[]}
+        initialNotices={[{ text: "既存連絡" }]}
+        initialAssignments={[]}
+      />,
+    );
+    // 盤面プレビュー（領域編集ボタン・広告ゾーン）は出ない。
+    expect(screen.queryByRole("button", { name: "予定を編集" })).toBeNull();
+    expect(container.querySelector('[aria-label="広告"]')).toBeNull();
+    // 編集セクション（見出し + placeholder）は出る（パターン別の出し分けは維持）。
+    expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
+    expect(screen.getByPlaceholderText("連絡事項")).toBeTruthy();
+  });
+
   it("pattern2 ではパターンに含まれない編集欄（連絡 / 提出物）を出さず、予定の編集欄だけ出す（全パターン対応・完全な出し分け）", () => {
     // このクラスの実機が pattern2（掲示盤面）。編集対象ブロックは予定 / 来校者 / 生徒呼び出しで、連絡・提出物は
     // 盤面に出ない＝編集欄も出さない（来校者 / 生徒呼び出しの編集欄は親 page.tsx が盤面下に出す）。

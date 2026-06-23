@@ -5,17 +5,15 @@ import { useEffect, useMemo, useState } from "react";
 import styles from "./EditorDateCalendar.module.css";
 
 /**
- * クラスエディタ最下部の「日付を選んで編集」月カレンダー（**Client Component**）。
+ * クラスエディタの「先の日を選んで編集」月カレンダー（**Client Component**）。
  *
- * 旧来この画面には日付ナビ UI が無く、対象日は `?date=` の手打ちでしか変えられなかった。常設の月カレンダーを
- * 置き、**日付をクリックするとその日の編集に切り替わる**（要望 2026-06-23）。クリックは既存の対象日ルーティング
- * （`/app/editor/{classId}?date=YYYY-MM-DD`）にそのまま乗せる＝ページが新しい対象日で再描画され、各エディタは
- * `key={date}` で新日付のデータに再初期化される（基本のエディタ画面・保存/検証/RLS はそのまま）。
+ * 上の「今日の編集」とは別に、カレンダーで**先の日付を選ぶと、その日の編集欄が下（page.tsx の「選択した日の編集」）に
+ * 出る**（要望 2026-06-23: 今日と未来を完全に別セクションに分ける）。クリックは `?plan=YYYY-MM-DD` ルーティングに
+ * 乗せる＝ページが再描画され、下の選択日エディタが `key={plan}` で初期化される（今日の編集＝上は動かさない）。
  *
- * 「今日」の強調はマウント後に JST で確定する（SSR とクライアントの時差によるハイドレーション不一致を避ける・
- * `WysiwygBoardEditor` の実時計と同じ作法）。「編集中の日」は決定的な `selectedDate` から描くので不一致しない。
+ * 「今日」(`today`) と「選択した日」(`selectedDate`) はどちらもサーバから決定的に渡るので、強調表示は
+ * ハイドレーション不一致を起こさない（今日はサーバ JST 確定値・選択日は `?plan`）。
  */
-const JST = "Asia/Tokyo";
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 /** `YYYY-MM-DD`（ゼロ詰め）を組む。`m0` は 0 始まりの月。 */
@@ -25,11 +23,15 @@ function toYmd(y: number, m0: number, d: number): string {
 
 export function EditorDateCalendar({
   classId,
+  today,
   selectedDate,
   contentDates,
 }: {
   classId: string;
-  selectedDate: string;
+  /** サーバ（JST）で確定した今日（YYYY-MM-DD）。今日の強調と初期表示月に使う（決定的＝ハイドレーション安全）。 */
+  today: string;
+  /** 編集中の「選択した日（先の日）」（YYYY-MM-DD）。未選択なら undefined。点・aria-current を出す対象。 */
+  selectedDate?: string;
   /** 内容（予定 / 連絡 / 提出物）のある日（YYYY-MM-DD）。その日に点を打って俯瞰できるようにする。 */
   contentDates?: string[];
 }) {
@@ -37,19 +39,13 @@ export function EditorDateCalendar({
   // 内容のある日の集合（点の有無判定）。親（page.tsx）が選択月±1 か月ぶんを渡す。
   const contentSet = useMemo(() => new Set(contentDates ?? []), [contentDates]);
 
-  // 「今日」はマウント後に JST で確定（SSR/クライアントの時差での不一致回避）。確定までは今日強調なしで描く。
-  const [today, setToday] = useState<string | null>(null);
-  useEffect(() => {
-    setToday(new Date().toLocaleDateString("en-CA", { timeZone: JST }));
-  }, []);
-
-  // 表示中の年月（初期は選択日の月）。selectedDate は決定的なので SSR/クライアントで一致する。
+  // 表示中の年月（初期は選択日があればその月・無ければ今日の月）。どちらも決定的なので SSR/クライアントで一致する。
   const initial = useMemo(() => {
-    const [y, m] = selectedDate.split("-").map(Number);
+    const [y, m] = (selectedDate ?? today).split("-").map(Number);
     return { y: y ?? 2026, m0: (m ?? 1) - 1 };
-  }, [selectedDate]);
+  }, [selectedDate, today]);
   const [view, setView] = useState(initial);
-  // 別月の日付へ移動したら（selectedDate が別月になったら）表示月も追従する。
+  // 別月の日付を選んだら表示月も追従する。
   useEffect(() => setView(initial), [initial]);
 
   const firstWeekday = new Date(view.y, view.m0, 1).getDay();
@@ -69,11 +65,11 @@ export function EditorDateCalendar({
     });
   }
   function pick(d: number) {
-    router.push(`/app/editor/${classId}?date=${toYmd(view.y, view.m0, d)}`);
+    router.push(`/app/editor/${classId}?plan=${toYmd(view.y, view.m0, d)}`);
   }
 
   return (
-    <section aria-label="日付を選んで編集" className={styles.card}>
+    <section aria-label="先の日を選んで編集" className={styles.card}>
       <div className={styles.head}>
         <button
           type="button"
@@ -95,7 +91,7 @@ export function EditorDateCalendar({
           ›
         </button>
       </div>
-      <p className={styles.hint}>日付を選ぶと、その日の内容を編集できます。</p>
+      <p className={styles.hint}>先の日付を選ぶと、下に「選択した日の編集」が出ます。</p>
       <div className={styles.week} aria-hidden="true">
         {WEEKDAYS.map((w, i) => (
           <span

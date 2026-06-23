@@ -46,18 +46,20 @@ export default async function ClassEditorPage({
   searchParams,
 }: {
   params: Promise<{ classId: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; plan?: string }>;
 }) {
   const user = await requireRole(EDITOR_ROLES);
   const { classId } = await params;
   // 広告管理 / 静粛時間は school_admin / system_admin 専任。teacher には出さない（死リンク防止）。
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
-  const { date: dateParam } = await searchParams;
-  const date =
-    dateParam && isValidDate(dateParam)
-      ? dateParam
-      : new Date().toLocaleDateString("en-CA", { timeZone: JST });
+  const { date: dateParam, plan: planParam } = await searchParams;
+  // 上＝「今日の編集」: 既定は JST 今日。?date= の明示指定があればそれを上に出す（互換・通常は未使用）。
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: JST });
+  const date = dateParam && isValidDate(dateParam) ? dateParam : today;
+  // 下＝「選択した日の編集」: カレンダーで選んだ先の日（?plan=）。上と同じ日なら下は出さない（重複回避）。
+  const planValid = planParam && isValidDate(planParam) ? planParam : null;
+  const plan = planValid && planValid !== date ? planValid : null;
 
   const data = await withSession(async (tx) => {
     const schedule = await getClassSchedule(tx, classId, date);
@@ -90,9 +92,34 @@ export default async function ClassEditorPage({
     // 単一ソース駆動で `=== "pattern2"` のハードコード分岐を作らない（将来パターン追加に自動追従）。
     const showVisitors = patternIncludesBlock(pattern, "visitor");
     const showCallouts = patternIncludesBlock(pattern, "callout");
-    // カレンダー（最下部）の内容ドット用: 選択月とその前後 1 か月で「内容のある日」を自校 RLS 内で引く。
-    const calWindow = monthWindow(date);
+    // カレンダー（内容ドット）用: 表示しそうな月（選択日があればその月・無ければ今日の月）±1 か月を自校 RLS 内で引く。
+    const calWindow = monthWindow(plan ?? date);
     const contentDates = await getClassContentDates(tx, classId, calWindow.start, calWindow.end);
+    // 下＝「選択した日の編集」用: ?plan の日のデータを同 tx で取得（無選択 or 取得不能なら null）。盤面は描かない
+    // （showBoard=false）が、パターン別の出し分けと来校者/呼び出しデータのため board は今日と対称に組む
+    // （データ経路を分岐させない＝バグ源を増やさない）。
+    let planData: {
+      schedule: NonNullable<Awaited<ReturnType<typeof getClassSchedule>>>;
+      notices: NonNullable<Awaited<ReturnType<typeof getClassNotices>>>;
+      assignments: NonNullable<Awaited<ReturnType<typeof getClassAssignments>>>;
+      board: Awaited<ReturnType<typeof buildSignagePayloadForClass>> | null;
+    } | null = null;
+    if (plan) {
+      const pSchedule = await getClassSchedule(tx, classId, plan);
+      const pNotices = await getClassNotices(tx, classId, plan);
+      const pAssignments = await getClassAssignments(tx, classId, plan);
+      if (pSchedule && pNotices && pAssignments) {
+        const pBoard = user.schoolId
+          ? await buildSignagePayloadForClass(tx, user.schoolId, classId, plan, pattern)
+          : null;
+        planData = {
+          schedule: pSchedule,
+          notices: pNotices,
+          assignments: pAssignments,
+          board: pBoard,
+        };
+      }
+    }
     return {
       schedule,
       notices,
@@ -102,6 +129,7 @@ export default async function ClassEditorPage({
       board,
       liveSignageUrl,
       contentDates,
+      planData,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -117,6 +145,7 @@ export default async function ClassEditorPage({
     board,
     liveSignageUrl,
     contentDates,
+    planData,
   } = data;
 
   // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass`
@@ -167,6 +196,8 @@ export default async function ClassEditorPage({
           key={date}: 対象日変更時に再マウントして新日付のデータで初期化する。これが無いと配下エディタの
           useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
           混線バグになる（ユーザー報告 2026-06-16）。 */}
+      {/* 上＝「今日の編集」。常にここ（先の日の選択では動かさない）・盤面プレビュー付き（要望 2026-06-23）。 */}
+      <p style={todayHeadingStyle}>今日の編集 — {jpDate(today)}</p>
       <WysiwygBoardEditor
         key={date}
         classId={classId}
@@ -196,10 +227,42 @@ export default async function ClassEditorPage({
         callouts={board?.callouts ?? null}
       />
 
-      {/* 日付を選んで編集する月カレンダー（編集エリア最下部）。常設で、日付をクリックするとその日の編集に
-          切り替わる（既存の対象日ルーティング `?date=` に乗せるだけ＝ページ再描画 + 各エディタ key={date} で
-          新日付に再初期化）。旧来この画面に無かった日付ナビをここで担う（要望 2026-06-23）。 */}
-      <EditorDateCalendar classId={classId} selectedDate={date} contentDates={contentDates} />
+      {/* 中＝カレンダー。先の日付を選ぶと下の「選択した日の編集」に入る（?plan= ルーティング・上の今日は動かさない）。
+          内容のある日は点で俯瞰（要望 2026-06-23: 今日と未来を完全に別セクションに分ける）。 */}
+      <EditorDateCalendar
+        classId={classId}
+        today={today}
+        selectedDate={plan ?? undefined}
+        contentDates={contentDates}
+      />
+
+      {/* 下＝「選択した日の編集」。?plan の先の日をフォームのみ（盤面なし＝showBoard=false）で編集する。データ経路・
+          保存・検証・RLS は今日と同じ部品を date=plan で再利用（key={plan} で日付ごとに初期化）。来校者/呼び出しも
+          pattern2/3 なら同様に出す。plan 未選択 or その日が取得不能なら出さない。 */}
+      {plan && planData ? (
+        <section aria-label={`選択した日の編集 ${jpDate(plan)}`}>
+          <p style={futureHeadingStyle}>選択した日の編集 — {jpDate(plan)}</p>
+          <WysiwygBoardEditor
+            key={plan}
+            showBoard={false}
+            classId={classId}
+            date={plan}
+            base={planData.board}
+            initialSchedules={planData.schedule.items}
+            initialNotices={planData.notices.items}
+            initialAssignments={planData.assignments.items}
+          />
+          <VisitorsCalloutsSection
+            classId={classId}
+            date={plan}
+            anchored={false}
+            showVisitors={showVisitors}
+            showCallouts={showCallouts}
+            visitors={planData.board?.visitors ?? null}
+            callouts={planData.board?.callouts ?? null}
+          />
+        </section>
+      ) : null}
 
       {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
           表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断
@@ -290,3 +353,28 @@ const classTitleStyle: React.CSSProperties = {
   color: tokens.color.neutralFg,
   margin: 0,
 };
+
+// 「今日の編集」/「選択した日の編集」のセクション見出し（色で 今日=青 / 未来=橙 に分け、視覚的に別物だと示す）。
+const todayHeadingStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.md,
+  fontWeight: 600,
+  color: tokens.color.blueStrong,
+  margin: "0.5rem 0 0.7rem",
+};
+const futureHeadingStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.md,
+  fontWeight: 600,
+  color: tokens.color.primaryHover,
+  margin: "1.5rem 0 0.7rem",
+};
+
+// 編集中の日付の和暦風ラベル（"2026年6月23日（火）"）。曜日は日付から決まり today 非依存＝SSR/CSR 一致。
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
+function jpDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) {
+    return date;
+  }
+  const weekday = WEEKDAY_JP[new Date(y, m - 1, d).getDay()] ?? "";
+  return `${y}年${m}月${d}日（${weekday}）`;
+}
