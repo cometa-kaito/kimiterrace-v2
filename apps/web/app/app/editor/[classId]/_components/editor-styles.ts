@@ -148,3 +148,61 @@ export const emptyPlaceholderStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   textAlign: "center",
 };
+
+/* ------------------------------------------------------------------ *
+ *  行ごとの「詳細（任意項目）」畳み込み（引き算レーン・{@link RowDetails}）
+ *
+ *  主役（必須）だけを常時表示し、任意項目は行ごとの「詳細」トグルで開閉する。来校者 6 列・予定 5 列等の
+ *  横潰れを解消し、スマホでも主役だけで読み書きできる。値の入っている行は初期から開く（入力済みを隠さない）。
+ * ------------------------------------------------------------------ */
+
+/** 「詳細」開閉トグル（行ごと）。素のテキストボタン・控えめ色・1 行表示。 */
+export const detailToggleStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  background: "transparent",
+  border: "none",
+  color: color.muted,
+  cursor: "pointer",
+  fontSize: fontSize.sm,
+  whiteSpace: "nowrap",
+  padding: "0.25rem 0.3rem",
+};
+/** 折りたたみ中でも任意項目に入力がある合図（ブランド色の小さな点）。色だけに頼らず SR 文言も添える（NFR05）。 */
+export const detailDotStyle: React.CSSProperties = {
+  width: "0.5rem",
+  height: "0.5rem",
+  borderRadius: radius.pill,
+  background: color.primary,
+};
+/** 行の任意項目を入れる詳細パネル（主役の下にぶら下がる薄い枠・横並びで折返し）。 */
+export const detailPanelStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "0.6rem 0.9rem",
+  padding: "0.6rem 0.75rem",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
+  background: color.bgSoft,
+};
+/** 詳細パネル内の 1 項目（ラベルを上に小さく置き、その下に入力を縦積み）。 */
+export const detailFieldStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.2rem",
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+/** SR 専用テキスト（視覚的に隠す）。`.admin-main` の positioned 文脈内で使う（幽霊スクロール対策・#1153）。 */
+export const srOnlyStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0,0,0,0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
