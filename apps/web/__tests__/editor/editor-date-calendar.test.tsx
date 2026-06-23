@@ -83,17 +83,18 @@ describe("EditorDateCalendar", () => {
     });
   });
 
-  it("未選択（selectedDate なし）は畳まれていて、開くと今日の月が出る（選択 aria-current は無し）", () => {
+  it("未選択（selectedDate なし）でも最初から開いていて今日の月が出る（要望 2026-06-23: 初見ユーザー向け）", () => {
     render(<EditorDateCalendar classId={CLASS_ID} today={TODAY} contentDates={[]} />);
     const toggle = screen.getByRole("button", { name: /先の日を選んで編集/ });
-    // 既定は畳む（aria-expanded=false・月グリッドは出ない）。
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("2026年2月")).toBeNull();
-    // 開くと今日の月（2月）が出る。選択中の日は無いので aria-current=date も無い。
-    fireEvent.click(toggle);
+    // 既定は開く（aria-expanded=true・今日の月グリッドが最初から見える）。
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("2026年2月")).toBeTruthy();
+    // 選択中の日は無いので aria-current=date も無い。
     expect(screen.queryByRole("button", { current: "date" })).toBeNull();
+    // 畳むとグリッドが消える。
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("2026年2月")).toBeNull();
   });
 
   it("選択中（selectedDate あり）は最初から開いて出す（使用中は開けておく）", () => {
