@@ -1,6 +1,7 @@
 import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
+import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
@@ -16,6 +17,7 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
+import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
@@ -88,6 +90,9 @@ export default async function ClassEditorPage({
     // 単一ソース駆動で `=== "pattern2"` のハードコード分岐を作らない（将来パターン追加に自動追従）。
     const showVisitors = patternIncludesBlock(pattern, "visitor");
     const showCallouts = patternIncludesBlock(pattern, "callout");
+    // カレンダー（最下部）の内容ドット用: 選択月とその前後 1 か月で「内容のある日」を自校 RLS 内で引く。
+    const calWindow = monthWindow(date);
+    const contentDates = await getClassContentDates(tx, classId, calWindow.start, calWindow.end);
     return {
       schedule,
       notices,
@@ -96,14 +101,23 @@ export default async function ClassEditorPage({
       showCallouts,
       board,
       liveSignageUrl,
+      contentDates,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
   if (!data || !data.notices || !data.assignments) {
     notFound();
   }
-  const { schedule, notices, assignments, showVisitors, showCallouts, board, liveSignageUrl } =
-    data;
+  const {
+    schedule,
+    notices,
+    assignments,
+    showVisitors,
+    showCallouts,
+    board,
+    liveSignageUrl,
+    contentDates,
+  } = data;
 
   // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass`
   // の出力（`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。盤面は
@@ -181,6 +195,11 @@ export default async function ClassEditorPage({
         visitors={board?.visitors ?? null}
         callouts={board?.callouts ?? null}
       />
+
+      {/* 日付を選んで編集する月カレンダー（編集エリア最下部）。常設で、日付をクリックするとその日の編集に
+          切り替わる（既存の対象日ルーティング `?date=` に乗せるだけ＝ページ再描画 + 各エディタ key={date} で
+          新日付に再初期化）。旧来この画面に無かった日付ナビをここで担う（要望 2026-06-23）。 */}
+      <EditorDateCalendar classId={classId} selectedDate={date} contentDates={contentDates} />
 
       {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
           表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断

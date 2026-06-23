@@ -60,12 +60,20 @@ export function VisitorsCalloutsSection({
           兄弟間で衝突しない安定キー（callouts-* / visitors-*）を維持し、date を含めて日付変更で再マウントする
           （新日付データで初期化する旧 key={date} の意図を維持・複製バグの回帰ガードと整合）。 */}
       {showCallouts && callouts ? (
-        <div key={`callouts-${date}`} id={editorRegionAnchorId("callouts")}>
+        <div
+          key={`callouts-${date}`}
+          id={editorRegionAnchorId("callouts")}
+          className={boardLayout.card}
+        >
           <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
         </div>
       ) : null}
       {showVisitors && visitors ? (
-        <div key={`visitors-${date}`} id={editorRegionAnchorId("visitors")}>
+        <div
+          key={`visitors-${date}`}
+          id={editorRegionAnchorId("visitors")}
+          className={boardLayout.card}
+        >
           <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
         </div>
       ) : null}

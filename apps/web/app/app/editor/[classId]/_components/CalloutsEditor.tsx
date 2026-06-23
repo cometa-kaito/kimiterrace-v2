@@ -7,15 +7,13 @@ import type { StudentCallout } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import { useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
+import { DragHandle } from "./DragHandle";
 import { FieldLegend, RequiredMark } from "./FieldMarks";
 import {
   draggingRowStyle,
   dropOverRowStyle,
   emptyPlaceholderStyle,
-  gripStyle,
   inputStyle,
-  moveBtnDisabledStyle,
-  moveBtnStyle,
   removeBtnStyle,
   saveBarStyle,
   secondaryBtnStyle,
@@ -24,7 +22,7 @@ import {
   tdStyle,
   thStyle,
 } from "./editor-styles";
-import { type RowReorder, moveItem, useRowReorder } from "./useRowReorder";
+import { moveItem, useRowReorder } from "./useRowReorder";
 
 /**
  * 生徒呼び出しエディタ（パターン2「生徒呼び出し」）。**Client Component** — クラス×日付の呼び出しを行で
@@ -40,9 +38,11 @@ import { type RowReorder, moveItem, useRowReorder } from "./useRowReorder";
  * **時刻入力（finding #10）**: `type="time"` のネイティブ時刻ピッカーにし、手打ちの「HH:MM」形式ミスを防ぐ。
  *
  * **表示順の変更（要望 2026-06-23）**: 呼び出しは既定では盤面で時刻順に並ぶが、教員が任意の順に並べ替えたい
- * ケースがあるため、行をドラッグ&ドロップ /「上へ・下へ」で並べ替えられるようにする（{@link useRowReorder}・
- * 連絡 / 来校者と同部品）。並べ替え後の配列順は既存の自動保存経路でそのまま保存され、サーバが各行の位置を
- * `sort_order` に採番する（migration 0035）。読み取りは `sort_order` 昇順優先（同順位は時刻→氏名）。
+ * ケースがあるため、行を**ドラッグ&ドロップ**で並べ替えられるようにする（{@link useRowReorder}・連絡 / 来校者と
+ * 同部品）。当初併設した「上へ・下へ」ボタンは要望により廃止しドラッグのみにした（2026-06-23）。※ HTML5 D&D は
+ * タッチ端末では発火しないため、タブレット/スマホでの並べ替えは別途要検討（現状は PC マウス前提）。並べ替え後の
+ * 配列順は既存の自動保存経路でそのまま保存され、サーバが各行の位置を `sort_order` に採番する（migration 0035）。
+ * 読み取りは `sort_order` 昇順優先（同順位は時刻→氏名）。
  */
 type Row = {
   /** 行の安定キー（並べ替えで React の同一性を保つための描画用 id。保存対象外）。 */
@@ -64,51 +64,6 @@ function toItems(rows: Row[]): CalloutPayload[] {
     location: r.location,
     reason: r.reason,
   }));
-}
-
-/**
- * 1 行ぶんの並べ替えコントロール（grip + 上へ/下へ）。マウスは grip を掴んでドラッグ、キーボード/タッチは
- * 「上へ」「下へ」ボタン（aria-label 付き・色だけに依存しない）。連絡 / 来校者エディタの同名部品と揃える。
- */
-function ReorderControls({
-  reorder,
-  position,
-  total,
-}: {
-  reorder: RowReorder;
-  position: number;
-  total: number;
-}) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
-      <span
-        {...reorder.handleProps}
-        aria-hidden
-        title="ドラッグして並べ替え（または 上へ/下へ ボタン）"
-        style={gripStyle}
-      >
-        ⠿
-      </span>
-      <button
-        type="button"
-        onClick={() => reorder.onMove(-1)}
-        disabled={!reorder.canUp}
-        style={reorder.canUp ? moveBtnStyle : moveBtnDisabledStyle}
-        aria-label={`${position} 行目を上へ移動（全 ${total} 行中）`}
-      >
-        <span aria-hidden>↑</span>
-      </button>
-      <button
-        type="button"
-        onClick={() => reorder.onMove(1)}
-        disabled={!reorder.canDown}
-        style={reorder.canDown ? moveBtnStyle : moveBtnDisabledStyle}
-        aria-label={`${position} 行目を下へ移動（全 ${total} 行中）`}
-      >
-        <span aria-hidden>↓</span>
-      </button>
-    </span>
-  );
 }
 
 export function CalloutsEditor({
@@ -166,7 +121,7 @@ export function CalloutsEditor({
   const rowReorder = useRowReorder(rows.length, moveRow);
 
   return (
-    <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px", marginTop: "1.5rem" }}>
+    <section style={{ display: "grid", gap: "0.75rem", maxWidth: "760px" }}>
       <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>生徒呼び出し</h2>
       <p style={{ margin: 0, fontSize: "0.8rem", color: tokens.color.muted }}>
         ※ 氏名は教室のサイネージに表示されます（呼び出しの取り違え防止のため実名表示）。
@@ -204,7 +159,7 @@ export function CalloutsEditor({
                 // 安定キー `r.id` で並べ替え時も行の同一性を保つ（NoticeEditor / VisitorsEditor と同方式）。
                 <tr
                   key={r.id}
-                  {...reorder.dropProps}
+                  {...reorder.rowProps}
                   style={{
                     ...(reorder.isDragging ? draggingRowStyle : {}),
                     ...(reorder.isOver ? dropOverRowStyle : {}),
@@ -212,7 +167,7 @@ export function CalloutsEditor({
                 >
                   <td style={tdStyle}>
                     {rows.length > 1 ? (
-                      <ReorderControls reorder={reorder} position={i + 1} total={rows.length} />
+                      <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
                     ) : null}
                   </td>
                   <td style={tdStyle}>
