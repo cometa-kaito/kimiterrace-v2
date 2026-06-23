@@ -77,7 +77,10 @@ describe("EditorDateCalendar", () => {
       />,
     );
     fireEvent.click(screen.getByLabelText("2026年6月25日を編集"));
-    expect(h.push).toHaveBeenCalledWith(`/app/editor/${CLASS_ID}?plan=2026-06-25`);
+    // scroll:false 付きで遷移する（ページ先頭へ飛ばさない・カレンダー位置を保つ）。
+    expect(h.push).toHaveBeenCalledWith(`/app/editor/${CLASS_ID}?plan=2026-06-25`, {
+      scroll: false,
+    });
   });
 
   it("未選択（selectedDate なし）なら今日の月を表示し、選択（aria-current=date）は出さない", () => {
