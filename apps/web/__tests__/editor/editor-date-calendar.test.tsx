@@ -2,13 +2,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * 「先の日を選んで編集」カレンダー（{@link EditorDateCalendar}）と、内容ドット用の期間窓 `monthWindow`
+ * 「別の日も準備する」カレンダー（{@link EditorDateCalendar}）と、内容ドット用の期間窓 `monthWindow`
  * （純関数）の固定テスト。
  *
  * - 月表示・選択した日（aria-current=date）・内容のある日の点（aria-label の「内容あり」）・日付クリックでの
  *   `?plan=` 遷移・月送り・未選択時の挙動を確認する。
- * - 「今日」はサーバ props（`today`）で渡るので、テストでは 6 月以外（2 月）に固定し、表示中の 6 月セルに
- *   「・今日」が付かないようにしてラベル一致を安定させる。
+ * - **add-on 改善（2026-06-23）**: クイックチップ（明日/あさって）の遷移・過去日の無効化・今日クリックの空振り
+ *   解消（?plan を出さない）・選択後の自動スクロールも固定する。
+ * - 「今日」はサーバ props（`today`）で渡るので、月送り系テストでは 6 月以外（2 月）に固定し、表示中の 6 月セルに
+ *   「・今日」が付かないようにしてラベル一致を安定させる。過去日/今日クリックのテストは 6 月に今日を置いて確認する。
  */
 
 const h = vi.hoisted(() => ({ push: vi.fn() }));
@@ -16,7 +18,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: h.push }),
 }));
 
-import { EditorDateCalendar } from "../../app/app/editor/[classId]/_components/EditorDateCalendar";
+import {
+  EditorDateCalendar,
+  SELECTED_DAY_ANCHOR_ID,
+} from "../../app/app/editor/[classId]/_components/EditorDateCalendar";
 import { monthWindow } from "../../lib/editor/content-dates";
 
 const CLASS_ID = "11111111-1111-1111-1111-111111111111";
@@ -85,7 +90,7 @@ describe("EditorDateCalendar", () => {
 
   it("未選択（selectedDate なし）は畳まれていて、開くと今日の月が出る（選択 aria-current は無し）", () => {
     render(<EditorDateCalendar classId={CLASS_ID} today={TODAY} contentDates={[]} />);
-    const toggle = screen.getByRole("button", { name: /先の日を選んで編集/ });
+    const toggle = screen.getByRole("button", { name: /別の日も準備する/ });
     // 既定は畳む（aria-expanded=false・月グリッドは出ない）。
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText("2026年2月")).toBeNull();
@@ -106,7 +111,7 @@ describe("EditorDateCalendar", () => {
       />,
     );
     expect(
-      screen.getByRole("button", { name: /先の日を選んで編集/ }).getAttribute("aria-expanded"),
+      screen.getByRole("button", { name: /別の日も準備する/ }).getAttribute("aria-expanded"),
     ).toBe("true");
     expect(screen.getByText("2026年6月")).toBeTruthy();
   });
@@ -125,5 +130,78 @@ describe("EditorDateCalendar", () => {
     fireEvent.click(screen.getByRole("button", { name: "前の月" }));
     fireEvent.click(screen.getByRole("button", { name: "前の月" }));
     expect(screen.getByText("2026年5月")).toBeTruthy();
+  });
+
+  it("クイックチップ「明日 / あさって」は畳んでいても押せ、その日へ ?plan= 遷移する", () => {
+    // 畳んだ状態（selectedDate なし）でもチップはヘッダーに常設される（月グリッドを開かず 1 タップ）。
+    render(<EditorDateCalendar classId={CLASS_ID} today={TODAY} contentDates={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: /明日/ }));
+    expect(h.push).toHaveBeenLastCalledWith(`/app/editor/${CLASS_ID}?plan=2026-02-16`, {
+      scroll: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /あさって/ }));
+    expect(h.push).toHaveBeenLastCalledWith(`/app/editor/${CLASS_ID}?plan=2026-02-17`, {
+      scroll: false,
+    });
+  });
+
+  it("過去日（昨日以前）は無効化され、クリックしても遷移しない", () => {
+    // 今日を 6 月に置く（6/20）。19 日は過去 → disabled。20 日（今日）は押せる。
+    render(
+      <EditorDateCalendar
+        classId={CLASS_ID}
+        today="2026-06-20"
+        selectedDate="2026-06-23"
+        contentDates={[]}
+      />,
+    );
+    const past = screen.getByLabelText("2026年6月19日を編集") as HTMLButtonElement;
+    expect(past.disabled).toBe(true);
+    fireEvent.click(past);
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("カレンダーで「今日」を押しても ?plan= は出さない（空振り解消・上の今日へ戻す）", () => {
+    render(
+      <EditorDateCalendar
+        classId={CLASS_ID}
+        today="2026-06-20"
+        selectedDate="2026-06-23"
+        contentDates={[]}
+      />,
+    );
+    // 今日（6/20）セルをクリック → ?plan は今日と同じで下に何も出ないので push しない（スクロールで戻すだけ）。
+    fireEvent.click(screen.getByLabelText("2026年6月20日・今日を編集"));
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it("先の日を選ぶと下の「選択した日の編集」へ自動スクロールする", () => {
+    const scrollSpy = vi.fn();
+    // jsdom は scrollIntoView 未実装。プロトタイプに差して呼び出しを検出する（テスト後に復元）。
+    const orig = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+    const anchor = document.createElement("div");
+    anchor.id = SELECTED_DAY_ANCHOR_ID;
+    document.body.appendChild(anchor);
+    try {
+      const { rerender } = render(
+        <EditorDateCalendar classId={CLASS_ID} today={TODAY} contentDates={[]} />,
+      );
+      // 畳んでいてもチップは押せる。明日（2026-02-16）を選ぶ。
+      fireEvent.click(screen.getByRole("button", { name: /明日/ }));
+      // サーバ反映を模して selectedDate を反映 → useEffect が下のアンカーへスクロールする。
+      rerender(
+        <EditorDateCalendar
+          classId={CLASS_ID}
+          today={TODAY}
+          selectedDate="2026-02-16"
+          contentDates={[]}
+        />,
+      );
+      expect(scrollSpy).toHaveBeenCalled();
+    } finally {
+      window.HTMLElement.prototype.scrollIntoView = orig;
+      anchor.remove();
+    }
   });
 });
