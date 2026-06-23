@@ -125,9 +125,11 @@ export function NoticeEditor({
   // 新規行の安定キー用カウンタ。初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない。
   const nextId = useRef(Math.max(initialItems.length, prefillRows));
 
-  // 事前生成した空行（本文が空）は保存ペイロード・complete から除外する（空枠で保存をブロックせず、空の連絡を
-  // 保存しない）。教員が埋めた行だけが盤面・保存に反映される。
+  // 事前生成した空行（本文が空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
+  // 空の連絡を保存しない／空行を掴ませない）。教員が埋めた行だけが盤面・保存に反映される。
   const filledRows = rows.filter((r) => r.text.trim().length > 0);
+  // 並べ替えハンドルは**本文の入った行が 2 件以上**のときだけ各実入力行に出す（空行には出さない・1 件では並べ替え不要）。
+  const reorderable = filledRows.length > 1;
   const items = toNoticeItems(filledRows);
   const serialized = serializeForDirty(items);
   // ライブプレビュー連動: 保存ペイロードが変わるたび親へ通知（観測専用・保存ロジックとは独立）。
@@ -183,7 +185,7 @@ export function NoticeEditor({
                 ...(reorder.isOver ? dropOverRowStyle : {}),
               }}
             >
-              {rows.length > 1 ? (
+              {reorderable && r.text.trim().length > 0 ? (
                 <DragHandle reorder={reorder} label={`${i + 1} 件目を並べ替え`} />
               ) : null}
               <input
