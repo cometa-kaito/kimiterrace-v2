@@ -65,7 +65,10 @@ export function EditorDateCalendar({
     });
   }
   function pick(d: number) {
-    router.push(`/app/editor/${classId}?plan=${toYmd(view.y, view.m0, d)}`);
+    // scroll: false で App Router 既定の「ページ先頭へスクロール」を抑止する。先の日付を選んでも一番上（今日の
+    // 編集）へ飛ばず、カレンダーの位置を保ったまま下の「選択した日の編集」がその場で切り替わる（要望 2026-06-23:
+    // 日付クリックで最上部に飛んで見にくい、の是正。ScheduleEditor の対象日切替と同じ作法）。
+    router.push(`/app/editor/${classId}?plan=${toYmd(view.y, view.m0, d)}`, { scroll: false });
   }
 
   return (
