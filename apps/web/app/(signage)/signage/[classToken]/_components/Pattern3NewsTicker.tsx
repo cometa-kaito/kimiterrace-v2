@@ -8,13 +8,14 @@ import styles from "./signage.module.css";
 /** 1 ニュースの表示時間（ms）。これ経過ごとに次の記事へ切り替える（2026-06-22 ユーザー指定 15 秒）。 */
 const NEWS_DWELL_MS = 15_000;
 
-/** フッタのニュースカードに出す本文（公式要約）の最大文数。先頭 N 文をコンパクトに添える。 */
-const FOOTER_SUMMARY_SENTENCES = 2;
+/** フッタのニュースに出す本文（公式要約）の最大文数。先頭 N 文をコンパクトに添える（2026-06-23 ユーザー指示で
+ *  カード高を下げるため 1 文＝箇条書き 1 個に絞る）。 */
+const FOOTER_SUMMARY_SENTENCES = 1;
 
 /**
  * 公式要約（CC BY ソースのみ非 null）を「。」で文分割し、先頭 {@link FOOTER_SUMMARY_SENTENCES} 文を返す
  * （各文末に「。」を付け直す）。SignageBoardView の `splitNewsSummary`（pattern4 用・最大4文）の廊下フッタ版
- * （枠の高さを抑えるため2文に絞る）。空要素は捨てる。
+ * （カード高を抑えるため 1 文＝箇条書き 1 個に絞る）。空要素は捨てる。
  */
 function footerSummary(summary: string): string[] {
   return summary
@@ -26,9 +27,10 @@ function footerSummary(summary: string): string[] {
 }
 
 /**
- * パターン3（廊下版）フッタの**時事ニュース・カード**（ADR-043）。フッタに**枠ありのカード**で常時置き、記事を
- * **1 件ずつ自動で切り替える**（2026-06-22 ユーザー確定）。**見出し＋本文（公式要約・先頭2文）**を出す（要約は
- * pattern4 と同じ CC BY ソース＝経産省 METI のみ非 null。それ以外は見出しのみ）。タイマーを持つので唯一の client
+ * パターン3（廊下版）フッタの**時事ニュース**（ADR-043）。フッタに**囲み枠なし（線基調）**で常時置き、記事を
+ * **1 件ずつ自動で切り替える**。**見出し＋本文（公式要約・先頭1文＝箇条書き1個）**を出す（2026-06-22 1件送り確定→
+ * 2026-06-23 枠撤去・本文1文化。要約は pattern4 と同じ CC BY ソース＝経産省 METI のみ非 null。それ以外は見出しのみ）。
+ * タイマーを持つので唯一の client
  * island（盤面 `SignageBoardView` 本体は hooks を持たず server 描画可能性を保つ＝この小コンポーネントだけ "use client"）。
  *
  * - 全記事を DOM に積み（絶対配置）、`active` のものだけ opacity:1 でクロスフェード表示する（非 active は
