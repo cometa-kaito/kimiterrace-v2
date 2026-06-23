@@ -3,6 +3,7 @@
 import { serializeForDirty, useAutoSaveSection } from "@/lib/editor/editor-save-state";
 import { setCalloutsAction } from "@/lib/editor/callouts-actions";
 import { validateCalloutItems } from "@/lib/editor/callouts-core";
+import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { StudentCallout } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import { useRef, useState } from "react";
@@ -66,30 +67,65 @@ function toItems(rows: Row[]): CalloutPayload[] {
   }));
 }
 
+/**
+ * 事前生成した「空行」か（4 欄すべて空）。全欄空の行は保存ペイロード・complete から除外し、並べ替えハンドルも
+ * 出さない（教員が触れていない空枠で保存・並べ替えをさせない）。氏名未入力で時刻だけ等の**部分入力**行は空行では
+ * ない＝従来どおり氏名必須エラーで保存待ちにし、入力漏れに気づける。
+ */
+function isBlankCalloutRow(r: Row): boolean {
+  return (
+    r.scheduledTime.trim() === "" &&
+    r.studentName.trim() === "" &&
+    r.location.trim() === "" &&
+    r.reason.trim() === ""
+  );
+}
+
 export function CalloutsEditor({
   classId,
   date,
   initialItems,
+  prefillRows = 0,
 }: {
   classId: string;
   date: string;
   initialItems: StudentCallout[];
+  /**
+   * 盤面の規定枠ぶん**空行を事前生成**する数（{@link blockRowCapacity}）。既定 0（事前生成せず従来挙動）。
+   * 空行（全欄空）は保存ペイロード・自動保存判定・並べ替えハンドルから除外され、埋めなくても保存をブロックしない。
+   */
+  prefillRows?: number;
 }) {
-  const [rows, setRows] = useState<Row[]>(
-    initialItems.map((i, idx) => ({
-      id: `r${idx}`,
-      scheduledTime: i.scheduledTime ?? "",
-      studentName: i.studentName,
-      location: i.location ?? "",
-      reason: i.reason ?? "",
-    })),
+  const [rows, setRows] = useState<Row[]>(() =>
+    padBlankRows(
+      initialItems.map((i, idx) => ({
+        id: `r${idx}`,
+        scheduledTime: i.scheduledTime ?? "",
+        studentName: i.studentName,
+        location: i.location ?? "",
+        reason: i.reason ?? "",
+      })),
+      prefillRows,
+      (index) => ({
+        id: `r${index}`,
+        scheduledTime: "",
+        studentName: "",
+        location: "",
+        reason: "",
+      }),
+    ),
   );
-  // 新規行の安定キー用カウンタ（初期行は r0.. を使うので length から続け、衝突しない）。NoticeEditor と同方式。
-  const nextId = useRef(initialItems.length);
+  // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
+  const nextId = useRef(Math.max(initialItems.length, prefillRows));
 
-  const items = toItems(rows);
+  // 事前生成した空行（全欄空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
+  // 空の呼び出しを保存しない／空行を掴ませない）。教員が氏名等を入れた行だけが盤面・保存に反映される。
+  const filledRows = rows.filter((r) => !isBlankCalloutRow(r));
+  // 並べ替えハンドルは**実入力行が 2 件以上**のときだけ各実入力行に出す（空行には出さない・1 件では並べ替え不要）。
+  const reorderable = filledRows.length > 1;
+  const items = toItems(filledRows);
   const serialized = serializeForDirty(items);
-  // 全行が有効（氏名必須・時刻は指定時のみ HH:MM）なら自動保存する。判定はサーバと同じ純関数
+  // 埋めた行が全て有効（氏名必須・時刻は指定時のみ HH:MM）なら自動保存する。判定はサーバと同じ純関数
   // `validateCalloutItems` を再利用し、client/server で検証規則が drift しないようにする（ルール3 の精神）。
   const complete = validateCalloutItems(items).ok;
   const auto = useAutoSaveSection({
@@ -166,7 +202,7 @@ export function CalloutsEditor({
                   }}
                 >
                   <td style={tdStyle}>
-                    {rows.length > 1 ? (
+                    {reorderable && !isBlankCalloutRow(r) ? (
                       <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
                     ) : null}
                   </td>

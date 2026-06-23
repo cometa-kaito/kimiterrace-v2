@@ -56,6 +56,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     const { rerender } = render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts
@@ -76,6 +77,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     rerender(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-22"
         showVisitors
         showCallouts
@@ -89,6 +91,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     rerender(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-23"
         showVisitors
         showCallouts
@@ -105,6 +108,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts
@@ -123,6 +127,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     const { container } = render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts
@@ -142,6 +147,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts={false}
@@ -157,6 +163,7 @@ describe("VisitorsCalloutsSection — 対象日変更で複製しない（再現
     const { container } = render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors={false}
         showCallouts={false}
@@ -176,6 +183,7 @@ describe("VisitorsEditor — 来校者の表示順を並べ替え（ドラッグ
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts={false}
@@ -197,6 +205,7 @@ describe("VisitorsEditor — 来校者の表示順を並べ替え（ドラッグ
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts={false}
@@ -213,6 +222,7 @@ describe("VisitorsEditor — 来校者の表示順を並べ替え（ドラッグ
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors
         showCallouts={false}
@@ -232,6 +242,7 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替え（ド
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors={false}
         showCallouts
@@ -252,6 +263,7 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替え（ド
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors={false}
         showCallouts
@@ -268,6 +280,7 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替え（ド
     render(
       <VisitorsCalloutsSection
         classId={CLASS_ID}
+        pattern="pattern2"
         date="2026-06-21"
         showVisitors={false}
         showCallouts
@@ -276,5 +289,58 @@ describe("CalloutsEditor — 生徒呼び出しの表示順を並べ替え（ド
       />,
     );
     expect(screen.queryByRole("button", { name: /行目を並べ替え/ })).toBeNull();
+  });
+});
+
+describe("来校者 / 生徒呼び出しの事前生成（prefillRows・盤面の規定枠 = pattern2/3 は 5）", () => {
+  it("pattern2 は来校者を規定枠 5 行ぶん事前生成する（既存 1 件 + 空行 4・6 行目は無い）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        pattern="pattern2"
+        date="2026-06-21"
+        showVisitors
+        showCallouts={false}
+        visitors={[visitor("v1", "来校 太郎")]}
+        callouts={null}
+      />,
+    );
+    expect((screen.getByLabelText("1 行目の氏名") as HTMLInputElement).value).toBe("来校 太郎");
+    expect((screen.getByLabelText("5 行目の氏名") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByLabelText("6 行目の氏名")).toBeNull();
+  });
+
+  it("空行には並べ替えハンドルを出さない（実入力 2 件 + 空行 3 → ハンドルは実入力 2 件のみ）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        pattern="pattern2"
+        date="2026-06-21"
+        showVisitors
+        showCallouts={false}
+        visitors={[visitor("v1", "来校 太郎"), visitor("v2", "来校 次郎")]}
+        callouts={null}
+      />,
+    );
+    // 5 行（実入力 2 + 空行 3）だが、並べ替えハンドルは実入力の 2 件だけ（空行 3 行には出さない）。
+    expect(screen.getByLabelText("5 行目の氏名")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /行目を並べ替え/ })).toHaveLength(2);
+  });
+
+  it("生徒呼び出しも pattern2 で 5 行ぶん事前生成する（既存 1 件 + 空行 4）", () => {
+    render(
+      <VisitorsCalloutsSection
+        classId={CLASS_ID}
+        pattern="pattern2"
+        date="2026-06-21"
+        showVisitors={false}
+        showCallouts
+        visitors={null}
+        callouts={[callout("c1", "生徒 花子")]}
+      />,
+    );
+    expect((screen.getByLabelText("1 行目の生徒氏名") as HTMLInputElement).value).toBe("生徒 花子");
+    expect((screen.getByLabelText("5 行目の生徒氏名") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByLabelText("6 行目の生徒氏名")).toBeNull();
   });
 });

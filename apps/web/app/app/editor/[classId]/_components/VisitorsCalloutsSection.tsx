@@ -1,5 +1,7 @@
 "use client";
 
+import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
+import { blockRowCapacity } from "@/lib/signage/pattern-blocks";
 import type { ClassVisitor, StudentCallout } from "@kimiterrace/db";
 import { CalloutsEditor } from "./CalloutsEditor";
 import { VisitorsEditor } from "./VisitorsEditor";
@@ -38,6 +40,7 @@ import { editorRegionAnchorId } from "./region-anchor";
 export function VisitorsCalloutsSection({
   classId,
   date,
+  pattern,
   showVisitors,
   showCallouts,
   visitors,
@@ -46,6 +49,8 @@ export function VisitorsCalloutsSection({
 }: {
   classId: string;
   date: string;
+  /** このクラスの実機が出すデザインパターン。来校者/呼び出しの事前生成行数（盤面の規定枠）を引くのに使う。 */
+  pattern: SignageDesignPattern;
   showVisitors: boolean;
   showCallouts: boolean;
   visitors: ClassVisitor[] | null;
@@ -60,6 +65,10 @@ export function VisitorsCalloutsSection({
   if (!(showVisitors || showCallouts)) {
     return null;
   }
+  // 盤面の規定枠ぶん空行を事前生成する数（単一ソース {@link blockRowCapacity}）。空行は保存・自動保存判定・
+  // 並べ替えハンドルから除外されるので、埋めなくても保存をブロックしない（各エディタの isBlank*Row）。
+  const calloutPrefill = blockRowCapacity(pattern, "callout");
+  const visitorPrefill = blockRowCapacity(pattern, "visitor");
   return (
     <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
       {/* 盤面（pattern2/3）と同じ左右順: 生徒呼び出し（左）→ 来校者一覧（右）。各エディタは盤面クリックの
@@ -72,7 +81,12 @@ export function VisitorsCalloutsSection({
           id={anchored ? editorRegionAnchorId("callouts") : undefined}
           className={boardLayout.card}
         >
-          <CalloutsEditor classId={classId} date={date} initialItems={callouts} />
+          <CalloutsEditor
+            classId={classId}
+            date={date}
+            initialItems={callouts}
+            prefillRows={calloutPrefill}
+          />
         </div>
       ) : null}
       {showVisitors && visitors ? (
@@ -81,7 +95,12 @@ export function VisitorsCalloutsSection({
           id={anchored ? editorRegionAnchorId("visitors") : undefined}
           className={boardLayout.card}
         >
-          <VisitorsEditor classId={classId} date={date} initialItems={visitors} />
+          <VisitorsEditor
+            classId={classId}
+            date={date}
+            initialItems={visitors}
+            prefillRows={visitorPrefill}
+          />
         </div>
       ) : null}
     </div>
