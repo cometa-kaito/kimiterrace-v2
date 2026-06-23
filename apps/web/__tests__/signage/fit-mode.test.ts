@@ -22,13 +22,15 @@ const UA = {
 } as const;
 
 describe("isEmbeddedSignageDevice", () => {
-  it("Android WebView（`; wv)`）は端末扱い", () => {
+  it("Android WebView（`; wv)` = tv-ble-bridge 実機端末）は端末扱い", () => {
     expect(isEmbeddedSignageDevice(UA.androidWebView)).toBe(true);
   });
 
-  it("Google TV / 各社スマート TV ブラウザは端末扱い", () => {
-    expect(isEmbeddedSignageDevice(UA.googleTvCast)).toBe(true);
-    expect(isEmbeddedSignageDevice(UA.braviaTv)).toBe(true);
+  it("スマート TV / Google TV の内蔵ブラウザは端末扱いしない（人間が開く＝fit で崩れを防ぐ・2026-06-23 実機確認）", () => {
+    // 旧実装は UA 名（Google TV/BRAVIA/CrKey…）で端末扱いしていたが、50inch スマートモニタの内蔵ブラウザで
+    // 開いた盤面まで fit-stage が外れて崩れた。確実な WebView（`; wv)`）以外は人間優先＝fit を当てる側に倒す。
+    expect(isEmbeddedSignageDevice(UA.googleTvCast)).toBe(false);
+    expect(isEmbeddedSignageDevice(UA.braviaTv)).toBe(false);
   });
 
   it("PC・タブレットの実ブラウザは端末扱いしない（人間＝縮小表示の対象）", () => {
@@ -51,8 +53,10 @@ describe("shouldApplyFitStage", () => {
     expect(shouldApplyFitStage("off", UA.desktopChrome)).toBe(false);
   });
 
-  it("未指定: 実ブラウザは適用 / 端末は非適用", () => {
+  it("未指定: 実ブラウザ・スマート TV 内蔵ブラウザは適用 / 実機 WebView 端末は非適用", () => {
     expect(shouldApplyFitStage(undefined, UA.desktopChrome)).toBe(true);
+    // スマート TV/Google TV の内蔵ブラウザ（人間が開く 50inch モニタ等）は fit を当てて崩れを防ぐ。
+    expect(shouldApplyFitStage(undefined, UA.braviaTv)).toBe(true);
     expect(shouldApplyFitStage(undefined, UA.androidWebView)).toBe(false);
   });
 

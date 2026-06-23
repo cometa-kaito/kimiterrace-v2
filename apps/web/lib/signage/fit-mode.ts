@@ -14,24 +14,25 @@
  */
 
 /**
- * UA が **実機サイネージ端末（埋め込み WebView / TV ブラウザ）** か。誤検知で人間のブラウザを端末扱いしない
- * よう、端末だけを**狭く**拾う（迷ったら fit を当てる側＝人間優先に倒す。端末側が誤って fit されても運用は
- * `?fit=off` で個別に無効化できる安全弁がある）。
+ * UA が **実機サイネージ端末（tv-ble-bridge の Android System WebView）** か。fit-mode の既定原則「誤検知で
+ * 人間のブラウザを端末扱いしない／迷ったら fit を当てる側＝人間優先」に従い、端末は**確実な WebView シグナル
+ * （`; wv)`）だけ**で拾う。
  *
- * - Android System WebView は UA に `; wv)` を含む（tv-ble-bridge の WebView もこれに該当）。
- * - Google TV / Android TV / 各社スマート TV の内蔵ブラウザも端末側として全画面に倒す。
- * - PC・タブレットの**実ブラウザ**（Chrome/Safari/Edge/Firefox、iPad/Android タブレット含む）は該当しない。
+ * - tv-ble-bridge（実機端末）の Android System WebView は UA に必ず `; wv)` を含む → これだけを端末とする。
+ * - **スマート TV / Google TV 等の「内蔵ブラウザ」は端末扱いしない**（旧実装は UA 名 `Google TV/BRAVIA/Tizen…`
+ *   でも拾っていたが、人間が 50inch スマートモニタの内蔵ブラウザで開いた盤面まで端末扱いになり、fit-stage
+ *   が外れて崩れた＝ヘッダ/天気が画面外・人物列が潰れる・2026-06-23 実機確認）。これらは人間の確認・常時表示
+ *   にも使うので fit を当てて 1920×1080 の忠実な縮小コピーを見せる。
+ * - PC・タブレットの**実ブラウザ**（Chrome/Safari/Edge/Firefox、iPad/Android タブレット含む）も該当しない。
+ * - UA 判定が外れた実機端末（万一 `; wv)` を持たない機種）は signage_url に `?fit=off` を付ける安全弁で全画面へ戻す。
  */
 export function isEmbeddedSignageDevice(ua: string): boolean {
   if (!ua) {
     return false;
   }
-  // Android System WebView 判定（`; wv)`）。空白揺れを許容。
-  if (/;\s*wv\)/i.test(ua)) {
-    return true;
-  }
-  // TV 内蔵ブラウザ系（端末側）。人間の PC/タブレット UA には現れない語に限定する。
-  return /\b(Google ?TV|Android ?TV|CrKey|SMART-TV|SmartTV|BRAVIA|Web0S|Tizen)\b/i.test(ua);
+  // 端末＝Android System WebView のみ（`; wv)`・空白揺れ許容）。スマート TV/Google TV の内蔵ブラウザは UA 名で
+  // 拾わない（人間優先＝fit を当てて崩れを防ぐ）。詳細は関数 doc 参照。
+  return /;\s*wv\)/i.test(ua);
 }
 
 /**
