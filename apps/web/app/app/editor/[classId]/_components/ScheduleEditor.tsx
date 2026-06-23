@@ -13,7 +13,7 @@ import {
 } from "@/lib/editor/schedule-core";
 import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import {
   inputStyle,
@@ -27,6 +27,7 @@ import {
 } from "./editor-styles";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
+import { useGridTabNavigation } from "./useGridTabNavigation";
 
 /**
  * 予定エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
@@ -240,67 +241,10 @@ export function ScheduleEditor({
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // --- Tab 縦移動（スプレッドシート風の連続入力） ---
-  // 入力セルを `row:col` でキー登録した ref マップ。Tab で同じ列の次の行へ（縦移動）フォーカスを移す。
-  // col: 0=時限 / 1=科目 / 2=補足 / 3=場所 / 4=対象者。保存/検証/RLS/監査の挙動には一切触れない（フォーカス制御のみ）。
-  const cellRefs = useRef(new Map<string, HTMLElement>());
-  // 新規行追加直後にフォーカスしたいセル（addRow は非同期に行が増えるため、描画後 effect で当てる）。
-  const pendingFocusRef = useRef<{ row: number; col: number } | null>(null);
-
-  const registerCell = useCallback((row: number, col: number, el: HTMLElement | null) => {
-    const key = `${row}:${col}`;
-    if (el) {
-      cellRefs.current.set(key, el);
-    } else {
-      cellRefs.current.delete(key);
-    }
-  }, []);
-
-  const focusCell = useCallback((row: number, col: number): boolean => {
-    const el = cellRefs.current.get(`${row}:${col}`);
-    if (el) {
-      el.focus();
-      return true;
-    }
-    return false;
-  }, []);
-
-  // 行数が変わった後（addRow で増えた直後）に保留中のフォーカスを当てる。当たらなければ何もしない。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 行数(rows.length)変化を effect の起動条件にする
-  useEffect(() => {
-    const pending = pendingFocusRef.current;
-    if (pending && focusCell(pending.row, pending.col)) {
-      pendingFocusRef.current = null;
-    }
-  }, [rows.length, focusCell]);
-
-  // 予定テーブルの Tab を縦移動にする。Tab=同 col の次行 / Shift+Tab=同 col の前行。最終行で Tab を押したら
-  // 新規行を追加して同 col にフォーカス（連続入力を速く）。先頭行で Shift+Tab・端の列は既定動作に委ねる
-  //（フォーカストラップを作らない＝削除ボタンや画面外への離脱を妨げない）。
-  const onCellKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLElement>, row: number, col: number) => {
-      if (e.key !== "Tab") {
-        return;
-      }
-      if (e.shiftKey) {
-        // 前の行の同じ列へ。先頭行なら既定動作（前の列/前要素へ）に委ねる。
-        if (row > 0) {
-          e.preventDefault();
-          focusCell(row - 1, col);
-        }
-        return;
-      }
-      // 下の行の同じ列へ。最終行なら新規行を追加して同 col にフォーカスする。
-      e.preventDefault();
-      if (row < rows.length - 1) {
-        focusCell(row + 1, col);
-      } else {
-        pendingFocusRef.current = { row: row + 1, col };
-        addRow();
-      }
-    },
-    [rows.length, focusCell, addRow],
-  );
+  // --- Tab 縦移動（スプレッドシート風の連続入力・共有フック {@link useGridTabNavigation}） ---
+  // col: 0=時限 / 1=科目 / 2=補足 / 3=場所 / 4=対象者。Tab=同 col の次行 / Shift+Tab=同 col の前行 /
+  // 最終行 Tab で行追加。連絡・提出物・来校者・呼び出しと同じ共有フックに寄せた（要望 2026-06-23・重複排除）。
+  const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   async function changeDate(next: string) {
     // 未保存分があれば確実に保存してから対象日を切り替える（自動保存 debounce の取りこぼし防止・順序維持）。
