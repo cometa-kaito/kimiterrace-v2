@@ -794,13 +794,32 @@ function Pattern3Schedule({
   );
 }
 
-/** pattern3 予定の 1 コマ（固定行高・単一行）。時限 + 内容を 1 行で出す（はみ出しは省略）。 */
+/**
+ * 予定の「場所 / 対象者」を 1 行インラインの補助テキストに連結する（単一行レイアウトの pattern1 / pattern3 用）。
+ * 例: 場所「体育館」+ 対象「3年生」→「場所: 体育館 / 対象: 3年生」。どちらも未設定なら null（描かない）。
+ * 行高を増やさず同一行に添える（はみ出しは親の ellipsis/clip に委ねる＝fail-soft）。pattern2 は専用の 2 行目メタを
+ * 持つので本ヘルパーは使わない。要望 2026-06-23: 場所・対象者が盤面に出ない、の是正。
+ */
+function scheduleMetaInline(row: SignageScheduleRow): string | null {
+  const parts: string[] = [];
+  if (row.location) {
+    parts.push(`場所: ${row.location}`);
+  }
+  if (row.targetAudience) {
+    parts.push(`対象: ${row.targetAudience}`);
+  }
+  return parts.length > 0 ? parts.join(" / ") : null;
+}
+
+/** pattern3 予定の 1 コマ（固定行高・単一行）。時限 + 内容 (+ 場所/対象者) を 1 行で出す（はみ出しは省略）。 */
 function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  const meta = scheduleMetaInline(row);
   return (
     <div className={styles.p3SchItem}>
       <span className={styles.p3SchMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         {row.content}
+        {meta ? <span className={styles.p3SchMeta}>{meta}</span> : null}
       </span>
     </div>
   );
@@ -1657,11 +1676,13 @@ function ScheduleColumn({
 }
 
 function ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  const meta = scheduleMetaInline(row);
   return (
     <div className={styles.scheduleListItem}>
       <span className={styles.scheduleRowInner}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         <span className={styles.scheduleContent}>{row.content}</span>
+        {meta ? <span className={styles.scheduleMetaInline}>{meta}</span> : null}
       </span>
     </div>
   );

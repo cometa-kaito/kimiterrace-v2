@@ -321,6 +321,13 @@
 .scheduleContent {
   font-weight: 600;
 }
+/* 予定行の補助メタ（場所 / 対象者）。同一行に小さく muted で添える（行高を増やさず ellipsis に委ねる）。 */
+.scheduleMetaInline {
+  margin-left: 0.4em;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: var(--text-muted);
+}
 
 /* ===================== 9. 連絡事項（左下・5行） =====================
    連絡リストの行トラック。**汎用オートスクロール**（§11a）の track 役（`<ul>` 自身が track）。可視数（規定 5 行）
@@ -1316,6 +1323,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+/* 予定行の補助メタ（場所 / 対象者）。同一行に添える。遠目で沈まないよう pattern3 二次テキスト色（--p3-ink-secondary）。 */
+.p3SchMeta {
+  margin-left: 0.4em;
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--p3-ink-secondary);
 }
 .p3SchEmpty {
   color: var(--p3-ink-secondary);
