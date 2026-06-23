@@ -261,8 +261,17 @@ body {
   line-height: 1;
   cursor: pointer;
 }
-/* メイン領域の余白は基底をここで持つ（モバイルで media-query が上書きするため）。 */
+/* メイン領域の余白は基底をここで持つ（モバイルで media-query が上書きするため）。
+ * position:relative は「本文の独立スクロール」（下の @media ≥769px で overflow-y:auto）と対の不変条件。
+ * 本文内に position:absolute の子（例: 必須マーク等の視覚的非表示 sr-only span = clip された 1×1px）が
+ * あると、含みブロックになる positioned 祖先が無いため **初期含みブロック(html)** に逃げ、ページ最下部
+ * （本文の長さ分だけ下）に描かれて html 側にもスクロールが生える＝**スクロールバーが二重**になる
+ * （本文 .admin-main と ページ html の 2 本／エディタ画面で顕在・ユーザー指摘 2026-06-23）。.admin-main を
+ * 含みブロック化して absolute な子を本文スクロール内へ閉じ込め、二重スクロールを単一（本文のみ）に戻す
+ * （実機 prod で html scrollH 1182→575・本文スクロールは温存を確認）。z-index は付けない＝スタッキング
+ * 文脈は作らず浮遊 AI チャット(fixed)等の重なり順に干渉しない。 */
 .admin-main {
+  position: relative;
   padding: 1.5rem;
 }
 
