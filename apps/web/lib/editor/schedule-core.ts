@@ -283,7 +283,13 @@ const SPECIAL_SLOT_SORT_KEY: Record<SpecialSlot, number> = {
 };
 /** 自由入力（その他）の並び順キー。標準スロット（morning 0 〜 afterschool 1001）より後ろに固定で置く。 */
 const CUSTOM_PERIOD_SORT_KEY = 2000;
-export function scheduleSlotSortKey(period: SchedulePeriod): number {
+/** 時限なし（科目のみ）の並び順キー。自由入力よりさらに後ろ（= リスト末尾）に固定で置く。 */
+const NO_PERIOD_SORT_KEY = 3000;
+export function scheduleSlotSortKey(period: SchedulePeriod | undefined): number {
+  // 時限なし（科目のみ）は末尾。NaN 比較（undefined をそのまま減算）を避けるため有限の大きなキーに倒す。
+  if (period === undefined) {
+    return NO_PERIOD_SORT_KEY;
+  }
   // 自由入力は標準スロットの後ろ。同値の複数件は安定ソートで入力順を保つ（保存・盤面描画で同一キー）。
   if (isCustomPeriod(period)) {
     return CUSTOM_PERIOD_SORT_KEY;
@@ -336,13 +342,15 @@ export const SCHEDULE_SLOT_OPTIONS: readonly ScheduleSlotOption[] = [
 ];
 
 /**
- * 予定の 1 コマ。`period` は時限 (1..12) または特殊スロット (朝 / 昼休み / 放課後)、`subject` は科目名
- * (1..32)、`note` は任意の補足。`location`（場所）/ `targetAudience`（対象者）はパターン2 盤面で表示する
- * 任意フィールド（例: 場所「体育館」、対象者「3年生」）。いずれも施設/学年区分で **PII ではない**
- * （ルール4 対象外）。サイネージ (#48-E1) は `subject` を代表ラベルとして描画する。
+ * 予定の 1 コマ。`period` は時限 (1..12) / 特殊スロット (朝 / 昼休み / 放課後) / 自由入力 (`{ custom }`)、または
+ * **省略（時限なし＝科目のみの予定）**。`subject` は科目名 (1..32)、`note` は任意の補足。`location`（場所）/
+ * `targetAudience`（対象者）はパターン1/2 盤面で表示する任意フィールド（例: 場所「体育館」、対象者「3年生」）。
+ * いずれも施設/学年区分で **PII ではない**（ルール4 対象外）。サイネージ (#48-E1) は `subject` を代表ラベルとして
+ * 描画し、`period` が無い要素は時限ラベルを出さず科目だけを描く（要望 2026-06-23: 科目のみで盤面に表示できるように）。
  */
 export type ScheduleItem = {
-  period: SchedulePeriod;
+  /** 時限。省略可（時限なし＝科目のみの予定）。盤面は無い場合 時限ラベルを出さず科目だけを描く。 */
+  period?: SchedulePeriod;
   subject: string;
   note?: string;
   location?: string;
@@ -406,11 +414,17 @@ function normalizePeriod(raw: unknown): SchedulePeriod | null {
 
 /**
  * 予定配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
- * period は数値時限 (1..12) もしくは特殊スロット (朝 / 昼休み / 放課後) を許容する。
+ * period は数値時限 (1..12) / 特殊スロット (朝 / 昼休み / 放課後) / 自由入力 (`{ custom }`)、または
+ * **省略（時限なし＝科目のみの予定）** を許容する。`period` を持たない要素は時限ラベルなしで盤面に描く
+ * （要望 2026-06-23: 科目のみで盤面に表示できるように）。
+ *
+ * **時限なしの判定**: `period` キーが無い（undefined）/ null のときのみ「時限なし」とみなす。`0` や未知文字列など
+ * **不正値は従来どおり拒否**する（番兵 0 を保存ペイロードに載せない設計＝エディタは時限なし行で period を省く）。
  *
  * **重複の扱い**: 数値時限 (1限〜12限) の重複は拒否する（同じ時限が 2 つあるのはデータ誤り）。一方、特殊スロット
- * (朝 / 昼休み / 放課後) は **重複を許容**する（例: 放課後に「部活」と「三者面談」の 2 件）。要望: 放課後が
- * 2 つあると反映されない、の是正 (2026-06-22)。並びは安定ソートのため重複スロットは入力順を保つ。
+ * (朝 / 昼休み / 放課後)・自由入力（その他）・時限なしは **重複を許容**する（例: 放課後に「部活」と「三者面談」の
+ * 2 件 / 科目のみの予定が複数）。要望: 放課後が 2 つあると反映されない、の是正 (2026-06-22)。並びは安定ソートの
+ * ため重複スロットは入力順を保つ。
  */
 export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (!Array.isArray(raw)) {
@@ -419,7 +433,7 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
   if (raw.length > MAX_ROWS) {
     return { ok: false, message: `予定は最大 ${MAX_ROWS} 件までです。` };
   }
-  // 重複検知は **数値時限のみ**。特殊スロットは複数件を許すので Set に入れない。
+  // 重複検知は **数値時限のみ**。特殊スロット・自由入力・時限なしは複数件を許すので Set に入れない。
   const seenNumbered = new Set<number>();
   const items: ScheduleItem[] = [];
   for (const entry of raw) {
@@ -427,14 +441,22 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
       return { ok: false, message: "予定の各コマが不正です。" };
     }
     const rec = entry as Record<string, unknown>;
-    const period = normalizePeriod(rec.period);
-    if (period === null) {
-      return {
-        ok: false,
-        message: `時限は 1〜${MAX_ITEMS} の整数 / 朝・昼休み・放課後 / その他（自由入力）で指定してください。`,
-      };
+    // 時限なし（科目のみ）: period キーが無い / null のときは period を持たない要素にする。
+    // それ以外は normalizePeriod で検証し、不正値（0・未知文字列・空の自由入力等）は拒否する。
+    let period: SchedulePeriod | undefined;
+    if (rec.period === undefined || rec.period === null) {
+      period = undefined;
+    } else {
+      const normalized = normalizePeriod(rec.period);
+      if (normalized === null) {
+        return {
+          ok: false,
+          message: `時限は 1〜${MAX_ITEMS} の整数 / 朝・昼休み・放課後 / その他（自由入力）、または未指定で指定してください。`,
+        };
+      }
+      period = normalized;
     }
-    // 重複拒否は **数値時限のみ**。特殊スロット（朝 / 昼休み / 放課後）と自由入力（その他）は複数件を許容する。
+    // 重複拒否は **数値時限のみ**。特殊スロット（朝 / 昼休み / 放課後）・自由入力（その他）・時限なしは複数件を許容する。
     if (typeof period === "number") {
       if (seenNumbered.has(period)) {
         return { ok: false, message: `「${scheduleSlotLabel(period)}」が重複しています。` };
@@ -445,7 +467,7 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
     if (!subject) {
       return { ok: false, message: `科目名は 1〜${SUBJECT_MAX} 文字で入力してください。` };
     }
-    const item: ScheduleItem = { period, subject };
+    const item: ScheduleItem = period === undefined ? { subject } : { period, subject };
     if (rec.note !== undefined && rec.note !== null && rec.note !== "") {
       const note = normalizeString(rec.note, NOTE_MAX);
       if (!note) {

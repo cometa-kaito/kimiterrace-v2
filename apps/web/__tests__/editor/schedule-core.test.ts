@@ -270,6 +270,51 @@ describe("validateScheduleItems", () => {
     ]);
     expect(r.ok && r.value.map((i) => i.subject)).toEqual(["国語", "部活", "数学"]);
   });
+
+  it("時限なし（period 省略）を受理する＝科目のみの予定（period を持たない要素になる）", () => {
+    const r = validateScheduleItems([{ subject: "避難訓練" }]);
+    expect(r).toEqual({ ok: true, value: [{ subject: "避難訓練" }] });
+    // period キーは省かれる（時限ラベルを盤面に出さないため）。
+    expect(r.ok && r.value[0] && "period" in r.value[0]).toBe(false);
+  });
+
+  it("時限なしは場所 / 対象者を伴っても受理する（科目のみ + メタ）", () => {
+    const r = validateScheduleItems([
+      { subject: "体育祭", location: "グラウンド", targetAudience: "全校" },
+    ]);
+    expect(r).toEqual({
+      ok: true,
+      value: [{ subject: "体育祭", location: "グラウンド", targetAudience: "全校" }],
+    });
+  });
+
+  it("period: null も時限なしとして受理する", () => {
+    const r = validateScheduleItems([{ period: null, subject: "集会" }]);
+    expect(r).toEqual({ ok: true, value: [{ subject: "集会" }] });
+  });
+
+  it("時限なしは複数件を許容する（重複拒否は数値時限のみ）", () => {
+    const r = validateScheduleItems([{ subject: "テスト返却" }, { subject: "席替え" }]);
+    expect(r.ok && r.value.map((i) => i.subject)).toEqual(["テスト返却", "席替え"]);
+  });
+
+  it("時限なしは末尾に並ぶ（数値 < 特殊 < その他 < 時限なし）", () => {
+    const r = validateScheduleItems([
+      { subject: "学活" },
+      { period: 1, subject: "国語" },
+      { period: "afterschool", subject: "部活" },
+      { period: { custom: "補習" }, subject: "数学" },
+    ]);
+    expect(r.ok && r.value.map((i) => i.subject)).toEqual(["国語", "部活", "数学", "学活"]);
+  });
+
+  it("時限なしでも科目は必須（科目空は拒否）", () => {
+    expect(validateScheduleItems([{ subject: "  " }]).ok).toBe(false);
+  });
+
+  it("番兵 0 は時限なしではなく従来どおり不正として拒否（0 は wire に載せない設計）", () => {
+    expect(validateScheduleItems([{ period: 0, subject: "x" }]).ok).toBe(false);
+  });
 });
 
 describe("scheduleSlotLabel", () => {
@@ -297,6 +342,13 @@ describe("scheduleSlotSortKey", () => {
     const slots = [{ custom: "補習" }, "afterschool", 1, "morning"] as const;
     const sorted = [...slots].sort((a, b) => scheduleSlotSortKey(a) - scheduleSlotSortKey(b));
     expect(sorted).toEqual(["morning", 1, "afterschool", { custom: "補習" }]);
+  });
+  it("時限なし（undefined）は最後（自由入力よりさらに後ろ・有限キーで NaN にしない）", () => {
+    expect(scheduleSlotSortKey(undefined)).toBeGreaterThan(scheduleSlotSortKey({ custom: "補習" }));
+    expect(Number.isFinite(scheduleSlotSortKey(undefined))).toBe(true);
+    const slots = [undefined, { custom: "補習" }, 1, "morning"] as const;
+    const sorted = [...slots].sort((a, b) => scheduleSlotSortKey(a) - scheduleSlotSortKey(b));
+    expect(sorted).toEqual(["morning", 1, { custom: "補習" }, undefined]);
   });
 });
 

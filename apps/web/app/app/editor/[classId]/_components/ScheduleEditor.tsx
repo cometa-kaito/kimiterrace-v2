@@ -56,10 +56,11 @@ type Row = {
 const CUSTOM_SLOT_VALUE = "__custom__";
 
 /**
- * 時限が「未選択（空欄）」を表す番兵（UI 専用）。`0` は有効時限(1..12)でも特殊スロットでもないので
- * {@link isRowPeriodComplete} が false を返し、時限を選ぶまで保存・盤面表示をブロックする（要望 2026-06-23:
- * 事前生成・新規行の時限は最初は空欄＝1限〜5限 を自動で入れない）。`ScheduleItem.period` は number のままで
- * 型・スキーマ・サーバ検証は不変（`normalizePeriod` も 0 を弾く）。
+ * 時限が「未選択（空欄）＝時限なし」を表す番兵（UI 専用）。`0` は有効時限(1..12)でも特殊スロットでもないので
+ * {@link isRowPeriodComplete} が false を返す。事前生成・新規行は最初これで始まり 1限〜 を自動で入れない
+ * （要望 2026-06-23）。**時限は任意**で、未選択のまま科目だけ入れれば「時限なし＝科目のみの予定」として保存・
+ * 盤面表示される（{@link toScheduleItems} が period を省く・要望 2026-06-23）。番兵 0 は保存ペイロードに載せない
+ * ので `ScheduleItem.period` は省略され、サーバ検証も不変（`normalizePeriod` は 0 を弾く＝0 は wire に出ない）。
  */
 const UNSELECTED_PERIOD = 0;
 
@@ -102,10 +103,14 @@ function isRowPeriodComplete(period: SchedulePeriod): boolean {
   return Number.isInteger(period) && period >= 1 && period <= 12;
 }
 
-/** 行 state を保存ペイロード（ScheduleItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
+/**
+ * 行 state を保存ペイロード（ScheduleItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。
+ * **時限が未選択（{@link UNSELECTED_PERIOD}）/ 空の自由入力の行は `period` を省く**（時限なし＝科目のみの予定）。
+ * 番兵 0 を保存ペイロードに載せず、盤面は時限ラベルを出さず科目だけを描く（要望 2026-06-23）。
+ */
 function toScheduleItems(rows: Row[]): ScheduleItem[] {
   return rows.map((r) => ({
-    period: r.period,
+    ...(isRowPeriodComplete(r.period) ? { period: r.period } : {}),
     subject: r.subject,
     ...(r.note.trim() ? { note: r.note } : {}),
     ...(r.location.trim() ? { location: r.location } : {}),
@@ -189,7 +194,8 @@ export function ScheduleEditor({
   const [rows, setRows] = useState<Row[]>(() => {
     const initial: Row[] = initialItems.map((i, idx) => ({
       id: `r${idx}`,
-      period: i.period,
+      // 時限なし（科目のみ）の保存済み行は period 省略＝undefined。select の「（時限なし）」に対応する番兵に戻す。
+      period: i.period ?? UNSELECTED_PERIOD,
       subject: i.subject,
       note: i.note ?? "",
       location: i.location ?? "",
@@ -229,15 +235,17 @@ export function ScheduleEditor({
   const filledRows = rows.filter((r) => !isBlankScheduleRow(r));
   const items = toScheduleItems(filledRows);
   const serialized = serializeForDirty(items);
-  // ライブプレビュー連動: **時限が確定した行だけ**盤面へ通知する（未選択=0 の行は "0限" を盤面に出さない）。
-  // 保存ロジックとは独立（レンダー後に副作用で）。
-  const previewItems = items.filter((it) => isRowPeriodComplete(it.period));
+  // ライブプレビュー連動: **科目が入っている行**を盤面へ通知する。時限なし（科目のみ）の行も盤面に出す
+  // （要望 2026-06-23: 科目のみで表示できるように。未選択行は時限ラベルなしで描かれる）。科目未入力の
+  // 半端な行（場所だけ入れた等）は盤面に出さない。保存ロジックとは独立（レンダー後に副作用で）。
+  const previewItems = items.filter((it) => it.subject.trim().length > 0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ（items 直接 dep だと毎回新規参照で無限ループ）
   useEffect(() => {
     onItemsChange?.(previewItems);
   }, [serialized, onItemsChange]);
-  // 埋めた行が全て有効（科目あり・時限が有効 slot＝1..12 または特殊スロット）かつ **数値時限**が重複しないなら自動保存。
-  // 未入力/数値時限の重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
+  // 埋めた行が全て有効（**科目あり**）かつ **数値時限**が重複しないなら自動保存。時限は任意＝未選択でも保存する
+  // （要望 2026-06-23: 科目のみで盤面に表示できるように。時限なしの行は時限ラベルなしで盤面に出る）。
+  // 未入力（科目空）/数値時限の重複があるうちは保存しない（サーバが弾く＝保存失敗の error 状態になるのを避け、揃った時点で保存）。
   // 特殊スロット（朝 / 昼休み / 放課後）は重複を許容する（例: 放課後に部活と三者面談）＝サーバ検証と整合。
   // 以前はここで全 period を一律に重複扱いしていたため、放課後を 2 つ入れると complete=false で**保存されなかった**
   // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
@@ -246,7 +254,7 @@ export function ScheduleEditor({
     .map((r) => r.period)
     .filter((p): p is number => typeof p === "number" && p >= 1);
   const complete =
-    filledRows.every((r) => r.subject.trim().length > 0 && isRowPeriodComplete(r.period)) &&
+    filledRows.every((r) => r.subject.trim().length > 0) &&
     new Set(numberedPeriods).size === numberedPeriods.length;
   const auto = useAutoSaveSection({
     serialized,
@@ -345,8 +353,9 @@ export function ScheduleEditor({
                         style={{ ...inputStyle, width: "6rem" }}
                         aria-label={`${i + 1} 行目の時限`}
                       >
-                        {/* 未選択（空欄）。事前生成・新規行はここで始まり、時限を選ぶまで盤面に出ない。 */}
-                        <option value="">（時限を選択）</option>
+                        {/* 未選択（時限なし）。事前生成・新規行はここで始まる。時限は任意で、選ばなければ
+                            時限ラベルなしの「科目のみ」の予定として盤面に出る（要望 2026-06-23）。 */}
+                        <option value="">（時限なし）</option>
                         {SCHEDULE_SLOT_OPTIONS.map((opt) => (
                           <option key={String(opt.value)} value={String(opt.value)}>
                             {opt.label}

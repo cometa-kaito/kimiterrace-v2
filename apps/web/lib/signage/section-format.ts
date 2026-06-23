@@ -188,7 +188,8 @@ export function formatSignageItem(kind: SignageSectionKind, item: unknown): Sign
 
 /**
  * 予定 1 行: 時限ラベル (例「3限」、無ければ空) と内容 (科目 + 補足)。`location`（場所）/
- * `targetAudience`（対象者）はパターン2 盤面用の任意フィールド（未設定は null）。パターン1 は使わない。
+ * `targetAudience`（対象者）は任意フィールド（未設定は null）。盤面は時限なし（科目のみ）の要素を `periodLabel`
+ * 空で描き、場所/対象者は pattern1（インライン）/ pattern2（2 行目）/ pattern3（インライン）で表示する。
  */
 export type SignageScheduleRow = {
   periodLabel: string;
