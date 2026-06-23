@@ -8,13 +8,14 @@ import styles from "./signage.module.css";
 /** 1 ニュースの表示時間（ms）。これ経過ごとに次の記事へ切り替える（2026-06-22 ユーザー指定 15 秒）。 */
 const NEWS_DWELL_MS = 15_000;
 
-/** フッタのニュースカードに出す本文（公式要約）の最大文数。先頭 N 文をコンパクトに添える。 */
-const FOOTER_SUMMARY_SENTENCES = 2;
+/** フッタのニュースに出す本文（公式要約）の最大文数。先頭 N 文をコンパクトに添える（2026-06-23 ユーザー指示で
+ *  カード高を下げるため 1 文＝箇条書き 1 個に絞る）。 */
+const FOOTER_SUMMARY_SENTENCES = 1;
 
 /**
  * 公式要約（CC BY ソースのみ非 null）を「。」で文分割し、先頭 {@link FOOTER_SUMMARY_SENTENCES} 文を返す
  * （各文末に「。」を付け直す）。SignageBoardView の `splitNewsSummary`（pattern4 用・最大4文）の廊下フッタ版
- * （枠の高さを抑えるため2文に絞る）。空要素は捨てる。
+ * （カード高を抑えるため 1 文＝箇条書き 1 個に絞る）。空要素は捨てる。
  */
 function footerSummary(summary: string): string[] {
   return summary

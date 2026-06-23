@@ -750,8 +750,9 @@ function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
   );
 }
 
-/** pattern3（廊下版）人物エリアで「1 列に何件まで出すか」。これを超えると CSS で自動縦スクロールする。 */
-const P3_PEOPLE_VISIBLE_ROWS = 4;
+/** pattern3（廊下版）人物エリアで「1 列に何件まで出すか」。これを超えると CSS で自動縦スクロールする
+ *  （2026-06-23 ユーザー指示で 4→5 に +1。時事ニュース縮小で空いた縦を充当）。 */
+const P3_PEOPLE_VISIBLE_ROWS = 5;
 
 /**
  * パターン3（廊下版）専用の生徒呼び出し。pattern2 の `card`（囲み枠）はやめ、見出し（アクセント下線の名札）＋
