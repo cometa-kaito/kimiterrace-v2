@@ -93,4 +93,39 @@ describe("NoticeEditor 並べ替え（ドラッグ / ↑↓キー・上下ボタ
     render(<NoticeEditor classId={CLASS_ID} date={DATE} initialItems={[{ text: "唯一" }]} />);
     expect(screen.queryByRole("button", { name: /件目を並べ替え/ })).toBeNull();
   });
+
+  // #1166 で導入した事前生成の空行（prefillRows）はハンドルのゲートを `rows.length` でなく `filledRows.length`
+  // で見る（来校者/呼び出しエディタと同じ）。空行は掴ませない・本文 1 件では並べ替え不要。
+  it("事前生成の空行には並べ替えハンドルを出さない（1 件入力 + 空行 4 行 → ハンドル 0）", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡A" }]}
+        prefillRows={5}
+      />,
+    );
+    // 空行を含め 5 行ぶん描画される（事前生成）が、本文の入った行は 1 件だけ。
+    expect(screen.getByLabelText("5 件目の連絡事項")).toBeTruthy();
+    expect(screen.queryByLabelText("6 件目の連絡事項")).toBeNull();
+    // 本文が 1 件 → 並べ替え不要なのでハンドルは 1 つも出ない（空の事前生成行も掴ませない）。
+    expect(screen.queryAllByRole("button", { name: /件目を並べ替え/ })).toHaveLength(0);
+  });
+
+  it("本文の入った行にだけハンドルを出す（2 件入力 + 空行 3 行 → ハンドル 2・空行には出さない）", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡A" }, { text: "連絡B" }]}
+        prefillRows={5}
+      />,
+    );
+    // 5 行ぶん描画されるが、ハンドルは本文の入った先頭 2 行だけ（空行 3 行には出ない）。
+    expect(screen.getByLabelText("5 件目の連絡事項")).toBeTruthy();
+    expect(screen.queryAllByRole("button", { name: /件目を並べ替え/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "1 件目を並べ替え" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2 件目を並べ替え" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "3 件目を並べ替え" })).toBeNull();
+  });
 });
