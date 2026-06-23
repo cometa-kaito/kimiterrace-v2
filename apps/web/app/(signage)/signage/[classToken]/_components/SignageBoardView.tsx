@@ -5,6 +5,7 @@ import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   type SignageDesignPattern,
 } from "@/lib/signage/design-pattern";
+import { blockRowCapacity } from "@/lib/signage/pattern-blocks";
 import {
   type SignageScheduleRow,
   formatSignageItem,
@@ -49,7 +50,62 @@ import styles from "./signage.module.css";
  * 親（`SignageClient`）が client island のため実機経路では client として評価されるが、`ScaledSignageBoard`
  * 経由のサーバー描画も許容する設計。
  */
-const MIN_ROWS = 5;
+
+/**
+ * 盤面の編集ブロック（予定 / 連絡 / 提出物 / 呼び出し / 来校者）の**規定表示行数（固定枠）**の単一ソース。
+ * `blockRowCapacity(pattern, kind)`（`pattern-blocks.ts`・全編集ブロック = 5）を引く。盤面の「1 列/1 枠あたりの可視
+ * 行数（--visible-rows）」とエディタの事前生成行数を同源で駆動し、旧ハードコード（pattern1 の `MIN_ROWS`・
+ * pattern3 の `P3_*_VISIBLE_ROWS`・CSS の `--p3-*-visible`）の二重管理を排す（2026-06-23 ユーザー要望）。
+ */
+
+/**
+ * **汎用オートスクロールの viewport + track**（純 CSS・hooks なし）。pattern3 が先行採用した「固定枠＋超過は縦
+ * スクロール」を全パターン共通化したもの（`signage.module.css` §11a）。`totalRows > visibleRows` の時だけ track に
+ * `.autoScrollActive` を付け、超過分を窓内でスクロールさせる。`--visible-rows`（規定行数）と超過時の `--total-rows`
+ * （実行数）を**要素 inline**で渡し、CSS 側が距離（cqh）と所要時間を算出する（単一ソース＝CSS にハードコードしない）。
+ *
+ * - **region landmark を増やさない**: viewport / track は素の `<div>`（盤面 region ドリフトガード不変）。
+ * - **hooks を持たない**ので `SignageBoardView` の server 描画可能性（`ScaledSignageBoard`）は不変。
+ * - 各行（item）は呼び出し側が既存 item クラスに `styles.autoScrollItem` を併設して固定高（`100cqh/可視数`）にする。
+ *
+ * `as` で viewport/track のタグを差し替えられる（連絡・呼び出し・来校者は track を `<ul>` にして既存リスト体裁を保つ）。
+ */
+function AutoScrollViewport({
+  visibleRows,
+  totalRows,
+  viewportClassName,
+  trackClassName,
+  trackAs = "div",
+  children,
+}: {
+  visibleRows: number;
+  totalRows: number;
+  viewportClassName?: string;
+  trackClassName?: string;
+  /** track のタグ。連絡/呼び出し/来校者は `"ul"`（既存のリスト体裁を保つ）、予定は既定 `"div"`。 */
+  trackAs?: "div" | "ul";
+  children: React.ReactNode;
+}) {
+  const overflow = totalRows > visibleRows;
+  const Track = trackAs;
+  return (
+    <div
+      className={`${styles.autoScroll} ${viewportClassName ?? ""}`}
+      // 可視数（規定行数）を CSS 変数で渡す。item 高（100cqh/可視数）と超過時のスクロール距離の基準。
+      style={{ "--visible-rows": String(visibleRows) } as React.CSSProperties}
+    >
+      <Track
+        className={`${trackClassName ?? ""} ${styles.autoScrollTrack} ${overflow ? styles.autoScrollActive : ""}`}
+        // 超過時のみ実行数を渡す（距離・所要を CSS calc で算出）。未超過は原点で静止。
+        style={
+          overflow ? ({ "--total-rows": String(totalRows) } as React.CSSProperties) : undefined
+        }
+      >
+        {children}
+      </Track>
+    </div>
+  );
+}
 
 /**
  * 実セクション（予定 / 連絡 / 提出物の `<section>`）に編集モードを適用する属性を計算する純ヘルパ。
@@ -1138,14 +1194,23 @@ function Pattern2Schedule({
                 </span>
               ) : null}
             </div>
-            <div className={styles.p2ScheduleRows}>
-              {rows.length === 0 ? (
+            {rows.length === 0 ? (
+              <div className={styles.p2ScheduleRows}>
                 <span className={styles.p2Muted}>予定はありません</span>
-              ) : (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                rows.map((row, i) => <Pattern2ScheduleRow key={i} row={row} />)
-              )}
-            </div>
+              </div>
+            ) : (
+              // 各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積み、列の残り高さに収まらない
+              // 分だけ JS AutoScroll（Element.animate・ping-pong）で縦オートスクロールして順送りする（5 件以下でも
+              // 2 行アイテムを切らない・2026-06-23 ユーザー要望）。編集モードでは動かさず静的（クリック編集を妨げない）。
+              <AutoScroll play={!editRegions}>
+                <div className={styles.p2ScheduleRows}>
+                  {rows.map((row, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                    <Pattern2ScheduleRow key={i} row={row} />
+                  ))}
+                </div>
+              </AutoScroll>
+            )}
           </div>
         );
       })}
@@ -1157,6 +1222,7 @@ function Pattern2Schedule({
 function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
   const hasMeta = row.location != null || row.targetAudience != null;
   return (
+    // 自然高さ（場所/対象者メタは 2 行目に伸びる）。超過分は親の JS AutoScroll が縦スクロールで順送りする。
     <div className={styles.p2ScheduleItem}>
       <span className={styles.p2ScheduleMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
@@ -1206,32 +1272,37 @@ function Pattern2Visitors({
       {list.length === 0 ? (
         <p className={styles.p2Muted}>本日の来校者はありません</p>
       ) : (
-        <ul className={styles.p2VisitorList}>
-          {list.map((v) => (
-            <li key={v.id} className={styles.p2VisitorItem}>
-              <span className={styles.p2VisitorMain}>
-                {v.scheduledTime ? (
-                  <span className={styles.scheduleTime}>{v.scheduledTime}</span>
-                ) : null}
-                <span className={styles.p2VisitorName}>{v.visitorName}</span>
-                {v.affiliation ? (
-                  <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
-                ) : null}
-              </span>
-              {v.purpose || v.host ? (
-                <span className={styles.p2ScheduleMeta}>
-                  {v.purpose ? <span>{v.purpose}</span> : null}
-                  {v.purpose && v.host ? (
-                    <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                      ／
-                    </span>
+        // 各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ
+        // JS AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
+        // 編集モードでは静的（クリック編集を妨げない）。
+        <AutoScroll play={!editRegions}>
+          <ul className={styles.p2VisitorList}>
+            {list.map((v) => (
+              <li key={v.id} className={styles.p2VisitorItem}>
+                <span className={styles.p2VisitorMain}>
+                  {v.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{v.scheduledTime}</span>
                   ) : null}
-                  {v.host ? <span>対応: {v.host}</span> : null}
+                  <span className={styles.p2VisitorName}>{v.visitorName}</span>
+                  {v.affiliation ? (
+                    <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
+                  ) : null}
                 </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                {v.purpose || v.host ? (
+                  <span className={styles.p2ScheduleMeta}>
+                    {v.purpose ? <span>{v.purpose}</span> : null}
+                    {v.purpose && v.host ? (
+                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                        ／
+                      </span>
+                    ) : null}
+                    {v.host ? <span>対応: {v.host}</span> : null}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );
@@ -1269,20 +1340,25 @@ function Pattern2Callouts({
       {list.length === 0 ? (
         <p className={styles.p2Muted}>呼び出しはありません</p>
       ) : (
-        <ul className={styles.p2VisitorList}>
-          {list.map((c) => (
-            <li key={c.id} className={styles.p2VisitorItem}>
-              <span className={styles.p2VisitorMain}>
-                {c.scheduledTime ? (
-                  <span className={styles.scheduleTime}>{c.scheduledTime}</span>
-                ) : null}
-                <span className={styles.p2VisitorName}>{c.studentName}</span>
-                {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
-              </span>
-              {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
-            </li>
-          ))}
-        </ul>
+        // 各件は**自然高さ**（用件の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ JS
+        // AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
+        // 編集モードでは静的（クリック編集を妨げない）。
+        <AutoScroll play={!editRegions}>
+          <ul className={styles.p2VisitorList}>
+            {list.map((c) => (
+              <li key={c.id} className={styles.p2VisitorItem}>
+                <span className={styles.p2VisitorMain}>
+                  {c.scheduledTime ? (
+                    <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                  ) : null}
+                  <span className={styles.p2VisitorName}>{c.studentName}</span>
+                  {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
+                </span>
+                {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </AutoScroll>
       )}
     </section>
   );
@@ -1521,7 +1597,12 @@ function ScheduleGrid({
   );
 }
 
-/** 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）に天気を横並びで表示。5 行分の予定行（空きはプレースホルダー）。 */
+/**
+ * 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）に天気を横並びで表示。規定 5 行ぶんの固定枠で見せ、
+ * 超過分（6 コマ以上の日）は**汎用オートスクロール**（{@link AutoScrollViewport}）で順送りする。未超過（≤5）は
+ * 従来どおり 5 行ぶんを空きプレースホルダーで埋めて「5 行用意されている」見た目を保つ。可視行数は単一ソース
+ * `blockRowCapacity("pattern1","schedule")`（=5）。旧 `nth-of-type(n+6){display:none}` の「6 行目以降を隠す」は撤廃。
+ */
 function ScheduleColumn({
   day,
   isToday,
@@ -1532,7 +1613,9 @@ function ScheduleColumn({
   weatherDay: WeatherDay | null;
 }) {
   const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
-  const placeholders = Math.max(0, MIN_ROWS - rows.length);
+  const visibleRows = blockRowCapacity("pattern1", "schedule");
+  // 未超過（≤可視数）のみプレースホルダーで可視数まで埋める。超過時は全行をスクロールで見せる（埋めない）。
+  const placeholders = Math.max(0, visibleRows - rows.length);
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
       <div className={styles.scheduleDateHeader}>
@@ -1548,15 +1631,19 @@ function ScheduleColumn({
           </span>
         ) : null}
       </div>
-      <div className={styles.scheduleScrollArea}>
+      <AutoScrollViewport
+        visibleRows={visibleRows}
+        totalRows={rows.length}
+        trackClassName={styles.scheduleScrollArea}
+      >
         {rows.map((row, i) => (
           // 予定は再並びしない静的リスト。index key で十分。
           // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
           <ScheduleRow key={i} row={row} />
         ))}
         {Array.from({ length: placeholders }, (_, i) => {
-          // 空きスロットは罫線だけ見せる固定数のプレースホルダー。
-          const cls = `${styles.scheduleListItem} ${styles.schedulePlaceholder}`;
+          // 空きスロットは罫線だけ見せる固定数のプレースホルダー（固定高は .autoScrollItem を併設）。
+          const cls = `${styles.scheduleListItem} ${styles.schedulePlaceholder} ${styles.autoScrollItem}`;
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
             <div key={`ph-${i}`} className={cls}>
@@ -1564,7 +1651,7 @@ function ScheduleColumn({
             </div>
           );
         })}
-      </div>
+      </AutoScrollViewport>
     </div>
   );
 }
@@ -1599,40 +1686,45 @@ function NoticeList({
   scroll?: boolean;
 }) {
   const lines = section.items.map((item) => formatSignageItem("notices", item));
-  // フロー（scroll）はプレースホルダーで詰めない（自然高さで積みオートスクロールに委ねる）。
-  const placeholders = scroll ? 0 : Math.max(0, MIN_ROWS - lines.length);
+  // pattern1（既定）の固定枠＝規定行数の単一ソース。pattern4（scroll）はフロー＋JS AutoScroll で枠を持たない。
+  const visibleRows = blockRowCapacity("pattern1", "notice");
+  // フロー（scroll）はプレースホルダーで詰めない（自然高さで積みオートスクロールに委ねる）。未超過（≤可視数）の
+  // pattern1 のみ可視数まで空行で埋め、従来の「5 行ぶん用意されている」見た目を保つ（超過時は埋めない）。
+  const placeholders = scroll ? 0 : Math.max(0, visibleRows - lines.length);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "notices",
     styles.card,
     "連絡",
     editRegions,
   );
-  const list = (
-    <ul className={scroll ? styles.noticeFlow : styles.listGroup}>
-      {lines.length === 0 ? (
-        <li className={styles.empty}>連絡事項はありません</li>
-      ) : (
-        <>
-          {lines.map((line, i) => {
-            const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""}`;
-            return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-              <li key={i} className={cls}>
-                {line.emphasis ? "【重要】" : ""}
-                {line.text}
-              </li>
-            );
-          })}
-          {Array.from({ length: placeholders }, (_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-            <li key={`ph-${i}`} className={styles.noticePlaceholder}>
-              &nbsp;
+  const items =
+    lines.length === 0 ? (
+      <li className={scroll ? styles.empty : `${styles.empty} ${styles.autoScrollItem}`}>
+        連絡事項はありません
+      </li>
+    ) : (
+      <>
+        {lines.map((line, i) => {
+          // pattern1（固定枠）は各 li に .autoScrollItem を併設して固定行高にする。pattern4 のフローは自然高さ。
+          const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""} ${
+            scroll ? "" : styles.autoScrollItem
+          }`;
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+            <li key={i} className={cls}>
+              {line.emphasis ? "【重要】" : ""}
+              {line.text}
             </li>
-          ))}
-        </>
-      )}
-    </ul>
-  );
+          );
+        })}
+        {Array.from({ length: placeholders }, (_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+          <li key={`ph-${i}`} className={`${styles.noticePlaceholder} ${styles.autoScrollItem}`}>
+            &nbsp;
+          </li>
+        ))}
+      </>
+    );
   return (
     <section {...sectionProps}>
       {button}
@@ -1644,7 +1736,22 @@ function NoticeList({
         連絡
         <SourceBadge source={section.source} />
       </h2>
-      {scroll ? <AutoScroll play={!editRegions}>{list}</AutoScroll> : list}
+      {scroll ? (
+        // pattern4: フロー（自然高さ）＋JS AutoScroll で全連絡を切らずに順送り（無改修）。
+        <AutoScroll play={!editRegions}>
+          <ul className={styles.noticeFlow}>{items}</ul>
+        </AutoScroll>
+      ) : (
+        // pattern1（既定・グリッド）: 規定 5 行の固定枠＋超過は汎用 CSS オートスクロール（§11a）で順送り。
+        <AutoScrollViewport
+          visibleRows={visibleRows}
+          totalRows={lines.length}
+          trackAs="ul"
+          trackClassName={styles.listGroup}
+        >
+          {items}
+        </AutoScrollViewport>
+      )}
     </section>
   );
 }
@@ -1662,7 +1769,12 @@ function AssignmentTable({
   const rows = section.items
     .map((item) => parseAssignmentRow(item, today))
     .filter((r): r is NonNullable<typeof r> => r !== null);
-  const placeholders = Math.max(0, MIN_ROWS - rows.length);
+  // 提出物は `<table>` ＋ sticky thead のため、track を translateY で動かす汎用オートスクロール（§11a）は
+  // ヘッダーが追従せず破綻する。よって**今回は自動スクロール対象外**とし、規定行数（=5）を超えた稀な分は従来
+  // どおり CSS の `.taskTable tbody>tr:nth-of-type(n+6){display:none}` で隠す（実運用で 6 件超は稀）。可視行数の
+  // 単一ソースだけは `blockRowCapacity` に寄せて MIN_ROWS のハードコードを排す（プレースホルダーで 5 行を保つ）。
+  const visibleRows = blockRowCapacity("pattern1", "assignment");
+  const placeholders = Math.max(0, visibleRows - rows.length);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "assignments",
     styles.card,

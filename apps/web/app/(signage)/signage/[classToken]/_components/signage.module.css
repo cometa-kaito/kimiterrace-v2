@@ -275,17 +275,13 @@
   font-size: 1.1em;
   line-height: 1;
 }
-/* 5 行を常時確保（cqh で行内フォントを自動調整、非対応 WebView は clamp(vw) フォールバック） */
+/* 予定列の行トラック。**汎用オートスクロール**（§11a）の track 役。可視数（規定 5 行）ぶんを固定枠で見せ、
+   超過分は親 `.autoScroll` 窓の中を縦スクロールする。可視数は `blockRowCapacity('pattern1','schedule')`（=5）を
+   要素 inline の --visible-rows で渡す（単一ソース化）。各コマは `.autoScrollItem` を併設して窓高/可視数の固定高に。
+   旧 `grid repeat(5)` + `nth-of-type(n+6){display:none}`（5 行超を隠す）は撤廃し、超過は隠さずスクロールで全件見せる。 */
 .scheduleScrollArea {
-  flex: 1;
-  overflow: hidden;
-  min-height: 0;
-  container-type: size;
-  display: grid;
-  grid-template-rows: repeat(5, minmax(0, 1fr));
-}
-.scheduleScrollArea > .scheduleListItem:nth-of-type(n + 6) {
-  display: none;
+  display: flex;
+  flex-direction: column;
 }
 .scheduleListItem {
   /* cqh フォールバック: container query 非対応 WebView は前者 (vw 版) を、対応ブラウザは後者
@@ -326,20 +322,18 @@
   font-weight: 600;
 }
 
-/* ===================== 9. 連絡事項（左下・5行） ===================== */
+/* ===================== 9. 連絡事項（左下・5行） =====================
+   連絡リストの行トラック。**汎用オートスクロール**（§11a）の track 役（`<ul>` 自身が track）。可視数（規定 5 行）
+   ぶんを固定枠で見せ、超過分は親 `.autoScroll` 窓内を縦スクロール。可視数は `blockRowCapacity('pattern1','notice')`
+   （=5）を inline の --visible-rows で渡す。旧 `grid repeat(5)` + `nth-of-type(n+6){display:none}` は撤廃（超過は
+   隠さずスクロールで全件見せる）。pattern4 のフロー版（.noticeFlow / JS AutoScroll）は別物・無改修。 */
 .listGroup {
   list-style: none;
   padding-left: 0;
   margin: 0;
-  flex: 1;
   min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: repeat(5, minmax(0, 1fr));
-}
-.listGroup > li:nth-of-type(n + 6) {
-  display: none;
+  display: flex;
+  flex-direction: column;
 }
 .listItem {
   border-bottom: 1px dotted var(--border-color);
@@ -370,9 +364,9 @@
   font-size: clamp(0.85rem, 1.2vw, 1.05rem);
   padding: 0.4rem 0;
 }
-/* 連絡のフロー版（pattern4・NoticeList scroll）。5 行固定グリッドをやめ、全連絡を自然高さで縦に積む。各行は
-   折り返して全文を出し（clip しない）、枠に収まらない分は親の AutoScroll が縦スクロールで順に見せる。
-   pattern1/2/3 の `.listGroup`（5 行固定）は無改修。 */
+/* 連絡のフロー版（pattern4・NoticeList scroll）。各行は折り返して全文を出し（clip しない）、枠に収まらない分は
+   親の JS `AutoScroll`（Element.animate・ping-pong）が縦スクロールで順に見せる。pattern1/2/3 の連絡（.listGroup）が
+   採る**汎用オートスクロール**（§11a・CSS 固定枠＋超過時スクロール）とは別機構＝pattern4 連絡はこのフロー版で無改修。 */
 .noticeFlow {
   list-style: none;
   margin: 0;
@@ -751,6 +745,10 @@
   font-size: 1.15em;
   line-height: 1;
 }
+/* pattern2 予定の行トラック。各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積む。空状態
+   （「予定はありません」）はこの要素を直接置くので `flex:1; min-height:0` で列の残り高さを満たす。予定がある時は
+   親の JS `AutoScroll`（viewport が flex:1 で残り高さを占有・overflow:hidden）の中に入り、自然高さの track を
+   なすので `flex:1` は実質ノーオペ＝自然高さのまま（収まらない分だけ JS が縦スクロール）。 */
 .p2ScheduleRows {
   flex: 1;
   min-height: 0;
@@ -809,7 +807,10 @@
   font-weight: 700;
   color: var(--primary-color);
 }
-/* 生徒呼び出し / 来校者一覧: 時刻 + 氏名（+所属/呼出先）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。 */
+/* 生徒呼び出し / 来校者一覧: 時刻 + 氏名（+所属/呼出先）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。
+   各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積む。親の JS `AutoScroll`（viewport が flex:1 で
+   残り高さを占有・overflow:hidden）の中で自然高さの track をなすので `flex:1` は実質ノーオペ＝自然高さのまま
+   （収まらない分だけ JS が縦スクロール）。 */
 .p2VisitorList {
   list-style: none;
   flex: 1;
@@ -852,6 +853,63 @@
 /* 呼び出しが 1 件以上ある時だけ左にアクセント線（提出物の期限切れ行と同じ inset box-shadow 作法）。 */
 .p2CalloutsActive {
   box-shadow: inset 3px 0 0 0 var(--accent-color);
+}
+
+/* ===================== 11a. 汎用オートスクロール（規定行数の固定枠＋超過は CSS 縦スクロール） =====================
+   pattern3 が先行採用した「viewport(container-type:size) + track(flex/translateY) + 超過時のみアニメ +
+   item 高 = 100cqh/可視数」を**全パターン共通の汎用クラス**に一般化したもの（2026-06-23 ユーザー要望）。
+   pattern1/2 の予定・連絡・呼び出し・来校者に適用する。pattern3 の専用クラス（.p3SchScroller* / .p3PersonScroller*）
+   は挙動不変のため**そのまま残す**（重複は許容・本クラスとは別物）。
+
+   - `--visible-rows`（規定の固定表示行数）= 盤面の単一ソース `blockRowCapacity(pattern, kind)`（=5）を要素 inline で渡す
+     （CSS にハードコードせず TSX 経由で単一ソース化）。`--total-rows`（実際の行数）も超過時だけ inline で渡す。
+   - **未超過（実行数 ≤ 可視数）**: track は原点のまま静止。各ブロックは可視数まで空行プレースホルダーで埋め、
+     従来の「N 行ぶん用意されている」見た目を保つ。
+   - **超過（実行数 > 可視数）**: track に `.autoScrollActive` が付き、上端で一拍→下端へ→一拍→alternate で戻る無限
+     スクロール。距離 =(実行数-可視数)/可視数×窓高(cqh)、所要は実行数に比例。
+   - `prefers-reduced-motion: reduce` ではアニメを止め先頭の可視数ぶんのみ見せる（NFR・酔い配慮）。
+   region landmark は増やさない（track は素の <div>＝盤面 region ドリフトガード不変）。hooks を持たないので
+   SignageBoardView の server 描画可能性（ScaledSignageBoard）も不変。 */
+.autoScroll {
+  /* 残り高さいっぱいの表示窓。size container にして 1 行高を cqh で割り付け、ちょうど可視数で埋める。 */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+}
+.autoScrollTrack {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+/* 可視数超は自動縦スクロール（pattern3 の .p3SchScrollerAuto と同一式・3.5s/行）。距離・時間は inline の
+   --total-rows と CSS の --visible-rows から calc で算出する。 */
+.autoScrollActive {
+  animation: autoScrollAnim calc((var(--total-rows) - var(--visible-rows)) * 3.5s) ease-in-out
+    infinite alternate;
+}
+@keyframes autoScrollAnim {
+  0%,
+  10% {
+    transform: translateY(0);
+  }
+  90%,
+  100% {
+    transform: translateY(
+      calc((var(--visible-rows) - var(--total-rows)) / var(--visible-rows) * 100cqh)
+    );
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .autoScrollActive {
+    animation: none;
+  }
+}
+/* 1 行（1 件）= 窓高を可視数で割った高さ。各ブロックの既存 item クラス（.scheduleListItem / .listItem /
+   .p2ScheduleItem / .p2VisitorItem）に**併設**して固定行高だけを与える（typography/罫線は各 item クラスが担う）。 */
+.autoScrollItem {
+  height: calc(100cqh / var(--visible-rows));
+  box-sizing: border-box;
 }
 
 /* ===================== 11b-2. 時事ニュース（pattern2/3・ADR-043） =====================
@@ -2054,13 +2112,17 @@
   .scheduleSection {
     grid-column: auto;
   }
-  /* 予定: 3 日（3 列維持）× 3 行。4 行目以降は隠す。 */
-  .scheduleScrollArea {
+  /* モバイルは縦積みでページスクロールするので、汎用オートスクロール（§11a）の固定窓・固定行高・アニメは無効化し、
+     中身を自然高さで全件流す（カードの overflow:visible と一貫）。予定/連絡の固定枠は壁（TV）専用。 */
+  .autoScroll {
     container-type: normal;
-    display: block;
+    overflow: visible;
   }
-  .scheduleScrollArea > .scheduleListItem:nth-of-type(n + 4) {
-    display: none;
+  .autoScrollItem {
+    height: auto;
+  }
+  .autoScrollActive {
+    animation: none;
   }
   .scheduleListItem {
     font-size: clamp(0.6rem, 2.2vw, 0.95rem);
@@ -2069,11 +2131,7 @@
   .scheduleDateHeader {
     font-size: clamp(0.7rem, 2.4vw, 1rem);
   }
-  /* 連絡 / 提出物 は全件を表示（5 行制限とグリッドを解除、スクロールで見せる）。 */
-  .listGroup {
-    display: block;
-  }
-  .listGroup > li:nth-of-type(n + 6),
+  /* 提出物は全件表示（5 行制限を解除、ページスクロールで見せる）。 */
   .taskTable tbody > tr:nth-of-type(n + 6) {
     display: revert;
   }
