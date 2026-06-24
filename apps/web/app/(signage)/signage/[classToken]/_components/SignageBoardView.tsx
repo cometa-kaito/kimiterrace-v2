@@ -1621,6 +1621,10 @@ function ScheduleGrid({
  * 超過分（6 コマ以上の日）は**汎用オートスクロール**（{@link AutoScrollViewport}）で順送りする。未超過（≤5）は
  * 従来どおり 5 行ぶんを空きプレースホルダーで埋めて「5 行用意されている」見た目を保つ。可視行数は単一ソース
  * `blockRowCapacity("pattern1","schedule")`（=5）。旧 `nth-of-type(n+6){display:none}` の「6 行目以降を隠す」は撤廃。
+ *
+ * **例外: 予定が 1 件も無い列は完全な空列にする**（2026-06-24 ユーザー確定）。罫線プレースホルダーだけが積み上がると
+ * 予定の無い列が「----」に見えるため、`rows` が空の列はプレースホルダーで埋めず、日付ヘッダーだけの空列にする
+ * （列の高さは固定枠が保つので他列と揃う）。予定がある列は従来どおり可視数まで罫線で埋める（見た目不変）。
  */
 function ScheduleColumn({
   day,
@@ -1634,7 +1638,8 @@ function ScheduleColumn({
   const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
   const visibleRows = blockRowCapacity("pattern1", "schedule");
   // 未超過（≤可視数）のみプレースホルダーで可視数まで埋める。超過時は全行をスクロールで見せる（埋めない）。
-  const placeholders = Math.max(0, visibleRows - rows.length);
+  // 予定 0 件の列は罫線プレースホルダーを出さず完全な空列にする（「----」の見た目を消す・ユーザー確定）。
+  const placeholders = rows.length === 0 ? 0 : Math.max(0, visibleRows - rows.length);
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
       <div className={styles.scheduleDateHeader}>
