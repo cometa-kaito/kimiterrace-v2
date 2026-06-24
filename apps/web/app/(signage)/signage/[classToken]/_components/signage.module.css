@@ -299,10 +299,12 @@
   white-space: nowrap;
   text-overflow: clip;
 }
-/* 空きスロット: 中身を透明にし罫線だけ見せて「5行ぶん用意されている」と明示 */
+/* 空きスロット: 高さは確保して「空行」ぶんの枠を保ち他列と揃えるが、罫線（点線）は出さない。
+   罫線だけが積み上がると空き行が「-----」に見えるため、点線を消して完全な余白にする（2026-06-24 ユーザー確定）。 */
 .schedulePlaceholder {
   color: transparent;
   user-select: none;
+  border-bottom: none;
 }
 /* 時限 + 内容を 1 行（インライン）に保ち、親の flex-column-end で罫線直上に下詰めする */
 .scheduleRowInner {

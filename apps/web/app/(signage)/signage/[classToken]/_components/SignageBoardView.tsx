@@ -1619,12 +1619,13 @@ function ScheduleGrid({
 /**
  * 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）に天気を横並びで表示。規定 5 行ぶんの固定枠で見せ、
  * 超過分（6 コマ以上の日）は**汎用オートスクロール**（{@link AutoScrollViewport}）で順送りする。未超過（≤5）は
- * 従来どおり 5 行ぶんを空きプレースホルダーで埋めて「5 行用意されている」見た目を保つ。可視行数は単一ソース
+ * 5 行ぶんを空きプレースホルダーで埋め、**空き行を「空行」として数えて**枠と列の高さを保つ。可視行数は単一ソース
  * `blockRowCapacity("pattern1","schedule")`（=5）。旧 `nth-of-type(n+6){display:none}` の「6 行目以降を隠す」は撤廃。
  *
- * **例外: 予定が 1 件も無い列は完全な空列にする**（2026-06-24 ユーザー確定）。罫線プレースホルダーだけが積み上がると
- * 予定の無い列が「----」に見えるため、`rows` が空の列はプレースホルダーで埋めず、日付ヘッダーだけの空列にする
- * （列の高さは固定枠が保つので他列と揃う）。予定がある列は従来どおり可視数まで罫線で埋める（見た目不変）。
+ * **空き行の罫線（点線）は出さない**（2026-06-24 ユーザー確定）。以前は罫線プレースホルダーが「-----」に見えるのを
+ * 嫌って `rows` が空の列だけプレースホルダーを省いていたが、罫線自体を CSS（`.schedulePlaceholder` の
+ * `border-bottom: none`）で消したので、**全列で可視数まで空き行を確保**（counted）しても「-----」は出ない。これで
+ * 予定 0 件の列も他列と高さが揃い、空行がきちんと数えられる（エディタのライブプレビューと実機 TV で共通の挙動）。
  */
 function ScheduleColumn({
   day,
@@ -1637,9 +1638,10 @@ function ScheduleColumn({
 }) {
   const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
   const visibleRows = blockRowCapacity("pattern1", "schedule");
-  // 未超過（≤可視数）のみプレースホルダーで可視数まで埋める。超過時は全行をスクロールで見せる（埋めない）。
-  // 予定 0 件の列は罫線プレースホルダーを出さず完全な空列にする（「----」の見た目を消す・ユーザー確定）。
-  const placeholders = rows.length === 0 ? 0 : Math.max(0, visibleRows - rows.length);
+  // 未超過（≤可視数）は可視数まで空きプレースホルダーで埋める＝空き行を「空行」として数え、枠と列高を保つ。
+  // 超過時（>可視数）は全行をスクロールで見せる（埋めない）。空き行の点線罫線は CSS（.schedulePlaceholder の
+  // border-bottom: none）で消しているので、0 件の列を可視数ぶん埋めても「-----」は出ない（2026-06-24 ユーザー確定）。
+  const placeholders = Math.max(0, visibleRows - rows.length);
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
       <div className={styles.scheduleDateHeader}>
@@ -1666,7 +1668,7 @@ function ScheduleColumn({
           <ScheduleRow key={i} row={row} />
         ))}
         {Array.from({ length: placeholders }, (_, i) => {
-          // 空きスロットは罫線だけ見せる固定数のプレースホルダー（固定高は .autoScrollItem を併設）。
+          // 空きスロット = 高さだけ確保する固定数のプレースホルダー（固定高は .autoScrollItem・罫線は CSS で非表示）。
           const cls = `${styles.scheduleListItem} ${styles.schedulePlaceholder} ${styles.autoScrollItem}`;
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
