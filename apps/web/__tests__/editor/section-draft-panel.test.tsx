@@ -167,4 +167,51 @@ describe("SectionDraftPanel（予定）", () => {
     await waitFor(() => expect(screen.getByText(/うまく作成できませんでした/)).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /予定に反映する/ })).not.toBeInTheDocument();
   });
+
+  // 時限の select（時限なし / 自由入力）が本体 ScheduleEditor と揃っているか。period が任意化された後
+  // （PR #1192）、AI 下書きが period を持たない要素を出しても select が壊れず、時限を外して反映できること。
+  it("period 無しの下書きは『（時限なし）』を選択表示し、反映で period を載せない", async () => {
+    h.scheduleAction.mockResolvedValue({ ok: true, schedules: [{ subject: "自習" }] });
+    renderSchedule();
+    generate("自習");
+    await screen.findByDisplayValue("自習");
+
+    // String(undefined)="undefined" でどの option にも一致しない崩れ → 空（時限なし）に倒れていること。
+    const slot = screen.getByLabelText("時限") as HTMLSelectElement;
+    expect(slot.value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: /予定に反映する/ }));
+    await waitFor(() => expect(h.setScheduleAction).toHaveBeenCalledOnce());
+    expect(h.setScheduleAction.mock.calls[0]?.[3]).toEqual([{ subject: "自習" }]);
+  });
+
+  it("時限ありの下書きで『（時限なし）』を選ぶと period を外して反映する", async () => {
+    h.scheduleAction.mockResolvedValue({ ok: true, schedules: [{ period: 1, subject: "数学" }] });
+    renderSchedule();
+    generate("1限数学");
+    await screen.findByDisplayValue("数学");
+
+    fireEvent.change(screen.getByLabelText("時限"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /予定に反映する/ }));
+
+    await waitFor(() => expect(h.setScheduleAction).toHaveBeenCalledOnce());
+    expect(h.setScheduleAction.mock.calls[0]?.[3]).toEqual([{ subject: "数学" }]);
+  });
+
+  it("『その他』を選ぶと自由入力欄が出て、入力した時限ラベルが反映に乗る", async () => {
+    h.scheduleAction.mockResolvedValue({ ok: true, schedules: [{ period: 1, subject: "数学" }] });
+    renderSchedule();
+    generate("1限数学");
+    await screen.findByDisplayValue("数学");
+
+    fireEvent.change(screen.getByLabelText("時限"), { target: { value: "__custom__" } });
+    const custom = await screen.findByLabelText("時限（自由入力）");
+    fireEvent.change(custom, { target: { value: "補習" } });
+    fireEvent.click(screen.getByRole("button", { name: /予定に反映する/ }));
+
+    await waitFor(() => expect(h.setScheduleAction).toHaveBeenCalledOnce());
+    expect(h.setScheduleAction.mock.calls[0]?.[3]).toEqual([
+      { period: { custom: "補習" }, subject: "数学" },
+    ]);
+  });
 });

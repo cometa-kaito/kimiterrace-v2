@@ -9,7 +9,7 @@ import {
 import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
-import type { ActionResult, ScheduleItem } from "@/lib/editor/schedule-core";
+import type { ActionResult, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
 import {
   CUSTOM_PERIOD_MAX,
   SCHEDULE_SLOT_OPTIONS,
@@ -413,6 +413,39 @@ const fieldInput: React.CSSProperties = {
 /** 「その他（自由入力）」を表す select の番兵値（実 period 値ではない・UI 専用）。ScheduleEditor と同方針。 */
 const CUSTOM_SLOT_VALUE = "__custom__";
 
+/**
+ * `ScheduleItem.period`（省略可）を select の現在値（文字列）へ写す。ScheduleEditor の `slotSelectValue` と同方針だが、
+ * ドラフトカードは Row state を介さず `ScheduleItem` を直接編集するため、番兵 0（UNSELECTED_PERIOD）ではなく
+ * **`undefined`（時限なし＝科目のみ）を直接** 空文字に倒す。これがないと `String(undefined)` = "undefined" となり
+ * どの option にも一致せず select の表示が崩れる（PR #1192 で period が任意化された後の AI 下書きに対応）。
+ */
+function slotSelectValue(period: SchedulePeriod | undefined): string {
+  if (period === undefined) {
+    return "";
+  }
+  if (isCustomPeriod(period)) {
+    return CUSTOM_SLOT_VALUE;
+  }
+  return String(period);
+}
+
+/**
+ * select の値（文字列）を `ScheduleItem.period` へ戻す。空=時限なし（`undefined`）/「その他」=自由入力（既存テキストを
+ * 保持し、無ければ空で開始）/ 特殊スロットはそのまま / それ以外は数値化。ScheduleEditor の `parseSlotValue` と同方針。
+ */
+function parseSlotValue(
+  value: string,
+  current: SchedulePeriod | undefined,
+): SchedulePeriod | undefined {
+  if (value === "") {
+    return undefined;
+  }
+  if (value === CUSTOM_SLOT_VALUE) {
+    return isCustomPeriod(current) ? current : { custom: "" };
+  }
+  return isSpecialSlot(value) ? value : Number(value);
+}
+
 /** 予定(schedules) のセクション設定。period セレクタ + 科目/場所/対象者/補足。 */
 export const SCHEDULE_DRAFT_CONFIG: SectionDraftConfig<ScheduleItem> = {
   title: "AI で予定を作る",
@@ -434,19 +467,13 @@ export const SCHEDULE_DRAFT_CONFIG: SectionDraftConfig<ScheduleItem> = {
       <label style={fieldLabel}>
         時限{" "}
         <select
-          value={isCustomPeriod(item.period) ? CUSTOM_SLOT_VALUE : String(item.period)}
+          value={slotSelectValue(item.period)}
           aria-label="時限"
           style={{ ...fieldInput, width: "6rem" }}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === CUSTOM_SLOT_VALUE) {
-              // 「その他」: 既に自由入力ならテキストを保持、それ以外は空で開始。
-              set({ period: isCustomPeriod(item.period) ? item.period : { custom: "" } });
-            } else {
-              set({ period: isSpecialSlot(v) ? v : Number(v) });
-            }
-          }}
+          onChange={(e) => set({ period: parseSlotValue(e.target.value, item.period) })}
         >
+          {/* 時限なし（科目のみ）。period が任意化された後（PR #1192）の AI 下書きはこれを選べる＝科目だけで盤面表示。 */}
+          <option value="">（時限なし）</option>
           {SCHEDULE_SLOT_OPTIONS.map((opt) => (
             <option key={String(opt.value)} value={String(opt.value)}>
               {opt.label}
