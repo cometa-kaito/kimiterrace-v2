@@ -220,4 +220,37 @@ describe("isSignageOffHours", () => {
     const sched = { enabled: true, onHour: 8, offHour: 18, weekdays: [2, 4] }; // 火曜=2 含む
     expect(isSignageOffHours(sched, NOW)).toBe(false);
   });
+
+  it("分単位の境界（08:30〜17:00）: 08:29 は OFF、08:30 は ON", () => {
+    const sched = { enabled: true, onHour: 8, onMinute: 30, offHour: 17, offMinute: 0 };
+    // JST 08:29 = UTC 前日 23:29
+    expect(isSignageOffHours(sched, new Date("2026-06-01T23:29:00Z"))).toBe(true);
+    // JST 08:30 = UTC 前日 23:30
+    expect(isSignageOffHours(sched, new Date("2026-06-01T23:30:00Z"))).toBe(false);
+  });
+
+  it("複数窓（08:00-12:00, 13:00-17:00）: 昼休み(12:30)は OFF、両窓内は ON", () => {
+    const sched = {
+      enabled: true,
+      windows: [
+        { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+        { onHour: 13, onMinute: 0, offHour: 17, offMinute: 0 },
+      ],
+    };
+    expect(isSignageOffHours(sched, new Date("2026-06-02T00:00:00Z"))).toBe(false); // JST 09:00 窓1内
+    expect(isSignageOffHours(sched, new Date("2026-06-02T03:30:00Z"))).toBe(true); // JST 12:30 昼休み
+    expect(isSignageOffHours(sched, new Date("2026-06-02T06:00:00Z"))).toBe(false); // JST 15:00 窓2内
+    expect(isSignageOffHours(sched, new Date("2026-06-02T09:00:00Z"))).toBe(true); // JST 18:00 全窓外
+  });
+
+  it("windows は legacy onHour/offHour より優先される", () => {
+    const sched = {
+      enabled: true,
+      onHour: 0,
+      offHour: 23, // legacy はほぼ終日 ON だが windows が優先
+      windows: [{ onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 }],
+    };
+    // JST 15:00 (UTC 06:00) は windows(8-12) の外 → OFF
+    expect(isSignageOffHours(sched, new Date("2026-06-02T06:00:00Z"))).toBe(true);
+  });
 });

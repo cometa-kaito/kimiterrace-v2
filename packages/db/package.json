@@ -15,6 +15,10 @@
       "types": "./src/schema/index.ts",
       "default": "./dist/schema/index.js"
     },
+    "./tv-schedule": {
+      "types": "./src/schema/tv-schedule.ts",
+      "default": "./dist/schema/tv-schedule.js"
+    },
     "./migrate-files": {
       "types": "./src/migrate-files.ts",
       "default": "./dist/migrate-files.js"

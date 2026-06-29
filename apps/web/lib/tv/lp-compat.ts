@@ -1,4 +1,9 @@
 import type { TvPollResult } from "@kimiterrace/db";
+import {
+  type TvScheduleWindow,
+  resolveScheduleWindows,
+  scheduleWindowToMinutes,
+} from "@kimiterrace/db/tv-schedule";
 
 /**
  * F15 / ADR-022: **LP 互換**の TV ポーリング応答への変換（純ロジック・テスト可能）。
@@ -67,7 +72,7 @@ export function weekdaysToCalendarMask(weekdays?: number[]): number {
   return mask === 0 ? EVERYDAY_DAYS_MASK : mask;
 }
 
-/** LP 互換の schedule（snake_case + days_mask）。 */
+/** LP 互換の schedule（snake_case + days_mask）。単一窓（旧 APK が解釈する包含窓）。 */
 export type LpSchedule = {
   enabled: boolean;
   on_hour?: number;
@@ -75,6 +80,14 @@ export type LpSchedule = {
   off_hour?: number;
   off_minute?: number;
   days_mask: number;
+};
+
+/** LP 互換の 1 つの表示時間帯（分単位）。新 APK が `schedule_windows` から解釈する。 */
+export type LpScheduleWindow = {
+  on_hour: number;
+  on_minute: number;
+  off_hour: number;
+  off_minute: number;
 };
 
 /** LP 互換のポーリング応答（実機 tvbridge が解釈する形）。 */
@@ -89,10 +102,39 @@ export type LpConfigResponse = {
     // device_label は端末が読まない表示専用フィールドのため null 許容のまま。
     device_label: string | null;
     schedule: LpSchedule | null;
+    /**
+     * 複数の表示時間帯（分単位）。**新 APK のみが解釈する追加フィールド**で、旧 APK は未知キーとして無視し
+     * `schedule`（包含窓）にフォールバックする（後方互換）。窓が 1 つでも常に出すことで、新 APK は常に
+     * この精密な窓リストを使う。時刻指定なし（終日 ON）のときは省略する。
+     */
+    schedule_windows?: LpScheduleWindow[];
   } | null;
   // v2 のコマンドキューは本互換層では橋渡ししない（空オブジェクト）。
   commands: Record<string, never>;
 };
+
+/**
+ * 複数窓を 1 つの包含窓（最早の点灯〜最遅の消灯）に畳む（純関数）。旧 APK（単一窓のみ解釈）が「全活動
+ * 時間帯を通して点灯」するためのフォールバック値。窓間の隙間（昼休み等）は旧 APK では消灯されないが、新 APK は
+ * `schedule_windows` で各窓を厳密に扱う。日跨ぎ窓（on>=off）が混じる場合は包含が定義できないため、その窓を
+ * そのまま返す。`windows` は非空前提（呼び出し側が保証）。
+ */
+function encompassingWindow(windows: TvScheduleWindow[]): TvScheduleWindow {
+  let minOn = Number.POSITIVE_INFINITY;
+  let maxOff = Number.NEGATIVE_INFINITY;
+  for (const w of windows) {
+    const { on, off } = scheduleWindowToMinutes(w);
+    if (on >= off) return w; // 日跨ぎ/縮退窓は包含不能 → その窓を返す
+    if (on < minOn) minOn = on;
+    if (off > maxOff) maxOff = off;
+  }
+  return {
+    onHour: Math.floor(minOn / 60),
+    onMinute: minOn % 60,
+    offHour: Math.floor(maxOff / 60),
+    offMinute: maxOff % 60,
+  };
+}
 
 /** v2 の `TvPollResult` を LP 互換応答へ変換する。 */
 export function toLpConfigResponse(result: TvPollResult): LpConfigResponse {
@@ -100,14 +142,30 @@ export function toLpConfigResponse(result: TvPollResult): LpConfigResponse {
     return { version: 0, config: null, commands: {} };
   }
   const s = result.config.schedule;
+  // 表示窓を正準化（windows 優先・無ければ legacy 単一窓・時刻指定なしは空）。新 APK 用の schedule_windows と
+  // 旧 APK 用の包含窓（schedule）を同じソースから導出する。
+  const windows = s ? resolveScheduleWindows(s) : [];
+  const enc = windows.length > 0 ? encompassingWindow(windows) : null;
   const schedule: LpSchedule | null = s
     ? {
         enabled: s.enabled,
-        ...(s.onHour !== undefined ? { on_hour: s.onHour, on_minute: 0 } : {}),
-        ...(s.offHour !== undefined ? { off_hour: s.offHour, off_minute: 0 } : {}),
+        ...(enc
+          ? {
+              on_hour: enc.onHour,
+              on_minute: enc.onMinute,
+              off_hour: enc.offHour,
+              off_minute: enc.offMinute,
+            }
+          : {}),
         days_mask: weekdaysToCalendarMask(s.weekdays),
       }
     : null;
+  const scheduleWindows: LpScheduleWindow[] = windows.map((w) => ({
+    on_hour: w.onHour,
+    on_minute: w.onMinute,
+    off_hour: w.offHour,
+    off_minute: w.offMinute,
+  }));
   return {
     version: result.version,
     config: {
@@ -123,6 +181,7 @@ export function toLpConfigResponse(result: TvPollResult): LpConfigResponse {
       signage_url: result.config.signageUrl ?? "",
       device_label: result.config.deviceLabel,
       schedule,
+      ...(scheduleWindows.length > 0 ? { schedule_windows: scheduleWindows } : {}),
     },
     commands: {},
   };

@@ -71,25 +71,17 @@ import { schools } from "./schools.js";
  *   `events.tv_device_id` 拡張（F15 §1）。本スライスは「レジストリ + ポーリング config + last_seen 心拍 + 一覧」。
  */
 
-/**
- * `schedule_json` のスキーマ型（単一ソース）。TV のサイネージ ON/OFF スケジュール（ADR-022 応答例の
- * `schedule` フィールド）。曜日マスクや時刻は PoC 運用で調整余地があるため緩く保持し、TV 側 ConfigPoller
- * がフィールドを解釈する。jsonb 列に `$type` を付け、書込側がこの形に収まることをコンパイル時に強制する
- * （ルール3: 値の形も schema 由来）。
- */
-export type TvSchedule = {
-  /** サイネージ表示を有効化するか。false なら黒画面（夜間・休日）。 */
-  enabled: boolean;
-  /** 表示開始時刻（JST hour-of-day, 0-23）。 */
-  onHour?: number;
-  /** 表示終了時刻（JST hour-of-day, 0-23）。 */
-  offHour?: number;
-  /**
-   * 曜日マスク（0=日 .. 6=土）。指定曜日のみ ON。未指定は全曜日。F16 の死活誤報抑制（OFF 時間帯の
-   * 閾値緩和、別スライス）が参照する。
-   */
-  weekdays?: number[];
-};
+// サイネージ ON/OFF スケジュールの型・純ロジックは **drizzle 非依存の `tv-schedule.ts`** に分離した
+// （client コンポーネント / config-edit-core が `@kimiterrace/db/tv-schedule` から VALUE を import しても
+// pg-core を巻き込まないため。#148 の client バンドル罠の回避）。ここでは jsonb 列の `$type` 用に型だけ取り込む。
+import type { TvSchedule } from "./tv-schedule.js";
+
+export type { TvSchedule, TvScheduleWindow } from "./tv-schedule.js";
+export {
+  MAX_SCHEDULE_WINDOWS,
+  resolveScheduleWindows,
+  scheduleWindowToMinutes,
+} from "./tv-schedule.js";
 
 export const tvDevices = pgTable(
   "tv_devices",

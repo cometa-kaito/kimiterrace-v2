@@ -70,7 +70,53 @@ describe("toLpConfigResponse", () => {
       off_minute: 0,
       days_mask: 124,
     });
+    // 新 APK 用の精密窓も同梱（単一窓でも常に出す）。
+    expect(out.config?.schedule_windows).toEqual([
+      { on_hour: 8, on_minute: 0, off_hour: 17, off_minute: 0 },
+    ]);
     expect(out.commands).toEqual({});
+  });
+
+  it("legacy 単一窓の分（onMinute/offMinute）を on_minute/off_minute へ通す", () => {
+    const out = toLpConfigResponse(
+      registered({ enabled: true, onHour: 8, onMinute: 30, offHour: 17, offMinute: 45 }),
+    );
+    expect(out.config?.schedule).toMatchObject({
+      on_hour: 8,
+      on_minute: 30,
+      off_hour: 17,
+      off_minute: 45,
+    });
+    expect(out.config?.schedule_windows).toEqual([
+      { on_hour: 8, on_minute: 30, off_hour: 17, off_minute: 45 },
+    ]);
+  });
+
+  it("複数窓: schedule_windows に全窓、schedule(旧APK) は包含窓（最早点灯〜最遅消灯）", () => {
+    const out = toLpConfigResponse(
+      registered({
+        enabled: true,
+        windows: [
+          { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+          { onHour: 13, onMinute: 30, offHour: 17, offMinute: 0 },
+        ],
+        weekdays: [1, 2, 3, 4, 5],
+      }),
+    );
+    // 新 APK: 各窓を厳密に
+    expect(out.config?.schedule_windows).toEqual([
+      { on_hour: 8, on_minute: 0, off_hour: 12, off_minute: 0 },
+      { on_hour: 13, on_minute: 30, off_hour: 17, off_minute: 0 },
+    ]);
+    // 旧 APK: 包含窓 08:00〜17:00（昼休みの隙間は旧 APK では消灯されない＝安全側フォールバック）
+    expect(out.config?.schedule).toEqual({
+      enabled: true,
+      on_hour: 8,
+      on_minute: 0,
+      off_hour: 17,
+      off_minute: 0,
+      days_mask: 124,
+    });
   });
 
   it("schedule が null ならそのまま null", () => {
@@ -78,9 +124,10 @@ describe("toLpConfigResponse", () => {
     expect(out.config?.schedule).toBeNull();
   });
 
-  it("時刻未指定なら on_hour/off_hour を省略しつつ days_mask は出す", () => {
+  it("時刻未指定なら on_hour/off_hour を省略しつつ days_mask は出す（schedule_windows も無し）", () => {
     const out = toLpConfigResponse(registered({ enabled: false, weekdays: [0, 6] }));
     expect(out.config?.schedule).toEqual({ enabled: false, days_mask: (1 << 1) | (1 << 7) });
+    expect(out.config?.schedule_windows).toBeUndefined();
   });
 
   it("未登録(unknown)は version 0 + config null + commands {}", () => {

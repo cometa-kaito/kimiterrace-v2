@@ -17,6 +17,7 @@ import {
   scheduleToFormState,
 } from "@/lib/tv/config-edit-core";
 import type { TvSchedule } from "@kimiterrace/db/schema";
+import { MAX_SCHEDULE_WINDOWS } from "@kimiterrace/db/tv-schedule";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
@@ -84,6 +85,33 @@ export function TvConfigEditForm({
       ...s,
       weekdays: s.weekdays.map((checked, i) => (i === index ? !checked : checked)),
     }));
+  }
+
+  /** 表示時間帯の点灯/消灯時刻を更新（index 行の on/off）。 */
+  function setWindowTime(index: number, key: "on" | "off", value: string) {
+    setSchedule((s) => ({
+      ...s,
+      windows: s.windows.map((w, i) => (i === index ? { ...w, [key]: value } : w)),
+    }));
+  }
+
+  /** 表示時間帯を 1 行追加（上限 MAX_SCHEDULE_WINDOWS）。 */
+  function addWindow() {
+    setSchedule((s) =>
+      s.windows.length >= MAX_SCHEDULE_WINDOWS
+        ? s
+        : { ...s, windows: [...s.windows, { on: "", off: "" }] },
+    );
+  }
+
+  /** 表示時間帯を削除（最後の 1 行は残し、空行に戻す）。 */
+  function removeWindow(index: number) {
+    setSchedule((s) => {
+      if (s.windows.length <= 1) {
+        return { ...s, windows: [{ on: "", off: "" }] };
+      }
+      return { ...s, windows: s.windows.filter((_, i) => i !== index) };
+    });
   }
 
   // 選択中の design を素の URL に合成した「端末が実際に開く URL」。dropdown を変えると即更新され、開く/コピー
@@ -261,31 +289,51 @@ export function TvConfigEditForm({
           />
           <span>スケジュール表示を有効にする</span>
         </label>
-        <div style={hourRowStyle}>
-          <label style={hourFieldStyle}>
-            <span style={labelTextStyle}>表示開始（時）</span>
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.onHour}
-              onChange={(e) => setSchedule((s) => ({ ...s, onHour: e.target.value }))}
-              disabled={pending}
-              style={inputStyle}
-            />
-          </label>
-          <label style={hourFieldStyle}>
-            <span style={labelTextStyle}>表示終了（時）</span>
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.offHour}
-              onChange={(e) => setSchedule((s) => ({ ...s, offHour: e.target.value }))}
-              disabled={pending}
-              style={inputStyle}
-            />
-          </label>
+        <div style={weekdayGroupStyle}>
+          <span style={labelTextStyle}>表示する時間帯（分単位・複数可）</span>
+          {schedule.windows.map((w, i) => (
+            // 行は順序のみで識別する（時刻は重複しうるので index キー。並べ替えはしない）。
+            // biome-ignore lint/suspicious/noArrayIndexKey: 行は位置で識別する固定リスト
+            <div key={i} style={windowRowStyle}>
+              <input
+                type="time"
+                value={w.on}
+                onChange={(e) => setWindowTime(i, "on", e.target.value)}
+                disabled={pending}
+                aria-label={`時間帯${i + 1} 点灯時刻`}
+                style={timeInputStyle}
+              />
+              <span style={{ color: "#6b7280" }}>〜</span>
+              <input
+                type="time"
+                value={w.off}
+                onChange={(e) => setWindowTime(i, "off", e.target.value)}
+                disabled={pending}
+                aria-label={`時間帯${i + 1} 消灯時刻`}
+                style={timeInputStyle}
+              />
+              <button
+                type="button"
+                onClick={() => removeWindow(i)}
+                disabled={pending}
+                aria-label={`時間帯${i + 1}を削除`}
+                style={removeWindowBtnStyle}
+              >
+                削除
+              </button>
+            </div>
+          ))}
+          {schedule.windows.length < MAX_SCHEDULE_WINDOWS ? (
+            <button type="button" onClick={addWindow} disabled={pending} style={addWindowBtnStyle}>
+              ＋ 時間帯を追加
+            </button>
+          ) : null}
+          <span style={hintStyle}>
+            点灯〜消灯の時刻を分単位で指定します。昼休みに消灯するなど、複数の時間帯（最大{" "}
+            {MAX_SCHEDULE_WINDOWS}{" "}
+            件）を設定できます。各時間帯は同日内（点灯が消灯より前）で指定してください。
+            時刻を空欄にした行は無視されます（全て空欄なら終日表示）。
+          </span>
         </div>
         <div style={weekdayGroupStyle}>
           <span style={labelTextStyle}>表示する曜日</span>
@@ -384,8 +432,38 @@ const checkRowStyle: React.CSSProperties = {
   gap: "0.5rem",
   fontSize: "0.9rem",
 };
-const hourRowStyle: React.CSSProperties = { display: "flex", gap: "1rem", flexWrap: "wrap" };
-const hourFieldStyle: React.CSSProperties = { display: "grid", gap: "0.3rem", maxWidth: "8rem" };
+const windowRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  flexWrap: "wrap",
+};
+const timeInputStyle: React.CSSProperties = {
+  padding: "0.4rem 0.5rem",
+  border: "1px solid #d1d5db",
+  borderRadius: "0.4rem",
+  fontSize: "0.9rem",
+};
+const removeWindowBtnStyle: React.CSSProperties = {
+  border: "1px solid #fca5a5",
+  borderRadius: "0.4rem",
+  background: "#fff",
+  color: "#b91c1c",
+  padding: "0.3rem 0.6rem",
+  fontSize: "0.8rem",
+  cursor: "pointer",
+};
+const addWindowBtnStyle: React.CSSProperties = {
+  border: "1px dashed #93c5fd",
+  borderRadius: "0.4rem",
+  background: "#f8fafc",
+  color: "#1d4ed8",
+  padding: "0.35rem 0.7rem",
+  fontSize: "0.85rem",
+  fontWeight: 600,
+  cursor: "pointer",
+  justifySelf: "start",
+};
 const weekdayGroupStyle: React.CSSProperties = { display: "grid", gap: "0.4rem" };
 const weekdayRowStyle: React.CSSProperties = { display: "flex", gap: "0.4rem", flexWrap: "wrap" };
 const weekdayItemStyle: React.CSSProperties = {

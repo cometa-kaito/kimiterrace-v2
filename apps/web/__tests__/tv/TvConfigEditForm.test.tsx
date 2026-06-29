@@ -1,3 +1,4 @@
+import type { TvSchedule } from "@kimiterrace/db/tv-schedule";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TvConfigEditForm } from "@/app/ops/tv-devices/[deviceId]/edit/_components/TvConfigEditForm";
@@ -75,5 +76,68 @@ describe("TvConfigEditForm 配信URLプレビュー（端末別デザイン）",
     renderForm("javascript:alert(1)");
     expect(screen.queryByRole("link", { name: /プレビューを開く/ })).toBeNull();
     expect(screen.getByText(/http\(s\) の URL のみ開けます/)).toBeInTheDocument();
+  });
+});
+
+function renderWithSchedule(schedule: TvSchedule | null) {
+  return render(
+    <TvConfigEditForm
+      deviceRowId="11111111-1111-1111-1111-111111111111"
+      deviceId="DEV-1"
+      initial={{
+        label: "1年1組",
+        targetMac: null,
+        signageUrl: null,
+        webhookUrl: null,
+        schedule,
+        monitoringEnabled: true,
+        notes: null,
+      }}
+      currentVersion={1}
+    />,
+  );
+}
+
+describe("TvConfigEditForm 表示時間帯（分単位・複数窓）", () => {
+  it("スケジュール無しは空の時間帯行を 1 つ表示", () => {
+    renderWithSchedule(null);
+    expect(screen.getByLabelText("時間帯1 点灯時刻")).toBeInTheDocument();
+    expect(screen.getByLabelText("時間帯1 消灯時刻")).toBeInTheDocument();
+    expect(screen.queryByLabelText("時間帯2 点灯時刻")).toBeNull();
+  });
+
+  it("複数窓スケジュールは各窓を別々の行（HH:MM）で表示する", () => {
+    renderWithSchedule({
+      enabled: true,
+      windows: [
+        { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+        { onHour: 13, onMinute: 30, offHour: 17, offMinute: 0 },
+      ],
+    });
+    expect((screen.getByLabelText("時間帯1 点灯時刻") as HTMLInputElement).value).toBe("08:00");
+    expect((screen.getByLabelText("時間帯1 消灯時刻") as HTMLInputElement).value).toBe("12:00");
+    expect((screen.getByLabelText("時間帯2 点灯時刻") as HTMLInputElement).value).toBe("13:30");
+    expect((screen.getByLabelText("時間帯2 消灯時刻") as HTMLInputElement).value).toBe("17:00");
+  });
+
+  it("「時間帯を追加」で行が増える", () => {
+    renderWithSchedule(null);
+    fireEvent.click(screen.getByRole("button", { name: /時間帯を追加/ }));
+    expect(screen.getByLabelText("時間帯2 点灯時刻")).toBeInTheDocument();
+  });
+
+  it("削除で行が減る", () => {
+    renderWithSchedule({
+      enabled: true,
+      windows: [
+        { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+        { onHour: 13, onMinute: 0, offHour: 17, offMinute: 0 },
+      ],
+    });
+    expect(screen.getByLabelText("時間帯2 点灯時刻")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("時間帯2を削除"));
+    expect(screen.queryByLabelText("時間帯2 点灯時刻")).toBeNull();
+    // 残った行は先頭窓の値を保持
+    expect((screen.getByLabelText("時間帯1 点灯時刻") as HTMLInputElement).value).toBe("08:00");
   });
 });
