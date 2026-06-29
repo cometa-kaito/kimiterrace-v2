@@ -41,14 +41,31 @@ import { deliverTvLivenessAlerts } from "./slack.js";
  *   毎分起動でこれを常時立てるとスパムになるため、日次起動の Scheduler でのみ立てる想定。
  * - `TV_ALERT_ON_RECOVERY`: "1"/"true" のとき復帰(🟢)も Slack 通知する。**既定 false = 立ち下がり down(🔴)
  *   のみ通知**（F16 §9）。down→ok の状態遷移は checker が記録するため、🟢 抑制でも down エッジは正しく発火。
+ *   長時間サイレンスの復帰（🟢 サイレンス復帰）も同じ flag で opt-in する。
  * - `TV_DOWN_THRESHOLD_SEC`: down 閾値（秒、既定 120 = 24/7 タイト）。
  * - `TV_OFF_HOURS_THRESHOLD_SEC`: OFF 時間帯の閾値（秒、既定 120 = 緩和撤廃で通常と同値）。
+ * - `TV_LONG_SILENCE_SEC`: 長時間サイレンス閾値（秒、既定 21600 = 6h）。
+ *
+ * ## 長時間サイレンス（schedule-agnostic）— OFF 時間帯の死活盲点 修正
+ * 上記 down/recover は OFF 時間帯（黒画面）の死活評価を **スキップ**する（BUG-2: 正常な OFF を誤報しない）。
+ * これは意図的だが、副作用として **OFF 中に本当に死んだ端末を隠す**（夜間 ~03:47→07:00 の途絶が ON 入りで
+ * 自己復帰扱いになり記録すらされず、慢性故障がマスクされる）。これを補うため、**schedule を一切見ない**別
+ * シグナル「長時間サイレンス」（`classifyLongSilence`, `packages/db`）を同じチェッカで走らせる。`now - last_seen`
+ * が `TV_LONG_SILENCE_SEC`（既定 6h）を超えた端末を ⚠️ で 1 回だけ通知（send-once は `tv_devices.
+ * long_silence_notified_at` 列で dedup）。**6h が安全な理由**: 全端末は 24h 通電で OFF 中も ~60 秒ポーリングを
+ * 続ける（運用上の確定事実）。正常な無音ギャップは瞬断・1〜2 回欠落止まりで 6h には決して届かないため、OFF
+ * 時間帯でも 6h の長時間サイレンスは正常な黒画面 OFF では起こらず、BUG-2 型の誤報を再発させない。down/recover
+ * の `tv_device_downtime` 行は作らない（運用ダウンタイム表を汚さない＝dedup 列だけが persistence）。
  *
  * ## 非スコープ（follow-up）
  * - Cloud Run Job 定義 + Cloud Scheduler（毎分化）+ Slack シークレットコンテナは Terraform で管理する
  *   （ルール8）。本 Job をスケジュール起動する配線・シークレット定義はここには含めない（FCM 送信 SA 権限の
  *   Terraform 化は本機能の PR に同梱する）。
  * - Sentry / メール配信（F16 §4）。本 Job は Slack 配信 + FCM 遠隔起動。
+ * - **非スコープ note**: 既存の down/recover OFF スキップが使う `isSignageOffHours` は本ブランチ時点で既に
+ *   `schedule_windows`（複数ウィンドウ / 分単位）形状を解釈する。長時間サイレンス検出器はそもそも
+ *   schedule-agnostic（`isSignageOffHours` を呼ばない）なので、マルチウィンドウ同期の影響を受けない。
+ *   よって本 PR では isSignageOffHours / down-recover OFF スキップには一切手を入れない（別シグナルのまま）。
  */
 
 /** 24/7 タイト監視の既定閾値（秒）。OFF 緩和を撤廃し通常/OFF を同値に揃える（F16 §9）。 */
@@ -99,6 +116,8 @@ async function main(): Promise<void> {
       downThresholdSec: optionalIntEnv("TV_DOWN_THRESHOLD_SEC") ?? TIGHT_THRESHOLD_SEC,
       offHoursThresholdSec: optionalIntEnv("TV_OFF_HOURS_THRESHOLD_SEC") ?? TIGHT_THRESHOLD_SEC,
     }),
+    // 長時間サイレンス閾値（schedule-agnostic 別シグナル）。未指定なら DB 層の既定（6h）にフォールバック。
+    longSilenceSec: optionalIntEnv("TV_LONG_SILENCE_SEC"),
   };
 
   const summary = await runTvLivenessCheckBatch(config);
@@ -110,6 +129,8 @@ async function main(): Promise<void> {
         scanned: summary.scanned,
         newlyDown: summary.newlyDown,
         recovered: summary.recovered,
+        newlyLongSilent: summary.newlyLongSilent,
+        longSilenceCleared: summary.longSilenceCleared,
       },
     }),
   );

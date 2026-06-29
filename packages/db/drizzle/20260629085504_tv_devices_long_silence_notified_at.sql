@@ -1,0 +1,19 @@
+-- tv_devices に「長時間サイレンス」通知の send-once dedup 列 long_silence_notified_at（nullable）を追加。
+-- schedule-agnostic な死活シグナル（運営整理 OFF 時間帯の盲点修正）。NULL = 現在は長時間サイレンスの
+-- アラート中でない。チェッカ（runTvLivenessCheck → applyLongSilenceTransitions）が「6h 超 無音へ突入した
+-- 瞬間」に now() を立て、鮮度復帰で NULL に戻す。alert_state（down/recover）とは独立で tv_device_downtime
+-- 行は作らない（運用ダウンタイム表を汚さない＝この列だけが persistence）。nullable / backfill なし。
+--
+-- RLS（ルール2）: tv_devices の RLS は 0016_tv_devices_rls.sql で tenant_isolation + system_admin_full_access を
+--   FOR ALL（全列対象）で付与済。列追加は policy に影響しない（行レベル述語であり列単位権限ではない）。
+--   この列の書込みは runTvLivenessCheck が system_admin context（system_admin_full_access）で行い BYPASSRLS
+--   は使わない。よって policy 変更は不要（0022_tv_devices_fcm_token.sql と同じ判断）。
+-- 監査（ルール1）: auditColumns / created_by・updated_by FK は 0016 で付与済。列追加に伴う監査 FK 追加は不要。
+--   この列の更新時は updated_at を now() で前進させる（applyLongSilenceTransitions、監査整合）。
+--
+-- ⚠ drizzle-kit generate は古い snapshot との差分で無関係な 2 列（class_visitors.sort_order /
+--   student_callouts.sort_order、いずれも migrations/0034・0035 で適用済）を同梱して生成した
+--   （Issue #195 系の snapshot ドリフト、[[ref_drizzle_generate_fcm_token_drift]]）。本 SQL は
+--   **long_silence_notified_at の 1 文のみ**へ trim 済（snapshot/journal は維持＝孤立 migration を作らない）。
+-- 冪等性: ADD COLUMN IF NOT EXISTS で再適用安全（auto-discovery loader が毎回全件流すため）。
+ALTER TABLE "tv_devices" ADD COLUMN IF NOT EXISTS "long_silence_notified_at" timestamp with time zone;

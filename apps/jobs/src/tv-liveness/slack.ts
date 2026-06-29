@@ -34,6 +34,10 @@ import type { TvLivenessCheckSummary } from "@kimiterrace/db";
 type DownDevice = TvLivenessCheckSummary["downDevices"][number];
 /** Slack 通知 1 件分の device 情報（recover エッジ）。 */
 type RecoveredDevice = TvLivenessCheckSummary["recoveredDevices"][number];
+/** Slack 通知 1 件分の device 情報（長時間サイレンス エッジ）。 */
+type LongSilentDevice = TvLivenessCheckSummary["longSilentDevices"][number];
+/** Slack 通知 1 件分の device 情報（長時間サイレンス クリア エッジ）。 */
+type LongSilenceClearedDevice = TvLivenessCheckSummary["longSilenceClearedDevices"][number];
 
 /** ラベル未設定 TV のフォールバック表示（device_id 先頭で判別可能にする）。 */
 function deviceLabel(device: { label: string | null; deviceId: string }): string {
@@ -72,6 +76,35 @@ export function formatTvRecoveredMessage(device: RecoveredDevice): string {
   const lastSeen =
     device.lastSeenAt === null ? "最終観測: なし" : `最終観測: ${device.lastSeenAt.toISOString()}`;
   return `🟢 TV復帰: ${deviceLabel(device)} / 学校 ${device.schoolId} / ${lastSeen}`;
+}
+
+/**
+ * `now - lastSeenAt` の経過時間を「時間」（小数1桁、非負）で返す純関数。長時間サイレンス通知で「何時間
+ * 無応答か」を示す。長時間サイレンスは lastSeenAt 必須（summary 側で Date 確定）なので null を取らない。
+ */
+export function hoursSince(lastSeenAt: Date, now: Date): number {
+  const diffMs = now.getTime() - lastSeenAt.getTime();
+  return Math.max(0, Math.round(diffMs / 360_000) / 10); // 0.1h 単位に丸める
+}
+
+/**
+ * ⚠️ 長時間サイレンス メッセージ（純関数）。**down(🔴) とは別シグナル**で、消灯中（OFF）でも 24/7
+ * ポーリングが本来継続するはずの端末が長時間（既定 6h）無応答 = 慢性故障の疑い、を 1 行で示す。
+ * 「消灯中でも本来ポーリング継続のはず＝要確認」を明記して、正常な黒画面 OFF と取り違えないよう促す。
+ */
+export function formatTvLongSilenceMessage(device: LongSilentDevice, now: Date): string {
+  const hours = hoursSince(device.lastSeenAt, now);
+  return `⚠️ 長時間サイレンス: ${deviceLabel(device)} / 学校 ${device.schoolId} が ${hours}h 無応答（消灯中でも本来ポーリング継続のはず＝要確認）`;
+}
+
+/**
+ * 🟢 長時間サイレンス復帰メッセージ（純関数）。dedup 列が NULL に戻った（鮮度復帰した）TV を 1 行で示す。
+ * 既定では送らず、復帰通知 opt-in（down/recover の 🟢 と同じ gate）が立っている時のみ配信する。
+ */
+export function formatTvLongSilenceClearedMessage(device: LongSilenceClearedDevice): string {
+  const lastSeen =
+    device.lastSeenAt === null ? "最終観測: なし" : `最終観測: ${device.lastSeenAt.toISOString()}`;
+  return `🟢 サイレンス復帰: ${deviceLabel(device)} / 学校 ${device.schoolId} / ${lastSeen}`;
 }
 
 /**
@@ -148,6 +181,8 @@ export async function deliverTvLivenessAlerts(
         reason: "SLACK_WEBHOOK_URL unset",
         downDevices: summary.downDevices.length,
         recoveredDevices: summary.recoveredDevices.length,
+        longSilentDevices: summary.longSilentDevices.length,
+        longSilenceClearedDevices: summary.longSilenceClearedDevices.length,
         alertOnRecovery,
         heartbeat,
       }),
@@ -159,12 +194,23 @@ export async function deliverTvLivenessAlerts(
   for (const device of summary.downDevices) {
     await postSlack(webhookUrl, formatTvDownMessage(device, now));
   }
+  // 長時間サイレンス エッジ（⚠️）は **down(🔴) とは別シグナル**として常に 1 件 1 POST する（schedule-agnostic：
+  // OFF/休日でも 24/7 ポーリング前提ゆえ 6h 無音は実障害）。dedup 列の send-once は checker 側で保証されるので
+  // ここでは新規突入エッジをそのまま送るだけ（既に通知済みの継続中は summary に積まれない）。
+  for (const device of summary.longSilentDevices) {
+    await postSlack(webhookUrl, formatTvLongSilenceMessage(device, now));
+  }
   // 復帰エッジ（🟢）は既定で送らない（F16 §9: 立ち下がり = down のみ通知する運用方針）。alert_state の
   // down→ok 遷移は checker（applyTransitions）が DB に記録するため、🟢 を送らなくても次の down エッジは
   // 正しく発火する（通知抑制と状態機械は独立）。`TV_ALERT_ON_RECOVERY=1` で復帰通知を opt-in できる。
+  // 長時間サイレンスの復帰（🟢 サイレンス復帰）も同じ opt-in gate に乗せる（dedup 列のクリアは checker が
+  // 記録するため、🟢 を送らなくても次の途絶で再アラートできる）。
   if (alertOnRecovery) {
     for (const device of summary.recoveredDevices) {
       await postSlack(webhookUrl, formatTvRecoveredMessage(device));
+    }
+    for (const device of summary.longSilenceClearedDevices) {
+      await postSlack(webhookUrl, formatTvLongSilenceClearedMessage(device));
     }
   }
 

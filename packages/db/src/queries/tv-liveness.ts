@@ -58,6 +58,13 @@ export interface TvLivenessInput {
    * 使う（alertState だけだと、稀に alert_state と downtime 行がズレた場合に二重計上しうるため両方見る）。
    */
   hasOpenDowntime: boolean;
+  /**
+   * 長時間サイレンス通知の send-once dedup 状態（`tv_devices.long_silence_notified_at`）。NULL = 現在は
+   * 長時間サイレンスのアラート中でない。`classifyLongSilence`（schedule-agnostic）が、この列が NULL の
+   * 端末が新たに閾値超で無音になった時にだけ「新規アラート」とみなし、鮮度が戻った時にだけ「クリア」する。
+   * down/recover（alertState）とは独立。NULL を渡せば「未だ通知していない」と扱う。
+   */
+  longSilenceNotifiedAt: Date | null;
 }
 
 /** 判定の閾値（環境変数で調整可、F16 §6）。 */
@@ -223,4 +230,111 @@ function inferCauseHint(input: TvLivenessInput): TvDowntimeCauseHint {
     }
   }
   return "unknown";
+}
+
+// =====================================================================
+// 長時間サイレンス検出（schedule-agnostic）— 運営整理 OFF 時間帯の死活盲点 修正
+// =====================================================================
+//
+// ## なぜ別シグナルか（down/recover を変えない）
+// `classifyTvLiveness` は `isSignageOffHours` で OFF 時間帯の死活評価をスキップする（BUG-2: 正常な
+// 黒画面 OFF を down と誤報しない）。これは意図的な修正だが副作用として **OFF 中に本当に死んだ端末を
+// 隠す**（夜間 ~03:47→07:00 の途絶が ON 入り（自己復帰扱い）で記録すらされず、慢性故障がマスクされる）。
+//
+// 運用上の確定事実: 全モニタは 24h 通電で、OFF（黒画面）中も ~60 秒ポーリングを続ける。よって **何時間も
+// 無音の端末は、OFF でも休日でも、本当に死んでいる**。この検出器は schedule を一切見ず（`isSignageOffHours`
+// を呼ばない）、`now - lastSeenAt` が長い閾値（既定 6h）を超えた端末を「長時間サイレンス」として返す。
+// down/recover（短い閾値 + OFF スキップ）とは独立した、24/7 連続のハード故障検出として機能する。
+//
+// ## なぜ 6h が安全か（BUG-2 型の誤報を起こさない）
+// 全端末が 24/7 ポーリングするため、正常な端末の無音ギャップは「瞬断・ポーリング1〜2回欠落」で済み、
+// 6h には決して届かない。よって OFF 時間帯であっても 6h の長時間サイレンスは正常な黒画面 OFF では起こらず、
+// BUG-2（正常 OFF の誤報）を再発させない。短い down 閾値（120 秒）を OFF 中に適用すると黒画面 ↔ 死を
+// 区別できず誤報したが、6h スケールはその交差を構造的に避ける。
+
+/** 長時間サイレンス判定の既定閾値（秒）。6 時間 = 21600 秒。全端末 24/7 ポーリング前提ゆえ安全（上記）。 */
+export const DEFAULT_TV_LONG_SILENCE_SEC = 21600;
+
+/** 長時間サイレンスへ「新規突入」した 1 件（チェッカが dedup 列を now() に立て、Slack 通知する材料）。 */
+export interface TvNewlyLongSilent {
+  deviceId: string;
+  schoolId: string;
+  /** 最後に観測した last_seen_at（無音の起点）。通知文の経過時間算出に使う。 */
+  lastSeenAt: Date;
+}
+
+/** 長時間サイレンスから「鮮度復帰」した 1 件（チェッカが dedup 列を NULL に戻す材料）。 */
+export interface TvLongSilenceCleared {
+  deviceId: string;
+  schoolId: string;
+}
+
+/** 長時間サイレンス純判定の出力（dedup 列遷移の集合）。 */
+export interface TvLongSilenceClassification {
+  /** dedup 列が NULL で、かつ now-last_seen が閾値超になった端末（NULL → now() にして 1 回だけ通知）。 */
+  newlyLongSilent: TvNewlyLongSilent[];
+  /** dedup 列が non-NULL で、かつ鮮度が閾値内に戻った端末（now() → NULL に戻し再アラート可能化）。 */
+  cleared: TvLongSilenceCleared[];
+}
+
+/**
+ * TV 群の「長時間サイレンス」を判定する（純関数・I/O なし・決定論的・**schedule-agnostic**）。
+ *
+ * `classifyTvLiveness` とは独立した別シグナル。`isSignageOffHours` を呼ばず schedule を完全に無視する
+ * （消灯中でも端末は 24/7 ポーリング継続が正常なので、長時間無音は OFF/休日でも実障害）。down/recover の
+ * ロジック・OFF スキップには一切触れない。
+ *
+ * 各端末の遷移（send-once dedup、`tv_devices.long_silence_notified_at` を真実源にする）:
+ *  - **newlyLongSilent**: `lastSeenAt !== null` かつ `monitoringEnabled === true` かつ
+ *    `(now - lastSeenAt) > longSilenceSec` かつ `longSilenceNotifiedAt === null`（まだ通知していない）。
+ *    → チェッカが列を now() に立て、Slack へ 1 回だけ通知する。
+ *  - **cleared**: `longSilenceNotifiedAt !== null`（アラート中）かつ「鮮度が閾値内に戻った」
+ *    = `lastSeenAt !== null` かつ `(now - lastSeenAt) <= longSilenceSec`。
+ *    → チェッカが列を NULL に戻し、将来の途絶で再アラートできるようにする。
+ *  - それ以外（無音継続中で通知済み / 鮮度 OK で未通知 / monitoring OFF で未通知 / lastSeen NULL）は no-op。
+ *
+ * monitoring_enabled=false は「新規アラートしない」が、既にアラート中（列 non-NULL）で鮮度が戻れば
+ * **クリアは許す**（メンテ解除後に dedup 列を取り残さない。down/recover の recover と対称）。
+ * lastSeenAt=null（未観測の新規端末）は無音にも復帰にも数えない（設置直後の誤報を避ける）。
+ */
+export function classifyLongSilence(
+  inputs: readonly TvLivenessInput[],
+  now: Date,
+  longSilenceSec: number = DEFAULT_TV_LONG_SILENCE_SEC,
+): TvLongSilenceClassification {
+  const newlyLongSilent: TvNewlyLongSilent[] = [];
+  const cleared: TvLongSilenceCleared[] = [];
+
+  for (const input of inputs) {
+    const alerting = input.longSilenceNotifiedAt !== null;
+
+    // 未観測（lastSeenAt=null）は無音/復帰どちらにも数えない。ただし観測前に列が立つことは通常ないが、
+    // 万一立っていてもクリアの根拠（鮮度）が無いので no-op のままにする。
+    if (input.lastSeenAt === null) continue;
+
+    const gapSec = (now.getTime() - input.lastSeenAt.getTime()) / 1000;
+    const longSilent = gapSec > longSilenceSec;
+
+    if (longSilent) {
+      // 監視 OFF は新規アラートしない（既にアラート中ならクリアもされない＝下の else に来ない＝据置）。
+      if (!input.monitoringEnabled) continue;
+      // 既にアラート中なら継続（no-op、send-once）。NULL のときだけ新規アラート。
+      if (!alerting) {
+        newlyLongSilent.push({
+          deviceId: input.deviceId,
+          schoolId: input.schoolId,
+          lastSeenAt: input.lastSeenAt,
+        });
+      }
+      continue;
+    }
+
+    // 鮮度 OK（閾値内）。アラート中なら列を NULL に戻す（監視 OFF でもクリアは許す＝取り残さない）。
+    if (alerting) {
+      cleared.push({ deviceId: input.deviceId, schoolId: input.schoolId });
+    }
+    // 鮮度 OK で未アラート = no-op。
+  }
+
+  return { newlyLongSilent, cleared };
 }

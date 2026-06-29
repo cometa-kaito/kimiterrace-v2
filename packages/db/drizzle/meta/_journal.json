@@ -295,6 +295,13 @@
       "when": 1781950166459,
       "tag": "20260620100926_news_items_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1782723304385,
+      "tag": "20260629085504_tv_devices_long_silence_notified_at",
+      "breakpoints": true
     }
   ]
 }
