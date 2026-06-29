@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TV_LIVENESS_THRESHOLDS,
+  DEFAULT_TV_LONG_SILENCE_SEC,
   type TvLivenessInput,
+  classifyLongSilence,
   classifyTvLiveness,
   isSignageOffHours,
 } from "../../src/queries/tv-liveness.js";
@@ -10,12 +12,15 @@ import {
  * F16 (ADR-023): TV 死活ギャップチェッカの純関数 `classifyTvLiveness` / `isSignageOffHours` の単体検証。
  * I/O 非依存（DB 不要）。閾値超で down 遷移 / 復帰で recover + duration の材料 / 不変で no-op / 冪等性
  * （継続中は再計上しない）/ OFF 時間帯の閾値緩和 / monitoring_enabled / last_seen NULL を固定する。
+ *
+ * 加えて schedule-agnostic な「長時間サイレンス」検出器 `classifyLongSilence`（運営整理 OFF 盲点修正）の
+ * 閾値・dedup 列遷移（新規アラート / クリア / 継続 no-op）・monitoring / last_seen NULL を固定する。
  */
 
 const NOW = new Date("2026-06-02T05:00:00.000Z"); // JST 14:00（平日 = 火曜）
 const T = DEFAULT_TV_LIVENESS_THRESHOLDS;
 
-/** テスト用の入力 1 行を作る（既定は「鮮度 OK・監視 ON・ok・未解決行なし・schedule なし」）。 */
+/** テスト用の入力 1 行を作る（既定は「鮮度 OK・監視 ON・ok・未解決行なし・schedule なし・未通知」）。 */
 function device(overrides: Partial<TvLivenessInput> = {}): TvLivenessInput {
   return {
     deviceId: "dev-1",
@@ -26,6 +31,7 @@ function device(overrides: Partial<TvLivenessInput> = {}): TvLivenessInput {
     monitoringEnabled: true,
     schedule: null,
     hasOpenDowntime: false,
+    longSilenceNotifiedAt: null,
     ...overrides,
   };
 }
@@ -252,5 +258,151 @@ describe("isSignageOffHours", () => {
     };
     // JST 15:00 (UTC 06:00) は windows(8-12) の外 → OFF
     expect(isSignageOffHours(sched, new Date("2026-06-02T06:00:00Z"))).toBe(true);
+  });
+});
+
+describe("classifyLongSilence: 閾値（schedule-agnostic）", () => {
+  const LS = DEFAULT_TV_LONG_SILENCE_SEC; // 6h = 21600
+
+  it("既定閾値が 6h（21600 秒）であること", () => {
+    expect(DEFAULT_TV_LONG_SILENCE_SEC).toBe(21600);
+  });
+
+  it("閾値ちょうど（6h）では長時間サイレンスにしない（境界: > のみ）", () => {
+    const lastSeenAt = new Date(NOW.getTime() - LS * 1000); // ぴったり 6h 前
+    const { newlyLongSilent, cleared } = classifyLongSilence([device({ lastSeenAt })], NOW);
+    expect(newlyLongSilent).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
+  it("閾値超（6h + 1 秒）で新規アラートし lastSeenAt を起点に記録する", () => {
+    const lastSeenAt = new Date(NOW.getTime() - (LS + 1) * 1000);
+    const { newlyLongSilent, cleared } = classifyLongSilence([device({ lastSeenAt })], NOW);
+    expect(newlyLongSilent).toEqual([{ deviceId: "dev-1", schoolId: "school-1", lastSeenAt }]);
+    expect(cleared).toEqual([]);
+  });
+
+  it("OFF 時間帯の短い途絶（5 分）は閾値未満で no-op（schedule を見ても見なくても同じ）", () => {
+    // schedule を OFF にしても classifyLongSilence は schedule を無視する。5 分 < 6h なので no-op。
+    const schedule = { enabled: true, onHour: 8, offHour: 18 };
+    const offNow = new Date("2026-06-01T17:00:00.000Z"); // JST 02:00 = OFF
+    const lastSeenAt = new Date(offNow.getTime() - 5 * 60_000);
+    const { newlyLongSilent } = classifyLongSilence([device({ lastSeenAt, schedule })], offNow);
+    expect(newlyLongSilent).toEqual([]);
+  });
+
+  it("OFF 時間帯でも 6h 超 無音なら長時間サイレンス（schedule を無視＝OFF 盲点を塞ぐ）", () => {
+    // ここが本機能の肝: classifyTvLiveness は OFF をスキップするが、classifyLongSilence は OFF でも検出する。
+    const schedule = { enabled: true, onHour: 8, offHour: 18 };
+    const offNow = new Date("2026-06-01T17:00:00.000Z"); // JST 02:00 = OFF（夜間 ~03:47 帯の途絶を模す）
+    const lastSeenAt = new Date(offNow.getTime() - 7 * 60 * 60_000); // 7h 前から無音
+    const { newlyLongSilent } = classifyLongSilence([device({ lastSeenAt, schedule })], offNow);
+    expect(newlyLongSilent.map((d) => d.deviceId)).toEqual(["dev-1"]);
+  });
+
+  it("enabled=false（恒久 OFF）の端末でも 6h 超 無音なら検出する（schedule を完全に無視）", () => {
+    const schedule = { enabled: false };
+    const lastSeenAt = new Date(NOW.getTime() - 7 * 60 * 60_000);
+    const { newlyLongSilent } = classifyLongSilence([device({ lastSeenAt, schedule })], NOW);
+    expect(newlyLongSilent.length).toBe(1);
+  });
+
+  it("カスタム閾値（1h）を渡すと 1h 超で検出する", () => {
+    const lastSeenAt = new Date(NOW.getTime() - 90 * 60_000); // 1.5h 前
+    const { newlyLongSilent } = classifyLongSilence([device({ lastSeenAt })], NOW, 3600);
+    expect(newlyLongSilent.length).toBe(1);
+  });
+});
+
+describe("classifyLongSilence: dedup 列遷移（send-once / クリア）", () => {
+  const longAgo = () => new Date(NOW.getTime() - 7 * 60 * 60_000); // 7h 前（閾値超）
+
+  it("dedup 列が NULL かつ閾値超 → 新規アラート（NULL → now() で 1 回だけ）", () => {
+    const { newlyLongSilent, cleared } = classifyLongSilence(
+      [device({ lastSeenAt: longAgo(), longSilenceNotifiedAt: null })],
+      NOW,
+    );
+    expect(newlyLongSilent.length).toBe(1);
+    expect(cleared).toEqual([]);
+  });
+
+  it("dedup 列が non-NULL かつ閾値超（継続中） → no-op（send-once、再アラートしない）", () => {
+    const { newlyLongSilent, cleared } = classifyLongSilence(
+      [device({ lastSeenAt: longAgo(), longSilenceNotifiedAt: new Date(NOW.getTime() - 60_000) })],
+      NOW,
+    );
+    expect(newlyLongSilent).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
+  it("dedup 列が non-NULL かつ鮮度復帰（閾値内） → クリア（now() → NULL で再アラート可能に）", () => {
+    const { newlyLongSilent, cleared } = classifyLongSilence(
+      // lastSeenAt 既定 = 30 秒前（鮮度 OK）。列が立っている = 前回アラート済み。
+      [device({ longSilenceNotifiedAt: new Date(NOW.getTime() - 8 * 60 * 60_000) })],
+      NOW,
+    );
+    expect(newlyLongSilent).toEqual([]);
+    expect(cleared).toEqual([{ deviceId: "dev-1", schoolId: "school-1" }]);
+  });
+
+  it("dedup 列が NULL かつ鮮度 OK（未アラート・正常） → no-op", () => {
+    const { newlyLongSilent, cleared } = classifyLongSilence([device()], NOW);
+    expect(newlyLongSilent).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+});
+
+describe("classifyLongSilence: monitoring_enabled / last_seen NULL", () => {
+  const longAgo = () => new Date(NOW.getTime() - 7 * 60 * 60_000);
+
+  it("monitoring_enabled=false の閾値超 無音は新規アラートしない", () => {
+    const { newlyLongSilent } = classifyLongSilence(
+      [device({ lastSeenAt: longAgo(), monitoringEnabled: false })],
+      NOW,
+    );
+    expect(newlyLongSilent).toEqual([]);
+  });
+
+  it("monitoring_enabled=false でもアラート中で鮮度復帰すればクリアは許す（列を取り残さない）", () => {
+    const { cleared } = classifyLongSilence(
+      [
+        device({
+          monitoringEnabled: false,
+          longSilenceNotifiedAt: new Date(NOW.getTime() - 8 * 60 * 60_000),
+        }),
+      ],
+      NOW,
+    );
+    expect(cleared).toEqual([{ deviceId: "dev-1", schoolId: "school-1" }]);
+  });
+
+  it("last_seen_at が NULL（未観測）は新規アラートにもクリアにも数えない", () => {
+    // 列が NULL: no-op。
+    expect(classifyLongSilence([device({ lastSeenAt: null })], NOW).newlyLongSilent).toEqual([]);
+    // 列が non-NULL（万一立っていても）でも鮮度根拠が無いので no-op（クリアしない）。
+    const res = classifyLongSilence(
+      [device({ lastSeenAt: null, longSilenceNotifiedAt: new Date(NOW.getTime() - 60_000) })],
+      NOW,
+    );
+    expect(res.newlyLongSilent).toEqual([]);
+    expect(res.cleared).toEqual([]);
+  });
+});
+
+describe("classifyLongSilence: 複数 TV を 1 回で分類", () => {
+  it("新規アラート / クリア / 継続 / 正常 を正しく振り分ける", () => {
+    const longAgo = new Date(NOW.getTime() - 7 * 60 * 60_000);
+    const alerted = new Date(NOW.getTime() - 60_000);
+    const res = classifyLongSilence(
+      [
+        device({ deviceId: "new-1", lastSeenAt: longAgo, longSilenceNotifiedAt: null }), // 新規
+        device({ deviceId: "clear-1", longSilenceNotifiedAt: alerted }), // 鮮度 OK + 列あり = クリア
+        device({ deviceId: "cont-1", lastSeenAt: longAgo, longSilenceNotifiedAt: alerted }), // 継続 = no-op
+        device({ deviceId: "ok-1" }), // 正常 = no-op
+      ],
+      NOW,
+    );
+    expect(res.newlyLongSilent.map((d) => d.deviceId)).toEqual(["new-1"]);
+    expect(res.cleared.map((d) => d.deviceId)).toEqual(["clear-1"]);
   });
 });

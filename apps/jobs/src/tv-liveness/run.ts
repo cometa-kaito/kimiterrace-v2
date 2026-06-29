@@ -1,5 +1,6 @@
 import {
   DEFAULT_TV_LIVENESS_THRESHOLDS,
+  DEFAULT_TV_LONG_SILENCE_SEC,
   type TenantTx,
   type TvLivenessCheckSummary,
   type TvLivenessThresholds,
@@ -43,6 +44,11 @@ export interface RunTvLivenessConfig {
   databaseUrl: string;
   /** down 閾値（環境変数由来、F16 §6）。省略時は既定（3 分 / OFF 時 30 分）。 */
   thresholds?: TvLivenessThresholds;
+  /**
+   * 長時間サイレンス閾値（秒、環境変数 `TV_LONG_SILENCE_SEC` 由来）。省略時は既定（6h = 21600）。
+   * down/recover とは独立した schedule-agnostic 検出器の閾値（全端末 24/7 ポーリング前提ゆえ 6h は安全）。
+   */
+  longSilenceSec?: number;
   /** 判定基準時刻。省略時は実行時の `new Date()`（テストで固定値を注入できる）。 */
   now?: Date;
   /** テスト用: BYPASSRLS 接続をアプリロールへ降格する SET LOCAL ROLE 先。本番は未指定。 */
@@ -62,12 +68,13 @@ export async function runTvLivenessCheckBatch(
   const { sql, db } = createDbClient(config.databaseUrl);
   const appRoleOptions = config.appRole !== undefined ? { appRole: config.appRole } : {};
   const thresholds = config.thresholds ?? DEFAULT_TV_LIVENESS_THRESHOLDS;
+  const longSilenceSec = config.longSilenceSec ?? DEFAULT_TV_LONG_SILENCE_SEC;
   const now = config.now ?? new Date();
   try {
     return await withTenantContext(
       db,
       { role: "system_admin" },
-      (tx: TenantTx) => runTvLivenessCheck(tx, now, thresholds),
+      (tx: TenantTx) => runTvLivenessCheck(tx, now, thresholds, longSilenceSec),
       appRoleOptions,
     );
   } finally {

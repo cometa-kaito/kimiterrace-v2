@@ -1,12 +1,15 @@
-import { and, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, sql } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { tvDeviceDowntime } from "../schema/tv-device-downtime.js";
 import { tvDevices } from "../schema/tv-devices.js";
 import {
   DEFAULT_TV_LIVENESS_THRESHOLDS,
+  DEFAULT_TV_LONG_SILENCE_SEC,
   type TvLivenessClassification,
   type TvLivenessInput,
   type TvLivenessThresholds,
+  type TvLongSilenceClassification,
+  classifyLongSilence,
   classifyTvLiveness,
 } from "./tv-liveness.js";
 
@@ -74,6 +77,32 @@ export interface TvLivenessCheckSummary {
     label: string | null;
     lastSeenAt: Date | null;
   }[];
+  /** 今回 NULL → now() に立てた「新規 長時間サイレンス」台数（dedup 列 UPDATE）。`longSilentDevices` と件数一致。 */
+  newlyLongSilent: number;
+  /** 今回 now() → NULL に戻した「長時間サイレンス クリア」台数。`longSilenceClearedDevices` と件数一致。 */
+  longSilenceCleared: number;
+  /**
+   * 今回 新たに長時間サイレンスへ突入した TV（dedup 列を実際に NULL → now() に立てた分のみ）。
+   * `newlyLongSilent` と件数一致。Slack ⚠️ 長時間サイレンス通知の素材。down/recover とは独立した別シグナルで、
+   * schedule-agnostic（OFF 中でも 6h 無音は実障害）。型は inline（新規 export 型を増やさない）。
+   */
+  longSilentDevices: {
+    deviceId: string;
+    schoolId: string;
+    label: string | null;
+    /** 無音の起点（最後に観測した last_seen_at）。通知文の経過時間算出に使う。 */
+    lastSeenAt: Date;
+  }[];
+  /**
+   * 今回 長時間サイレンスから復帰した TV（dedup 列を実際に now() → NULL に戻した分のみ）。
+   * `longSilenceCleared` と件数一致。任意の 🟢 サイレンス復帰通知の素材（recovery opt-in で gate）。
+   */
+  longSilenceClearedDevices: {
+    deviceId: string;
+    schoolId: string;
+    label: string | null;
+    lastSeenAt: Date | null;
+  }[];
 }
 
 /** 走査対象 1 行の内部表現（schema 由来 + 未解決行有無 + 表示ラベル + FCM トークン）。 */
@@ -87,18 +116,23 @@ type DeviceStateRow = TvLivenessInput & {
 /**
  * 死活チェックを 1 回実行する（RLS context 内トランザクションで呼ぶ）。
  *
- * @param tx          `system_admin` context を張ったトランザクション（cross-tenant 走査・書込み）。
- * @param now         判定基準時刻（チェッカ実行時刻）。テストで固定値を渡せるよう注入する。
- * @param thresholds  down 閾値（環境変数由来、F16 §6）。省略時は既定（3 分 / OFF 時 30 分）。
- * @returns           遷移件数のサマリ。
+ * @param tx              `system_admin` context を張ったトランザクション（cross-tenant 走査・書込み）。
+ * @param now             判定基準時刻（チェッカ実行時刻）。テストで固定値を渡せるよう注入する。
+ * @param thresholds      down 閾値（環境変数由来、F16 §6）。省略時は既定（3 分 / OFF 時 30 分）。
+ * @param longSilenceSec  長時間サイレンス閾値（秒、環境変数由来）。省略時は既定（6h = 21600）。
+ * @returns               遷移件数のサマリ（down/recover + 長時間サイレンス）。
  */
 export async function runTvLivenessCheck(
   tx: TenantTx,
   now: Date,
   thresholds: TvLivenessThresholds = DEFAULT_TV_LIVENESS_THRESHOLDS,
+  longSilenceSec: number = DEFAULT_TV_LONG_SILENCE_SEC,
 ): Promise<TvLivenessCheckSummary> {
   const states = await loadDeviceStates(tx);
   const classification: TvLivenessClassification = classifyTvLiveness(states, now, thresholds);
+  // 長時間サイレンス（schedule-agnostic）は down/recover と独立した別シグナル。同じ事前読取（states）を
+  // 入力に、isSignageOffHours を見ずに「6h 超 無音」を判定する（OFF/休日でも 24/7 ポーリング前提ゆえ実障害）。
+  const longSilence: TvLongSilenceClassification = classifyLongSilence(states, now, longSilenceSec);
 
   // サマリは「分類した件数（意図）」ではなく applyTransitions が**実際に書き込んだ件数**を返す。
   // 分類は loadDeviceStates の事前読取に基づくため、別チェッカ実行と同時発火すると 2 本とも
@@ -112,6 +146,7 @@ export async function runTvLivenessCheck(
   return {
     scanned: states.length,
     ...(await applyTransitions(tx, classification, stateByDevice)),
+    ...(await applyLongSilenceTransitions(tx, longSilence, stateByDevice)),
   };
 }
 
@@ -134,6 +169,8 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
       alertState: tvDevices.alertState,
       monitoringEnabled: tvDevices.monitoringEnabled,
       schedule: tvDevices.scheduleJson,
+      // 長時間サイレンス通知の send-once dedup 状態（schedule-agnostic 検出器が読む）。NULL = 未アラート。
+      longSilenceNotifiedAt: tvDevices.longSilenceNotifiedAt,
       // この TV に未解決（recovered_at IS NULL）ダウンタイム行が 1 件でもあれば true。
       // Drizzle の exists() を使い、相関サブクエリの両辺を **テーブル修飾付き**で描画させる
       // （tv_device_downtime.device_id = tv_devices.device_id）。手書き sql`` で
@@ -166,6 +203,7 @@ async function loadDeviceStates(tx: TenantTx): Promise<DeviceStateRow[]> {
     monitoringEnabled: r.monitoringEnabled,
     schedule: r.schedule ?? null,
     hasOpenDowntime: r.hasOpenDowntime,
+    longSilenceNotifiedAt: r.longSilenceNotifiedAt,
   }));
 }
 
@@ -274,4 +312,85 @@ async function applyTransitions(
   }
 
   return { newlyDown, recovered, downDevices, recoveredDevices };
+}
+
+/**
+ * 長時間サイレンス（schedule-agnostic）の純判定結果を DB に反映し、**実際に書き込んだ件数**を返す。
+ * down/recover とは独立した別経路で、`tv_device_downtime` 行は一切作らない（運用ダウンタイム表を汚さない）。
+ * 反映する状態は `tv_devices.long_silence_notified_at` の send-once dedup 列のみ:
+ *  - newlyLongSilent: 列が NULL のまま → `now()` を立てる（1 回だけアラート）。
+ *  - cleared: 列が non-NULL → `NULL` に戻す（次の途絶で再アラート可能に）。
+ *
+ * 返す件数は classification の長さではなく実書込数: 同時発火・別チェッカが先に書いた場合に二重計上しない。
+ *  - newlyLongSilent は親 tv_devices 行を `FOR UPDATE` でロック（device 単位の直列化点、down INSERT と同じ
+ *    思想 [[realpg_concurrency_test_deterministic]]）→ ロック下で `long_silence_notified_at IS NULL` を
+ *    条件に UPDATE し `.returning()`。2 本目はロック解放後に列が立っているのを見て 0 行更新 = 非計上。
+ *  - cleared は `IS NOT NULL` 条件で UPDATE し `.returning()`。別チェッカが先に NULL に戻していれば 0 行更新。
+ *
+ * 時刻は JS Date を bind せず DB 側 `now()` に倒す（postgres@3.x が Date を raw `sql` で直列化できずクラッシュ
+ * する [[pg-date-bind-enum-insert]]。「アラート開始時刻 ≈ チェッカ実行時刻 = now()」で意味も一致）。
+ * updated_at もルール1（監査整合）で `now()` に前進させる。
+ */
+async function applyLongSilenceTransitions(
+  tx: TenantTx,
+  classification: TvLongSilenceClassification,
+  stateByDevice: ReadonlyMap<string, DeviceStateRow>,
+): Promise<
+  Pick<
+    TvLivenessCheckSummary,
+    "newlyLongSilent" | "longSilenceCleared" | "longSilentDevices" | "longSilenceClearedDevices"
+  >
+> {
+  let newlyLongSilent = 0;
+  let longSilenceCleared = 0;
+  const longSilentDevices: TvLivenessCheckSummary["longSilentDevices"] = [];
+  const longSilenceClearedDevices: TvLivenessCheckSummary["longSilenceClearedDevices"] = [];
+
+  for (const ls of classification.newlyLongSilent) {
+    // 直列化点（device 単位）: 親 tv_devices 行を FOR UPDATE。同時発火の 2 本目はロック解放までブロックされ、
+    // 解放後に列が立っているのを見て 0 行更新になる（二重通知しない）。
+    await tx
+      .select({ deviceId: tvDevices.deviceId })
+      .from(tvDevices)
+      .where(eq(tvDevices.deviceId, ls.deviceId))
+      .for("update");
+
+    // ロック下で「まだ NULL のとき**だけ**」now() を立てる。先行 tx が既に立てていれば 0 行更新 = 非計上。
+    const set = await tx
+      .update(tvDevices)
+      .set({ longSilenceNotifiedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(eq(tvDevices.deviceId, ls.deviceId), isNull(tvDevices.longSilenceNotifiedAt)))
+      .returning({ id: tvDevices.id });
+    if (set.length > 0) {
+      newlyLongSilent += 1;
+      const st = stateByDevice.get(ls.deviceId);
+      longSilentDevices.push({
+        deviceId: ls.deviceId,
+        schoolId: ls.schoolId,
+        label: st?.label ?? null,
+        lastSeenAt: ls.lastSeenAt,
+      });
+    }
+  }
+
+  for (const cl of classification.cleared) {
+    // non-NULL のとき**だけ** NULL に戻す（別チェッカが先に戻していれば 0 行更新 = 非計上、対称な堅牢化）。
+    const set = await tx
+      .update(tvDevices)
+      .set({ longSilenceNotifiedAt: null, updatedAt: sql`now()` })
+      .where(and(eq(tvDevices.deviceId, cl.deviceId), isNotNull(tvDevices.longSilenceNotifiedAt)))
+      .returning({ id: tvDevices.id });
+    if (set.length > 0) {
+      longSilenceCleared += 1;
+      const st = stateByDevice.get(cl.deviceId);
+      longSilenceClearedDevices.push({
+        deviceId: cl.deviceId,
+        schoolId: cl.schoolId,
+        label: st?.label ?? null,
+        lastSeenAt: st?.lastSeenAt ?? null,
+      });
+    }
+  }
+
+  return { newlyLongSilent, longSilenceCleared, longSilentDevices, longSilenceClearedDevices };
 }

@@ -52,7 +52,8 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
     // 限定**する (他は monitoring_enabled=false)。これで他校 (DEV_B) や共有 DB 上の他テスト由来デバイスが
     // チェッカの新規 down 計上に混入せず、newlyDown / downtime 行数のアサートが device セットに依存しない。
     await sql`DELETE FROM tv_device_downtime`;
-    await sql`UPDATE tv_devices SET alert_state = 'ok', monitoring_enabled = (device_id = ${DEV_A}), last_seen_at = now(), last_boot_at = NULL`;
+    // long_silence_notified_at も毎回 NULL に戻す（長時間サイレンスの dedup 列。前テストの立ち上げを持ち越さない）。
+    await sql`UPDATE tv_devices SET alert_state = 'ok', monitoring_enabled = (device_id = ${DEV_A}), last_seen_at = now(), last_boot_at = NULL, long_silence_notified_at = NULL`;
   });
 
   afterAll(async () => {
@@ -359,5 +360,116 @@ describeOrSkip("RLS: F16 tv_device_downtime", () => {
       SELECT cause_hint FROM tv_device_downtime WHERE device_id = ${DEV_A}
     `;
     expect(rows[0].cause_hint).toBe("reboot");
+  });
+
+  // ---- 長時間サイレンス（schedule-agnostic, dedup 列）: 突入 / send-once / クリア / OFF 非抑制 ----
+  // DEFAULT_TV_LONG_SILENCE_SEC = 6h。テストでは make_interval で過去に置く + 既定閾値で判定する。
+
+  it("runTvLivenessCheck: 6h 超 無音で long_silence_notified_at を立て newlyLongSilent=1 / ダウンタイム行は作らない", async () => {
+    // 7h 前から無音（既定 6h 閾値超）。alert_state は ok のまま（long-silence は down/recover と独立）。
+    await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(hours => 7) WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(summary.newlyLongSilent).toBe(1);
+    expect(summary.longSilentDevices).toHaveLength(1);
+    expect(summary.longSilentDevices[0]?.deviceId).toBe(DEV_A);
+
+    // dedup 列が立っている。
+    const tv = await sql<{ long_silence_notified_at: string | null }[]>`
+      SELECT long_silence_notified_at FROM tv_devices WHERE device_id = ${DEV_A}
+    `;
+    expect(tv[0].long_silence_notified_at).not.toBeNull();
+
+    // ★運用ダウンタイム表は汚さない（long-silence は tv_device_downtime 行を作らない）。
+    const dt = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM tv_device_downtime`;
+    expect(dt[0].n).toBe("0");
+  });
+
+  it("runTvLivenessCheck: 長時間サイレンスは send-once（再走査で newlyLongSilent=0、列は据置）", async () => {
+    await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(hours => 7) WHERE device_id = ${DEV_A}`;
+
+    const first = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(first.newlyLongSilent).toBe(1);
+
+    // 同じ無音のまま再実行 → 既に列が立っているので新規アラートしない。
+    const second = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(second.newlyLongSilent).toBe(0);
+    expect(second.longSilenceCleared).toBe(0);
+  });
+
+  it("runTvLivenessCheck: 鮮度復帰で long_silence_notified_at を NULL に戻し longSilenceCleared=1（再アラート可能化）", async () => {
+    // 列が立っている（前回アラート済み）状態 + 今は鮮度 OK（now）にして復帰させる。
+    await sql`UPDATE tv_devices SET last_seen_at = now(), long_silence_notified_at = now() - make_interval(hours => 1) WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(summary.longSilenceCleared).toBe(1);
+    expect(summary.newlyLongSilent).toBe(0);
+
+    const tv = await sql<{ long_silence_notified_at: string | null }[]>`
+      SELECT long_silence_notified_at FROM tv_devices WHERE device_id = ${DEV_A}
+    `;
+    expect(tv[0].long_silence_notified_at).toBeNull();
+  });
+
+  it("runTvLivenessCheck: OFF スケジュールでも 6h 超 無音は長時間サイレンス検出（down はスキップだが long-silence は塞ぐ）", async () => {
+    // schedule を「常に OFF（enabled=false）」にしても long-silence は schedule を無視して検出する。
+    // 同時に down/recover は OFF スキップで新規 down を作らない（newlyDown=0）ことも固定する（別シグナルの分離）。
+    await sql`
+      UPDATE tv_devices
+      SET last_seen_at = now() - make_interval(hours => 7),
+          schedule_json = '{"enabled":false}'::jsonb,
+          alert_state = 'ok'
+      WHERE device_id = ${DEV_A}
+    `;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    // OFF なので down は計上されない（BUG-2 の意図どおり）。
+    expect(summary.newlyDown).toBe(0);
+    // だが long-silence は OFF でも検出する（これが本機能の肝＝OFF 盲点を塞ぐ）。
+    expect(summary.newlyLongSilent).toBe(1);
+    // ダウンタイム行は作らない（long-silence の persistence は dedup 列のみ）。
+    const dt = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM tv_device_downtime`;
+    expect(dt[0].n).toBe("0");
+  });
+
+  it("runTvLivenessCheck: monitoring_enabled=false の 6h 超 無音は長時間サイレンスにしない", async () => {
+    await sql`UPDATE tv_devices SET last_seen_at = now() - make_interval(hours => 7), monitoring_enabled = false WHERE device_id = ${DEV_A}`;
+
+    const summary = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => runTvLivenessCheck(tx, new Date()),
+      APP,
+    );
+    expect(summary.newlyLongSilent).toBe(0);
+    const tv = await sql<{ long_silence_notified_at: string | null }[]>`
+      SELECT long_silence_notified_at FROM tv_devices WHERE device_id = ${DEV_A}
+    `;
+    expect(tv[0].long_silence_notified_at).toBeNull();
   });
 });

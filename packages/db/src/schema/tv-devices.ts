@@ -133,6 +133,17 @@ export const tvDevices = pgTable(
     monitoringEnabled: boolean("monitoring_enabled").notNull().default(true),
     // 現在のアラート状態（重複通知抑止、F16 §1）。既定 ok。定期チェッカ（別スライス）が遷移させる。
     alertState: tvAlertState("alert_state").notNull().default("ok"),
+    // 長時間サイレンス通知の send-once dedup（schedule-agnostic 死活、運営整理 OFF 盲点修正）。
+    // NULL = 現在は長時間サイレンスのアラート中でない。死活チェッカが「長時間サイレンスへ突入した瞬間」
+    // （列が NULL かつ now-last_seen が閾値超）にだけ Slack 通知して now() を立て、鮮度が閾値内に戻ったら
+    // NULL に戻す（次の途絶で再アラートできる）。alert_state（down/recover）とは**独立した別シグナル**で、
+    // こちらは isSignageOffHours を一切見ず schedule を無視する（消灯中でも端末は 24/7 ポーリング継続が
+    // 正常なので、長時間の無音は OFF でも実障害）。down/recover と違い tv_device_downtime 行は作らない
+    // （運用ダウンタイム表を汚さない）＝この列だけが長時間サイレンス通知の persistence。nullable / backfill なし。
+    longSilenceNotifiedAt: timestamp("long_silence_notified_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     notes: text("notes"),
     // ソフトデリート（F15 §4.2）。NULL = 稼働中。削除後も復活可能・過去データ解決のため行は残す。
     deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),

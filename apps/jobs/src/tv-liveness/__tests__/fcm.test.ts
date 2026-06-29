@@ -31,6 +31,11 @@ function summaryWithDown(
     recovered: 0,
     downDevices,
     recoveredDevices: [],
+    // 長時間サイレンスは FCM wake には無関係（wake は down エッジのみ）。空で埋める。
+    newlyLongSilent: 0,
+    longSilenceCleared: 0,
+    longSilentDevices: [],
+    longSilenceClearedDevices: [],
   };
 }
 
