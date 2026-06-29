@@ -2,7 +2,15 @@
 // client.ts 経由で postgres ドライバを引き込み、"use client" なフォームにバンドルされると Turbopack が
 // fs/net/tls を解決できず next build が落ちる (quiet-hours-core.ts と同じ #148 の罠)。/schema は型定義のみで
 // postgres を含まないため client component / core から安全に使える。
-import type { TvSchedule } from "@kimiterrace/db/schema";
+// VALUE（resolveScheduleWindows / MAX_SCHEDULE_WINDOWS）も含めて **drizzle 非依存の専用サブパス**から
+// import する。barrel (`@kimiterrace/db`) や `/schema` は pg-core を巻き込み client バンドルを壊す（#148）。
+// `/tv-schedule` は純ロジックのみで client component から安全に使える。
+import {
+  MAX_SCHEDULE_WINDOWS,
+  type TvSchedule,
+  type TvScheduleWindow,
+  resolveScheduleWindows,
+} from "@kimiterrace/db/tv-schedule";
 import type { AuthUser } from "../auth/session";
 import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
@@ -23,8 +31,9 @@ import {
  * `appVersion` / `alertState` / `deletedAt` / 監査列 / 教室 FK）は本検証が**受け付けない**（入力に紛れても
  * 黙殺し、DB パッチへ漏らさない）。`version` は query 層が +1（ADR-022）。
  *
- * **型の単一ソース (ルール3)**: `TvSchedule` は `@kimiterrace/db/schema` から import し、手書きで再定義
- * しない。PII を入れない（`label` は設置場所ラベル、ルール4）。
+ * **型の単一ソース (ルール3)**: `TvSchedule` / `TvScheduleWindow` は drizzle 非依存の
+ * `@kimiterrace/db/tv-schedule` から import し、手書きで再定義しない（client バンドルに pg-core を
+ * 巻き込まない #148 回避）。PII を入れない（`label` は設置場所ラベル、ルール4）。
  */
 
 /** Server Action の結果。失敗は throw せず `{ ok:false }` で返し、UI 側でメッセージ表示する。 */
@@ -92,7 +101,7 @@ export function toTvConfigEditActor(user: AuthUser): TvConfigEditActor {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** "HH:MM" を分換算する範囲だが schedule は hour-of-day 単位（0-23）。 */
+/** 時（hour-of-day）の許容範囲（0-23）。分は 0-59（validMinute）。 */
 const HOUR_MIN = 0;
 const HOUR_MAX = 23;
 
@@ -260,10 +269,40 @@ function validHour(value: unknown): value is number {
   );
 }
 
+/** 分（0-59）の整数か。 */
+function validMinute(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 59;
+}
+
+/**
+ * 複数窓の 1 要素（`TvScheduleWindow`）を検証・正規化する。時/分が範囲内で、かつ **開始（点灯）が終了
+ * （消灯）より前**（同日内）であること。複数窓は曖昧さ排除のため日跨ぎを許さない（legacy 単一窓のみ日跨ぎ可）。
+ */
+function validateScheduleWindow(raw: unknown): Validated<TvScheduleWindow> {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, message: "時間帯の形式が不正です。" };
+  }
+  const { onHour, onMinute, offHour, offMinute } = raw as Record<string, unknown>;
+  if (!validHour(onHour) || !validHour(offHour)) {
+    return { ok: false, message: "時間帯の時刻は 0〜23 時で指定してください。" };
+  }
+  if (!validMinute(onMinute) || !validMinute(offMinute)) {
+    return { ok: false, message: "時間帯の分は 0〜59 で指定してください。" };
+  }
+  if (onHour * 60 + onMinute >= offHour * 60 + offMinute) {
+    return {
+      ok: false,
+      message: "各時間帯は開始（点灯）が終了（消灯）より前になるよう指定してください。",
+    };
+  }
+  return { ok: true, value: { onHour, onMinute, offHour, offMinute } };
+}
+
 /**
  * schedule_json の入力を検証・正規化する（TvSchedule の形に収める）。null/undefined は「スケジュール無し」。
- * `enabled` 必須（boolean）。`onHour`/`offHour` は 0-23 の整数（任意）、`weekdays` は 0-6 の重複なし配列（任意）。
- * 余剰キーは落とす（既知フィールドのみ通す）。
+ * `enabled` 必須（boolean）。legacy 単一窓 `onHour`/`offHour`（0-23）+ 任意の `onMinute`/`offMinute`（0-59）、
+ * 複数窓 `windows`（最大 {@link MAX_SCHEDULE_WINDOWS} 件・各窓は同日内）、`weekdays`（0-6 の重複なし配列）を
+ * 受ける。余剰キーは落とす（既知フィールドのみ通す）。
  */
 export function validateSchedule(raw: unknown): Validated<TvSchedule | null> {
   if (raw === null || raw === undefined) {
@@ -289,6 +328,35 @@ export function validateSchedule(raw: unknown): Validated<TvSchedule | null> {
     }
     out.offHour = rec.offHour;
   }
+  if (rec.onMinute !== undefined) {
+    if (!validMinute(rec.onMinute)) {
+      return { ok: false, message: "表示開始の分は 0〜59 の整数で指定してください。" };
+    }
+    out.onMinute = rec.onMinute;
+  }
+  if (rec.offMinute !== undefined) {
+    if (!validMinute(rec.offMinute)) {
+      return { ok: false, message: "表示終了の分は 0〜59 の整数で指定してください。" };
+    }
+    out.offMinute = rec.offMinute;
+  }
+  if (rec.windows !== undefined) {
+    if (!Array.isArray(rec.windows)) {
+      return { ok: false, message: "時間帯リストの形式が不正です。" };
+    }
+    if (rec.windows.length > MAX_SCHEDULE_WINDOWS) {
+      return { ok: false, message: `時間帯は最大 ${MAX_SCHEDULE_WINDOWS} 件までです。` };
+    }
+    const windows: TvScheduleWindow[] = [];
+    for (const w of rec.windows) {
+      const v = validateScheduleWindow(w);
+      if (!v.ok) return v;
+      windows.push(v.value);
+    }
+    if (windows.length > 0) {
+      out.windows = windows;
+    }
+  }
   if (rec.weekdays !== undefined) {
     if (!validWeekdays(rec.weekdays)) {
       return { ok: false, message: "曜日は 0(日)〜6(土) の重複なし配列で指定してください。" };
@@ -311,59 +379,107 @@ export function validateSchedule(raw: unknown): Validated<TvSchedule | null> {
 export const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
 /**
- * 編集フォームの schedule state。hour 入力は文字列で保持し送信時に数値化（空欄=未指定）。
+ * 編集フォームの 1 つの表示時間帯。`on`/`off` は `<input type="time">` の値（"HH:MM"・空欄=未入力）。
+ * 両方入っている行だけが送信時に窓として採用される（片方/両方空は無視）。
+ */
+export type TvScheduleWindowFormState = { on: string; off: string };
+
+/**
+ * 編集フォームの schedule state。表示時間帯は**複数行**（分単位）で保持し、送信時に窓へ変換する。
  * `weekdays` は長さ 7 の boolean[]（index 0=日..6=土）で各曜日のチェック状態を持つ。
  */
 export type TvScheduleFormState = {
   enabled: boolean;
-  onHour: string;
-  offHour: string;
+  windows: TvScheduleWindowFormState[];
   weekdays: boolean[];
 };
 
-/** `TvSchedule | null` をフォーム state に展開する。weekdays 未指定（=全曜日）は全チェックなしで表現。 */
+/** 2 桁ゼロ埋め（"HH"/"MM"）。 */
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+/** 窓を `<input type="time">` 用の {on:"HH:MM", off:"HH:MM"} に。 */
+function windowToFormRow(w: TvScheduleWindow): TvScheduleWindowFormState {
+  return {
+    on: `${pad2(w.onHour)}:${pad2(w.onMinute)}`,
+    off: `${pad2(w.offHour)}:${pad2(w.offMinute)}`,
+  };
+}
+
+/** "HH:MM" を {hour,minute} に。空欄・形式不正は null（採用しない）。 */
+function parseHm(value: string): { hour: number; minute: number } | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+/**
+ * `TvSchedule | null` をフォーム state に展開する。表示時間帯は {@link resolveScheduleWindows} で正準化し
+ * （windows 優先・無ければ legacy 単一窓）、`<input type="time">` 行に並べる。窓が無ければ空行 1 つを置く
+ * （UI に必ず 1 行出す）。weekdays 未指定（=全曜日）は全チェックなしで表現。
+ */
 export function scheduleToFormState(s: TvSchedule | null): TvScheduleFormState {
   const set = new Set(s?.weekdays ?? []);
+  const resolved = s ? resolveScheduleWindows(s) : [];
+  const windows = resolved.length > 0 ? resolved.map(windowToFormRow) : [{ on: "", off: "" }];
   return {
     enabled: s?.enabled ?? false,
-    onHour: s?.onHour === undefined ? "" : String(s.onHour),
-    offHour: s?.offHour === undefined ? "" : String(s.offHour),
+    windows,
     weekdays: Array.from({ length: 7 }, (_, i) => set.has(i)),
   };
 }
 
-/** 文字列の hour 入力を数値 or undefined に。空欄は undefined、非数は NaN（Server 検証で弾く）。 */
-function parseHourInput(value: string): number | undefined {
-  const t = value.trim();
-  if (t === "") return undefined;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : Number.NaN;
-}
-
 /**
- * フォーム state を送信用 `TvSchedule | null` に変換する。全項目が空（無効・時刻未入力・曜日未選択）なら
- * `null`（スケジュール無し）。曜日は**部分選択時のみ**配列化し、全選択 or 未選択は `weekdays` を省略する
- * （schema: 未指定 = 全曜日）。範囲・整合の最終検証は Server 側 `validateSchedule` が行う。
+ * フォーム state を送信用 `TvSchedule | null` に変換する。全項目が空（無効・時間帯未入力・曜日未選択）なら
+ * `null`（スケジュール無し）。
+ * - 表示時間帯は `on`/`off` 両方が入った行のみ窓として採用。**1 窓は legacy `onHour/offHour`（+分は 0 以外
+ *   のとき）で保存**（既存データと同形）、**2 窓以上は `windows`** で保存。
+ * - 曜日は**部分選択時のみ**配列化し、全選択 or 未選択は `weekdays` を省略する（schema: 未指定 = 全曜日）。
+ * 範囲・整合（各窓は開始<終了 等）の最終検証は Server 側 `validateSchedule` が行う。
  */
 export function formStateToScheduleInput(form: TvScheduleFormState): TvSchedule | null {
-  const onHour = parseHourInput(form.onHour);
-  const offHour = parseHourInput(form.offHour);
+  const windows: TvScheduleWindow[] = [];
+  for (const row of form.windows) {
+    const on = parseHm(row.on);
+    const off = parseHm(row.off);
+    if (on && off) {
+      windows.push({
+        onHour: on.hour,
+        onMinute: on.minute,
+        offHour: off.hour,
+        offMinute: off.minute,
+      });
+    }
+  }
   const selectedWeekdays = form.weekdays
     .map((checked, i) => (checked ? i : -1))
     .filter((i) => i >= 0);
   // 全曜日（7 個）/ 未選択（0 個）は「毎日」とみなし weekdays を省略（冗長な全曜日配列を保存しない）。
   const includeWeekdays = selectedWeekdays.length > 0 && selectedWeekdays.length < 7;
-  const hasSchedule =
-    form.enabled || onHour !== undefined || offHour !== undefined || selectedWeekdays.length > 0;
+  const hasSchedule = form.enabled || windows.length > 0 || selectedWeekdays.length > 0;
   if (!hasSchedule) {
     return null;
   }
-  return {
-    enabled: form.enabled,
-    ...(onHour !== undefined ? { onHour } : {}),
-    ...(offHour !== undefined ? { offHour } : {}),
-    ...(includeWeekdays ? { weekdays: selectedWeekdays } : {}),
-  };
+  const out: TvSchedule = { enabled: form.enabled };
+  const [first] = windows;
+  if (windows.length === 1 && first) {
+    // 単一窓は legacy フィールドへ。分が 0 なら省略して既存データ（時単位）と完全同形にする。
+    out.onHour = first.onHour;
+    out.offHour = first.offHour;
+    if (first.onMinute !== 0) out.onMinute = first.onMinute;
+    if (first.offMinute !== 0) out.offMinute = first.offMinute;
+  } else if (windows.length >= 2) {
+    out.windows = windows;
+  }
+  if (includeWeekdays) {
+    out.weekdays = selectedWeekdays;
+  }
+  return out;
 }
 
 /**

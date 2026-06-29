@@ -26,8 +26,7 @@ type Created = { jobId: string; deviceId: string; signageUrl: string };
 /** 既定スケジュール: 平日（月〜金）08:00–17:00 表示。weekdays index 0=日..6=土。 */
 const DEFAULT_SCHEDULE: TvScheduleFormState = {
   enabled: true,
-  onHour: "8",
-  offHour: "17",
+  windows: [{ on: "08:00", off: "17:00" }],
   weekdays: [false, true, true, true, true, true, false],
 };
 
@@ -234,30 +233,41 @@ export function ProvisionForm({
         </label>
         <div style={hourRowStyle}>
           <label style={hourFieldStyle}>
-            <span style={labelTextStyle}>表示開始（時）</span>
+            <span style={labelTextStyle}>表示開始（点灯）</span>
             <input
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.onHour}
-              onChange={(e) => setSchedule((s) => ({ ...s, onHour: e.target.value }))}
+              type="time"
+              value={schedule.windows[0]?.on ?? ""}
+              onChange={(e) =>
+                setSchedule((s) => ({
+                  ...s,
+                  windows: [{ on: e.target.value, off: s.windows[0]?.off ?? "" }],
+                }))
+              }
               disabled={pending}
+              aria-label="表示開始時刻"
               style={inputStyle}
             />
           </label>
           <label style={hourFieldStyle}>
-            <span style={labelTextStyle}>表示終了（時）</span>
+            <span style={labelTextStyle}>表示終了（消灯）</span>
             <input
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.offHour}
-              onChange={(e) => setSchedule((s) => ({ ...s, offHour: e.target.value }))}
+              type="time"
+              value={schedule.windows[0]?.off ?? ""}
+              onChange={(e) =>
+                setSchedule((s) => ({
+                  ...s,
+                  windows: [{ on: s.windows[0]?.on ?? "", off: e.target.value }],
+                }))
+              }
               disabled={pending}
+              aria-label="表示終了時刻"
               style={inputStyle}
             />
           </label>
         </div>
+        <span style={hintStyle}>
+          分単位で指定できます。昼休み消灯など複数の時間帯は、設置後の「設定編集」で追加できます。
+        </span>
         <div style={weekdayGroupStyle}>
           <span style={labelTextStyle}>表示する曜日</span>
           <div style={weekdayRowStyle}>
@@ -317,6 +327,7 @@ const checkRowStyle: React.CSSProperties = {
 };
 const hourRowStyle: React.CSSProperties = { display: "flex", gap: "1rem" };
 const hourFieldStyle: React.CSSProperties = { display: "grid", gap: "0.3rem", maxWidth: "8rem" };
+const hintStyle: React.CSSProperties = { fontSize: "0.78rem", color: "#6b7280" };
 const weekdayGroupStyle: React.CSSProperties = { display: "grid", gap: "0.35rem" };
 const weekdayRowStyle: React.CSSProperties = { display: "flex", gap: "0.6rem", flexWrap: "wrap" };
 const weekdayItemStyle: React.CSSProperties = {

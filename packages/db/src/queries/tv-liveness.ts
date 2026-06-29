@@ -1,4 +1,8 @@
-import type { TvSchedule } from "../schema/tv-devices.js";
+import {
+  type TvSchedule,
+  resolveScheduleWindows,
+  scheduleWindowToMinutes,
+} from "../schema/tv-schedule.js";
 
 /**
  * F16 (ADR-023): TV 死活ギャップチェッカの **純粋判定ロジック**。
@@ -94,11 +98,25 @@ export interface TvLivenessClassification {
 }
 
 /**
+ * 当日分（0-1439）が窓 `[on, off)` の内側か（純関数）。窓は分単位。
+ * - `on < off`: 同日内の窓（例: 08:00〜18:00）。`on <= cur < off`。
+ * - `on > off`: 日跨ぎの窓（例: 22:00〜06:00）。`cur >= on || cur < off`。
+ * - `on === off`: 縮退（終日 ON 扱い）→ 常に内側。
+ */
+function isInsideWindow(curMinutes: number, on: number, off: number): boolean {
+  if (on === off) return true;
+  if (on < off) return curMinutes >= on && curMinutes < off;
+  return curMinutes >= on || curMinutes < off;
+}
+
+/**
  * `schedule` から、`at` 時刻（JST）がサイネージ OFF 時間帯かを判定する（純関数）。
  *
- * OFF と見なすのは: `enabled===false`（恒久 OFF）/ 当日が `weekdays` に含まれない / `onHour`〜`offHour`
- * の表示時間帯の外。時刻は JST（Asia/Tokyo, UTC+9）で評価する（学校は日本国内、ADR-021/ADR-023 と一貫）。
- * schedule が無い（NULL）TV は常時 ON 扱い（OFF でない）= 通常閾値を使う。
+ * OFF と見なすのは: `enabled===false`（恒久 OFF）/ 当日が `weekdays` に含まれない / **どの表示窓にも
+ * 入らない**（分単位・複数窓対応）。表示窓は {@link resolveScheduleWindows} で解決する（`windows` 優先、
+ * 無ければ legacy `onHour:onMinute`〜`offHour:offMinute` の単一窓、時刻指定なしは終日 ON）。時刻は JST
+ * （Asia/Tokyo, UTC+9）で評価する（学校は日本国内、ADR-021/ADR-023 と一貫）。schedule が無い（NULL）TV は
+ * 常時 ON 扱い（OFF でない）= 通常閾値を使う。
  */
 export function isSignageOffHours(schedule: TvSchedule | null, at: Date): boolean {
   if (!schedule) return false;
@@ -107,25 +125,23 @@ export function isSignageOffHours(schedule: TvSchedule | null, at: Date): boolea
   // JST の曜日・時刻を UTC からオフセットで導出（タイムゾーンライブラリ非依存、決定論的）。
   const jst = new Date(at.getTime() + 9 * 60 * 60 * 1000);
   const jstWeekday = jst.getUTCDay(); // 0=日 .. 6=土（JST 換算後の UTC 曜日 = JST 曜日）
-  const jstHour = jst.getUTCHours();
 
   if (schedule.weekdays !== undefined && !schedule.weekdays.includes(jstWeekday)) {
     return true; // 当日は表示曜日でない
   }
 
-  const { onHour, offHour } = schedule;
-  if (onHour === undefined || offHour === undefined) {
+  const windows = resolveScheduleWindows(schedule);
+  if (windows.length === 0) {
     return false; // 時間帯指定が無ければ（曜日条件は満たす）終日 ON 扱い
   }
-  if (onHour === offHour) {
-    return false; // 同値は終日 ON 扱い（縮退ケース）
+  const curMinutes = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  for (const w of windows) {
+    const { on, off } = scheduleWindowToMinutes(w);
+    if (isInsideWindow(curMinutes, on, off)) {
+      return false; // どれか 1 つでも窓内なら ON
+    }
   }
-  if (onHour < offHour) {
-    // 同日内の窓（例: 8〜18 時表示）。窓の外なら OFF。
-    return jstHour < onHour || jstHour >= offHour;
-  }
-  // 日跨ぎの窓（例: 22〜6 時表示）。窓の外 = offHour〜onHour の昼間。
-  return jstHour >= offHour && jstHour < onHour;
+  return true; // どの窓にも入らない = OFF
 }
 
 /**

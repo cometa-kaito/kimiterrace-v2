@@ -38,6 +38,65 @@ describe("validateSchedule", () => {
     const r = validateSchedule({ enabled: true, weekdays: [6, 1, 3], junk: "x" });
     expect(r).toEqual({ ok: true, value: { enabled: true, weekdays: [1, 3, 6] } });
   });
+  it("分（onMinute/offMinute）は 0-59、超過は拒否", () => {
+    expect(
+      validateSchedule({ enabled: true, onHour: 8, onMinute: 30, offHour: 17, offMinute: 45 }),
+    ).toEqual({
+      ok: true,
+      value: { enabled: true, onHour: 8, onMinute: 30, offHour: 17, offMinute: 45 },
+    });
+    expect(validateSchedule({ enabled: true, onHour: 8, onMinute: 60 }).ok).toBe(false);
+    expect(validateSchedule({ enabled: true, offMinute: -1 }).ok).toBe(false);
+  });
+  it("windows: 各窓は時/分が範囲内・開始<終了。正規化して通す", () => {
+    const r = validateSchedule({
+      enabled: true,
+      windows: [
+        { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+        { onHour: 13, onMinute: 30, offHour: 17, offMinute: 0 },
+      ],
+    });
+    expect(r).toEqual({
+      ok: true,
+      value: {
+        enabled: true,
+        windows: [
+          { onHour: 8, onMinute: 0, offHour: 12, offMinute: 0 },
+          { onHour: 13, onMinute: 30, offHour: 17, offMinute: 0 },
+        ],
+      },
+    });
+  });
+  it("windows: 開始>=終了（同日内逆転）は拒否", () => {
+    expect(
+      validateSchedule({
+        enabled: true,
+        windows: [{ onHour: 12, onMinute: 0, offHour: 8, offMinute: 0 }],
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateSchedule({
+        enabled: true,
+        windows: [{ onHour: 8, onMinute: 0, offHour: 8, offMinute: 0 }],
+      }).ok,
+    ).toBe(false);
+  });
+  it("windows: 上限 6 件を超えると拒否、配列でない/分範囲外も拒否", () => {
+    const seven = Array.from({ length: 7 }, (_, i) => ({
+      onHour: i + 8,
+      onMinute: 0,
+      offHour: i + 8,
+      offMinute: 30,
+    }));
+    expect(validateSchedule({ enabled: true, windows: seven }).ok).toBe(false);
+    expect(validateSchedule({ enabled: true, windows: "x" }).ok).toBe(false);
+    expect(
+      validateSchedule({
+        enabled: true,
+        windows: [{ onHour: 8, onMinute: 99, offHour: 12, offMinute: 0 }],
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 describe("validateTvConfigEdit", () => {
