@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@ai-sdk/google-vertex": "^3.0.140",
-    "@google-cloud/vision": "^5.3.6",
+    "@google-cloud/vision": "^5.3.7",
     "ai": "^5.0.52",
     "exceljs": "^4.4.0",
     "mammoth": "^1.12.0",
