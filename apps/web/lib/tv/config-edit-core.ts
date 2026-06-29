@@ -31,8 +31,9 @@ import {
  * `appVersion` / `alertState` / `deletedAt` / 監査列 / 教室 FK）は本検証が**受け付けない**（入力に紛れても
  * 黙殺し、DB パッチへ漏らさない）。`version` は query 層が +1（ADR-022）。
  *
- * **型の単一ソース (ルール3)**: `TvSchedule` は `@kimiterrace/db/schema` から import し、手書きで再定義
- * しない。PII を入れない（`label` は設置場所ラベル、ルール4）。
+ * **型の単一ソース (ルール3)**: `TvSchedule` / `TvScheduleWindow` は drizzle 非依存の
+ * `@kimiterrace/db/tv-schedule` から import し、手書きで再定義しない（client バンドルに pg-core を
+ * 巻き込まない #148 回避）。PII を入れない（`label` は設置場所ラベル、ルール4）。
  */
 
 /** Server Action の結果。失敗は throw せず `{ ok:false }` で返し、UI 側でメッセージ表示する。 */
@@ -100,7 +101,7 @@ export function toTvConfigEditActor(user: AuthUser): TvConfigEditActor {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** "HH:MM" を分換算する範囲だが schedule は hour-of-day 単位（0-23）。 */
+/** 時（hour-of-day）の許容範囲（0-23）。分は 0-59（validMinute）。 */
 const HOUR_MIN = 0;
 const HOUR_MAX = 23;
 

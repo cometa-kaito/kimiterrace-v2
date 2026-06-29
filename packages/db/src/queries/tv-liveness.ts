@@ -2,7 +2,7 @@ import {
   type TvSchedule,
   resolveScheduleWindows,
   scheduleWindowToMinutes,
-} from "../schema/tv-devices.js";
+} from "../schema/tv-schedule.js";
 
 /**
  * F16 (ADR-023): TV 死活ギャップチェッカの **純粋判定ロジック**。
