@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "f91f1cf" # prod deploy f91f1cf（#1198 反映・予定の空き行の点線「-----」消し＝.schedulePlaceholder border-bottom:none＋空き行は数えて枠を保つ。schema/secret 無変更・migration なし・疎通 health200/login private,no-cache・rev 00128-jqz）
+  web_image_tag = "ce3c1db" # prod deploy ce3c1db（#1201 反映・TV ON/OFF スケジュールを分単位＋複数時間帯対応＝TvSchedule windows[]/onMinute・lp-compat schedule_windows。schema/secret 無変更・migration なし・疎通 health200/login private,no-cache,no-store）
 }
 
 module "network" {
