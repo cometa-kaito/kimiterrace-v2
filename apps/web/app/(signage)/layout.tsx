@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { KioskKeepAlive } from "./_components/KioskKeepAlive";
 
 /**
  * 公開サイネージ系ルートの全画面シェル (#48-E2 / F12)。`/signage/{classToken}` 等が属する
@@ -24,6 +25,7 @@ export default function SignageLayout({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <KioskKeepAlive />
     </div>
   );
 }
