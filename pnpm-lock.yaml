@@ -122,8 +122,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.6(react@19.2.6)
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@playwright/test':
         specifier: ^1.60.0
@@ -163,13 +163,13 @@ importers:
     dependencies:
       '@ai-sdk/google-vertex':
         specifier: ^3.0.140
-        version: 3.0.140(zod@3.25.76)
+        version: 3.0.140(zod@4.4.3)
       '@google-cloud/vision':
         specifier: ^5.3.6
         version: 5.3.6
       ai:
         specifier: ^5.0.52
-        version: 5.0.52(zod@3.25.76)
+        version: 5.0.52(zod@4.4.3)
       exceljs:
         specifier: ^4.4.0
         version: 4.4.0
@@ -180,8 +180,8 @@ importers:
         specifier: ^6.0.227
         version: 6.0.227
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^25.9.1
@@ -203,13 +203,13 @@ importers:
         version: 0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9))(zod@3.25.76)
+        version: 0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9))(zod@4.4.3)
       postgres:
         specifier: ^3.4.5
         version: 3.4.9
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.16
@@ -3456,6 +3456,7 @@ packages:
   git-raw-commits@5.0.1:
     resolution: {integrity: sha512-Y+csSm2GD/PCSh6Isd/WiMjNAydu0VBiG9J7EdQsNA5P9uXvLayqjmTsNlK5Gs9IhblFZqOU0yid5Il5JPoLiQ==}
     engines: {node: '>=18'}
+    deprecated: Deprecated and no longer maintained. Use @conventional-changelog/git-client instead.
     hasBin: true
 
   glob-parent@5.1.2:
@@ -5515,59 +5516,62 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
-  '@ai-sdk/anthropic@2.0.80(zod@3.25.76)':
+  '@ai-sdk/anthropic@2.0.80(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.3
-      '@ai-sdk/provider-utils': 3.0.25(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.4.3)
+      zod: 4.4.3
 
-  '@ai-sdk/gateway@1.0.29(zod@3.25.76)':
+  '@ai-sdk/gateway@1.0.29(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.9(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 3.0.9(zod@4.4.3)
+      zod: 4.4.3
 
-  '@ai-sdk/google-vertex@3.0.140(zod@3.25.76)':
+  '@ai-sdk/google-vertex@3.0.140(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/anthropic': 2.0.80(zod@3.25.76)
-      '@ai-sdk/google': 2.0.74(zod@3.25.76)
-      '@ai-sdk/openai-compatible': 1.0.39(zod@3.25.76)
+      '@ai-sdk/anthropic': 2.0.80(zod@4.4.3)
+      '@ai-sdk/google': 2.0.74(zod@4.4.3)
+      '@ai-sdk/openai-compatible': 1.0.39(zod@4.4.3)
       '@ai-sdk/provider': 2.0.3
-      '@ai-sdk/provider-utils': 3.0.25(zod@3.25.76)
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.4.3)
       google-auth-library: 10.6.2
-      zod: 3.25.76
+      zod: 4.4.3
     transitivePeerDependencies:
       - supports-color
 
-  '@ai-sdk/google@2.0.74(zod@3.25.76)':
+  '@ai-sdk/google@2.0.74(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.3
-      '@ai-sdk/provider-utils': 3.0.25(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.4.3)
+      zod: 4.4.3
 
-  '@ai-sdk/openai-compatible@1.0.39(zod@3.25.76)':
+  '@ai-sdk/openai-compatible@1.0.39(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.3
-      '@ai-sdk/provider-utils': 3.0.25(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 3.0.25(zod@4.4.3)
+      zod: 4.4.3
 
-  '@ai-sdk/provider-utils@3.0.25(zod@3.25.76)':
+  '@ai-sdk/provider-utils@3.0.25(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.3
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.0
-      zod: 3.25.76
+      zod: 4.4.3
 
-  '@ai-sdk/provider-utils@3.0.9(zod@3.25.76)':
+  '@ai-sdk/provider-utils@3.0.9(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.0
-      zod: 3.25.76
+      zod: 4.4.3
 
   '@ai-sdk/provider@2.0.0':
     dependencies:
@@ -7365,13 +7369,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@5.0.52(zod@3.25.76):
+  ai@5.0.52(zod@4.4.3):
     dependencies:
-      '@ai-sdk/gateway': 1.0.29(zod@3.25.76)
+      '@ai-sdk/gateway': 1.0.29(zod@4.4.3)
       '@ai-sdk/provider': 2.0.0
-      '@ai-sdk/provider-utils': 3.0.9(zod@3.25.76)
+      '@ai-sdk/provider-utils': 3.0.9(zod@4.4.3)
       '@opentelemetry/api': 1.9.0
-      zod: 3.25.76
+      zod: 4.4.3
 
   ajv-formats@2.1.1(ajv@8.20.0):
     optionalDependencies:
@@ -8071,10 +8075,10 @@ snapshots:
       pg: 8.21.0
       postgres: 3.4.9
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9))(zod@3.25.76):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9))(zod@4.4.3):
     dependencies:
       drizzle-orm: 0.45.2(@electric-sql/pglite@0.3.16)(@opentelemetry/api@1.9.1)(pg@8.21.0)(postgres@3.4.9)
-      zod: 3.25.76
+      zod: 4.4.3
 
   duck@0.1.12:
     dependencies:
@@ -10998,3 +11002,5 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
+
+  zod@4.4.3: {}
