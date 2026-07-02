@@ -17,6 +17,7 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
+import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
 import {
   EditorDateCalendar,
   SELECTED_DAY_ANCHOR_ID,
@@ -50,14 +51,19 @@ export default async function ClassEditorPage({
   searchParams,
 }: {
   params: Promise<{ classId: string }>;
-  searchParams: Promise<{ date?: string; plan?: string }>;
+  searchParams: Promise<{ date?: string; plan?: string; copied?: string }>;
 }) {
   const user = await requireRole(EDITOR_ROLES);
   const { classId } = await params;
   // 広告管理 / 静粛時間は school_admin / system_admin 専任。teacher には出さない（死リンク防止）。
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
-  const { date: dateParam, plan: planParam } = await searchParams;
+  const { date: dateParam, plan: planParam, copied: copiedParam } = await searchParams;
+  // 前日コピー成功時の再マウント nonce（CopyPreviousDayButton が ?copied=<ts> を付けて再ナビゲート）。
+  // エディタ key に含めることで、同一日付への複製でも配下エディタの useState(initial…) を複製後データで
+  // 確実に再初期化する（key={date} だけでは同じ日への操作で再マウントされない）。値は key 用の不透明文字列
+  // なので形式検証は長さ制限のみ（fail-soft）。
+  const copied = typeof copiedParam === "string" ? copiedParam.slice(0, 24) : "";
   // 上＝「今日の編集」: 既定は JST 今日。?date= の明示指定があればそれを上に出す（互換・通常は未使用）。
   const today = new Date().toLocaleDateString("en-CA", { timeZone: JST });
   const date = dateParam && isValidDate(dateParam) ? dateParam : today;
@@ -207,8 +213,19 @@ export default async function ClassEditorPage({
       <p id={TODAY_ANCHOR_ID} style={todayHeadingStyle}>
         今日の編集 — {jpDate(today)}
       </p>
+      {/* 前日コピー（F3・editor-input-tiers-and-signage-paging.md §7）: 前営業日の予定/連絡/提出物を今日へ
+          複製する。既存入力があれば上書き確認（ボタン側）。盤面エディタの直上に置く。 */}
+      <div style={{ margin: "0 0 1rem" }}>
+        <CopyPreviousDayButton
+          classId={classId}
+          date={date}
+          hasExistingData={
+            schedule.items.length > 0 || notices.items.length > 0 || assignments.items.length > 0
+          }
+        />
+      </div>
       <WysiwygBoardEditor
-        key={date}
+        key={`${date}:${copied}`}
         classId={classId}
         date={date}
         base={boardBase}
@@ -252,8 +269,20 @@ export default async function ClassEditorPage({
       {plan && planData ? (
         <section id={SELECTED_DAY_ANCHOR_ID} aria-label={`選択した日の編集 ${jpDate(plan)}`}>
           <p style={futureHeadingStyle}>選択した日の編集 — {jpDate(plan)}</p>
+          {/* 選択した日にも前日コピーを置く（先の日の計画を前営業日から立ち上げる用途・F3）。 */}
+          <div style={{ margin: "0 0 1rem" }}>
+            <CopyPreviousDayButton
+              classId={classId}
+              date={plan}
+              hasExistingData={
+                planData.schedule.items.length > 0 ||
+                planData.notices.items.length > 0 ||
+                planData.assignments.items.length > 0
+              }
+            />
+          </div>
           <WysiwygBoardEditor
-            key={plan}
+            key={`${plan}:${copied}`}
             showBoard={false}
             classId={classId}
             date={plan}
