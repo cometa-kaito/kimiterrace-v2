@@ -1,14 +1,20 @@
 "use client";
 
 import { copyPreviousDayAction } from "@/lib/editor/copy-day-actions";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { errorTextStyle, savedTextStyle, secondaryBtnStyle } from "./editor-styles";
 
 /**
  * 前日コピー（F3・editor-input-tiers-and-signage-paging.md §7）。前営業日の 予定 / 連絡 / 提出物 を対象日へ
  * 複製する（置換保存・{@link copyPreviousDayAction}）。対象日に既存入力があるときは**上書き確認ダイアログ必須**。
- * 成功後は `router.refresh()` で各エディタを複製後データで再初期化する。
+ *
+ * ## 成功後の画面反映（`?copied=<nonce>` 再ナビゲート）
+ * `router.refresh()` **では反映されない**: 配下エディタ（ScheduleEditor 等）は `useState(initial…)` を
+ * マウント時にのみ初期化し、再マウント条件は page.tsx の `key={date}` だが、コピーは**同じ日付**への操作なので
+ * key が変わらない（refresh だと成功メッセージだけ出てフォームが空のまま→ stale な自動保存が複製データを
+ * 上書き消去しうる・Reviewer 指摘 HIGH）。そこで成功時は `?copied=<nonce>` を付けて `router.replace` し、
+ * page.tsx がエディタ key に nonce を含めることで**確実に再マウント**して複製後データで初期化する。
  *
  * 検証・認可・監査（created_by/updated_by = 操作教員）・RLS・前営業日計算は Server Action 側が担う。
  */
@@ -23,6 +29,8 @@ export function CopyPreviousDayButton({
   hasExistingData: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -44,8 +52,11 @@ export function CopyPreviousDayButton({
           ok: true,
           text: `前営業日（${res.data.fromDate}）を複製しました（予定 ${schedules} / 連絡 ${notices} / 提出物 ${assignments}）。`,
         });
-        // 複製後データで各エディタ（initial 値）を再初期化する。
-        router.refresh();
+        // `?copied=<nonce>` を付けて再ナビゲート → page.tsx がエディタ key に含めて**再マウント**し、複製後
+        // データで初期化する（router.refresh だけでは useState(initial…) が残り画面に反映されない。docstring 参照）。
+        const params = new URLSearchParams(searchParams);
+        params.set("copied", String(Date.now()));
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       } else {
         setMsg({ ok: false, text: res.error.message });
       }

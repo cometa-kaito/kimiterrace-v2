@@ -35,6 +35,10 @@ import { getClassSchedule } from "./schedule-queries";
  *   常に置換する（呼ぶ側が確認済みの前提）。
  *
  * 3 セクションを 1 tx でまとめて書くので部分適用が起きない（全て成功 or 例外で全ロールバック）。
+ *
+ * 注: `toScopedEditorActor(user)` を targetSchoolId 無しで呼ぶため **system_admin は常に forbidden**（fail-closed・
+ * 意図的）。前日コピーは教員の日常操作で /ops 横断経路は不要（必要になったら setScheduleAction と同様に
+ * 末尾引数で開ける）。
  */
 export async function copyPreviousDayAction(
   classId: unknown,

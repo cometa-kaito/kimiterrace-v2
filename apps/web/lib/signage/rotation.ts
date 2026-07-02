@@ -174,6 +174,8 @@ export function signageScheduleDates(fromDate: string, count: number): string[] 
  * ロジックを共有する（独自実装しない）。
  *   - 月 → 前営業日 = 金 / 火→月 / … / 日→金・土→金。
  * 暦日演算は UTC 上で行い端末 TZ に依存しない。不正な日付文字列は `null`（呼び出し側で fail-soft）。
+ * ⚠ 「営業日」は**土日スキップのみで祝日は考慮しない**（`signageScheduleDates` と同一制約で一貫）。祝日明けは
+ * 祝日（大抵は全空）を指すが、呼び出し側の「全空なら複製しない」安全弁で fail-soft に落ちる。
  */
 export function previousBusinessDay(fromDate: string): string | null {
   const parts = fromDate.split("-");
