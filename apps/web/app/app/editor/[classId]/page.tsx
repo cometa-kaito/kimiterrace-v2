@@ -17,6 +17,7 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
+import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
 import {
   EditorDateCalendar,
   SELECTED_DAY_ANCHOR_ID,
@@ -207,6 +208,17 @@ export default async function ClassEditorPage({
       <p id={TODAY_ANCHOR_ID} style={todayHeadingStyle}>
         今日の編集 — {jpDate(today)}
       </p>
+      {/* 前日コピー（F3・editor-input-tiers-and-signage-paging.md §7）: 前営業日の予定/連絡/提出物を今日へ
+          複製する。既存入力があれば上書き確認（ボタン側）。盤面エディタの直上に置く。 */}
+      <div style={{ margin: "0 0 1rem" }}>
+        <CopyPreviousDayButton
+          classId={classId}
+          date={date}
+          hasExistingData={
+            schedule.items.length > 0 || notices.items.length > 0 || assignments.items.length > 0
+          }
+        />
+      </div>
       <WysiwygBoardEditor
         key={date}
         classId={classId}
@@ -252,6 +264,18 @@ export default async function ClassEditorPage({
       {plan && planData ? (
         <section id={SELECTED_DAY_ANCHOR_ID} aria-label={`選択した日の編集 ${jpDate(plan)}`}>
           <p style={futureHeadingStyle}>選択した日の編集 — {jpDate(plan)}</p>
+          {/* 選択した日にも前日コピーを置く（先の日の計画を前営業日から立ち上げる用途・F3）。 */}
+          <div style={{ margin: "0 0 1rem" }}>
+            <CopyPreviousDayButton
+              classId={classId}
+              date={plan}
+              hasExistingData={
+                planData.schedule.items.length > 0 ||
+                planData.notices.items.length > 0 ||
+                planData.assignments.items.length > 0
+              }
+            />
+          </div>
           <WysiwygBoardEditor
             key={plan}
             showBoard={false}

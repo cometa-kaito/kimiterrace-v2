@@ -10,9 +10,30 @@ import {
   jstDateString,
   nextIndex,
   parseSignageDate,
+  previousBusinessDay,
   signageScheduleDates,
 } from "@/lib/signage/rotation";
 import { describe, expect, it } from "vitest";
+
+describe("previousBusinessDay（前日コピー F3 の前営業日）", () => {
+  // 2026-06-05 金 / 06-06 土 / 06-07 日 / 06-08 月 / 06-09 火（signageScheduleDates と同じ暦アンカー）。
+  it("平日は直前の平日を返す（火→月・金→木）", () => {
+    expect(previousBusinessDay("2026-06-09")).toBe("2026-06-08");
+    expect(previousBusinessDay("2026-06-05")).toBe("2026-06-04");
+  });
+  it("月曜は金曜を返す（週末をスキップ）", () => {
+    expect(previousBusinessDay("2026-06-08")).toBe("2026-06-05");
+  });
+  it("土日は直前の金曜を返す", () => {
+    expect(previousBusinessDay("2026-06-06")).toBe("2026-06-05");
+    expect(previousBusinessDay("2026-06-07")).toBe("2026-06-05");
+  });
+  it("不正な日付は null（fail-soft）", () => {
+    expect(previousBusinessDay("2026-13-40")).toBeNull();
+    expect(previousBusinessDay("bad")).toBeNull();
+    expect(previousBusinessDay("2026-02-30")).toBeNull();
+  });
+});
 
 describe("signageScheduleDates", () => {
   // 2026-06-06 は土曜 / 06-05 金 / 06-03 水 / 06-08 月 / 06-09 火 / 12-31 木 (基準曜日)。

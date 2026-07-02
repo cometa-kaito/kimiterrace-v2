@@ -1,0 +1,63 @@
+"use client";
+
+import { copyPreviousDayAction } from "@/lib/editor/copy-day-actions";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { errorTextStyle, savedTextStyle, secondaryBtnStyle } from "./editor-styles";
+
+/**
+ * 前日コピー（F3・editor-input-tiers-and-signage-paging.md §7）。前営業日の 予定 / 連絡 / 提出物 を対象日へ
+ * 複製する（置換保存・{@link copyPreviousDayAction}）。対象日に既存入力があるときは**上書き確認ダイアログ必須**。
+ * 成功後は `router.refresh()` で各エディタを複製後データで再初期化する。
+ *
+ * 検証・認可・監査（created_by/updated_by = 操作教員）・RLS・前営業日計算は Server Action 側が担う。
+ */
+export function CopyPreviousDayButton({
+  classId,
+  date,
+  hasExistingData,
+}: {
+  classId: string;
+  date: string;
+  /** 対象日に既に予定/連絡/提出物のいずれかがあるか。true のとき上書き確認を挟む。 */
+  hasExistingData: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  function run() {
+    // 既存入力があるときは置換の上書き確認を必須にする（誤操作で当日入力を消さない）。
+    if (
+      hasExistingData &&
+      !window.confirm(
+        "対象日にすでに入力があります。前営業日の予定・連絡・提出物で置き換えますか？（現在の入力は上書きされます）",
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const res = await copyPreviousDayAction(classId, date);
+      if (res.ok) {
+        const { schedules, notices, assignments } = res.data.counts;
+        setMsg({
+          ok: true,
+          text: `前営業日（${res.data.fromDate}）を複製しました（予定 ${schedules} / 連絡 ${notices} / 提出物 ${assignments}）。`,
+        });
+        // 複製後データで各エディタ（initial 値）を再初期化する。
+        router.refresh();
+      } else {
+        setMsg({ ok: false, text: res.error.message });
+      }
+    });
+  }
+
+  return (
+    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+      <button type="button" onClick={run} disabled={pending} style={secondaryBtnStyle}>
+        {pending ? "コピー中…" : "前日をコピー"}
+      </button>
+      {msg ? <output style={msg.ok ? savedTextStyle : errorTextStyle}>{msg.text}</output> : null}
+    </div>
+  );
+}

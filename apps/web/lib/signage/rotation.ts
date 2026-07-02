@@ -167,6 +167,42 @@ export function signageScheduleDates(fromDate: string, count: number): string[] 
   return out;
 }
 
+/**
+ * `fromDate`（YYYY-MM-DD）の**前営業日**（直近の平日・土日スキップ）を返す。前日コピー（F3・
+ * editor-input-tiers-and-signage-paging.md §7）が「前営業日の予定/連絡/提出物を対象日へ複製」するために使う。
+ * 盤面の「次の N 平日」（{@link signageScheduleDates}）の**後ろ向き版**で、同じ「土日スキップ・UTC 暦日演算」
+ * ロジックを共有する（独自実装しない）。
+ *   - 月 → 前営業日 = 金 / 火→月 / … / 日→金・土→金。
+ * 暦日演算は UTC 上で行い端末 TZ に依存しない。不正な日付文字列は `null`（呼び出し側で fail-soft）。
+ */
+export function previousBusinessDay(fromDate: string): string | null {
+  const parts = fromDate.split("-");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  // 実在暦日でなければ null（signageScheduleDates と同じ round-trip 検証）。
+  if (!(base.getUTCFullYear() === y && base.getUTCMonth() === m - 1 && base.getUTCDate() === d)) {
+    return null;
+  }
+  let cursor = base.getTime() - 86_400_000; // 前日から後ろ向きに
+  // 平日に当たるまで戻る（最大 7 反復で必ず平日に到達＝暴走防止）。
+  for (let i = 0; i < 7; i++) {
+    const dow = new Date(cursor).getUTCDay(); // 0=日, 6=土
+    if (dow !== 0 && dow !== 6) {
+      const dt = new Date(cursor);
+      const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(dt.getUTCDate()).padStart(2, "0");
+      return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+    }
+    cursor -= 86_400_000;
+  }
+  return null;
+}
+
 /** `YYYY-MM-DD` のフォーマット。実在暦日かは {@link parseSignageDate} が round-trip で別途検証する。 */
 const SIGNAGE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
