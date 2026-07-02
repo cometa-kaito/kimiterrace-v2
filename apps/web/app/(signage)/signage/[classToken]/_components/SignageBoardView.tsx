@@ -5,6 +5,7 @@ import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   type SignageDesignPattern,
 } from "@/lib/signage/design-pattern";
+import { SIGNAGE_PAGE_DWELL_MS, boardPageSize, chunkIntoPages } from "@/lib/signage/board-paging";
 import { blockRowCapacity } from "@/lib/signage/pattern-blocks";
 import {
   type SignageScheduleRow,
@@ -19,6 +20,7 @@ import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { SignageWeather, WeatherDay, WeatherIcon } from "@/lib/signage/weather";
 import type { SignageWeatherWarning } from "@/lib/signage/weather-warnings";
 import { AutoScroll } from "./AutoScroll";
+import { BoardPager } from "./BoardPager";
 import { NewsCarousel } from "./NewsCarousel";
 import {
   BoardRegionEditButton,
@@ -59,50 +61,34 @@ import styles from "./signage.module.css";
  */
 
 /**
- * **汎用オートスクロールの viewport + track**（純 CSS・hooks なし）。pattern3 が先行採用した「固定枠＋超過は縦
- * スクロール」を全パターン共通化したもの（`signage.module.css` §11a）。`totalRows > visibleRows` の時だけ track に
- * `.autoScrollActive` を付け、超過分を窓内でスクロールさせる。`--visible-rows`（規定行数）と超過時の `--total-rows`
- * （実行数）を**要素 inline**で渡し、CSS 側が距離（cqh）と所要時間を算出する（単一ソース＝CSS にハードコードしない）。
+ * **固定枠ビューポート**（純 CSS・hooks なし・`signage.module.css` §11a）。`--visible-rows`（規定行数＝単一ソース
+ * `blockRowCapacity`）を**要素 inline**で渡した size container で、各行の固定高（`100cqh/可視数`）の基準を与える。
  *
- * - **region landmark を増やさない**: viewport / track は素の `<div>`（盤面 region ドリフトガード不変）。
- * - **hooks を持たない**ので `SignageBoardView` の server 描画可能性（`ScaledSignageBoard`）は不変。
- * - 各行（item）は呼び出し側が既存 item クラスに `styles.autoScrollItem` を併設して固定高（`100cqh/可視数`）にする。
+ * 旧「超過時は track を CSS 縦スクロール」（#1179 の `.autoScrollActive` アニメ）は **F1 ページングへ置換**した
+ * （オーナー確定 2026-07-02・editor-input-tiers-and-signage-paging.md）。超過時は呼び出し側が本ビューポート内に
+ * {@link BoardPager}（滞留 8 秒のページ切替・§10b）を差し、未超過は従来どおり静的 track を直に置く＝視覚回帰なし。
  *
- * `as` で viewport/track のタグを差し替えられる（連絡・呼び出し・来校者は track を `<ul>` にして既存リスト体裁を保つ）。
+ * - **region landmark を増やさない**: viewport は素の `<div>`（盤面 region ドリフトガード不変）。
+ * - **hooks を持たない**ので `SignageBoardView` の server 描画可能性（`ScaledSignageBoard`）は不変
+ *   （ページ切替のタイマーは client island 側＝`BoardPager` に閉じる）。
+ * - 各行（item）は呼び出し側が既存 item クラスに `styles.autoScrollItem` を併設して固定高にする。
  */
-function AutoScrollViewport({
+function FixedRowsViewport({
   visibleRows,
-  totalRows,
   viewportClassName,
-  trackClassName,
-  trackAs = "div",
   children,
 }: {
   visibleRows: number;
-  totalRows: number;
   viewportClassName?: string;
-  trackClassName?: string;
-  /** track のタグ。連絡/呼び出し/来校者は `"ul"`（既存のリスト体裁を保つ）、予定は既定 `"div"`。 */
-  trackAs?: "div" | "ul";
   children: React.ReactNode;
 }) {
-  const overflow = totalRows > visibleRows;
-  const Track = trackAs;
   return (
     <div
       className={`${styles.autoScroll} ${viewportClassName ?? ""}`}
-      // 可視数（規定行数）を CSS 変数で渡す。item 高（100cqh/可視数）と超過時のスクロール距離の基準。
+      // 可視数（規定行数）を CSS 変数で渡す。item 高（100cqh/可視数）の基準。
       style={{ "--visible-rows": String(visibleRows) } as React.CSSProperties}
     >
-      <Track
-        className={`${trackClassName ?? ""} ${styles.autoScrollTrack} ${overflow ? styles.autoScrollActive : ""}`}
-        // 超過時のみ実行数を渡す（距離・所要を CSS calc で算出）。未超過は原点で静止。
-        style={
-          overflow ? ({ "--total-rows": String(totalRows) } as React.CSSProperties) : undefined
-        }
-      >
-        {children}
-      </Track>
+      {children}
     </div>
   );
 }
@@ -1618,9 +1604,10 @@ function ScheduleGrid({
 
 /**
  * 予定の 1 日分（1 列）。日付ヘッダー（今日は黒地強調）に天気を横並びで表示。規定 5 行ぶんの固定枠で見せ、
- * 超過分（6 コマ以上の日）は**汎用オートスクロール**（{@link AutoScrollViewport}）で順送りする。未超過（≤5）は
- * 5 行ぶんを空きプレースホルダーで埋め、**空き行を「空行」として数えて**枠と列の高さを保つ。可視行数は単一ソース
- * `blockRowCapacity("pattern1","schedule")`（=5）。旧 `nth-of-type(n+6){display:none}` の「6 行目以降を隠す」は撤廃。
+ * 超過分（6 コマ以上の日）は **F1 ページング**（{@link BoardPager}・滞留 8 秒）で全コマを順に見せる。未超過（≤5）
+ * は従来どおり静的（ページャ無し）。各ページも可視数まで空きプレースホルダーで埋め、**空き行を「空行」として
+ * 数えて**枠と列の高さを保つ。可視行数は単一ソース `blockRowCapacity("pattern1","schedule")`（=5）。
+ * 旧 `nth-of-type(n+6){display:none}` の「6 行目以降を隠す」も旧 CSS 連続スクロール（#1179）も使わない。
  *
  * **空き行の罫線（点線）は出さない**（2026-06-24 ユーザー確定）。以前は罫線プレースホルダーが「-----」に見えるのを
  * 嫌って `rows` が空の列だけプレースホルダーを省いていたが、罫線自体を CSS（`.schedulePlaceholder` の
@@ -1638,10 +1625,29 @@ function ScheduleColumn({
 }) {
   const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
   const visibleRows = blockRowCapacity("pattern1", "schedule");
-  // 未超過（≤可視数）は可視数まで空きプレースホルダーで埋める＝空き行を「空行」として数え、枠と列高を保つ。
-  // 超過時（>可視数）は全行をスクロールで見せる（埋めない）。空き行の点線罫線は CSS（.schedulePlaceholder の
-  // border-bottom: none）で消しているので、0 件の列を可視数ぶん埋めても「-----」は出ない（2026-06-24 ユーザー確定）。
-  const placeholders = Math.max(0, visibleRows - rows.length);
+  const pages = chunkIntoPages(rows, boardPageSize("pattern1", "schedule") ?? visibleRows);
+  // 各ページを可視数まで空きプレースホルダーで埋める＝空き行を「空行」として数え、枠と列高を保つ（最終ページも
+  // 同じ）。空き行の点線罫線は CSS（.schedulePlaceholder の border-bottom: none）で消しているので、0 件の列を
+  // 可視数ぶん埋めても「-----」は出ない（2026-06-24 ユーザー確定）。
+  const pageTrack = (pageRows: readonly SignageScheduleRow[]) => (
+    <div className={styles.scheduleScrollArea}>
+      {pageRows.map((row, i) => (
+        // 予定は再並びしない静的リスト。index key で十分。
+        // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+        <ScheduleRow key={i} row={row} />
+      ))}
+      {Array.from({ length: Math.max(0, visibleRows - pageRows.length) }, (_, i) => {
+        // 空きスロット = 高さだけ確保する固定数のプレースホルダー（固定高は .autoScrollItem・罫線は CSS で非表示）。
+        const cls = `${styles.scheduleListItem} ${styles.schedulePlaceholder} ${styles.autoScrollItem}`;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+          <div key={`ph-${i}`} className={cls}>
+            &nbsp;
+          </div>
+        );
+      })}
+    </div>
+  );
   return (
     <div className={`${styles.scheduleDayColumn} ${isToday ? styles.isToday : ""}`}>
       <div className={styles.scheduleDateHeader}>
@@ -1657,27 +1663,13 @@ function ScheduleColumn({
           </span>
         ) : null}
       </div>
-      <AutoScrollViewport
-        visibleRows={visibleRows}
-        totalRows={rows.length}
-        trackClassName={styles.scheduleScrollArea}
-      >
-        {rows.map((row, i) => (
-          // 予定は再並びしない静的リスト。index key で十分。
-          // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-          <ScheduleRow key={i} row={row} />
-        ))}
-        {Array.from({ length: placeholders }, (_, i) => {
-          // 空きスロット = 高さだけ確保する固定数のプレースホルダー（固定高は .autoScrollItem・罫線は CSS で非表示）。
-          const cls = `${styles.scheduleListItem} ${styles.schedulePlaceholder} ${styles.autoScrollItem}`;
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-            <div key={`ph-${i}`} className={cls}>
-              &nbsp;
-            </div>
-          );
-        })}
-      </AutoScrollViewport>
+      <FixedRowsViewport visibleRows={visibleRows}>
+        {pages.length > 1 ? (
+          <BoardPager dwellMs={SIGNAGE_PAGE_DWELL_MS} pages={pages.map(pageTrack)} />
+        ) : (
+          pageTrack(pages[0] ?? [])
+        )}
+      </FixedRowsViewport>
     </div>
   );
 }
@@ -1716,43 +1708,47 @@ function NoticeList({
   const lines = section.items.map((item) => formatSignageItem("notices", item));
   // pattern1（既定）の固定枠＝規定行数の単一ソース。pattern4（scroll）はフロー＋JS AutoScroll で枠を持たない。
   const visibleRows = blockRowCapacity("pattern1", "notice");
-  // フロー（scroll）はプレースホルダーで詰めない（自然高さで積みオートスクロールに委ねる）。未超過（≤可視数）の
-  // pattern1 のみ可視数まで空行で埋め、従来の「5 行ぶん用意されている」見た目を保つ（超過時は埋めない）。
-  const placeholders = scroll ? 0 : Math.max(0, visibleRows - lines.length);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "notices",
     styles.card,
     "連絡",
     editRegions,
   );
-  const items =
-    lines.length === 0 ? (
-      <li className={scroll ? styles.empty : `${styles.empty} ${styles.autoScrollItem}`}>
-        連絡事項はありません
+  /** 連絡 1 行の li（グリッド＝固定行高 / フロー＝自然高さは `fixedHeight` で分岐）。 */
+  const noticeLine = (
+    line: ReturnType<typeof formatSignageItem>,
+    i: number,
+    fixedHeight: boolean,
+  ) => {
+    const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""} ${
+      fixedHeight ? styles.autoScrollItem : ""
+    }`;
+    return (
+      <li key={i} className={cls}>
+        {line.emphasis ? "【重要】" : ""}
+        {line.text}
       </li>
-    ) : (
-      <>
-        {lines.map((line, i) => {
-          // pattern1（固定枠）は各 li に .autoScrollItem を併設して固定行高にする。pattern4 のフローは自然高さ。
-          const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""} ${
-            scroll ? "" : styles.autoScrollItem
-          }`;
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-            <li key={i} className={cls}>
-              {line.emphasis ? "【重要】" : ""}
-              {line.text}
-            </li>
-          );
-        })}
-        {Array.from({ length: placeholders }, (_, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-          <li key={`ph-${i}`} className={`${styles.noticePlaceholder} ${styles.autoScrollItem}`}>
-            &nbsp;
-          </li>
-        ))}
-      </>
     );
+  };
+  // pattern1（グリッド）: ページごとに可視数まで空行プレースホルダーで埋め、「5 行ぶん用意されている」見た目を保つ。
+  const pageTrack = (pageLines: readonly ReturnType<typeof formatSignageItem>[]) => (
+    <ul className={styles.listGroup}>
+      {pageLines.length === 0 ? (
+        <li className={`${styles.empty} ${styles.autoScrollItem}`}>連絡事項はありません</li>
+      ) : (
+        <>
+          {pageLines.map((line, i) => noticeLine(line, i, true))}
+          {Array.from({ length: Math.max(0, visibleRows - pageLines.length) }, (_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+            <li key={`ph-${i}`} className={`${styles.noticePlaceholder} ${styles.autoScrollItem}`}>
+              &nbsp;
+            </li>
+          ))}
+        </>
+      )}
+    </ul>
+  );
+  const pages = chunkIntoPages(lines, boardPageSize("pattern1", "notice") ?? visibleRows);
   return (
     <section {...sectionProps}>
       {button}
@@ -1765,20 +1761,26 @@ function NoticeList({
         <SourceBadge source={section.source} />
       </h2>
       {scroll ? (
-        // pattern4: フロー（自然高さ）＋JS AutoScroll で全連絡を切らずに順送り（無改修）。
+        // pattern4: フロー（自然高さ）＋JS AutoScroll で全連絡を切らずに順送り（無改修）。長文を折り返して全文
+        // 見せる用途のため件数ベースのページングは適さない（固定件数/ページでは 1 ページ内で再クリップしうる）。
         <AutoScroll play={!editRegions}>
-          <ul className={styles.noticeFlow}>{items}</ul>
+          <ul className={styles.noticeFlow}>
+            {lines.length === 0 ? (
+              <li className={styles.empty}>連絡事項はありません</li>
+            ) : (
+              lines.map((line, i) => noticeLine(line, i, false))
+            )}
+          </ul>
         </AutoScroll>
       ) : (
-        // pattern1（既定・グリッド）: 規定 5 行の固定枠＋超過は汎用 CSS オートスクロール（§11a）で順送り。
-        <AutoScrollViewport
-          visibleRows={visibleRows}
-          totalRows={lines.length}
-          trackAs="ul"
-          trackClassName={styles.listGroup}
-        >
-          {items}
-        </AutoScrollViewport>
+        // pattern1（既定・グリッド）: 規定 5 行の固定枠。超過は F1 ページング（滞留 8 秒・§10b）で全行を順に見せる。
+        <FixedRowsViewport visibleRows={visibleRows}>
+          {pages.length > 1 ? (
+            <BoardPager dwellMs={SIGNAGE_PAGE_DWELL_MS} pages={pages.map(pageTrack)} />
+          ) : (
+            pageTrack(pages[0] ?? [])
+          )}
+        </FixedRowsViewport>
       )}
     </section>
   );
@@ -1797,17 +1799,68 @@ function AssignmentTable({
   const rows = section.items
     .map((item) => parseAssignmentRow(item, today))
     .filter((r): r is NonNullable<typeof r> => r !== null);
-  // 提出物は `<table>` ＋ sticky thead のため、track を translateY で動かす汎用オートスクロール（§11a）は
-  // ヘッダーが追従せず破綻する。よって**今回は自動スクロール対象外**とし、規定行数（=5）を超えた稀な分は従来
-  // どおり CSS の `.taskTable tbody>tr:nth-of-type(n+6){display:none}` で隠す（実運用で 6 件超は稀）。可視行数の
-  // 単一ソースだけは `blockRowCapacity` に寄せて MIN_ROWS のハードコードを排す（プレースホルダーで 5 行を保つ）。
+  // 提出物は `<table>` ＋ sticky thead のため track を動かす縦スクロールは破綻するが、**F1 ページングなら各ページが
+  // 完全な `<table>`（thead 込み）** になるため相性問題が無い。旧 CSS の `.taskTable tbody>tr:nth-of-type(n+6)
+  // {display:none}`（6 件目以降を黙って隠す＝最後まで残っていた silent truncation）は撤廃し、超過分はページ切替で
+  // 全件見せる。可視行数の単一ソースは従来どおり `blockRowCapacity`（プレースホルダーで 5 行を保つ）。
   const visibleRows = blockRowCapacity("pattern1", "assignment");
-  const placeholders = Math.max(0, visibleRows - rows.length);
+  const pages = chunkIntoPages(rows, boardPageSize("pattern1", "assignment") ?? visibleRows);
   const { sectionProps, hideHeading, button } = regionEditProps(
     "assignments",
     styles.card,
     "提出物",
     editRegions,
+  );
+  /** 1 ページぶんの完全なテーブル（thead + 可視数まで placeholder 埋めした tbody）。 */
+  const pageTable = (pageRows: readonly NonNullable<ReturnType<typeof parseAssignmentRow>>[]) => (
+    <div className={styles.tableWrapper}>
+      <table className={styles.taskTable}>
+        <thead>
+          <tr>
+            <th>期限</th>
+            <th>科目</th>
+            <th>提出物</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pageRows.length === 0 ? (
+            <tr>
+              <td colSpan={3} className={styles.noAssignment}>
+                提出物はありません
+              </td>
+            </tr>
+          ) : (
+            <>
+              {pageRows.map((row, i) => (
+                // 提出物は再並びしない静的リスト。index key で十分。
+                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                <tr key={i} className={row.isOverdue ? styles.overdueRow : ""}>
+                  <td>
+                    <span
+                      className={
+                        row.isOverdue || row.isUrgent ? styles.daysUrgent : styles.daysLeft
+                      }
+                    >
+                      {row.daysLeft || row.deadlineShort}
+                    </span>
+                  </td>
+                  <td>{row.subject}</td>
+                  <td>{row.task}</td>
+                </tr>
+              ))}
+              {Array.from({ length: Math.max(0, visibleRows - pageRows.length) }, (_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
+                <tr key={`ph-${i}`} className={styles.assignmentPlaceholder}>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                  <td>&nbsp;</td>
+                </tr>
+              ))}
+            </>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
   return (
     <section {...sectionProps}>
@@ -1819,54 +1872,11 @@ function AssignmentTable({
         提出物
         <SourceBadge source={section.source} />
       </h2>
-      <div className={styles.tableWrapper}>
-        <table className={styles.taskTable}>
-          <thead>
-            <tr>
-              <th>期限</th>
-              <th>科目</th>
-              <th>提出物</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={3} className={styles.noAssignment}>
-                  提出物はありません
-                </td>
-              </tr>
-            ) : (
-              <>
-                {rows.map((row, i) => (
-                  // 提出物は再並びしない静的リスト。index key で十分。
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                  <tr key={i} className={row.isOverdue ? styles.overdueRow : ""}>
-                    <td>
-                      <span
-                        className={
-                          row.isOverdue || row.isUrgent ? styles.daysUrgent : styles.daysLeft
-                        }
-                      >
-                        {row.daysLeft || row.deadlineShort}
-                      </span>
-                    </td>
-                    <td>{row.subject}</td>
-                    <td>{row.task}</td>
-                  </tr>
-                ))}
-                {Array.from({ length: placeholders }, (_, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
-                  <tr key={`ph-${i}`} className={styles.assignmentPlaceholder}>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                    <td>&nbsp;</td>
-                  </tr>
-                ))}
-              </>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {pages.length > 1 ? (
+        <BoardPager dwellMs={SIGNAGE_PAGE_DWELL_MS} pages={pages.map(pageTable)} />
+      ) : (
+        pageTable(pages[0] ?? [])
+      )}
     </section>
   );
 }
