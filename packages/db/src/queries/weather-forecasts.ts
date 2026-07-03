@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, asc, eq, gte } from "drizzle-orm";
+import { type InferSelectModel, and, asc, eq, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { TenantTx } from "../client.js";
 import { weatherForecasts } from "../schema/weather-forecasts.js";
@@ -57,6 +57,16 @@ export type UpsertWeatherForecastInput = {
  * `createdBy` / `updatedBy` は null（システム = `system://weather-fetch`、auditColumns の「システム作成は
  * null」規約）。
  *
+ * ## ★ 気温は last-known-good を壊さない（`COALESCE(excluded, 既存)`, 2026-07-03 修正）
+ * JMA の **17:00 発表（夕方版）は「本日」の気温を予報から落とす**（本日の最高はもう過ぎたため）。
+ * 一方で本日の天気コード/テキスト/降水確率は夕方版にも残るので、パーサは本日を `days[]` に
+ * `tempMin=tempMax=null` で載せ、その upsert が **朝版で入った本日の実気温を null で上書き**してサイネージが
+ * 「—」表示になっていた（本バグの根治点）。気温だけは新値が null なら既存値を保持する
+ * （`COALESCE(excluded.temp_x, weather_forecasts.temp_x)`）ことで、朝版の本日気温が夕方版で消えない。
+ * 新しい非 null 値（正当な更新・訂正）は従来どおり上書きされる（COALESCE は excluded 非 null を優先）。
+ * 対象日が過ぎれば読取（`getForecastByArea` は fromDate 以降のみ）から外れるため stale 化の懸念は無い。
+ * 天気コード/テキスト/降水確率は「本日」でも常に供給されるため上書き保持は不要（気温に限定してスコープを絞る）。
+ *
  * @param tx system_admin（または system_service）コンテキストを張ったトランザクション。
  * @returns upsert 後の行 id。
  */
@@ -90,8 +100,10 @@ export async function upsertWeatherForecast(
         fetchedAt: input.fetchedAt ?? new Date(),
         weatherCode: input.weatherCode ?? null,
         weatherText: input.weatherText ?? null,
-        tempMin: input.tempMin ?? null,
-        tempMax: input.tempMax ?? null,
+        // ★ 気温は新値が null なら既存値を保持（JMA 夕方版が本日気温を落とすため。上記 doc 参照）。
+        // excluded.temp_x = 今回 INSERT 値（input.tempX ?? null）、weatherForecasts.temp_x = 既存行値。
+        tempMin: sql`coalesce(excluded.${sql.raw(weatherForecasts.tempMin.name)}, ${weatherForecasts.tempMin})`,
+        tempMax: sql`coalesce(excluded.${sql.raw(weatherForecasts.tempMax.name)}, ${weatherForecasts.tempMax})`,
         pop: input.pop ?? null,
         raw: rawValue,
         // ルール1: 再取得時刻として updated_at を明示更新（created_at / created_by は初回値を保つ）。

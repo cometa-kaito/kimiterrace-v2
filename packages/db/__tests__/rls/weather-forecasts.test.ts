@@ -205,6 +205,81 @@ describeOrSkip("RLS: F14 weather_forecasts (#128)", () => {
     }
   });
 
+  it("★ upsert: 気温だけ null の再取得は既存気温を保持する（JMA 夕方版の本日気温落ちで「—」にしない）", async () => {
+    // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
+    const client = postgres(url!, { max: 1, onnotice: () => {} });
+    const AREA_TEMP = "230000"; // 愛知県（fixture・他テストと非衝突の新規）
+    try {
+      const db = drizzle(client);
+      // 1) 朝版相当: 本日の実気温付きで INSERT（tempMin=21, tempMax=30）。
+      await withTenantContext(
+        db,
+        { role: "system_admin" },
+        (tx) =>
+          upsertWeatherForecast(tx, {
+            areaCode: AREA_TEMP,
+            forecastDate: TODAY,
+            weatherCode: "100",
+            weatherText: "晴れ",
+            tempMin: 21,
+            tempMax: 30,
+            pop: 10,
+          }),
+        { appRole: "kimiterrace_app" },
+      );
+
+      // 2) 夕方版相当: 同一対象日を天気のみ（tempMin/tempMax 未指定 = null）で再 upsert。
+      //    ★ 修正の核: 気温は null で上書きせず既存(21/30)を保持する。
+      await withTenantContext(
+        db,
+        { role: "system_admin" },
+        (tx) =>
+          upsertWeatherForecast(tx, {
+            areaCode: AREA_TEMP,
+            forecastDate: TODAY,
+            weatherCode: "111",
+            weatherText: "晴れ夕方くもり",
+            pop: 20,
+          }),
+        { appRole: "kimiterrace_app" },
+      );
+
+      await client.unsafe("RESET ROLE");
+      const afterNull = await client<
+        { temp_min: number | null; temp_max: number | null; weather_text: string; pop: number }[]
+      >`SELECT temp_min, temp_max, weather_text, pop FROM weather_forecasts WHERE area_code = ${AREA_TEMP}`;
+      expect(afterNull.length).toBe(1);
+      expect(afterNull[0].temp_min).toBe(21); // ★ 保持（null で潰さない）
+      expect(afterNull[0].temp_max).toBe(30); // ★ 保持
+      expect(afterNull[0].weather_text).toBe("晴れ夕方くもり"); // 天気は新値で上書き
+      expect(afterNull[0].pop).toBe(20); // 降水確率も新値で上書き
+
+      // 3) 新しい非 null 気温が来たら従来どおり上書きされる（正当な更新・訂正は反映）。
+      await withTenantContext(
+        db,
+        { role: "system_admin" },
+        (tx) =>
+          upsertWeatherForecast(tx, {
+            areaCode: AREA_TEMP,
+            forecastDate: TODAY,
+            tempMin: 23,
+            tempMax: 28,
+          }),
+        { appRole: "kimiterrace_app" },
+      );
+      await client.unsafe("RESET ROLE");
+      const afterUpdate = await client<
+        { temp_min: number | null; temp_max: number | null }[]
+      >`SELECT temp_min, temp_max FROM weather_forecasts WHERE area_code = ${AREA_TEMP}`;
+      expect(afterUpdate.length).toBe(1); // upsert なので 1 行のまま
+      expect(afterUpdate[0].temp_min).toBe(23); // 非 null は上書き
+      expect(afterUpdate[0].temp_max).toBe(28);
+    } finally {
+      await client.unsafe("RESET ROLE").catch(() => {});
+      await client.end({ timeout: 5 });
+    }
+  });
+
   it("getForecastByArea: 匿名サイネージ context で本日以降を昇順に読む（過去日を除外）", async () => {
     // biome-ignore lint/style/noNonNullAssertion: describeOrSkip で url 有り
     const client = postgres(url!, { max: 1, onnotice: () => {} });
