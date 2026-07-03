@@ -30,9 +30,10 @@ export const SIGNAGE_PAGE_DWELL_MS = 8_000;
 const PAGE_SIZE_OVERRIDES: Partial<
   Record<SignageDesignPattern, Partial<Record<SignageBlockKind, number>>>
 > = {
-  // pattern2 の呼び出し / 来校者は自然高さ（氏名 + 用件メタの 2 行アイテム）を切らないため 1 ページ 3 件に抑える
-  // （PR-1b の実測見積り）。予定は 1 行/コマなので既定（規定行数 5）のまま。
-  pattern2: { callout: 3, visitor: 3 },
+  // pattern2 は自然高さアイテムのため保守値: 呼び出し / 来校者（氏名 + 用件メタで 2 行）= 3、予定も
+  // 場所/対象者メタ付きコマは 2 行になる（Pattern2ScheduleRow）ため 4 に抑える（A2 Reviewer 指摘 Medium・
+  // 切り捨てゼロ優先。低すぎはページが増えるだけで安全）。実機で余裕を確認できたら上げ調整可。
+  pattern2: { schedule: 4, callout: 3, visitor: 3 },
 };
 
 /**

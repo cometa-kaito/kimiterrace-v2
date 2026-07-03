@@ -168,12 +168,11 @@ export function patternIncludesBlock(
  * 入力前から把握できる・2026-06-23 ユーザー要望）。これが本定数の**普遍的な consumer**（`WysiwygBoardEditor` /
  * `VisitorsCalloutsSection` が `blockRowCapacity(pattern, kind)` を引く）。
  *
- * 一方**盤面側**でこの値を「固定表示行数（規定枠＋超過は自動スクロール）」として引くのは現状 **pattern1 のみ**
- * （`SignageBoardView`）。pattern2 の盤面は #1179（PR-B）以降 **自然高さ＋JS AutoScroll** で固定枠を持たないため、
- * `blockRowCapacity("pattern2", …)` は**盤面の行キャップではなくエディタ事前生成だけ**を駆動する（pattern3 盤面は
- * 独自の `P3_*_VISIBLE_ROWS`、pattern4 連絡はフロー＋スクロールで、いずれも盤面側では本定数を引かない）。盤面側の旧
- * ハードコード（pattern1 の `MIN_ROWS` / pattern3 の `P3_*_VISIBLE_ROWS` / CSS の `--p3-*-visible`）を後続でこの
- * 定数へ寄せ二重管理を排す方針は維持する。
+ * **盤面側も本定数を引く**（A1/A2・F1 ページング）: pattern1 は固定枠の可視行数、pattern2/3 は
+ * `boardPageSize`（`board-paging.ts`・既定=本定数、自然高さブロックのみ保守的上書き）経由で **1 ページの件数**を
+ * 駆動する。つまり本定数を変えるとエディタの事前生成本数と**盤面のページ分割の両方**が変わる（pattern3 は CSS の
+ * `--p3-*-visible`＝1 コマ高の基準とも対・値を変えたら CSS も合わせる）。pattern4 連絡はフロー＋JS AutoScroll の
+ * まま＝盤面側では引かない（エディタ事前生成のみ）。旧 `P3_*_VISIBLE_ROWS` ローカル定数は A2 で本定数へ一元化済み。
  *
  * - `schedule` は **1 日（1 列）あたり**の行数（列数＝表示日数は別ソース `SIGNAGE_SCHEDULE_DAY_COUNT`）。
  * - `notice` / `assignment` / `callout` / `visitor` は件数。
@@ -187,8 +186,8 @@ export const PATTERN_BLOCK_ROW_CAPACITY: Record<
   Partial<Record<SignageBlockKind, number>>
 > = {
   pattern1: { schedule: 5, notice: 5, assignment: 5 },
-  // pattern2: 盤面は #1179 以降 自然高さ＋JS AutoScroll で固定枠を持たない＝この値はエディタの空行事前生成のみを
-  // 駆動する（盤面の行キャップではない）。同ブロック構成の pattern3 と件数を揃える。
+  // pattern2: エディタの空行事前生成と、盤面ページングの既定 1 ページ件数（boardPageSize が自然高さブロックのみ
+  // 保守的に下書き換え）を駆動する。同ブロック構成の pattern3 と件数を揃える。
   pattern2: { schedule: 5, callout: 5, visitor: 5 },
   pattern3: { schedule: 5, callout: 5, visitor: 5 },
   pattern4: { notice: 5 },
