@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "ea93c5f" # 2026-06-20: news_items.summary 列追加（#1087・ALTER TABLE ADD COLUMN IF NOT EXISTS summary text・additive/後方互換・RLS監査不変・resolve_magic_link 無関係）。0028-0033（news/weather/heat/snippets/calendar/air_quality・ADR-043/044/045/046）も同梱し migrate-runner が未適用分のみ冪等適用。prod Job 実行は人間専任ゲート（summary 列は適用済・prod 実 Job image=ea93c5f）
+  migrate_image_tag = "0ed01fd" # class_weekly_schedules 新テーブル+RLS 0036（#1205 F5 週次ベース時間割・additive・resolve_magic_link 無関係）＋未適用だった 0034/0035 sort_order を冪等適用。prod Job 実行=人間（2026-07-03 rp8ql 成功・applied 0034/0035/0036 確認済）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。prod 実 Job image=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "ad8a27f" # main(ad8a27f)へ復帰=7/1 の旧ブランチ 3fa8091 巻き戻り解消 + 盤面ページング#1204 + 前日コピー#1206（schema #1205 の 0036 は prod 未適用=web は新テーブル未参照で安全・人間専任 skill apply-migration 待ち・secret 無変更・疎通 health200/login private,no-cache）
+  web_image_tag = "9deb1b4" # 盤面ページング全パターン#1209 + 前週コピー#1208 + F5週次時間割#1210（schema 0036 は事前に人間適用済＝migrate Job rp8ql・secret 無変更・疎通 health200/login private,no-cache。apply 中の一時 DNS 断で state 保存が遅延→force-unlock+state push で復旧済）
 }
 
 module "network" {
