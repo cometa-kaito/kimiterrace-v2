@@ -27,6 +27,20 @@ export type ClassSchedule = {
   items: ScheduleItem[];
 };
 
+/**
+ * クラス名を取得しつつ自校で可視かを確認する（別テナント / 不存在は null＝呼び出し側で 404 / invalid）。
+ * 前週コピー（C2）等、日付データを引く前にクラス可視性だけ 1 度確かめたい呼び出し側が使う。
+ * RLS（ルール2）: `withSession` の自校 tx 内で呼ぶ（`classes` の SELECT は自校に限定される）。
+ */
+export async function getClassName(tx: TenantTx, classId: string): Promise<string | null> {
+  const [cls] = await tx
+    .select({ name: classes.name })
+    .from(classes)
+    .where(eq(classes.id, classId))
+    .limit(1);
+  return cls?.name ?? null;
+}
+
 export async function getClassSchedule(
   tx: TenantTx,
   classId: string,
