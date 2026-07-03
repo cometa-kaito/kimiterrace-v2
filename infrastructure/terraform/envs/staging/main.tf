@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "ea93c5f" # 2026-06-20: news_items.summary 列追加（#1087・ALTER TABLE ADD COLUMN IF NOT EXISTS summary text・additive/後方互換・RLS監査不変）。0029-0033（weather/heat/snippets/calendar/air_quality・ADR-044/045/046）+0028 news も同梱し migrate-runner が未適用分のみ冪等適用。staging Job 適用済（staging 実 Job image=ea93c5f）
+  migrate_image_tag = "ad8a27f" # class_weekly_schedules 新テーブル+RLS 0036（#1205 F5 週次ベース時間割・additive・drizzle 20260702121657+手書き0036）。migrate-runner が未適用分のみ冪等適用（0034/0035 sort_order 含む）。prod の適用は人間専任（skill apply-migration）
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "66924d6" # staging deploy 66924d6（#1188 教員ログイン学校選択廃止=PWで学校自動判定 ＋ 中間merge #1184/#1185・schema/secret 無変更・疎通 health200/login private,no-cache）
+  web_image_tag = "ad8a27f" # 盤面ページング#1204 + F5 DB#1205 + 前日コピー#1206（schema 変更あり=0036 を migrate Job ad8a27f で適用済・secret 無変更・疎通 health200/login private,no-cache）
 }
 
 module "network" {
