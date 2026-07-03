@@ -6,6 +6,8 @@ import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
+import { seedSchedulesForDate } from "@/lib/editor/weekly-timetable-core";
+import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { resolveDesignPattern } from "@/lib/signage/design-pattern";
@@ -81,6 +83,9 @@ export default async function ClassEditorPage({
     // class>grade>dept>school のマージ結果なので、編集フォーム用にはこちらを別途引く（用途が違う）。
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
+    // 週次ベース時間割（F5・コピーオンライト）: 対象日の予定が空のとき、その曜日の基本時間割をエディタの初期値に
+    // seed するために引く（自校 RLS・同一 tx）。テンプレ未登録は空。盤面の表示時マージはしない（seed は編集初期値のみ）。
+    const weeklyTimetable = (await getClassWeeklyTimetable(tx, classId))?.timetable ?? {};
     // 「このクラスのサイネージを開く」導線兼**端末別デザインパターン解決**用に、当該クラスの TV デバイスの公開
     // サイネージ URL を引く（同一 tx・RLS 自校限定）。未設置クラスは undefined → リンクを出さない（死リンク防止）。
     const liveSignageUrl = await getClassSignageUrl(tx, classId);
@@ -142,6 +147,7 @@ export default async function ClassEditorPage({
       liveSignageUrl,
       contentDates,
       planData,
+      weeklyTimetable,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -159,7 +165,16 @@ export default async function ClassEditorPage({
     liveSignageUrl,
     contentDates,
     planData,
+    weeklyTimetable,
   } = data;
+
+  // コピーオンライト seed（F5・設計書 §3 F5 / §6.5）: 対象日の予定が**空 かつ 平日**なら、その曜日の基本時間割を
+  // エディタの初期値にする（教員は確認・差分編集して保存＝daily_data へ materialize。**保存前の daily_data には
+  // 書かない**）。既に入力がある日・土日はそのまま（seed しない）。盤面の表示は daily_data のみ（seed は編集フォームの
+  // 初期値だけ・表示時マージはしない）。上（今日）と下（選択した日）で同じ純関数を使う。
+  const todaySeed = seedSchedulesForDate(date, schedule.items, weeklyTimetable);
+  const planSeed =
+    plan && planData ? seedSchedulesForDate(plan, planData.schedule.items, weeklyTimetable) : null;
 
   // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass`
   // の出力（`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。盤面は
@@ -225,12 +240,15 @@ export default async function ClassEditorPage({
           }
         />
       </div>
+      {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定＝daily_data へ
+          materialize されることを伝える）。 */}
+      {todaySeed.seeded ? <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p> : null}
       <WysiwygBoardEditor
         key={`${date}:${copied}`}
         classId={classId}
         date={date}
         base={boardBase}
-        initialSchedules={schedule.items}
+        initialSchedules={todaySeed.items}
         initialNotices={notices.items}
         initialAssignments={assignments.items}
       />
@@ -257,6 +275,12 @@ export default async function ClassEditorPage({
 
       {/* 中＝カレンダー。先の日付を選ぶと下の「選択した日の編集」に入る（?plan= ルーティング・上の今日は動かさない）。
           内容のある日は点で俯瞰（要望 2026-06-23: 今日と未来を完全に別セクションに分ける）。 */}
+      {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。 */}
+      <p style={{ margin: "1.25rem 0 0.5rem" }}>
+        <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
+          📅 基本時間割を設定 →
+        </Link>
+      </p>
       <EditorDateCalendar
         classId={classId}
         today={today}
@@ -290,13 +314,17 @@ export default async function ClassEditorPage({
               }
             />
           </div>
+          {/* 基本時間割からの seed 注記（F5・上の今日と同じ出し分け）。 */}
+          {planSeed?.seeded ? (
+            <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p>
+          ) : null}
           <WysiwygBoardEditor
             key={`${plan}:${copied}`}
             showBoard={false}
             classId={classId}
             date={plan}
             base={planData.board}
-            initialSchedules={planData.schedule.items}
+            initialSchedules={planSeed?.items ?? planData.schedule.items}
             initialNotices={planData.notices.items}
             initialAssignments={planData.assignments.items}
           />
@@ -353,7 +381,9 @@ export default async function ClassEditorPage({
           targetId={classId}
           date={date}
           initialDraft={{
-            schedules: schedule.items,
+            // 盤面エディタと同じ seed 済み初期値（F5）。AI の下書きが seed を知らないと、per-section 置換保存で
+            // seed 内容を消しうるため一致させる。
+            schedules: todaySeed.items,
             notices: notices.items,
             assignments: assignments.items,
           }}
@@ -417,6 +447,12 @@ const futureHeadingStyle: React.CSSProperties = {
   fontWeight: 600,
   color: tokens.color.primaryHover,
   margin: "1.5rem 0 0.7rem",
+};
+// 基本時間割からの seed 注記（F5・コピーオンライト）。控えめな補足テキスト（既存の xs/muted と同じ視覚言語）。
+const seedNoteStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.xs,
+  color: tokens.color.muted,
+  margin: "0 0 0.5rem",
 };
 
 // 編集中の日付の和暦風ラベル（"2026年6月23日（火）"）。曜日は日付から決まり today 非依存＝SSR/CSR 一致。
