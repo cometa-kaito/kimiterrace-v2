@@ -1,5 +1,5 @@
 import type { ScheduleItem, Validated } from "./schedule-core";
-import { validateScheduleItems } from "./schedule-core";
+import { isValidDate, validateScheduleItems } from "./schedule-core";
 
 /**
  * 週次ベース時間割（F5・editor-input-tiers-and-signage-paging.md §3 F5 / §6.5 / §7）の純粋ロジック・型・定数。
@@ -36,6 +36,11 @@ function isWeekdayKey(key: string): key is `${WeekdayNumber}` {
  * 判定し端末 TZ に依存しない（`isValidDate` 等の他の日付ヘルパーと同作法）。
  */
 export function weekdayKeyOfDate(date: string): `${WeekdayNumber}` | null {
+  // 形式 + 実在暦日を isValidDate に委譲（"2026-02-30" のような繰り上がり日付も null に倒す防御・
+  // Reviewer 指摘 Low。現行の呼び出し元は検証済み date のみ渡すが、単体でも安全にする）。
+  if (!isValidDate(date)) {
+    return null;
+  }
   const parts = date.split("-");
   if (parts.length !== 3) {
     return null;
