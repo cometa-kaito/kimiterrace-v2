@@ -1,9 +1,17 @@
 "use client";
 
 import { copyPreviousWeekAction } from "@/lib/editor/copy-day-actions";
+import { addDaysUtc, businessWeek, mondayOfWeek } from "@/lib/editor/week-math";
+import { jstDateString } from "@/lib/signage/rotation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { errorTextStyle, savedTextStyle, secondaryBtnStyle } from "./editor-styles";
+
+/** `YYYY-MM-DD` → `M/D`（confirm 文言用の短い表示・不正はそのまま返す fail-soft）。 */
+function shortDate(date: string): string {
+  const [, m, d] = date.split("-");
+  return m && d ? `${Number(m)}/${Number(d)}` : date;
+}
 
 /**
  * 前週コピー（C2・editor-input-tiers-and-signage-paging.md §7）。**今週（今日を含む週）の月〜金**を、**前週の
@@ -28,10 +36,18 @@ export function CopyPreviousWeekButton({ classId }: { classId: string }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function run() {
-    // 今週 5 日ぶんの既存入力を置換する一括操作なので、常に上書き確認を必須にする。
+    // 今週 5 日ぶんの既存入力を置換する一括操作なので、常に上書き確認を必須にする。対象週を具体日付で明示する
+    // （Reviewer 指摘 LOW: 特に土日に押した場合「今週」= ほぼ終わった週になるため、日付が無いと誤認しやすい）。
+    // ここの週計算は confirm 表示用（action 側が同じ week-math で正を再計算する）。
+    const toWeek = businessWeek(mondayOfWeek(jstDateString()));
+    const fromMonday = addDaysUtc(mondayOfWeek(jstDateString()), -7);
+    const range =
+      toWeek[0] && toWeek[4]
+        ? `今週（${shortDate(toWeek[0])}〜${shortDate(toWeek[4])}）`
+        : "今週（月〜金）";
     if (
       !window.confirm(
-        "今週（月〜金）を前週の同じ曜日の内容で置き換えます。今週の既存入力は上書きされます。よろしいですか？",
+        `${range}を前週（${shortDate(fromMonday)} の週）の同じ曜日の内容で置き換えます。今週の既存入力は上書きされます。よろしいですか？`,
       )
     ) {
       return;

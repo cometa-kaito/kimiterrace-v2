@@ -343,10 +343,12 @@ export default async function ClassEditorPage({
       <RememberLastClass classId={classId} />
 
       {/* AI は右下に浮く支援チャット（タブ shell 廃止）。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。
-          key={date}: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。 */}
+          key: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。
+          copied（前日/前週コピーの nonce）も含める＝コピー直後に AI の下書きシードがコピー前の盤面のまま残り、
+          AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（Reviewer 指摘 LOW・各エディタ key と同じ理由）。 */}
       <FloatingAiChat>
         <EditorChat
-          key={date}
+          key={`${date}:${copied}`}
           scope="class"
           targetId={classId}
           date={date}
