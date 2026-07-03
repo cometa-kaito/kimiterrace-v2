@@ -271,6 +271,7 @@ describeOrSkip("RLS: F14 weather_forecasts (#128)", () => {
       const afterUpdate = await client<
         { temp_min: number | null; temp_max: number | null }[]
       >`SELECT temp_min, temp_max FROM weather_forecasts WHERE area_code = ${AREA_TEMP}`;
+      expect(afterUpdate.length).toBe(1); // upsert なので 1 行のまま
       expect(afterUpdate[0].temp_min).toBe(23); // 非 null は上書き
       expect(afterUpdate[0].temp_max).toBe(28);
     } finally {
