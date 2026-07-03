@@ -81,6 +81,14 @@ describeOrSkip("RLS: class_weekly_schedules（週次ベース時間割）", () =
     expect(await selectAs(null, null, classA)).toHaveLength(0);
   });
 
+  it("system_admin_full_access: school context 無し + role=system_admin で他校行も見える（/ops 横断・許可ケース）", async () => {
+    await seedTimetable(fx.schoolA, classA);
+    await seedTimetable(fx.schoolB, classB);
+    // school_id context を設定しない（system_admin はテナント外）。role だけで両校の行が可視になる。
+    expect(await selectAs(null, "system_admin", classA)).toHaveLength(1);
+    expect(await selectAs(null, "system_admin", classB)).toHaveLength(1);
+  });
+
   it("別テナント school_id への INSERT は WITH CHECK で拒否（cross-tenant 書込防止）", async () => {
     await expect(
       raw.begin(async (tx) => {
