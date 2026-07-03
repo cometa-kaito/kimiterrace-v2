@@ -703,16 +703,14 @@ function Pattern3WeeklyWeather({
   );
 }
 
-/** pattern3（廊下版）予定で「1 列に何コマまで出すか」。これを超える日は CSS で自動縦スクロールする。 */
-const P3_SCHEDULE_VISIBLE_ROWS = 5;
-
 /**
  * パターン3（廊下版）専用の予定。pattern2 の 3 列とは別物で、廊下の「遠目・一瞥」に最適化する（2026-06-22 ユーザー確定）:
  *   - **平日 5 日**を 5 列で出す（データ層が pattern3 だけ 5 平日を供給。pattern1/2 は 3 列のまま無改修）。
  *   - **箱をやめ**、日ごとは**縦線**（列の border-left）、コマは**横線**（行の border-bottom）で区切る。
  *   - 日付は **`M/D(曜)`** 表記（{@link p3ScheduleHeaderLabel}）。**天気アイコンは出さない**（週間天気帯が担う）。
- *   - 1 列 **5 コマ**まで表示し、超える日は **CSS のみで自動縦スクロール**（{@link P3_SCHEDULE_VISIBLE_ROWS} /
- *     `.p3SchScrollerAuto`）。hooks を持たないので `SignageBoardView` の server 描画可能性（ScaledSignageBoard）は不変。
+ *   - 1 列の可視コマ数は単一ソース `blockRowCapacity("pattern3","schedule")`（CSS の `--p3-sch-visible` と対）。
+ *     超える日は **F1 ページング**（{@link BoardPager}・滞留 8 秒・§10b）で全コマを順に見せる（旧 CSS 連続
+ *     マーキーは撤廃・オーナー確定）。タイマーは client island 側＝server 描画可能性（ScaledSignageBoard）は不変。
  *
  * region は pattern2 と同じ `aria-label="予定"`（編集配線 `regionEditProps("schedules", …)` を共有＝WYSIWYG「盤面を
  * 編集」もそのまま効く・盤面 region ドリフトガードと整合）。
@@ -746,7 +744,21 @@ function Pattern3Schedule({
       {days.map((day) => {
         const rows = sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item));
         const isToday = day.date === today;
-        const overflow = rows.length > P3_SCHEDULE_VISIBLE_ROWS;
+        // 旧 CSS 連続マーキー（.p3SchScrollerAuto）は F1 ページングへ置換（オーナー確定＝連続マーキー不採用・
+        // editor-input-tiers-and-signage-paging.md §7）。可視コマ数の単一ソースは blockRowCapacity（CSS 側の
+        // --p3-sch-visible と対・値を変えたら両方合わせる）。
+        const pages = chunkIntoPages(
+          rows,
+          boardPageSize("pattern3", "schedule") ?? blockRowCapacity("pattern3", "schedule"),
+        );
+        const pageTrack = (pageRows: readonly SignageScheduleRow[]) => (
+          <div className={styles.p3SchScroller}>
+            {pageRows.map((row, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+              <Pattern3ScheduleRow key={i} row={row} />
+            ))}
+          </div>
+        );
         return (
           <div
             key={day.date}
@@ -756,21 +768,15 @@ function Pattern3Schedule({
             <div className={styles.p3SchRows}>
               {rows.length === 0 ? (
                 <span className={styles.p3SchEmpty}>予定はありません</span>
+              ) : pages.length > 1 ? (
+                <BoardPager
+                  dwellMs={SIGNAGE_PAGE_DWELL_MS}
+                  play={!editRegions}
+                  viewportClassName={styles.p3PagerViewport}
+                  pages={pages.map(pageTrack)}
+                />
               ) : (
-                <div
-                  className={`${styles.p3SchScroller} ${overflow ? styles.p3SchScrollerAuto : ""}`}
-                  // 超過時のみ: 行数を CSS 変数で渡し、スクロール距離（(行数-可視数)×行高）と所要時間を CSS 側で算出する。
-                  style={
-                    overflow
-                      ? ({ "--p3-sch-rows": String(rows.length) } as React.CSSProperties)
-                      : undefined
-                  }
-                >
-                  {rows.map((row, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                    <Pattern3ScheduleRow key={i} row={row} />
-                  ))}
-                </div>
+                pageTrack(rows)
               )}
             </div>
           </div>
@@ -811,14 +817,11 @@ function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
   );
 }
 
-/** pattern3（廊下版）人物エリアで「1 列に何件まで出すか」。これを超えると CSS で自動縦スクロールする
- *  （2026-06-23 ユーザー指示で 4→5 に +1。時事ニュース縮小で空いた縦を充当）。 */
-const P3_PEOPLE_VISIBLE_ROWS = 5;
-
 /**
  * パターン3（廊下版）専用の生徒呼び出し。pattern2 の `card`（囲み枠）はやめ、見出し（アクセント下線の名札）＋
- * 固定高ビューポートで出し、{@link P3_PEOPLE_VISIBLE_ROWS} 件を超える日は **CSS のみで自動縦スクロール**する
- * （予定 §11c-2 と同作法・hooks なし＝server 描画可能性は不変）。region は pattern2 と同じ `aria-label="生徒呼び出し"`
+ * 固定高ビューポートで出す。可視件数の単一ソースは `blockRowCapacity("pattern3","callout")`（CSS の
+ * `--p3-people-visible` と対）で、超過は **F1 ページング**（{@link BoardPager}・§10b）で全件を順に見せる（旧
+ * CSS 連続マーキーは撤廃・オーナー確定）。region は pattern2 と同じ `aria-label="生徒呼び出し"`
  * （盤面 region ドリフトガードと整合）。実名表示の境界は ADR-034（Vertex 非送信＝payload 直返しのみ）。
  */
 function Pattern3Callouts({
@@ -829,12 +832,33 @@ function Pattern3Callouts({
   editRegions?: EditRegionsProps;
 }) {
   const list = callouts ?? [];
-  const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
   const { sectionProps, hideHeading, button } = regionEditProps(
     "callouts",
     styles.p3Person,
     "生徒呼び出し",
     editRegions,
+  );
+  // 旧 CSS 連続マーキーは F1 ページングへ置換（§7）。可視件数の単一ソースは blockRowCapacity（CSS の
+  // --p3-people-visible と対）。
+  const pages = chunkIntoPages(
+    list,
+    boardPageSize("pattern3", "callout") ?? blockRowCapacity("pattern3", "callout"),
+  );
+  const pageTrack = (pageList: readonly NonNullable<SignagePayload["callouts"]>[number][]) => (
+    <div className={styles.p3PersonScroller}>
+      {pageList.map((c) => (
+        <div key={c.id} className={styles.p3PersonItem}>
+          <span className={styles.p3PersonMain}>
+            {c.scheduledTime ? (
+              <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+            ) : null}
+            <span className={styles.p3PersonName}>{c.studentName}</span>
+            {c.location ? <span className={styles.p3PersonTo}>→ {c.location}</span> : null}
+          </span>
+          {c.reason ? <span className={styles.p3PersonMeta}>{c.reason}</span> : null}
+        </div>
+      ))}
+    </div>
   );
   return (
     <section {...sectionProps}>
@@ -846,28 +870,15 @@ function Pattern3Callouts({
       <div className={styles.p3PersonRows}>
         {list.length === 0 ? (
           <span className={styles.p3SchEmpty}>呼び出しはありません</span>
+        ) : pages.length > 1 ? (
+          <BoardPager
+            dwellMs={SIGNAGE_PAGE_DWELL_MS}
+            play={!editRegions}
+            viewportClassName={styles.p3PagerViewport}
+            pages={pages.map(pageTrack)}
+          />
         ) : (
-          <div
-            className={`${styles.p3PersonScroller} ${overflow ? styles.p3PersonScrollerAuto : ""}`}
-            style={
-              overflow
-                ? ({ "--p3-person-rows": String(list.length) } as React.CSSProperties)
-                : undefined
-            }
-          >
-            {list.map((c) => (
-              <div key={c.id} className={styles.p3PersonItem}>
-                <span className={styles.p3PersonMain}>
-                  {c.scheduledTime ? (
-                    <span className={styles.scheduleTime}>{c.scheduledTime}</span>
-                  ) : null}
-                  <span className={styles.p3PersonName}>{c.studentName}</span>
-                  {c.location ? <span className={styles.p3PersonTo}>→ {c.location}</span> : null}
-                </span>
-                {c.reason ? <span className={styles.p3PersonMeta}>{c.reason}</span> : null}
-              </div>
-            ))}
-          </div>
+          pageTrack(list)
         )}
       </div>
     </section>
@@ -876,7 +887,7 @@ function Pattern3Callouts({
 
 /**
  * パターン3（廊下版）専用の来校者一覧。{@link Pattern3Callouts} と同じく囲み枠をやめ、固定高ビューポート＋
- * {@link P3_PEOPLE_VISIBLE_ROWS} 件超の自動縦スクロールにする。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
+ * 可視件数超は **F1 ページング**（旧 CSS 連続マーキーは撤廃）。region は pattern2 と同じ `aria-label="来校者一覧"`。氏名は当該クラスの端末に
  * のみ表示され RLS で自校スコープ（class-visitors の「個人情報について」・2026-06-10 ユーザー確定）。
  */
 function Pattern3Visitors({
@@ -887,12 +898,45 @@ function Pattern3Visitors({
   editRegions?: EditRegionsProps;
 }) {
   const list = visitors ?? [];
-  const overflow = list.length > P3_PEOPLE_VISIBLE_ROWS;
   const { sectionProps, hideHeading, button } = regionEditProps(
     "visitors",
     styles.p3Person,
     "来校者一覧",
     editRegions,
+  );
+  // 旧 CSS 連続マーキーは F1 ページングへ置換（§7）。可視件数の単一ソースは blockRowCapacity（CSS の
+  // --p3-people-visible と対）。
+  const pages = chunkIntoPages(
+    list,
+    boardPageSize("pattern3", "visitor") ?? blockRowCapacity("pattern3", "visitor"),
+  );
+  const pageTrack = (pageList: readonly NonNullable<SignagePayload["visitors"]>[number][]) => (
+    <div className={styles.p3PersonScroller}>
+      {pageList.map((v) => (
+        <div key={v.id} className={styles.p3PersonItem}>
+          <span className={styles.p3PersonMain}>
+            {v.scheduledTime ? (
+              <span className={styles.scheduleTime}>{v.scheduledTime}</span>
+            ) : null}
+            <span className={styles.p3PersonName}>{v.visitorName}</span>
+            {v.affiliation ? (
+              <span className={styles.p3PersonAffil}>（{v.affiliation}）</span>
+            ) : null}
+          </span>
+          {v.purpose || v.host ? (
+            <span className={styles.p3PersonMeta}>
+              {v.purpose ? <span>{v.purpose}</span> : null}
+              {v.purpose && v.host ? (
+                <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                  ／
+                </span>
+              ) : null}
+              {v.host ? <span>対応: {v.host}</span> : null}
+            </span>
+          ) : null}
+        </div>
+      ))}
+    </div>
   );
   return (
     <section {...sectionProps}>
@@ -904,40 +948,15 @@ function Pattern3Visitors({
       <div className={styles.p3PersonRows}>
         {list.length === 0 ? (
           <span className={styles.p3SchEmpty}>本日の来校者はありません</span>
+        ) : pages.length > 1 ? (
+          <BoardPager
+            dwellMs={SIGNAGE_PAGE_DWELL_MS}
+            play={!editRegions}
+            viewportClassName={styles.p3PagerViewport}
+            pages={pages.map(pageTrack)}
+          />
         ) : (
-          <div
-            className={`${styles.p3PersonScroller} ${overflow ? styles.p3PersonScrollerAuto : ""}`}
-            style={
-              overflow
-                ? ({ "--p3-person-rows": String(list.length) } as React.CSSProperties)
-                : undefined
-            }
-          >
-            {list.map((v) => (
-              <div key={v.id} className={styles.p3PersonItem}>
-                <span className={styles.p3PersonMain}>
-                  {v.scheduledTime ? (
-                    <span className={styles.scheduleTime}>{v.scheduledTime}</span>
-                  ) : null}
-                  <span className={styles.p3PersonName}>{v.visitorName}</span>
-                  {v.affiliation ? (
-                    <span className={styles.p3PersonAffil}>（{v.affiliation}）</span>
-                  ) : null}
-                </span>
-                {v.purpose || v.host ? (
-                  <span className={styles.p3PersonMeta}>
-                    {v.purpose ? <span>{v.purpose}</span> : null}
-                    {v.purpose && v.host ? (
-                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                        ／
-                      </span>
-                    ) : null}
-                    {v.host ? <span>対応: {v.host}</span> : null}
-                  </span>
-                ) : null}
-              </div>
-            ))}
-          </div>
+          pageTrack(list)
         )}
       </div>
     </section>
@@ -1204,17 +1223,31 @@ function Pattern2Schedule({
                 <span className={styles.p2Muted}>予定はありません</span>
               </div>
             ) : (
-              // 各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積み、列の残り高さに収まらない
-              // 分だけ JS AutoScroll（Element.animate・ping-pong）で縦オートスクロールして順送りする（5 件以下でも
-              // 2 行アイテムを切らない・2026-06-23 ユーザー要望）。編集モードでは動かさず静的（クリック編集を妨げない）。
-              <AutoScroll play={!editRegions}>
-                <div className={styles.p2ScheduleRows}>
-                  {rows.map((row, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                    <Pattern2ScheduleRow key={i} row={row} />
-                  ))}
-                </div>
-              </AutoScroll>
+              // 旧 JS AutoScroll（連続スクロール）は F1 ページングへ置換（§7・オーナー確定）。各コマは自然高さの
+              // まま規定件数（boardPageSize）ごとのページに割り、滞留 8 秒で循環（編集モードは play=false で静止）。
+              (() => {
+                const pages = chunkIntoPages(
+                  rows,
+                  boardPageSize("pattern2", "schedule") ?? rows.length,
+                );
+                const pageTrack = (pageRows: readonly SignageScheduleRow[]) => (
+                  <div className={styles.p2ScheduleRows}>
+                    {pageRows.map((row, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                      <Pattern2ScheduleRow key={i} row={row} />
+                    ))}
+                  </div>
+                );
+                return pages.length > 1 ? (
+                  <BoardPager
+                    dwellMs={SIGNAGE_PAGE_DWELL_MS}
+                    play={!editRegions}
+                    pages={pages.map(pageTrack)}
+                  />
+                ) : (
+                  pageTrack(rows)
+                );
+              })()
             )}
           </div>
         );
@@ -1267,6 +1300,37 @@ function Pattern2Visitors({
     "来校者一覧",
     editRegions,
   );
+  // 旧 JS AutoScroll（連続スクロール）は F1 ページングへ置換（§7）。自然高さの 2 行アイテムを切らないよう
+  // 1 ページ件数は保守的（boardPageSize pattern2/visitor=3）。編集モードは play=false で静止。
+  const pages = chunkIntoPages(list, boardPageSize("pattern2", "visitor") ?? list.length);
+  const pageTrack = (pageList: readonly NonNullable<SignagePayload["visitors"]>[number][]) => (
+    <ul className={styles.p2VisitorList}>
+      {pageList.map((v) => (
+        <li key={v.id} className={styles.p2VisitorItem}>
+          <span className={styles.p2VisitorMain}>
+            {v.scheduledTime ? (
+              <span className={styles.scheduleTime}>{v.scheduledTime}</span>
+            ) : null}
+            <span className={styles.p2VisitorName}>{v.visitorName}</span>
+            {v.affiliation ? (
+              <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
+            ) : null}
+          </span>
+          {v.purpose || v.host ? (
+            <span className={styles.p2ScheduleMeta}>
+              {v.purpose ? <span>{v.purpose}</span> : null}
+              {v.purpose && v.host ? (
+                <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
+                  ／
+                </span>
+              ) : null}
+              {v.host ? <span>対応: {v.host}</span> : null}
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
   return (
     <section {...sectionProps}>
       {button}
@@ -1276,38 +1340,14 @@ function Pattern2Visitors({
       </h2>
       {list.length === 0 ? (
         <p className={styles.p2Muted}>本日の来校者はありません</p>
+      ) : pages.length > 1 ? (
+        <BoardPager
+          dwellMs={SIGNAGE_PAGE_DWELL_MS}
+          play={!editRegions}
+          pages={pages.map(pageTrack)}
+        />
       ) : (
-        // 各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ
-        // JS AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
-        // 編集モードでは静的（クリック編集を妨げない）。
-        <AutoScroll play={!editRegions}>
-          <ul className={styles.p2VisitorList}>
-            {list.map((v) => (
-              <li key={v.id} className={styles.p2VisitorItem}>
-                <span className={styles.p2VisitorMain}>
-                  {v.scheduledTime ? (
-                    <span className={styles.scheduleTime}>{v.scheduledTime}</span>
-                  ) : null}
-                  <span className={styles.p2VisitorName}>{v.visitorName}</span>
-                  {v.affiliation ? (
-                    <span className={styles.p2VisitorAffil}>（{v.affiliation}）</span>
-                  ) : null}
-                </span>
-                {v.purpose || v.host ? (
-                  <span className={styles.p2ScheduleMeta}>
-                    {v.purpose ? <span>{v.purpose}</span> : null}
-                    {v.purpose && v.host ? (
-                      <span aria-hidden="true" className={styles.p2ScheduleMetaSep}>
-                        ／
-                      </span>
-                    ) : null}
-                    {v.host ? <span>対応: {v.host}</span> : null}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </AutoScroll>
+        pageTrack(list)
       )}
     </section>
   );
@@ -1345,25 +1385,38 @@ function Pattern2Callouts({
       {list.length === 0 ? (
         <p className={styles.p2Muted}>呼び出しはありません</p>
       ) : (
-        // 各件は**自然高さ**（用件の 2 行目を clip しない）で縦に積み、カードの残り高さに収まらない分だけ JS
-        // AutoScroll で縦オートスクロール（5 件以下でも 2 行アイテムを切らない・2026-06-23 ユーザー要望）。
-        // 編集モードでは静的（クリック編集を妨げない）。
-        <AutoScroll play={!editRegions}>
-          <ul className={styles.p2VisitorList}>
-            {list.map((c) => (
-              <li key={c.id} className={styles.p2VisitorItem}>
-                <span className={styles.p2VisitorMain}>
-                  {c.scheduledTime ? (
-                    <span className={styles.scheduleTime}>{c.scheduledTime}</span>
-                  ) : null}
-                  <span className={styles.p2VisitorName}>{c.studentName}</span>
-                  {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
-                </span>
-                {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
-              </li>
-            ))}
-          </ul>
-        </AutoScroll>
+        // 旧 JS AutoScroll（連続スクロール）は F1 ページングへ置換（§7）。自然高さの 2 行アイテムを切らないよう
+        // 1 ページ件数は保守的（boardPageSize pattern2/callout=3）。編集モードは play=false で静止。
+        (() => {
+          const pages = chunkIntoPages(list, boardPageSize("pattern2", "callout") ?? list.length);
+          const pageTrack = (
+            pageList: readonly NonNullable<SignagePayload["callouts"]>[number][],
+          ) => (
+            <ul className={styles.p2VisitorList}>
+              {pageList.map((c) => (
+                <li key={c.id} className={styles.p2VisitorItem}>
+                  <span className={styles.p2VisitorMain}>
+                    {c.scheduledTime ? (
+                      <span className={styles.scheduleTime}>{c.scheduledTime}</span>
+                    ) : null}
+                    <span className={styles.p2VisitorName}>{c.studentName}</span>
+                    {c.location ? <span className={styles.p2CalloutTo}>→ {c.location}</span> : null}
+                  </span>
+                  {c.reason ? <span className={styles.p2ScheduleMeta}>{c.reason}</span> : null}
+                </li>
+              ))}
+            </ul>
+          );
+          return pages.length > 1 ? (
+            <BoardPager
+              dwellMs={SIGNAGE_PAGE_DWELL_MS}
+              play={!editRegions}
+              pages={pages.map(pageTrack)}
+            />
+          ) : (
+            pageTrack(list)
+          );
+        })()
       )}
     </section>
   );
