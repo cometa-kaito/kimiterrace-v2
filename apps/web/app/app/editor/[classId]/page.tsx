@@ -18,6 +18,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
+import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
 import {
   EditorDateCalendar,
   SELECTED_DAY_ANCHOR_ID,
@@ -262,6 +263,14 @@ export default async function ClassEditorPage({
         selectedDate={plan ?? undefined}
         contentDates={contentDates}
       />
+
+      {/* 前週コピー（C2・editor-input-tiers-and-signage-paging.md §7）: 今週（月〜金）を前週の同じ曜日の
+          予定/連絡/提出物 で置換複製する計画操作。カレンダー（計画の起点）の直後・「選択した日の編集」の前に
+          小さくまとめる（ファースト層＝今日の編集には足さない・3 層分類）。今週の上書き確認と成功後の
+          ?copied= 再ナビゲート（エディタ再マウント）はボタン側。 */}
+      <div style={{ margin: "1rem 0" }}>
+        <CopyPreviousWeekButton classId={classId} />
+      </div>
 
       {/* 下＝「選択した日の編集」。?plan の先の日をフォームのみ（盤面なし＝showBoard=false）で編集する。データ経路・
           保存・検証・RLS は今日と同じ部品を date=plan で再利用（key={plan} で日付ごとに初期化）。来校者/呼び出しも
