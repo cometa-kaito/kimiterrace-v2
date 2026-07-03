@@ -257,3 +257,15 @@
 - pattern4 連絡（`.noticeFlow` + JS `AutoScroll`）と自動ブロック（news 等）は**据え置き**（長文の自然高さ
   フローは件数ベースのページングだと 1 ページ内で再クリップしうる。設計原則「切り捨てゼロ」優先の判断）。
 - モバイル（縦積み）はページングを解除して全ページを静的展開（従来の「固定枠解除・全件流す」と一貫）。
+
+### 7.3 C1/C2 実装記録（前日コピー #1206 / 前週コピー #1208）
+- **配置は「計画タブ」ではなく main の現行 1 ページ構造に適合**: 前日コピー＝「今日の編集」直上＋「選択した日の
+  編集（?plan）」内、前週コピー＝`EditorDateCalendar` 直後の計画操作ブロック（旧 §6.4 の別ルート
+  `/calendar` 計画タブは main では `EditorDateCalendar` が既に担うため作らない）。
+- 週演算モジュールは **`lib/editor/week-math.ts`**（旧 `calendar-core.ts` から週演算のみ移植。月グリッド系は
+  main の EditorDateCalendar が担うため不移植）。
+- **コピー成功後は `?copied=<nonce>` で `router.replace`**（`router.refresh` 不可）: 同一日付への操作では
+  `key={date}` が変わらず配下エディタの `useState(initial…)` が再初期化されない＝成功表示なのにフォームが空の
+  まま → stale な自動保存が複製データを上書き消去するデータロス経路（#1206 Reviewer HIGH）。page.tsx の
+  各エディタ・**AI チャット（EditorChat）**の key に `copied` を含めて再マウントさせる。
+- 前週コピーの confirm には**対象週の具体日付**を出す（土日に押すと「今週」= ほぼ終わった週になるため誤認防止）。
