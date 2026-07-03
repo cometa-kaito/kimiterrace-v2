@@ -1260,7 +1260,7 @@ function Pattern2Schedule({
 function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
   const hasMeta = row.location != null || row.targetAudience != null;
   return (
-    // 自然高さ（場所/対象者メタは 2 行目に伸びる）。超過分は親の JS AutoScroll が縦スクロールで順送りする。
+    // 自然高さ（場所/対象者メタは 2 行目に伸びる）。超過分は F1 ページング（BoardPager）が順送りする。
     <div className={styles.p2ScheduleItem}>
       <span className={styles.p2ScheduleMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}

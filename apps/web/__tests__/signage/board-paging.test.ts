@@ -54,11 +54,11 @@ describe("boardPageSize", () => {
     expect(boardPageSize("pattern4", "schedule")).toBeNull();
   });
 
-  it("pattern2 の呼び出し/来校者は自然高さ（2 行アイテム）対策の保守的上書き = 3", () => {
+  it("pattern2 は自然高さ（2 行アイテム）対策の保守的上書き（呼び出し/来校者=3・予定=4）", () => {
     expect(boardPageSize("pattern2", "callout")).toBe(3);
     expect(boardPageSize("pattern2", "visitor")).toBe(3);
-    // 上書きの無いブロックは既定（規定行数）のまま。
-    expect(boardPageSize("pattern2", "schedule")).toBe(blockRowCapacity("pattern2", "schedule"));
+    // 予定も場所/対象者メタ付きコマは 2 行になるため規定 5 より低い保守値 4（A2 Reviewer 指摘 Medium）。
+    expect(boardPageSize("pattern2", "schedule")).toBe(4);
   });
 
   it("未知パターンは blockRowCapacity の fail-soft（pattern1 相当）に倒れる", () => {
