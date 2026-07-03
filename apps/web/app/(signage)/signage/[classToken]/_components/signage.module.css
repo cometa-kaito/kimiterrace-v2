@@ -753,10 +753,9 @@
   font-size: 1.15em;
   line-height: 1;
 }
-/* pattern2 予定の行トラック。各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積む。空状態
-   （「予定はありません」）はこの要素を直接置くので `flex:1; min-height:0` で列の残り高さを満たす。予定がある時は
-   親の JS `AutoScroll`（viewport が flex:1 で残り高さを占有・overflow:hidden）の中に入り、自然高さの track を
-   なすので `flex:1` は実質ノーオペ＝自然高さのまま（収まらない分だけ JS が縦スクロール）。 */
+/* pattern2 予定の行トラック。各コマは**自然高さ**（場所/対象者メタの 2 行目を clip しない）で縦に積む。空状態・
+   未超過はこの要素を直接置き `flex:1; min-height:0` で列の残り高さを満たす。超過時は F1 ページング（§10b・
+   BoardPager）のページ内 track になる（1 ページ 4 コマ=保守値・boardPageSize。旧 JS AutoScroll は撤廃）。 */
 .p2ScheduleRows {
   flex: 1;
   min-height: 0;
@@ -816,9 +815,9 @@
   color: var(--primary-color);
 }
 /* 生徒呼び出し / 来校者一覧: 時刻 + 氏名（+所属/呼出先）を上段、用件/対応者を下段（.p2ScheduleMeta を共有）。
-   各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積む。親の JS `AutoScroll`（viewport が flex:1 で
-   残り高さを占有・overflow:hidden）の中で自然高さの track をなすので `flex:1` は実質ノーオペ＝自然高さのまま
-   （収まらない分だけ JS が縦スクロール）。 */
+   各件は**自然高さ**（用件/対応者の 2 行目を clip しない）で縦に積む。未超過はこの要素を直接置き、超過時は
+   F1 ページング（§10b・BoardPager）のページ内 track になる（1 ページ 3 件=保守値・boardPageSize。旧 JS
+   AutoScroll は撤廃）。 */
 .p2VisitorList {
   list-style: none;
   flex: 1;
@@ -1247,7 +1246,7 @@
 
 /* ===================== 11c-2. パターン3 予定（廊下版・平日5列・罫線区切り・6行＋自動スクロール） =====================
    pattern2 の 3 列予定とは別物（Pattern3Schedule）。箱はやめ、日ごとは「縦線」、コマは「横線」で区切る。
-   1 列 6 コマまで表示し、超える日は CSS のみで自動縦スクロール（hooks 不要＝server 描画可能性を保つ）。
+   1 列の可視コマ数は --p3-sch-visible。超える日は F1 ページング（§10b・BoardPager）で全コマを順に見せる。
    天気アイコンは出さない（週間天気帯が担う）。pattern1/2 は無改修（2026-06-22 ユーザー確定）。 */
 .p3Schedule {
   /* 主役（盤面の大半を占める）。残り高さを人物エリアと 3:2 で分け合って盤面を埋める（下に余白を作らない）。 */
@@ -1258,7 +1257,8 @@
   gap: 0;
   min-height: 0;
   /* 1 列に表示するコマ数。これが行高（=列高/可視数）と自動スクロール距離の基準。コンポーネント定数
-     P3_SCHEDULE_VISIBLE_ROWS と一致させる（少なめ＝1 行を高く＝遠目で読みやすく・2026-06-22 ユーザー指示で 5）。 */
+     blockRowCapacity("pattern3","schedule") と一致させる（少なめ＝1 行を高く＝遠目で読みやすく・2026-06-22
+     ユーザー指示で 5。値を変えたら pattern-blocks.ts 側も必ず合わせる＝ページ内再クリップ防止）。 */
   --p3-sch-visible: 5;
 }
 .p3SchDay {
@@ -1297,41 +1297,19 @@
   border-bottom-color: var(--accent-color);
 }
 /* 列の残り高さいっぱいの表示窓（= 列高 - 日付ヘッダー）。size container にして 1 コマ高を cqh で割り付け、
-   ちょうど --p3-sch-visible コマで埋める。超過は内側 .p3SchScroller が縦スクロールする。 */
+   ちょうど --p3-sch-visible コマで埋める。超過は F1 ページング（§10b・.p3PagerViewport が絶対フィル）で
+   全コマを順に見せる（旧 CSS 連続マーキー .p3SchScrollerAuto は撤廃・オーナー確定＝ページング）。
+   position:relative はページャの絶対配置基準。 */
 .p3SchRows {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   container-type: size;
+  position: relative;
 }
 .p3SchScroller {
   display: flex;
   flex-direction: column;
-  will-change: transform;
-}
-/* 可視数超は自動縦スクロール（上端で一拍→下端へ→一拍→alternate で戻る）。距離 =(行数-可視数)/可視数×窓高、
-   所要時間は行数に比例。行数（--p3-sch-rows）は要素 inline で渡し、窓高は cqh で取る。 */
-.p3SchScrollerAuto {
-  animation: p3SchScroll calc((var(--p3-sch-rows) - var(--p3-sch-visible)) * 3.5s) ease-in-out
-    infinite alternate;
-}
-@keyframes p3SchScroll {
-  0%,
-  10% {
-    transform: translateY(0);
-  }
-  90%,
-  100% {
-    transform: translateY(
-      calc((var(--p3-sch-visible) - var(--p3-sch-rows)) / var(--p3-sch-visible) * 100cqh)
-    );
-  }
-}
-/* アニメ抑制設定では自動スクロールを止め、先頭の可視数コマのみ表示（NFR・design 原則）。 */
-@media (prefers-reduced-motion: reduce) {
-  .p3SchScrollerAuto {
-    animation: none;
-  }
 }
 /* 1 コマ = 窓高を可視数で割った高さ・単一行。コマ間は横線（点線）で区切る。 */
 .p3SchItem {
@@ -1368,7 +1346,7 @@
 
 /* ===================== 11c-3. パターン3 人物（生徒呼び出し / 来校者一覧・廊下版） =====================
    pattern2 の card（囲み枠）はやめ、見出し（アクセント下線の名札）＋固定高ビューポートで出す。2 列は縦線で
-   区切り、1 列 3 件まで表示・超過は CSS のみで自動縦スクロール（予定 §11c-2 と同作法・hooks 不要）。pattern1/2 は無改修。 */
+   区切り、可視件数（--p3-people-visible）超過は F1 ページング（§10b・予定 §11c-2 と同作法）で全件見せる。 */
 .p3Person {
   display: flex;
   flex-direction: column;
@@ -1377,7 +1355,8 @@
   overflow: hidden;
   padding: 0 0.7vmin;
   /* 1 列に表示する件数。1 件高（=窓高/可視数）と自動スクロール距離の基準。コンポーネント定数
-     P3_PEOPLE_VISIBLE_ROWS と一致させる（2026-06-23 ユーザー指示で 4→5 に +1。時事ニュース縮小で空いた縦を充当）。 */
+     blockRowCapacity("pattern3","callout"/"visitor") と一致させる（2026-06-23 ユーザー指示で 4→5 に +1。
+     値を変えたら pattern-blocks.ts 側も必ず合わせる＝ページ内再クリップ防止）。 */
   --p3-people-visible: 5;
 }
 /* 2 列目（来校者）は縦線で区切る（先頭列は線なし・予定の日区切りと一貫）。呼び出し / 来校者は
@@ -1396,40 +1375,25 @@
   flex-shrink: 0;
 }
 /* 残り高さいっぱいの表示窓。size container にして 1 件高を cqh で割り付け、可視数ぶんで埋める。
-   超過は内側 .p3PersonScroller が縦スクロールする。 */
+   超過は F1 ページング（§10b・.p3PagerViewport が絶対フィル）で全件を順に見せる（旧 CSS 連続マーキー
+   .p3PersonScrollerAuto は撤廃）。position:relative はページャの絶対配置基準。 */
 .p3PersonRows {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   container-type: size;
+  position: relative;
 }
 .p3PersonScroller {
   display: flex;
   flex-direction: column;
-  will-change: transform;
 }
-/* 3 件超は自動縦スクロール（上端で一拍→下端へ→一拍→alternate で戻る）。距離 =(件数-表示数)×スロット高、
-   所要時間も件数に比例。距離・時間は件数（--p3-person-rows・要素 inline）から CSS calc で算出する。 */
-.p3PersonScrollerAuto {
-  animation: p3PersonScroll calc((var(--p3-person-rows) - var(--p3-people-visible)) * 3.5s)
-    ease-in-out infinite alternate;
-}
-@keyframes p3PersonScroll {
-  0%,
-  10% {
-    transform: translateY(0);
-  }
-  90%,
-  100% {
-    transform: translateY(
-      calc((var(--p3-people-visible) - var(--p3-person-rows)) / var(--p3-people-visible) * 100cqh)
-    );
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .p3PersonScrollerAuto {
-    animation: none;
-  }
+/* pattern3 用のページャ・ビューポート override（§10b の基底 .pagerViewport は flex:1）。pattern3 の予定/人物は
+   cqh の size container（.p3SchRows / .p3PersonRows・block）内でページングするため、flex ではなく**絶対フィル**
+   にして親の高さを満たす（1 コマ高 calc(100cqh/可視数) の基準を不変に保つ）。基底より後に宣言し position を上書き。 */
+.p3PagerViewport {
+  position: absolute;
+  inset: 0;
 }
 /* 1 件 = 窓高を可視数で割った高さ。上段=時刻＋氏名＋呼出先/所属（単一行）、下段=用件（小さく）。件間は横線で区切る。 */
 .p3PersonItem {
