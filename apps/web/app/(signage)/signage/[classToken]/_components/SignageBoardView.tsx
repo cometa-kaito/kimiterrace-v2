@@ -847,7 +847,12 @@ function Pattern3Callouts({
   const pageTrack = (pageList: readonly NonNullable<SignagePayload["callouts"]>[number][]) => (
     <div className={styles.p3PersonScroller}>
       {pageList.map((c) => (
-        <div key={c.id} className={styles.p3PersonItem}>
+        // ★（is_highlight・PR-B §5.2・migration 0037）は既存の連絡★と同一視覚（itemEmphasis）で
+        // 名指しの重要呼び出しを立てる（false は従来どおり＝旧データ不変）。
+        <div
+          key={c.id}
+          className={`${styles.p3PersonItem} ${c.isHighlight ? styles.itemEmphasis : ""}`}
+        >
           <span className={styles.p3PersonMain}>
             {c.scheduledTime ? (
               <span className={styles.scheduleTime}>{c.scheduledTime}</span>
@@ -913,7 +918,11 @@ function Pattern3Visitors({
   const pageTrack = (pageList: readonly NonNullable<SignagePayload["visitors"]>[number][]) => (
     <div className={styles.p3PersonScroller}>
       {pageList.map((v) => (
-        <div key={v.id} className={styles.p3PersonItem}>
+        // ★（is_highlight・PR-B §5.2・migration 0037）は既存の連絡★と同一視覚（itemEmphasis）。
+        <div
+          key={v.id}
+          className={`${styles.p3PersonItem} ${v.isHighlight ? styles.itemEmphasis : ""}`}
+        >
           <span className={styles.p3PersonMain}>
             {v.scheduledTime ? (
               <span className={styles.scheduleTime}>{v.scheduledTime}</span>
@@ -1306,7 +1315,11 @@ function Pattern2Visitors({
   const pageTrack = (pageList: readonly NonNullable<SignagePayload["visitors"]>[number][]) => (
     <ul className={styles.p2VisitorList}>
       {pageList.map((v) => (
-        <li key={v.id} className={styles.p2VisitorItem}>
+        // ★（is_highlight・PR-B §5.2・migration 0037）は既存の連絡★と同一視覚（itemEmphasis）。
+        <li
+          key={v.id}
+          className={`${styles.p2VisitorItem} ${v.isHighlight ? styles.itemEmphasis : ""}`}
+        >
           <span className={styles.p2VisitorMain}>
             {v.scheduledTime ? (
               <span className={styles.scheduleTime}>{v.scheduledTime}</span>
@@ -1394,7 +1407,11 @@ function Pattern2Callouts({
           ) => (
             <ul className={styles.p2VisitorList}>
               {pageList.map((c) => (
-                <li key={c.id} className={styles.p2VisitorItem}>
+                // ★（is_highlight・PR-B §5.2・migration 0037）は既存の連絡★と同一視覚（itemEmphasis）。
+                <li
+                  key={c.id}
+                  className={`${styles.p2VisitorItem} ${c.isHighlight ? styles.itemEmphasis : ""}`}
+                >
                   <span className={styles.p2VisitorMain}>
                     {c.scheduledTime ? (
                       <span className={styles.scheduleTime}>{c.scheduledTime}</span>

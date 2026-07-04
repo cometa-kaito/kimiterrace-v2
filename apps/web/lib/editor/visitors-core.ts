@@ -79,7 +79,19 @@ export function validateVisitorItems(raw: unknown): Validated<ClassVisitorInput[
       return { ok: false, message: "時刻は HH:MM 形式（00:00〜23:59）で入力してください。" };
     }
 
-    items.push({ visitorName, affiliation, scheduledTime, purpose, host, note });
+    const item: ClassVisitorInput = {
+      visitorName,
+      affiliation,
+      scheduledTime,
+      purpose,
+      host,
+      note,
+    };
+    // 重要マーク（★・PR-B §5.2・migration 0037 is_highlight）。明示 true のみ（連絡の isHighlight と同作法）。
+    if (rec.isHighlight === true) {
+      item.isHighlight = true;
+    }
+    items.push(item);
   }
   return { ok: true, value: items };
 }

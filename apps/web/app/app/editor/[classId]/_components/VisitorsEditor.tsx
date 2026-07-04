@@ -57,6 +57,8 @@ type Row = {
   purpose: string;
   host: string;
   note: string;
+  /** 重要マーク（★・PR-B §5.2・migration 0037 `is_highlight`）。盤面は既存の連絡★と同一視覚で描く。 */
+  isHighlight: boolean;
 };
 
 /** 保存ペイロード（行の安定キー `id` は描画用なので保存対象外）。 */
@@ -71,6 +73,7 @@ function toItems(rows: Row[]): VisitorPayload[] {
     purpose: r.purpose,
     host: r.host,
     note: r.note,
+    isHighlight: r.isHighlight,
   }));
 }
 
@@ -86,25 +89,28 @@ function isBlankVisitorRow(r: Row): boolean {
     r.affiliation.trim() === "" &&
     r.purpose.trim() === "" &&
     r.host.trim() === "" &&
-    r.note.trim() === ""
+    r.note.trim() === "" &&
+    !r.isHighlight
   );
 }
 
 /**
- * 任意項目（所属 / 用件 / 対応者 / 備考）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定
- * （入力済みを隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
+ * 任意項目（所属 / 用件 / 対応者 / 備考 / ★重要）のいずれかに入力があるか。初期から「詳細」を開いておく行の
+ * 判定（入力済みを隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
  */
 function hasVisitorDetail(r: {
   affiliation: string;
   purpose: string;
   host: string;
   note: string;
+  isHighlight: boolean;
 }): boolean {
   return (
     r.affiliation.trim() !== "" ||
     r.purpose.trim() !== "" ||
     r.host.trim() !== "" ||
-    r.note.trim() !== ""
+    r.note.trim() !== "" ||
+    r.isHighlight
   );
 }
 
@@ -133,6 +139,7 @@ export function VisitorsEditor({
         purpose: i.purpose ?? "",
         host: i.host ?? "",
         note: i.note ?? "",
+        isHighlight: i.isHighlight === true,
       })),
       prefillRows,
       (index) => ({
@@ -143,6 +150,7 @@ export function VisitorsEditor({
         purpose: "",
         host: "",
         note: "",
+        isHighlight: false,
       }),
     ),
   );
@@ -159,6 +167,7 @@ export function VisitorsEditor({
           purpose: i.purpose ?? "",
           host: i.host ?? "",
           note: i.note ?? "",
+          isHighlight: i.isHighlight === true,
         }),
       }))
       .filter((x) => x.has)
@@ -190,7 +199,16 @@ export function VisitorsEditor({
     nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { id, scheduledTime: "", visitorName: "", affiliation: "", purpose: "", host: "", note: "" },
+      {
+        id,
+        scheduledTime: "",
+        visitorName: "",
+        affiliation: "",
+        purpose: "",
+        host: "",
+        note: "",
+        isHighlight: false,
+      },
     ]);
   }
   function removeRow(index: number) {
@@ -313,6 +331,23 @@ export function VisitorsEditor({
                     <tr>
                       <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>
+                          {/* ★重要（PR-B §5.2・is_highlight）。盤面は emphasis（既存の連絡★と同一視覚）。 */}
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.25rem",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={r.isHighlight}
+                              onChange={(e) => update(i, { isHighlight: e.target.checked })}
+                              aria-label={`${i + 1} 行目の重要マーク`}
+                            />
+                            重要
+                          </label>
                           <DetailField label="所属">
                             <input
                               value={r.affiliation}

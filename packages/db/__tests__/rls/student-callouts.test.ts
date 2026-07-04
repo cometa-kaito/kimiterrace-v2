@@ -196,4 +196,30 @@ describeOrSkip("RLS: student_callouts（生徒呼び出し）", () => {
     );
     expect(rows).toEqual([]);
   });
+
+  it("replaceStudentCallouts: ★重要（is_highlight・migration 0037）を保存し read で返す（未指定は false）", async () => {
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceStudentCallouts(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [{ ...input("佐藤太郎", "10:00"), isHighlight: true }, input("鈴木花子", "11:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    const rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getCalloutsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => [r.studentName, r.isHighlight])).toEqual([
+      ["佐藤太郎", true],
+      ["鈴木花子", false],
+    ]);
+  });
 });

@@ -21,10 +21,17 @@ import { classes } from "../schema/classes.js";
 /** SELECT だけできれば良い（Drizzle db / トランザクションの両方を受ける）。 */
 type Selectable = Pick<PostgresJsDatabase, "select">;
 
-/** 来校者 1 件（表示用射影）。氏名は必須、他は任意（null）。 */
+/** 来校者 1 件（表示用射影）。氏名は必須、他は任意（null）。isHighlight は★重要（PR-B §5.2・0037）。 */
 export type ClassVisitor = Pick<
   InferSelectModel<typeof classVisitors>,
-  "id" | "visitorName" | "affiliation" | "scheduledTime" | "purpose" | "host" | "note"
+  | "id"
+  | "visitorName"
+  | "affiliation"
+  | "scheduledTime"
+  | "purpose"
+  | "host"
+  | "note"
+  | "isHighlight"
 >;
 
 /**
@@ -51,6 +58,7 @@ export async function getVisitorsForClass(
       purpose: classVisitors.purpose,
       host: classVisitors.host,
       note: classVisitors.note,
+      isHighlight: classVisitors.isHighlight,
     })
     .from(classVisitors)
     .where(and(eq(classVisitors.classId, classId), eq(classVisitors.visitDate, date)))
@@ -69,6 +77,8 @@ export type ClassVisitorInput = {
   purpose: string | null;
   host: string | null;
   note: string | null;
+  /** 重要マーク（★・PR-B §5.2）。省略 / false は通常表示（後方互換: 旧呼び出し元は指定不要）。 */
+  isHighlight?: boolean;
 };
 
 export type ReplaceClassVisitorsParams = {
@@ -122,6 +132,7 @@ export async function replaceClassVisitors(
         host: it.host,
         note: it.note,
         sortOrder: idx,
+        isHighlight: it.isHighlight === true,
         createdBy: actorUserId,
         updatedBy: actorUserId,
       })),

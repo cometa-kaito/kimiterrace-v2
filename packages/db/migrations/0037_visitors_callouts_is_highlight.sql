@@ -1,0 +1,34 @@
+-- =====================================================================
+-- 0037_visitors_callouts_is_highlight.sql
+-- 目的: class_visitors / student_callouts に ★重要マーク列 is_highlight
+--       （boolean NOT NULL DEFAULT false）を追加する（PR-B 自由度基本セット・
+--       設計書 editor-restructure-bulletin-2026-07.md §5.2 / §10）。
+--       連絡（daily_data.notices の isHighlight）と同じ「重要」概念を来校者・呼び出しへ横展開する。
+--       予定・提出物は daily_data の opaque JSONB なので migration 不要（TS validate が正）。
+--
+-- 採番: 0036 まで使用済（0030 が 2 本ある過去の採番事故あり）。本 0037 は
+--       `ls packages/db/migrations` で衝突なしを確認して予約した（設計書 §10 の注意どおり）。
+--
+-- 前提: drizzle/20260610100124_eager_red_skull.sql（class_visitors）/ 同期の student_callouts 作成後に
+--       流れる（collectMigrationFiles は drizzle/* → migrations/* の順で全件適用。migrations/README.md
+--       順序契約）。列追加のみ（0034/0035_sort_order と同型）。
+--
+-- RLS について（ルール2）:
+--   class_visitors の RLS は 0023、student_callouts は 0024 で tenant_isolation +
+--   system_admin_full_access の 2 policy を FOR ALL（全列対象）で付与済。**列追加は policy に影響しない**
+--   （policy は school_id / role に対する行レベル述語で、列単位の権限制御ではない）。よって本 migration は
+--   列追加のみで policy 変更は不要（ADR-019 二層 RLS は維持）。
+--
+-- 監査について（ルール1）:
+--   created_by/updated_by FK・auditColumns は 0023/0024 で付与済。新規 FK 列ではないため監査 FK 追加は不要。
+--
+-- 既定値: DEFAULT false。既存行（旧データ）は全て通常表示のまま＝盤面出力は不変（後方互換）。
+--   保存（replace* の全置換）以降は編集 UI の「重要」チェックがそのまま採番される。
+--
+-- 冪等性: ADD COLUMN IF NOT EXISTS で再適用安全（auto-discovery loader が毎回全件流すため）。
+--
+-- 適用: staging 先行。**本番適用は人間専任**（skill apply-migration・CLAUDE.md 規律）。
+-- =====================================================================
+
+ALTER TABLE class_visitors ADD COLUMN IF NOT EXISTS is_highlight boolean NOT NULL DEFAULT false;
+ALTER TABLE student_callouts ADD COLUMN IF NOT EXISTS is_highlight boolean NOT NULL DEFAULT false;
