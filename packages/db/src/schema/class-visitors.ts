@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { date, index, integer, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
 import { auditColumns } from "../_shared/audit.js";
 import { classes } from "./classes.js";
 import { schools } from "./schools.js";
@@ -61,6 +61,9 @@ export const classVisitors = pgTable(
     // 表示順（教員が来校者一覧を任意に並べ替える。盤面はこの昇順で描画する）。保存（全置換）時に編集 UI の
     // 行位置を 0,1,2... で採番する。既定 0（旧データ・未採番は時刻→氏名のタイブレークに委ねる）。migration 0034。
     sortOrder: integer("sort_order").notNull().default(0),
+    // 重要マーク（★・PR-B §5.2）。盤面は既存の連絡★（isHighlight）と同一視覚（emphasis）で描く。
+    // 既定 false（旧データ・未指定は通常表示）。migration 0037。
+    isHighlight: boolean("is_highlight").notNull().default(false),
     ...auditColumns,
   },
   (t) => ({

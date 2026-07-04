@@ -55,6 +55,8 @@ type Row = {
   studentName: string;
   location: string;
   reason: string;
+  /** 重要マーク（★・PR-B §5.2・migration 0037 `is_highlight`）。盤面は既存の連絡★と同一視覚で描く。 */
+  isHighlight: boolean;
 };
 
 /** 保存ペイロード（行の安定キー `id` は描画用なので保存対象外）。 */
@@ -67,6 +69,7 @@ function toItems(rows: Row[]): CalloutPayload[] {
     studentName: r.studentName,
     location: r.location,
     reason: r.reason,
+    isHighlight: r.isHighlight,
   }));
 }
 
@@ -80,16 +83,17 @@ function isBlankCalloutRow(r: Row): boolean {
     r.scheduledTime.trim() === "" &&
     r.studentName.trim() === "" &&
     r.location.trim() === "" &&
-    r.reason.trim() === ""
+    r.reason.trim() === "" &&
+    !r.isHighlight
   );
 }
 
 /**
- * 任意項目（呼び出し先 / 用件）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定（入力済みを
- * 隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
+ * 任意項目（呼び出し先 / 用件 / ★重要）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定
+ * （入力済みを隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
  */
-function hasCalloutDetail(r: { location: string; reason: string }): boolean {
-  return r.location.trim() !== "" || r.reason.trim() !== "";
+function hasCalloutDetail(r: { location: string; reason: string; isHighlight: boolean }): boolean {
+  return r.location.trim() !== "" || r.reason.trim() !== "" || r.isHighlight;
 }
 
 export function CalloutsEditor({
@@ -115,6 +119,7 @@ export function CalloutsEditor({
         studentName: i.studentName,
         location: i.location ?? "",
         reason: i.reason ?? "",
+        isHighlight: i.isHighlight === true,
       })),
       prefillRows,
       (index) => ({
@@ -123,6 +128,7 @@ export function CalloutsEditor({
         studentName: "",
         location: "",
         reason: "",
+        isHighlight: false,
       }),
     ),
   );
@@ -134,7 +140,11 @@ export function CalloutsEditor({
     initialItems
       .map((i, idx) => ({
         id: `r${idx}`,
-        has: hasCalloutDetail({ location: i.location ?? "", reason: i.reason ?? "" }),
+        has: hasCalloutDetail({
+          location: i.location ?? "",
+          reason: i.reason ?? "",
+          isHighlight: i.isHighlight === true,
+        }),
       }))
       .filter((x) => x.has)
       .map((x) => x.id),
@@ -165,7 +175,7 @@ export function CalloutsEditor({
     nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { id, scheduledTime: "", studentName: "", location: "", reason: "" },
+      { id, scheduledTime: "", studentName: "", location: "", reason: "", isHighlight: false },
     ]);
   }
   function removeRow(index: number) {
@@ -291,6 +301,23 @@ export function CalloutsEditor({
                     <tr>
                       <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>
+                          {/* ★重要（PR-B §5.2・is_highlight）。盤面は emphasis（既存の連絡★と同一視覚）。 */}
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.25rem",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={r.isHighlight}
+                              onChange={(e) => update(i, { isHighlight: e.target.checked })}
+                              aria-label={`${i + 1} 行目の重要マーク`}
+                            />
+                            重要
+                          </label>
                           <DetailField label="呼び出し先">
                             <input
                               value={r.location}

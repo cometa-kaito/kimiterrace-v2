@@ -202,4 +202,41 @@ describeOrSkip("RLS: class_visitors（来校者一覧）", () => {
     );
     expect(rows).toEqual([]);
   });
+
+  it("replaceClassVisitors: ★重要（is_highlight・migration 0037）を保存し read で返す（未指定は false）", async () => {
+    await withTenantContext(
+      db,
+      ctxA(),
+      (tx) =>
+        replaceClassVisitors(tx, {
+          schoolId: fx.schoolA,
+          classId: classA,
+          date: today,
+          items: [{ ...input("佐藤", "10:00"), isHighlight: true }, input("鈴木", "11:00")],
+          actorUserId: fx.userA,
+        }),
+      APP,
+    );
+    const rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getVisitorsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => [r.visitorName, r.isHighlight])).toEqual([
+      ["佐藤", true],
+      ["鈴木", false],
+    ]);
+  });
+
+  it("is_highlight は列 DEFAULT false（旧経路の生 INSERT＝列未指定でも壊れない・後方互換）", async () => {
+    await seedVisitor(fx.schoolA, classA, today, "旧データ", null);
+    const rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getVisitorsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => [r.visitorName, r.isHighlight])).toEqual([["旧データ", false]]);
+  });
 });

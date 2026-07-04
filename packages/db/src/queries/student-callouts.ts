@@ -21,10 +21,10 @@ import { studentCallouts } from "../schema/student-callouts.js";
 /** SELECT だけできれば良い（Drizzle db / トランザクションの両方を受ける）。 */
 type Selectable = Pick<PostgresJsDatabase, "select">;
 
-/** 生徒呼び出し 1 件（表示用射影）。氏名は必須、他は任意（null）。 */
+/** 生徒呼び出し 1 件（表示用射影）。氏名は必須、他は任意（null）。isHighlight は★重要（PR-B §5.2・0037）。 */
 export type StudentCallout = Pick<
   InferSelectModel<typeof studentCallouts>,
-  "id" | "studentName" | "location" | "reason" | "scheduledTime"
+  "id" | "studentName" | "location" | "reason" | "scheduledTime" | "isHighlight"
 >;
 
 /**
@@ -49,6 +49,7 @@ export async function getCalloutsForClass(
       location: studentCallouts.location,
       reason: studentCallouts.reason,
       scheduledTime: studentCallouts.scheduledTime,
+      isHighlight: studentCallouts.isHighlight,
     })
     .from(studentCallouts)
     .where(and(eq(studentCallouts.classId, classId), eq(studentCallouts.calloutDate, date)))
@@ -65,6 +66,8 @@ export type StudentCalloutInput = {
   location: string | null;
   reason: string | null;
   scheduledTime: string | null;
+  /** 重要マーク（★・PR-B §5.2）。省略 / false は通常表示（後方互換: 旧呼び出し元は指定不要）。 */
+  isHighlight?: boolean;
 };
 
 export type ReplaceCalloutsParams = {
@@ -113,6 +116,7 @@ export async function replaceStudentCallouts(
         reason: it.reason,
         scheduledTime: it.scheduledTime,
         sortOrder: idx,
+        isHighlight: it.isHighlight === true,
         createdBy: actorUserId,
         updatedBy: actorUserId,
       })),
