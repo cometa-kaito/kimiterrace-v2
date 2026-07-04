@@ -210,6 +210,15 @@ describe("isNoticeActive", () => {
   it("未来入力 (today < rowDate) は非活性", () => {
     expect(isNoticeActive({ text: "x", displayDays: 5 }, "2026-06-10", "2026-06-07")).toBe(false);
   });
+  it("区切り線 (kind:'divider') も通常行と同一のライフサイクル (§5.3 MEDIUM-1)", () => {
+    // divider は「本文が罫線であるだけの行」。displayDays=3 なら翌日以降も残り、
+    // 多日連絡のグルーピング（校訓掲示板等）が崩れない。displayDays 欠落は既定 1（入力日のみ）。
+    const divider = { kind: "divider", text: "校訓", displayDays: 3 };
+    expect(isNoticeActive(divider, "2026-06-05", "2026-06-06")).toBe(true);
+    expect(isNoticeActive(divider, "2026-06-05", "2026-06-07")).toBe(true);
+    expect(isNoticeActive(divider, "2026-06-05", "2026-06-08")).toBe(false);
+    expect(isNoticeActive({ kind: "divider", text: "" }, "2026-06-05", "2026-06-06")).toBe(false);
+  });
 });
 
 describe("isAssignmentActive (期限 + 2 日まで)", () => {
@@ -243,6 +252,22 @@ describe("mergeEffectiveWithWindow", () => {
       wrow("school", "2026-06-07", { notices: [{ text: "学校連絡" }] }),
     ]);
     expect(merged.notices).toEqual({ items: [{ text: "学校連絡" }], source: "school" });
+  });
+
+  it("連絡: 区切り線も displayDays>1 なら翌日に残り、多日グルーピングが崩れない (§5.3 MEDIUM-1)", () => {
+    const merged = mergeEffectiveWithWindow("2026-06-06", [
+      wrow("class", "2026-06-05", {
+        notices: [
+          { kind: "divider", text: "校訓", displayDays: 3 },
+          { text: "多日連絡", displayDays: 3 },
+        ],
+      }),
+    ]);
+    // 区切り線→本文の並び（グルーピング）が翌日もそのまま出る。
+    expect(merged.notices.items).toEqual([
+      { kind: "divider", text: "校訓", displayDays: 3 },
+      { text: "多日連絡", displayDays: 3 },
+    ]);
   });
 
   it("提出物: 期限+2日まで自動表示、+3日で消える", () => {

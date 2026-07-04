@@ -29,9 +29,10 @@ import { DIVIDER_LABEL_MAX, isValidDate } from "./schedule-core";
  */
 export type NoticeItem = {
   /**
-   * 行タイプ。`"divider"` = 区切り線（§5.3・ダッシュ行ハックの正規化）。divider 行は `text` を**任意ラベル**
-   * （空文字なら純粋な罫線）として使い、`isHighlight` / `displayDays` は持たない（validate が剥がす）。
-   * 省略（undefined）は通常の連絡行。JSONB なので migration 不要。
+   * 行タイプ。`"divider"` = 区切り線（§5.3・ダッシュ行ハックの正規化）。divider 行は「**本文が罫線であるだけの
+   * 行**」＝ `text` を任意ラベル（空文字なら純粋な罫線）として使い、`displayDays` は通常行と**同じライフサイクル**
+   * を持つ（多日連絡のグルーピングが翌日崩れない・将来の pinned もそのまま乗る）。`isHighlight` のみ意味を
+   * 持たない（罫線に強調概念なし・validate が剥がす）。省略（undefined）は通常の連絡行。JSONB なので migration 不要。
    */
   kind?: "divider";
   text: string;
@@ -94,8 +95,24 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
       return { ok: false, message: "連絡の各件が不正です。" };
     }
     const rec = entry as Record<string, unknown>;
+    // 表示日数 (任意・行タイプ共通のライフサイクル属性)。未指定は既定 1 (入力日のみ)。1..MAX の整数のみ
+    // 許可し、既定 1 は省略して保存する (JSONB を最小化・後方互換)。区切り線も「本文が罫線であるだけの行」
+    // として通常行と同一に扱う (§5.3・多日連絡のグルーピングを翌日崩さない)。
+    let displayDays: number | undefined;
+    if (rec.displayDays !== undefined) {
+      const d = rec.displayDays;
+      if (typeof d !== "number" || !Number.isInteger(d) || d < 1 || d > NOTICE_MAX_DISPLAY_DAYS) {
+        return {
+          ok: false,
+          message: `表示日数は 1〜${NOTICE_MAX_DISPLAY_DAYS} の整数で指定してください。`,
+        };
+      }
+      if (d > 1) {
+        displayDays = d;
+      }
+    }
     // 行タイプ（§5.3）: "divider" のみ受理し、それ以外の kind 値は拒否。divider 行は text を任意ラベル
-    // （空可・DIVIDER_LABEL_MAX 以内）として持ち、isHighlight / displayDays は剥がす（divider では無視）。
+    // （空可・DIVIDER_LABEL_MAX 以内）として持つ。isHighlight のみ剥がす（罫線に強調概念なし）。
     if (rec.kind !== undefined && rec.kind !== null) {
       if (rec.kind !== "divider") {
         return { ok: false, message: "連絡の行タイプが不正です。" };
@@ -107,7 +124,11 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
           message: `区切り線のラベルは ${DIVIDER_LABEL_MAX} 文字以内で入力してください。`,
         };
       }
-      items.push({ kind: "divider", text: label });
+      items.push({
+        kind: "divider",
+        text: label,
+        ...(displayDays !== undefined ? { displayDays } : {}),
+      });
       continue;
     }
     const text = normalizeString(rec.text, NOTICE_TEXT_MAX);
@@ -119,19 +140,8 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
     if (rec.isHighlight === true) {
       item.isHighlight = true;
     }
-    // 表示日数 (任意)。未指定は既定 1 (入力日のみ)。1..MAX の整数のみ許可し、既定 1 は省略して保存する
-    // (JSONB を最小化・後方互換)。
-    if (rec.displayDays !== undefined) {
-      const d = rec.displayDays;
-      if (typeof d !== "number" || !Number.isInteger(d) || d < 1 || d > NOTICE_MAX_DISPLAY_DAYS) {
-        return {
-          ok: false,
-          message: `表示日数は 1〜${NOTICE_MAX_DISPLAY_DAYS} の整数で指定してください。`,
-        };
-      }
-      if (d > 1) {
-        item.displayDays = d;
-      }
+    if (displayDays !== undefined) {
+      item.displayDays = displayDays;
     }
     items.push(item);
   }
@@ -140,7 +150,7 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
 
 /**
  * 提出物配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
- * 提出期限 (deadline) の昇順 → 科目名の順で正規化する (保存・描画の決定性)。
+ * 提出期限 (deadline) の昇順で正規化する (安定ソート＝同一期限内は入力順を保持・保存・描画の決定性)。
  */
 export function validateAssignmentItems(raw: unknown): Validated<AssignmentItem[]> {
   if (!Array.isArray(raw)) {
@@ -173,7 +183,8 @@ export function validateAssignmentItems(raw: unknown): Validated<AssignmentItem[
     }
     items.push(item);
   }
-  // 期限の昇順 → 科目名で安定ソート (保存・描画の決定性)。
+  // 期限の昇順で安定ソート (同一期限内は入力順を保持・保存・描画の決定性)。⠿ 並べ替え（D 群）も
+  // 同一期限内の入力順として、この安定ソートでそのまま保存される。
   items.sort((a, b) => (a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : 0));
   return { ok: true, value: items };
 }

@@ -6,7 +6,7 @@ import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { EditorTarget } from "@/lib/editor/schedule-core";
 import { DIVIDER_LABEL_MAX, targetId } from "@/lib/editor/schedule-core";
 import { tokens } from "@kimiterrace/ui";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import {
@@ -45,7 +45,10 @@ import { moveItem, useRowReorder } from "./useRowReorder";
  */
 type Row = {
   id: string;
-  /** 行タイプ（PR-B §5.3）。"divider"=区切り線（text を任意ラベルとして使い、重要 / 表示日数は持たない）。 */
+  /**
+   * 行タイプ（PR-B §5.3）。"divider"=区切り線＝「本文が罫線であるだけの行」。text を任意ラベルとして使い、
+   * **表示日数は通常行と同じライフサイクル**を持つ（多日連絡のグルーピングを翌日崩さない）。重要のみ持たない。
+   */
   kind?: "divider";
   text: string;
   isHighlight: boolean;
@@ -81,15 +84,83 @@ function hasNoticeDetail(r: { isHighlight: boolean; displayDays: number }): bool
 /** 行 state を保存ペイロード（NoticeItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
 function toNoticeItems(rows: Row[]): NoticeItem[] {
   return rows.map((r) =>
-    // 区切り線（§5.3）: text を任意ラベル（trim・空可）として保存。重要 / 表示日数は載せない（validate も剥がす）。
+    // 区切り線（§5.3）: text を任意ラベル（trim・空可）として保存。表示日数は通常行と同じライフサイクル
+    // （既定 1 は省略）。重要のみ載せない（罫線に強調概念なし・validate も剥がす）。
     r.kind === "divider"
-      ? { kind: "divider" as const, text: r.text.trim() }
+      ? {
+          kind: "divider" as const,
+          text: r.text.trim(),
+          ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
+        }
       : {
           text: r.text,
           ...(r.isHighlight ? { isHighlight: true } : {}),
           // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
           ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
         },
+  );
+}
+
+const detailLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.25rem",
+  fontSize: "0.85rem",
+};
+
+/**
+ * 表示日数（プリセット + カスタム 1..14）の選択 UI。通常行と区切り線行の詳細パネルで共有する
+ * （§5.3: 区切り線も通常行と同じ表示期間ライフサイクルを持つため、同じ選択肢・同じ挙動で出す）。
+ */
+function DisplayDaysField({
+  row,
+  index,
+  onPatch,
+}: {
+  row: Row;
+  index: number;
+  onPatch: (patch: Partial<Row>) => void;
+}) {
+  return (
+    <>
+      <label style={detailLabelStyle}>
+        表示
+        <select
+          value={row.custom ? "custom" : String(row.displayDays)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "custom") {
+              onPatch({ custom: true });
+            } else {
+              onPatch({ custom: false, displayDays: Number(v) });
+            }
+          }}
+          style={inputStyle}
+          aria-label={`${index + 1} 件目の表示日数`}
+        >
+          {DISPLAY_DAYS_PRESETS.map((p) => (
+            <option key={p.value} value={String(p.value)}>
+              {p.label}
+            </option>
+          ))}
+          <option value="custom">カスタム</option>
+        </select>
+      </label>
+      {row.custom ? (
+        <label style={detailLabelStyle}>
+          <input
+            type="number"
+            min={1}
+            max={DISPLAY_DAYS_MAX}
+            value={row.displayDays}
+            onChange={(e) => onPatch({ displayDays: clampDisplayDays(Number(e.target.value)) })}
+            style={{ ...inputStyle, width: "4rem" }}
+            aria-label={`${index + 1} 件目の表示日数 (日)`}
+          />
+          日間
+        </label>
+      ) : null}
+    </>
   );
 }
 
@@ -223,7 +294,8 @@ export function NoticeEditor({
           const reorder = rowReorder(i);
           const open = disclosure.isOpen(r.id);
           const detailId = `notice-detail-${r.id}`;
-          // 区切り線行（§5.3）: 本文入力の代わりにラベル入力（任意）と ⠿・削除だけを出す（重要 / 表示日数なし）。
+          // 区切り線行（§5.3）: 本文入力の代わりにラベル入力（任意）と ⠿・詳細（表示日数）・削除を出す。
+          // 表示日数は通常行と同じライフサイクル（多日連絡のグルーピングを翌日崩さない）。重要のみ出さない。
           if (r.kind === "divider") {
             return (
               <li
@@ -255,6 +327,13 @@ export function NoticeEditor({
                   style={{ ...inputStyle, width: "12rem" }}
                   aria-label={`${i + 1} 件目の区切り線ラベル`}
                 />
+                <RowDetailToggle
+                  open={open}
+                  hasValue={hasNoticeDetail(r)}
+                  onToggle={() => disclosure.toggle(r.id)}
+                  controlsId={detailId}
+                  label={`${i + 1} 件目の詳細項目`}
+                />
                 <button
                   type="button"
                   onClick={() => removeRow(i)}
@@ -263,6 +342,12 @@ export function NoticeEditor({
                 >
                   削除
                 </button>
+                {/* 詳細（表示日数のみ・重要は罫線に概念なし）。通常行と同じ全幅パネル。 */}
+                {open ? (
+                  <div id={detailId} style={{ ...detailPanelStyle, flexBasis: "100%" }}>
+                    <DisplayDaysField row={r} index={i} onPatch={(patch) => update(i, patch)} />
+                  </div>
+                ) : null}
               </li>
             );
           }
@@ -311,14 +396,7 @@ export function NoticeEditor({
                   重要 / 表示日数の onChange ロジックは従来と同一（挙動不変・畳んでも state は保持）。 */}
               {open ? (
                 <div id={detailId} style={{ ...detailPanelStyle, flexBasis: "100%" }}>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.25rem",
-                      fontSize: "0.85rem",
-                    }}
-                  >
+                  <label style={detailLabelStyle}>
                     <input
                       type="checkbox"
                       checked={r.isHighlight}
@@ -326,59 +404,7 @@ export function NoticeEditor({
                     />
                     重要
                   </label>
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.25rem",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    表示
-                    <select
-                      value={r.custom ? "custom" : String(r.displayDays)}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        if (v === "custom") {
-                          update(i, { custom: true });
-                        } else {
-                          update(i, { custom: false, displayDays: Number(v) });
-                        }
-                      }}
-                      style={inputStyle}
-                      aria-label={`${i + 1} 件目の表示日数`}
-                    >
-                      {DISPLAY_DAYS_PRESETS.map((p) => (
-                        <option key={p.value} value={String(p.value)}>
-                          {p.label}
-                        </option>
-                      ))}
-                      <option value="custom">カスタム</option>
-                    </select>
-                  </label>
-                  {r.custom ? (
-                    <label
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
-                        fontSize: "0.85rem",
-                      }}
-                    >
-                      <input
-                        type="number"
-                        min={1}
-                        max={DISPLAY_DAYS_MAX}
-                        value={r.displayDays}
-                        onChange={(e) =>
-                          update(i, { displayDays: clampDisplayDays(Number(e.target.value)) })
-                        }
-                        style={{ ...inputStyle, width: "4rem" }}
-                        aria-label={`${i + 1} 件目の表示日数 (日)`}
-                      />
-                      日間
-                    </label>
-                  ) : null}
+                  <DisplayDaysField row={r} index={i} onPatch={(patch) => update(i, patch)} />
                 </div>
               ) : null}
             </li>

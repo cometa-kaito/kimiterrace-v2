@@ -150,11 +150,29 @@ describe("validateNoticeItems: 区切り線（kind:'divider'・§5.3）", () => 
     });
   });
 
-  it("divider は isHighlight / displayDays を剥がす（無視・§5.3）", () => {
+  it("divider は displayDays を通常行と同じライフサイクルで保持し、isHighlight のみ剥がす（§5.3 MEDIUM-1）", () => {
+    // 「区切り線も通常の連絡行と同じライフサイクルを持つ」＝本文が罫線であるだけの行。displayDays を
+    // 剥がすと多日連絡のグルーピング（校訓掲示板等）が翌日崩れる。isHighlight は罫線に概念なし＝剥がす。
     const r = validateNoticeItems([
       { kind: "divider", text: "校訓", isHighlight: true, displayDays: 7 },
     ]);
-    expect(r).toEqual({ ok: true, value: [{ kind: "divider", text: "校訓" }] });
+    expect(r).toEqual({ ok: true, value: [{ kind: "divider", text: "校訓", displayDays: 7 }] });
+  });
+
+  it("divider の displayDays も通常行と同じ規則（既定 1 は省略・1..14 の整数のみ・不正は全体拒否）", () => {
+    // 既定 1（今日のみ）は省略して保存（JSONB 最小化・通常行と同一規則）。
+    expect(validateNoticeItems([{ kind: "divider", text: "校訓", displayDays: 1 }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", text: "校訓" }],
+    });
+    // 境界 14 は許可・15 / 0 / 非整数は拒否（通常行と同一メッセージ経路）。
+    expect(validateNoticeItems([{ kind: "divider", text: "", displayDays: 14 }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", text: "", displayDays: 14 }],
+    });
+    expect(validateNoticeItems([{ kind: "divider", text: "", displayDays: 15 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ kind: "divider", text: "", displayDays: 0 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ kind: "divider", text: "", displayDays: 1.5 }]).ok).toBe(false);
   });
 
   it("未知の kind 値は拒否（黙って通さない）", () => {

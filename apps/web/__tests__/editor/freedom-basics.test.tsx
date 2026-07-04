@@ -181,6 +181,39 @@ describe("NoticeEditor 区切り線（§5.3）", () => {
     expect(saved).toEqual([{ text: "連絡A" }, { kind: "divider", text: "" }]);
   });
 
+  it("divider 行も詳細パネルで表示日数を選べ、displayDays として保存される（§5.3 MEDIUM-1）", async () => {
+    // 「区切り線も通常の連絡行と同じライフサイクルを持つ」＝多日連絡のグルーピングが翌日崩れない。
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ kind: "divider", text: "校訓" }]}
+      />,
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "1 件目の詳細項目" }));
+    });
+    act(() => {
+      fireEvent.change(screen.getByLabelText("1 件目の表示日数"), { target: { value: "7" } });
+    });
+    await flushAutoSave();
+    const saved = lastSaved<{ kind?: string; text: string; displayDays?: number }>(
+      h.setNoticesAction,
+    );
+    expect(saved).toEqual([{ kind: "divider", text: "校訓", displayDays: 7 }]);
+  });
+
+  it("displayDays 付き divider の初期値は詳細が最初から開く（設定済みを隠さない）", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ kind: "divider", text: "校訓", displayDays: 3 }]}
+      />,
+    );
+    expect((screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement).value).toBe("3");
+  });
+
   it("divider 行は ↑ で並べ替えでき、配列位置がそのまま保存される", async () => {
     render(
       <NoticeEditor
