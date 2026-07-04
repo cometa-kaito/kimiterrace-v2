@@ -85,6 +85,16 @@ function Section({
         <ol style={itemsStyle}>
           {section.items.map((item, i) => {
             const line = formatSignageItem(kind, item);
+            // 区切り線（kind:"divider"・PR-B §5.3）: プレビューでも罫線（ラベル任意）として描く（実機と整合）。
+            // role="separator" は付けない（interactive role の a11y 制約回避・SignageBoardView と同判断）。
+            if (line.divider) {
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 静的・不変リストの描画
+                <li key={i} style={dividerItemStyle} data-divider="true">
+                  {line.text || "―――"}
+                </li>
+              );
+            }
             return (
               // 要素は順序が意味を持ち再並びしないため index key で十分。
               // biome-ignore lint/suspicious/noArrayIndexKey: 静的・不変リストの描画
@@ -139,6 +149,13 @@ const itemsStyle: React.CSSProperties = {
 const itemStyle: React.CSSProperties = { fontSize: "0.95rem" };
 // 重要マーク付き連絡 (isHighlight) は太字で強調する。
 const itemEmphasisStyle: React.CSSProperties = { fontSize: "0.95rem", fontWeight: 700 };
+// 区切り線行（kind:"divider"）。プレビューは簡易描画（muted・ラベル or ダッシュ）で実機の罫線に対応させる。
+const dividerItemStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#9ca3af",
+  listStyle: "none",
+  textAlign: "center",
+};
 const emptyStyle: React.CSSProperties = { color: "#9ca3af", margin: 0, fontSize: "0.9rem" };
 const adsWrapStyle: React.CSSProperties = { ...sectionStyle, background: "#fafafa" };
 const adsListStyle: React.CSSProperties = {

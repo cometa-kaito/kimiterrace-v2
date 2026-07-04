@@ -135,3 +135,66 @@ describe("validateAssignmentItems", () => {
     expect(validateAssignmentItems([])).toEqual({ ok: true, value: [] });
   });
 });
+
+// ===================== PR-B 自由度基本セット（区切り線 / ★重要） =====================
+
+describe("validateNoticeItems: 区切り線（kind:'divider'・§5.3）", () => {
+  it("divider を受理し text を任意ラベル（trim・空可）として保存する", () => {
+    expect(validateNoticeItems([{ kind: "divider", text: " 校訓 " }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", text: "校訓" }],
+    });
+    expect(validateNoticeItems([{ kind: "divider" }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", text: "" }],
+    });
+  });
+
+  it("divider は isHighlight / displayDays を剥がす（無視・§5.3）", () => {
+    const r = validateNoticeItems([
+      { kind: "divider", text: "校訓", isHighlight: true, displayDays: 7 },
+    ]);
+    expect(r).toEqual({ ok: true, value: [{ kind: "divider", text: "校訓" }] });
+  });
+
+  it("未知の kind 値は拒否（黙って通さない）", () => {
+    expect(validateNoticeItems([{ kind: "header", text: "x" }]).ok).toBe(false);
+  });
+
+  it("divider ラベル 33 文字は拒否（境界 32 は許可・DIVIDER_LABEL_MAX）", () => {
+    expect(validateNoticeItems([{ kind: "divider", text: "あ".repeat(32) }]).ok).toBe(true);
+    expect(validateNoticeItems([{ kind: "divider", text: "あ".repeat(33) }]).ok).toBe(false);
+  });
+
+  it("divider を挟んでも入力順を保持する（連絡は配列順＝盤面順）", () => {
+    const r = validateNoticeItems([
+      { text: "連絡A" },
+      { kind: "divider", text: "" },
+      { text: "連絡B", isHighlight: true },
+    ]);
+    expect(r).toEqual({
+      ok: true,
+      value: [
+        { text: "連絡A" },
+        { kind: "divider", text: "" },
+        { text: "連絡B", isHighlight: true },
+      ],
+    });
+  });
+});
+
+describe("validateAssignmentItems: ★重要（isHighlight・§5.2）", () => {
+  it("isHighlight は明示 true のみ採用（連絡と同作法・期限昇順ソート後も保持）", () => {
+    const r = validateAssignmentItems([
+      { deadline: "2026-06-20", subject: "国語", task: "音読", isHighlight: true },
+      { deadline: "2026-06-18", subject: "数学", task: "P30", isHighlight: "true" },
+    ]);
+    expect(r).toEqual({
+      ok: true,
+      value: [
+        { deadline: "2026-06-18", subject: "数学", task: "P30" },
+        { deadline: "2026-06-20", subject: "国語", task: "音読", isHighlight: true },
+      ],
+    });
+  });
+});

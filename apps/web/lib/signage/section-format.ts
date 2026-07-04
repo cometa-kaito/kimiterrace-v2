@@ -31,7 +31,12 @@
 
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem, SchedulePeriod } from "@/lib/editor/schedule-core";
-import { isCustomPeriod, isSpecialSlot, scheduleSlotLabel } from "@/lib/editor/schedule-core";
+import {
+  isCustomPeriod,
+  isDividerRecord,
+  isSpecialSlot,
+  scheduleSlotLabel,
+} from "@/lib/editor/schedule-core";
 import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
 import type { EffectiveDailyData } from "@/lib/signage/effective-daily-data";
 
@@ -44,8 +49,11 @@ export type SignageSectionKind = keyof Pick<
   "schedules" | "notices" | "assignments" | "quietHours"
 >;
 
-/** 表示用の 1 行。`emphasis` は重要マーク (notice の isHighlight) のときのみ true。 */
-export type SignageLine = { text: string; emphasis?: boolean };
+/**
+ * 表示用の 1 行。`emphasis` は重要マーク（isHighlight・連絡 / 予定 / 提出物 §5.2）のときのみ true。
+ * `divider` は区切り線行（`kind:"divider"` §5.3）＝盤面は水平罫線（`text` はラベル・空なら純粋な罫線）を描く。
+ */
+export type SignageLine = { text: string; emphasis?: boolean; divider?: boolean };
 
 /**
  * opaque JSONB から **core 型 `T` のフィールド名に機械結合**して生値 (unknown) を読む。
@@ -94,8 +102,13 @@ function slotOf(rec: Record<string, unknown>): SchedulePeriod | null {
   return null;
 }
 
-/** 予定: "N限 科目（補足）" / "朝 科目"。`period` ラベルを冠して時限・時間帯を明示する。 */
+/** 予定: "N限 科目（補足）" / "朝 科目"。`period` ラベルを冠して時限・時間帯を明示する。区切り線は divider 行。 */
 function formatSchedule(rec: Record<string, unknown>): SignageLine | null {
+  // 区切り線（§5.3）: subject は任意ラベル（空なら純粋な罫線）。null に落とさず必ず divider 行を返す
+  //（genericLabel フォールバックで生 JSON を露出させない）。
+  if (isDividerRecord(rec)) {
+    return { text: str(field<ScheduleItem>(rec, "subject")) ?? "", divider: true };
+  }
   const subject = str(field<ScheduleItem>(rec, "subject"));
   if (!subject) {
     return null;
@@ -103,11 +116,16 @@ function formatSchedule(rec: Record<string, unknown>): SignageLine | null {
   const slot = slotOf(rec);
   const head = slot !== null ? `${scheduleSlotLabel(slot)} ${subject}` : subject;
   const note = str(field<ScheduleItem>(rec, "note"));
-  return { text: note ? `${head}（${note}）` : head };
+  const text = note ? `${head}（${note}）` : head;
+  return field<ScheduleItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
-/** 連絡: 本文 + 重要マーク (isHighlight=true のみ emphasis)。 */
+/** 連絡: 本文 + 重要マーク (isHighlight=true のみ emphasis)。区切り線（kind:"divider"）は divider 行。 */
 function formatNotice(rec: Record<string, unknown>): SignageLine | null {
+  // 区切り線（§5.3）: text は任意ラベル（空なら純粋な罫線）。null に落とさず必ず divider 行を返す。
+  if (isDividerRecord(rec)) {
+    return { text: str(field<NoticeItem>(rec, "text")) ?? "", divider: true };
+  }
   const text = str(field<NoticeItem>(rec, "text"));
   if (!text) {
     return null;
@@ -115,7 +133,7 @@ function formatNotice(rec: Record<string, unknown>): SignageLine | null {
   return field<NoticeItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
-/** 提出物: "科目：内容（〆 M/D）"。期限と内容を捨てずに表示する。 */
+/** 提出物: "科目：内容（〆 M/D）"。期限と内容を捨てずに表示する。isHighlight=true は emphasis。 */
 function formatAssignment(rec: Record<string, unknown>): SignageLine | null {
   const subject = str(field<AssignmentItem>(rec, "subject"));
   const task = str(field<AssignmentItem>(rec, "task"));
@@ -124,7 +142,8 @@ function formatAssignment(rec: Record<string, unknown>): SignageLine | null {
   }
   const deadline = str(field<AssignmentItem>(rec, "deadline"));
   const body = `${subject}：${task}`;
-  return { text: deadline ? `${body}（〆${shortDate(deadline)}）` : body };
+  const text = deadline ? `${body}（〆${shortDate(deadline)}）` : body;
+  return field<AssignmentItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
 /** 静粛時間: "開始–終了" (例: "12:30–13:00")。生 JSON を露出させない。 */
@@ -196,12 +215,26 @@ export type SignageScheduleRow = {
   content: string;
   location: string | null;
   targetAudience: string | null;
+  /** 重要マーク（isHighlight・§5.2）。盤面は既存の連絡★と同一視覚（emphasis）で描く。 */
+  emphasis?: boolean;
+  /** 区切り線行（kind:"divider"・§5.3）。盤面は水平罫線（content はラベル・空なら純粋な罫線）を描く。 */
+  divider?: boolean;
 };
 
 /** 予定要素を「時限 + 内容 (+ 場所 / 対象者)」に分ける。確定スキーマ外は時限空 + 汎用ラベルにフォールバック。 */
 export function parseScheduleRow(item: unknown): SignageScheduleRow {
   if (item && typeof item === "object" && !Array.isArray(item)) {
     const rec = item as Record<string, unknown>;
+    // 区切り線（§5.3）: subject は任意ラベル。汎用ラベル（生 JSON）へ落とさず divider 行として返す。
+    if (isDividerRecord(rec)) {
+      return {
+        periodLabel: "",
+        content: str(field<ScheduleItem>(rec, "subject")) ?? "",
+        location: null,
+        targetAudience: null,
+        divider: true,
+      };
+    }
     const subject = str(field<ScheduleItem>(rec, "subject"));
     if (subject) {
       const slot = slotOf(rec);
@@ -211,6 +244,7 @@ export function parseScheduleRow(item: unknown): SignageScheduleRow {
         content: note ? `${subject}（${note}）` : subject,
         location: str(field<ScheduleItem>(rec, "location")),
         targetAudience: str(field<ScheduleItem>(rec, "targetAudience")),
+        ...(field<ScheduleItem>(rec, "isHighlight") === true ? { emphasis: true } : {}),
       };
     }
   }
@@ -225,6 +259,8 @@ export type SignageAssignmentRow = {
   daysLeft: string;
   isOverdue: boolean;
   isUrgent: boolean;
+  /** 重要マーク（isHighlight・§5.2）。盤面は既存の連絡★と同一視覚（emphasis 行）で描く。 */
+  emphasis?: boolean;
 };
 
 /**
@@ -251,6 +287,7 @@ export function parseAssignmentRow(item: unknown, today: string): SignageAssignm
     isOverdue: days !== null && days < 0,
     // 締切まで3日以内 (当日含む) は緊急 (赤)。v1 calculateDaysLeft の days-urgent (diffDays<=3) に一致。
     isUrgent: days !== null && days >= 0 && days <= 3,
+    ...(field<AssignmentItem>(rec, "isHighlight") === true ? { emphasis: true } : {}),
   };
 }
 

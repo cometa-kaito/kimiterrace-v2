@@ -295,3 +295,90 @@ describe("parseAssignmentRow (提出物テーブルの列 + 残日数)", () => {
     });
   });
 });
+
+// ===================== PR-B 自由度基本セット（区切り線 / ★重要 の整形） =====================
+
+describe("formatSignageItem: 区切り線（kind:'divider'・§5.3）", () => {
+  it("schedules の divider は divider 行（subject=ラベル・空なら text ''）を返し生 JSON を出さない", () => {
+    expect(formatSignageItem("schedules", { kind: "divider", subject: "午後の部" })).toEqual({
+      text: "午後の部",
+      divider: true,
+    });
+    expect(formatSignageItem("schedules", { kind: "divider", subject: "" })).toEqual({
+      text: "",
+      divider: true,
+    });
+  });
+
+  it("notices の divider は divider 行（text=ラベル・空可）を返す", () => {
+    expect(formatSignageItem("notices", { kind: "divider", text: "校訓" })).toEqual({
+      text: "校訓",
+      divider: true,
+    });
+    expect(formatSignageItem("notices", { kind: "divider" })).toEqual({ text: "", divider: true });
+  });
+});
+
+describe("formatSignageItem: ★重要の横展開（emphasis・§5.2）", () => {
+  it("schedules の isHighlight=true は emphasis（連絡と同一視覚言語）", () => {
+    expect(
+      formatSignageItem("schedules", { period: 1, subject: "数学", isHighlight: true }),
+    ).toEqual({ text: "1限 数学", emphasis: true });
+    expect(
+      formatSignageItem("schedules", { period: 1, subject: "数学", isHighlight: "true" }),
+    ).toEqual({ text: "1限 数学" });
+  });
+
+  it("assignments の isHighlight=true は emphasis", () => {
+    expect(
+      formatSignageItem("assignments", {
+        deadline: "2026-06-05",
+        subject: "数学",
+        task: "P30",
+        isHighlight: true,
+      }),
+    ).toEqual({ text: "数学：P30（〆6/5）", emphasis: true });
+  });
+});
+
+describe("parseScheduleRow / parseAssignmentRow: divider / emphasis（PR-B）", () => {
+  it("parseScheduleRow: divider は content=ラベル・divider=true（汎用フォールバックに落とさない）", () => {
+    expect(parseScheduleRow({ kind: "divider", subject: "午後" })).toEqual({
+      periodLabel: "",
+      content: "午後",
+      location: null,
+      targetAudience: null,
+      divider: true,
+    });
+    expect(parseScheduleRow({ kind: "divider" })).toEqual({
+      periodLabel: "",
+      content: "",
+      location: null,
+      targetAudience: null,
+      divider: true,
+    });
+  });
+
+  it("parseScheduleRow: isHighlight=true は emphasis を立てる", () => {
+    expect(parseScheduleRow({ period: 2, subject: "国語", isHighlight: true })).toEqual({
+      periodLabel: "2限",
+      content: "国語",
+      location: null,
+      targetAudience: null,
+      emphasis: true,
+    });
+  });
+
+  it("parseAssignmentRow: isHighlight=true は emphasis を立てる", () => {
+    const row = parseAssignmentRow(
+      { deadline: "2026-06-05", subject: "数学", task: "P30", isHighlight: true },
+      "2026-06-01",
+    );
+    expect(row?.emphasis).toBe(true);
+    const normal = parseAssignmentRow(
+      { deadline: "2026-06-05", subject: "数学", task: "P30" },
+      "2026-06-01",
+    );
+    expect(normal?.emphasis).toBeUndefined();
+  });
+});

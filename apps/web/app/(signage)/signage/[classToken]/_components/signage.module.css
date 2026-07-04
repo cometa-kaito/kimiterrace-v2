@@ -2260,3 +2260,45 @@
     --header-height: 46px;
   }
 }
+
+/* ===================== 16. 自由度基本セット（★重要 / 区切り線・設計書 PR-B） =====================
+   ★（isHighlight）の emphasis は既存 .itemEmphasis（重要連絡と同一視覚言語）を予定 / 提出物 / 来校者 /
+   呼び出しへ横展開して共有する（新しい色は作らない）。ここでは (1) 提出物 <tr> 用の emphasisRow と
+   (2) 区切り線（kind:"divider"）の描画だけを足す。ファイル末尾に置くことで、既存 item クラス
+   （.listItem / .p2ScheduleItem / .p3SchItem 等）と併設したとき divider のレイアウト指定が優先される。 */
+
+/* ★の提出物行（<tr> は border-left が効かないため期限切れ .overdueRow と同じ inset 左線の作法）。 */
+.emphasisRow {
+  background-color: var(--urgent-weak);
+  box-shadow: inset 3px 0 0 0 var(--urgent-color);
+}
+.emphasisRow td {
+  color: var(--urgent-color);
+  font-weight: 700;
+}
+
+/* 区切り線行。左右に水平罫線を伸ばし、ラベルがあれば中央に置く（空なら純粋な罫線）。既存 item クラスの
+   固定行高（.autoScrollItem / .p3SchItem の height）はそのまま生き、ページング上も 1 行として数えられる。 */
+.rowDivider {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  border-bottom: none; /* item クラス既定の点線罫線は消し、divider 自身の実線だけを見せる */
+}
+.rowDivider::before,
+.rowDivider::after {
+  content: "";
+  flex: 1;
+  border-top: 2px solid var(--border-color);
+}
+.rowDividerLabel {
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}

@@ -5,18 +5,24 @@ import { padBlankRows } from "@/lib/editor/prefill-rows";
 import type { EditorTarget, SchedulePeriod, ScheduleItem } from "@/lib/editor/schedule-core";
 import {
   CUSTOM_PERIOD_MAX,
+  DIVIDER_LABEL_MAX,
   SCHEDULE_SLOT_OPTIONS,
   editorBasePath,
   isCustomPeriod,
   isSpecialSlot,
+  scheduleSlotSortKey,
+  sortScheduleSegments,
   targetId,
 } from "@/lib/editor/schedule-core";
 import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
+import { DragHandle } from "./DragHandle";
 import {
   detailPanelStyle,
+  draggingRowStyle,
+  dropOverRowStyle,
   inputStyle,
   removeBtnStyle,
   saveBarStyle,
@@ -30,6 +36,7 @@ import { DetailField, RowDetailToggle, useRowDisclosure } from "./RowDetails";
 import { toEditorTarget } from "./target";
 import { useScopedDailyDataActions } from "./target-school";
 import { useGridTabNavigation } from "./useGridTabNavigation";
+import { moveItem, resortFilledRows, useRowReorder } from "./useRowReorder";
 
 /**
  * 予定エディタ (#48-H、段A-2 で scope 汎用化)。**Client Component** — 行の追加/削除/編集を行い、
@@ -45,11 +52,15 @@ import { useGridTabNavigation } from "./useGridTabNavigation";
 type Row = {
   /** 行の安定キー（「詳細」開閉状態を行に結ぶための描画用 id。保存対象外）。 */
   id: string;
+  /** 行タイプ（PR-B §5.3）。"divider"=区切り線（subject を任意ラベルとして使い、時限・詳細は持たない）。 */
+  kind?: "divider";
   period: SchedulePeriod;
   subject: string;
   note: string;
   location: string;
   targetAudience: string;
+  /** 重要マーク（★・PR-B §5.2）。盤面は既存の連絡★と同一視覚（emphasis）で描く。 */
+  isHighlight: boolean;
 };
 
 /** 「その他（自由入力）」を表す select の番兵値（実 period 値ではない・UI 専用）。 */
@@ -109,13 +120,20 @@ function isRowPeriodComplete(period: SchedulePeriod): boolean {
  * 番兵 0 を保存ペイロードに載せず、盤面は時限ラベルを出さず科目だけを描く（要望 2026-06-23）。
  */
 function toScheduleItems(rows: Row[]): ScheduleItem[] {
-  return rows.map((r) => ({
-    ...(isRowPeriodComplete(r.period) ? { period: r.period } : {}),
-    subject: r.subject,
-    ...(r.note.trim() ? { note: r.note } : {}),
-    ...(r.location.trim() ? { location: r.location } : {}),
-    ...(r.targetAudience.trim() ? { targetAudience: r.targetAudience } : {}),
-  }));
+  return rows.map((r) =>
+    // 区切り線（§5.3）: subject を任意ラベル（trim・空可）として保存。period / 詳細 / ★ は載せない
+    // （validate も剥がす＝JSONB を最小に保つ）。
+    r.kind === "divider"
+      ? { kind: "divider" as const, subject: r.subject.trim() }
+      : {
+          ...(isRowPeriodComplete(r.period) ? { period: r.period } : {}),
+          subject: r.subject,
+          ...(r.isHighlight ? { isHighlight: true } : {}),
+          ...(r.note.trim() ? { note: r.note } : {}),
+          ...(r.location.trim() ? { location: r.location } : {}),
+          ...(r.targetAudience.trim() ? { targetAudience: r.targetAudience } : {}),
+        },
+  );
 }
 
 /**
@@ -125,21 +143,48 @@ function toScheduleItems(rows: Row[]): ScheduleItem[] {
  * あります」を出し、空の予定を保存しない。
  */
 function isBlankScheduleRow(r: Row): boolean {
+  // 区切り線は（ラベルが空でも）教員が意図して挿入した実体行＝空行扱いしない（保存・並べ替えの対象に残す）。
+  if (r.kind === "divider") {
+    return false;
+  }
   const noText =
     r.subject.trim() === "" &&
     r.note.trim() === "" &&
     r.location.trim() === "" &&
     r.targetAudience.trim() === "";
   const customLabel = isCustomPeriod(r.period) && r.period.custom.trim().length > 0;
-  return noText && !customLabel;
+  return noText && !customLabel && !r.isHighlight;
 }
 
 /**
- * 任意項目（補足 / 場所 / 対象者）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定（入力済みを
- * 隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
+ * 任意項目（補足 / 場所 / 対象者 / ★重要）のいずれかに入力があるか。初期から「詳細」を開いておく行の判定
+ * （入力済みを隠さない・{@link useRowDisclosure}）と、折りたたみ中の「入力あり」ドット表示の両方に使う純関数。
  */
-function hasScheduleDetail(r: { note: string; location: string; targetAudience: string }): boolean {
-  return r.note.trim() !== "" || r.location.trim() !== "" || r.targetAudience.trim() !== "";
+function hasScheduleDetail(r: {
+  note: string;
+  location: string;
+  targetAudience: string;
+  isHighlight: boolean;
+}): boolean {
+  return (
+    r.note.trim() !== "" ||
+    r.location.trim() !== "" ||
+    r.targetAudience.trim() !== "" ||
+    r.isHighlight
+  );
+}
+
+/**
+ * サーバ（`validateScheduleItems`）と同じ並び規則で行をクライアント側でも安定再ソートする（§5.1・ドロップ後に
+ * 見た目と保存結果を一致させる）。区切り線（divider）は位置保持＝区間ごとに slot キー昇順（安定）。時限が
+ * 未確定（未選択 / 空の自由入力）の行は保存時に period を省くのと同じく「時限なし」キーに倒す。
+ */
+function sortRowsLikeServer(rows: Row[]): Row[] {
+  return sortScheduleSegments(
+    rows,
+    (r) => scheduleSlotSortKey(isRowPeriodComplete(r.period) ? r.period : undefined),
+    (r) => r.kind === "divider",
+  );
 }
 
 /** 曜日（日始まり）。日付文字列から決まり today に依存しないので SSR/クライアントで一致する。 */
@@ -194,12 +239,14 @@ export function ScheduleEditor({
   const [rows, setRows] = useState<Row[]>(() => {
     const initial: Row[] = initialItems.map((i, idx) => ({
       id: `r${idx}`,
+      ...(i.kind === "divider" ? { kind: "divider" as const } : {}),
       // 時限なし（科目のみ）の保存済み行は period 省略＝undefined。select の「（時限なし）」に対応する番兵に戻す。
       period: i.period ?? UNSELECTED_PERIOD,
       subject: i.subject,
       note: i.note ?? "",
       location: i.location ?? "",
       targetAudience: i.targetAudience ?? "",
+      isHighlight: i.isHighlight === true,
     }));
     // 盤面の規定枠（prefillRows）まで空行を足す。時限は**未選択（空欄）**で始める（自動で 1限〜5限 を割り当て
     // ない・要望 2026-06-23）。教員が各行を埋めるとき時限を選ぶ。prefillRows=0（scope/ops 等）は no-op で従来どおり。
@@ -210,6 +257,7 @@ export function ScheduleEditor({
       note: "",
       location: "",
       targetAudience: "",
+      isHighlight: false,
     }));
   });
   // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
@@ -224,6 +272,7 @@ export function ScheduleEditor({
           note: i.note ?? "",
           location: i.location ?? "",
           targetAudience: i.targetAudience ?? "",
+          isHighlight: i.isHighlight === true,
         }),
       }))
       .filter((x) => x.has)
@@ -237,8 +286,9 @@ export function ScheduleEditor({
   const serialized = serializeForDirty(items);
   // ライブプレビュー連動: **科目が入っている行**を盤面へ通知する。時限なし（科目のみ）の行も盤面に出す
   // （要望 2026-06-23: 科目のみで表示できるように。未選択行は時限ラベルなしで描かれる）。科目未入力の
-  // 半端な行（場所だけ入れた等）は盤面に出さない。保存ロジックとは独立（レンダー後に副作用で）。
-  const previewItems = items.filter((it) => it.subject.trim().length > 0);
+  // 半端な行（場所だけ入れた等）は盤面に出さない。**区切り線はラベルが空でも盤面に出す**（罫線そのものが
+  // 表示物・§5.3）。保存ロジックとは独立（レンダー後に副作用で）。
+  const previewItems = items.filter((it) => it.kind === "divider" || it.subject.trim().length > 0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: serialized は items 変化のトリガ（items 直接 dep だと毎回新規参照で無限ループ）
   useEffect(() => {
     onItemsChange?.(previewItems);
@@ -251,10 +301,12 @@ export function ScheduleEditor({
   // （要望: 放課後が 2 つあると反映されない、の是正 2026-06-22）。
   // 重複判定は**有効な数値時限(1..12)のみ**。未選択(0)は除外する（複数行が未選択でも重複扱いにしない）。
   const numberedPeriods = filledRows
+    .filter((r) => r.kind !== "divider")
     .map((r) => r.period)
     .filter((p): p is number => typeof p === "number" && p >= 1);
+  // 区切り線はラベル空でも有効（本文必須なし・§5.3）＝complete 判定から除外する。
   const complete =
-    filledRows.every((r) => r.subject.trim().length > 0) &&
+    filledRows.every((r) => r.kind === "divider" || r.subject.trim().length > 0) &&
     new Set(numberedPeriods).size === numberedPeriods.length;
   const auto = useAutoSaveSection({
     serialized,
@@ -275,12 +327,58 @@ export function ScheduleEditor({
     nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { id, period: UNSELECTED_PERIOD, subject: "", note: "", location: "", targetAudience: "" },
+      {
+        id,
+        period: UNSELECTED_PERIOD,
+        subject: "",
+        note: "",
+        location: "",
+        targetAudience: "",
+        isHighlight: false,
+      },
     ]);
   }, []);
+  // 区切り線を末尾に追加（§5.3・モック準拠で行追加ボタンの脇）。ラベルは任意（空なら純粋な罫線）。
+  // 位置は追加後に ⠿ D&D で動かす（divider は区間ソートで位置保持されるため自由に置ける）。
+  function addDividerRow() {
+    const id = `r${nextId.current}`;
+    nextId.current += 1;
+    setRows((prev) => [
+      ...prev,
+      {
+        id,
+        kind: "divider" as const,
+        period: UNSELECTED_PERIOD,
+        subject: "",
+        note: "",
+        location: "",
+        targetAudience: "",
+        isHighlight: false,
+      },
+    ]);
+  }
   function removeRow(index: number) {
     setRows((prev) => prev.filter((_, i) => i !== index));
   }
+  // ⠿ 並べ替え（§5.1・同一ソートキー内）: 行を from→to へ移した後、サーバと同じ slot キーで**安定再ソート**して
+  // 見た目と保存結果を一致させる（別バケット＝別時限へ跨いだドロップはスナップバック＝時限順の意味論を壊さ
+  // ない）。事前生成の空行はドロップ先にしない・位置も保持（resortFilledRows）。
+  function moveRow(from: number, to: number) {
+    setRows((prev) => {
+      const dest = prev[to];
+      if (!dest || isBlankScheduleRow(dest)) {
+        return prev;
+      }
+      const moved = moveItem(prev, from, to);
+      if (moved === prev) {
+        return prev;
+      }
+      return resortFilledRows(moved, isBlankScheduleRow, sortRowsLikeServer);
+    });
+  }
+  const rowReorder = useRowReorder(rows.length, moveRow);
+  // 並べ替えハンドルは**実入力行が 2 件以上**のときだけ出す（空行には出さない・1 件では並べ替え不要）。
+  const reorderable = filledRows.length > 1;
 
   // --- Tab 縦移動（スプレッドシート風の連続入力・共有フック {@link useGridTabNavigation}） ---
   // col: 0=時限 / 1=科目（いずれもコア＝常時表示）のみ。Tab=同 col の次行 / Shift+Tab=同 col の前行 /
@@ -328,6 +426,7 @@ export function ScheduleEditor({
         <table style={tableStyle}>
           <thead>
             <tr>
+              <th style={thStyle} aria-label="並べ替え" />
               <th style={thStyle}>時限</th>
               <th style={thStyle}>科目</th>
               <th style={thStyle} aria-label="詳細" />
@@ -336,14 +435,78 @@ export function ScheduleEditor({
           </thead>
           <tbody>
             {rows.map((r, i) => {
+              const reorder = rowReorder(i);
               const open = disclosure.isOpen(r.id);
               const detailId = `schedule-detail-${r.id}`;
+              // 区切り線行（§5.3）: 本文入力の代わりにラベル入力（任意）と ⠿・削除だけを出す（詳細なし）。
+              if (r.kind === "divider") {
+                return (
+                  <tr
+                    key={r.id}
+                    {...reorder.rowProps}
+                    style={{
+                      ...(reorder.isDragging ? draggingRowStyle : {}),
+                      ...(reorder.isOver ? dropOverRowStyle : {}),
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      {reorderable ? (
+                        <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
+                      ) : null}
+                    </td>
+                    <td colSpan={3} style={tdStyle}>
+                      <span
+                        aria-hidden="true"
+                        style={{ color: tokens.color.muted, marginRight: "0.4rem" }}
+                      >
+                        ── 区切り線
+                      </span>
+                      <input
+                        // Tab 縦移動のグリッドに穴を作らない: 時限（col0）/ 科目（col1）どちらの縦移動でも
+                        // このラベル入力に着地させる（divider 行は入力がこれ 1 つ）。
+                        ref={(el) => {
+                          registerCell(i, 0, el);
+                          registerCell(i, 1, el);
+                        }}
+                        value={r.subject}
+                        onChange={(e) => update(i, { subject: e.target.value })}
+                        onKeyDown={(e) => onCellKeyDown(e, i, 1)}
+                        placeholder="ラベル（省略可）"
+                        maxLength={DIVIDER_LABEL_MAX}
+                        style={{ ...inputStyle, width: "12rem" }}
+                        aria-label={`${i + 1} 行目の区切り線ラベル`}
+                      />
+                    </td>
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        style={removeBtnStyle}
+                        aria-label={`${i + 1} 行目を削除`}
+                      >
+                        削除
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
               return (
                 // 安定キー `r.id`（「詳細」開閉を行に結ぶ）。主役 `<tr>` と詳細 `<tr>` の 2 行を 1 行として
                 // 束ねるため Fragment に key を置く（保存は period でソート/検証＝順序は UI 状態のまま）。
                 <Fragment key={r.id}>
-                  {/* 主役行（時限 / 科目）。 */}
-                  <tr>
+                  {/* 主役行（時限 / 科目）。D&D / ↑↓ の対象はこの行だけ（rowProps は詳細 tr に付けない）。 */}
+                  <tr
+                    {...reorder.rowProps}
+                    style={{
+                      ...(reorder.isDragging ? draggingRowStyle : {}),
+                      ...(reorder.isOver ? dropOverRowStyle : {}),
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      {reorderable && !isBlankScheduleRow(r) ? (
+                        <DragHandle reorder={reorder} label={`${i + 1} 行目を並べ替え`} />
+                      ) : null}
+                    </td>
                     <td style={tdStyle}>
                       <select
                         ref={(el) => registerCell(i, 0, el)}
@@ -406,11 +569,29 @@ export function ScheduleEditor({
                       </button>
                     </td>
                   </tr>
-                  {/* 詳細行（補足 / 場所 / 対象者）。開いている時だけ描画。 */}
+                  {/* 詳細行（重要 / 補足 / 場所 / 対象者）。開いている時だけ描画。D&D のドロップ先にしないため
+                      reorder.rowProps を付けない。 */}
                   {open ? (
                     <tr>
-                      <td colSpan={4} style={{ ...tdStyle, paddingTop: 0 }}>
+                      <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>
+                          {/* ★重要（§5.2・連絡の重要フラグと同作法）。盤面は emphasis（既存の連絡★と同一視覚）。 */}
+                          <label
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.25rem",
+                              fontSize: tokens.fontSize.sm,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={r.isHighlight}
+                              onChange={(e) => update(i, { isHighlight: e.target.checked })}
+                              aria-label={`${i + 1} 行目の重要マーク`}
+                            />
+                            重要
+                          </label>
                           <DetailField label="補足">
                             <input
                               value={r.note}
@@ -452,6 +633,10 @@ export function ScheduleEditor({
       <div style={saveBarStyle}>
         <button type="button" onClick={addRow} style={secondaryBtnStyle}>
           予定を追加
+        </button>
+        {/* 区切り線（§5.3・行追加ボタンの脇）: ダッシュ行ハックの正規化。位置は ⠿ で動かす。 */}
+        <button type="button" onClick={addDividerRow} style={secondaryBtnStyle}>
+          ＋区切り線
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />
       </div>
