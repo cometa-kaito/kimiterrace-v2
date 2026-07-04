@@ -10,7 +10,9 @@ import {
   latestUserMessage,
   multiDayWrites,
   parseChatTurns,
+  preservePinnedNotices,
   sanitizeDraft,
+  stripPinnedFromDraft,
 } from "../../lib/editor/assistant-chat-core";
 
 /**
@@ -281,5 +283,66 @@ describe("filterDraftToSections / multiDayWrites（複数日 days）", () => {
     expect(writes).toHaveLength(2);
     expect(writes[0]?.date).toBe("2026-06-29");
     expect(writes[1]?.date).toBe("2026-06-30");
+  });
+});
+
+describe("preservePinnedNotices / stripPinnedFromDraft（pinned 保全・Reviewer MEDIUM-3）", () => {
+  const pinnedRows = [
+    {
+      date: "2026-07-01",
+      items: [
+        { text: "通常(固定行と同居)" },
+        { kind: "divider" as const, text: "校訓", pinned: true },
+        { text: "礼儀正しく 勤労を尊び", pinned: true },
+      ],
+    },
+    { date: "2026-07-06", items: [{ text: "別日の固定", pinned: true }] },
+  ];
+
+  it("保存先日付の pinned 項目だけを AI 出力の前に合流させる（非 pinned 同居項目・他日付の行は含めない）", () => {
+    const merged = preservePinnedNotices(pinnedRows, "2026-07-01", [{ text: "AIの連絡" }]);
+    expect(merged).toEqual([
+      { kind: "divider", text: "校訓", pinned: true },
+      { text: "礼儀正しく 勤労を尊び", pinned: true },
+      { text: "AIの連絡" },
+    ]);
+  });
+
+  it("AI 出力が空（全削除指示）でも pinned は残る＝AI が置換できるのは非 pinned 行のみ", () => {
+    expect(preservePinnedNotices(pinnedRows, "2026-07-06", [])).toEqual([
+      { text: "別日の固定", pinned: true },
+    ]);
+  });
+
+  it("AI 出力に pinned:true が紛れていたらフラグを剥がして通常行に落とす（幻覚で恒久表示を作らせない）", () => {
+    expect(
+      preservePinnedNotices(undefined, "2026-07-01", [
+        { text: "幻覚の固定", pinned: true },
+        { text: "通常", isHighlight: true },
+      ]),
+    ).toEqual([{ text: "幻覚の固定" }, { text: "通常", isHighlight: true }]);
+  });
+
+  it("固定行なし（undefined / 該当日付なし）は素通し（従来挙動・回帰なし）", () => {
+    expect(preservePinnedNotices(undefined, "2026-07-01", [{ text: "x" }])).toEqual([
+      { text: "x" },
+    ]);
+    expect(preservePinnedNotices(pinnedRows, "2026-07-03", [{ text: "x" }])).toEqual([
+      { text: "x" },
+    ]);
+  });
+
+  it("stripPinnedFromDraft は notices の pinned 行だけを除く（AI には非 pinned 行だけを見せる）", () => {
+    const draft: AssistantDraft = {
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "校訓", pinned: true }, { text: "通常" }],
+      assignments: [],
+    };
+    expect(stripPinnedFromDraft(draft)).toEqual({
+      schedules: [{ period: 1, subject: "数学" }],
+      notices: [{ text: "通常" }],
+      assignments: [],
+    });
+    expect(stripPinnedFromDraft(undefined)).toBeUndefined();
   });
 });

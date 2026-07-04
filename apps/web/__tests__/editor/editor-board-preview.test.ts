@@ -100,6 +100,29 @@ describe("buildEditorPreviewPayload", () => {
     expect(out.blackout).toBe(false);
   });
 
+  it("他日入力の活性 pinned（第 3 引数）を編集中 notices の前に連結する（実盤面の窓マージ順・MEDIUM-2）", () => {
+    const pinned = [
+      { kind: "divider" as const, text: "校訓", pinned: true },
+      { text: "礼儀正しく 勤労を尊び", pinned: true },
+    ];
+    const out = buildEditorPreviewPayload(baseFixture(), draft, pinned);
+    // 入力日昇順の pinned が先・対象日の編集中 items が後（mergeWindowedSection と同順）。
+    expect(out.daily.notices).toEqual({
+      items: [...pinned, ...draft.notices],
+      source: "class",
+    });
+    // 他セクションは pinned 合成の影響を受けない。
+    expect(out.daily.schedules).toEqual({ items: draft.schedules, source: "class" });
+    expect(out.daily.assignments).toEqual({ items: draft.assignments, source: "class" });
+  });
+
+  it("pinned 引数の省略/空は従来どおり draft の全置換（回帰なし）", () => {
+    const omitted = buildEditorPreviewPayload(baseFixture(), draft);
+    const empty = buildEditorPreviewPayload(baseFixture(), draft, []);
+    expect(omitted.daily.notices).toEqual({ items: draft.notices, source: "class" });
+    expect(empty.daily.notices).toEqual({ items: draft.notices, source: "class" });
+  });
+
   it("基底スナップショットを破壊しない（入力 base.daily を書き換えない）", () => {
     const base = baseFixture();
     buildEditorPreviewPayload(base, draft);

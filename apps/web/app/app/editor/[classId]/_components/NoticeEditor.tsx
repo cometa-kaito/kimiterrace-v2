@@ -133,14 +133,21 @@ const detailLabelStyle: CSSProperties = {
  * 共有する（§5.3: 区切り線も通常行と同じ表示期間ライフサイクルを持つため、同じ選択肢・同じ挙動で出す。
  * §5.4: 「ずっと」は日数プリセットの一種ではなく**固定**という別概念なので、独立 option・値は "pinned"
  * 番兵 → 保存時に `pinned: true` へ写像する）。
+ *
+ * **「ずっと」はクラス scope のエディタ限定**（`allowPinned`・2026-07-04 Reviewer HIGH-1）: pinned の削除
+ * 導線（PinnedNoticesList）はクラスエディタにしか無いため、scope（学校/学科/学年）・ops エディタでは
+ * option 自体を出さず「消せない幽霊」を構造的に作れなくする。既存データが pinned の行は例外として option を
+ * 出す（fail-soft: 現在値の表示と「ずっと」からの解除を可能にする。他の値へ変えると option は消える）。
  */
 function DisplayDaysField({
   row,
   index,
+  allowPinned,
   onPatch,
 }: {
   row: Row;
   index: number;
+  allowPinned: boolean;
   onPatch: (patch: Partial<Row>) => void;
 }) {
   return (
@@ -168,7 +175,7 @@ function DisplayDaysField({
             </option>
           ))}
           <option value="custom">カスタム</option>
-          <option value="pinned">ずっと（固定表示）</option>
+          {allowPinned || row.pinned ? <option value="pinned">ずっと（固定表示）</option> : null}
         </select>
       </label>
       {row.custom && !row.pinned ? (
@@ -196,6 +203,7 @@ export function NoticeEditor({
   initialItems,
   onItemsChange,
   prefillRows = 0,
+  allowPinned = false,
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -211,6 +219,13 @@ export function NoticeEditor({
    * 従来挙動）。空行（本文が空）は保存ペイロード・自動保存判定から除外され、埋めなくても保存をブロックしない。
    */
   prefillRows?: number;
+  /**
+   * 「ずっと（固定表示）」option を出すか（§5.4・2026-07-04 Reviewer HIGH-1）。**削除導線
+   * （PinnedNoticesList）を持つクラスエディタ（/app・WysiwygBoardEditor 経由）だけが true を渡す**。
+   * 既定 false（scope=学校/学科/学年・/ops エディタ）では新規に固定を選べない（既存 pinned 行の表示・解除は
+   * fail-soft で可能）。保存経路側の防御は setNoticesAction の `allowPinned: scope==="class"` が担う（二層）。
+   */
+  allowPinned?: boolean;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
@@ -381,7 +396,12 @@ export function NoticeEditor({
                 {/* 詳細（表示日数のみ・重要は罫線に概念なし）。通常行と同じ全幅パネル。 */}
                 {open ? (
                   <div id={detailId} style={{ ...detailPanelStyle, flexBasis: "100%" }}>
-                    <DisplayDaysField row={r} index={i} onPatch={(patch) => update(i, patch)} />
+                    <DisplayDaysField
+                      row={r}
+                      index={i}
+                      allowPinned={allowPinned}
+                      onPatch={(patch) => update(i, patch)}
+                    />
                   </div>
                 ) : null}
               </li>
@@ -440,7 +460,12 @@ export function NoticeEditor({
                     />
                     重要
                   </label>
-                  <DisplayDaysField row={r} index={i} onPatch={(patch) => update(i, patch)} />
+                  <DisplayDaysField
+                    row={r}
+                    index={i}
+                    allowPinned={allowPinned}
+                    onPatch={(patch) => update(i, patch)}
+                  />
                 </div>
               ) : null}
             </li>

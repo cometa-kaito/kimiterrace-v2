@@ -19,9 +19,12 @@ import {
   type DraftSectionKind,
   EMPTY_DRAFT,
   multiDayWrites,
+  preservePinnedNotices,
+  stripPinnedFromDraft,
 } from "@/lib/editor/assistant-chat-core";
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
+import type { PinnedNoticeRow } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import { formatSignageItem } from "@/lib/signage/section-format";
 import { sttErrorHint } from "@/lib/teacher-input/stt-error-hint";
@@ -85,12 +88,23 @@ export function EditorChat({
   targetId,
   date,
   initialDraft,
+  pinnedNotices,
   variant = "page",
 }: {
   scope: string;
   targetId: string;
   date: string;
   initialDraft?: AssistantDraft;
+  /**
+   * クラス直の固定行（pinned・入力日つき・getClassPinnedNoticeRows の結果。クラスエディタのみ渡す）。
+   * AI 反映は per-date の**置換保存**なので、そのままだと保存先日付の pinned 行（「ずっと」）が無警告で
+   * 消える/1 日表示に劣化する（2026-07-04 Reviewer MEDIUM-3）。前日/前週コピー（copyableNoticeItems）と
+   * 対称に **AI が置換できるのは非 pinned 行のみ**とし、下書きシードから pinned を除いたうえで
+   * （{@link stripPinnedFromDraft}）、反映時に保存先日付の pinned 行を {@link preservePinnedNotices} で
+   * 前置き合流させて保全する（当日 top-level・複数日 days の両方）。未指定（scope エディタ等）は保全なし
+   * （scope の保存経路は setNoticesAction 側が pinned を剥がす＝HIGH-1 の二層目）。
+   */
+  pinnedNotices?: PinnedNoticeRow[];
   /**
    * レイアウト形態。`"page"`（既定）は従来どおりビューポート高を占める全画面チャット。`"floating"` は
    * {@link "../[classId]/_components/FloatingAiChat"} の浮遊パネル内に収まるよう、親（パネル本体）の高さを
@@ -102,17 +116,25 @@ export function EditorChat({
   // 入力欄の操作ヒント（Enter=送信 / Shift+Enter=改行）を aria-describedby で textarea に紐付けるための安定 id。
   // title だけだと SR/タッチ/キーボード利用者に確実に露出しないため、常時表示の控えめなヒント行も併設する（uo8 補完）。
   const hintId = useId();
-  const [state, setState] = useState<ChatState>(() => initialChatState(initialDraft));
+  // AI の会話・下書き・差分基準（board）は **pinned 行を除いた**盤面でシードする（MEDIUM-3）。AI は
+  // 非 pinned 行だけを見て・置換し、pinned 行は反映時に preservePinnedNotices が保存先日付へ合流させる
+  // （モデルが pinned をエコーする保証に依存しない）。
+  const [state, setState] = useState<ChatState>(() =>
+    initialChatState(stripPinnedFromDraft(initialDraft)),
+  );
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   // 会話インラインの確認カードを閉じたか（「直す」or 反映成功で閉じ、次の送信/取込で再表示）。
   const [confirmHidden, setConfirmHidden] = useState(false);
-  // 盤面の現状スナップショット（= 反映の差分判定の基準）。初期はサーバ由来の initialDraft（盤面の現状）で、
-  // 反映成功でこのセッションが盤面を上書きするたび反映後の下書きへ更新する。「下書きは空だが盤面には項目が
-  // あった」= 削除指示、を判定して(1)空セクションの置換保存=全消去を起こし(2)空盤面への純粋な聞き返しでは
-  // 確認カードを出さない、を成立させる（編集/削除対応・追加挙動は不変）。
-  const [board, setBoard] = useState<AssistantDraft>(initialDraft ?? EMPTY_DRAFT);
+  // 盤面の現状スナップショット（= 反映の差分判定の基準）。初期はサーバ由来の initialDraft（盤面の現状・
+  // pinned 除外＝下書きと同じ土俵で比較する）で、反映成功でこのセッションが盤面を上書きするたび反映後の
+  // 下書きへ更新する。「下書きは空だが盤面には項目があった」= 削除指示、を判定して(1)空セクションの置換保存
+  // =全消去を起こし(2)空盤面への純粋な聞き返しでは確認カードを出さない、を成立させる（編集/削除対応・追加
+  // 挙動は不変）。pinned 行は比較対象外＝AI 経由では削除も検出されず消えない（保全は反映時のマージが担う）。
+  const [board, setBoard] = useState<AssistantDraft>(
+    () => stripPinnedFromDraft(initialDraft) ?? EMPTY_DRAFT,
+  );
   const streamingRef = useRef(false);
   // 進行中の SSE を中断するための AbortController（停止ボタン）。null=非ストリーミング。
   const abortRef = useRef<AbortController | null>(null);
@@ -286,12 +308,19 @@ export function EditorChat({
     const additiveCurrentDay = days.length > 0;
     try {
       // 当日 1 日分（top-level）: 編集/削除（盤面との差分）対応の従来経路。days 同梱時は追加専用（削除抑止）。
+      // 連絡の置換保存は保存先日付の pinned 行を前置き合流させて保全する（preservePinnedNotices・MEDIUM-3。
+      // AI が置換できるのは非 pinned 行のみ＝「連絡を全部削除して」でも pinned 行は残る）。
       const ops: (ReturnType<typeof setScheduleAction> | null)[] = [
         willWriteSection("schedules", d, board, allowed, additiveCurrentDay)
           ? setScheduleAction(scope, targetId, date, d.schedules)
           : null,
         willWriteSection("notices", d, board, allowed, additiveCurrentDay)
-          ? setNoticesAction(scope, targetId, date, d.notices)
+          ? setNoticesAction(
+              scope,
+              targetId,
+              date,
+              preservePinnedNotices(pinnedNotices, date, d.notices),
+            )
           : null,
         willWriteSection("assignments", d, board, allowed, additiveCurrentDay)
           ? setAssignmentsAction(scope, targetId, date, d.assignments)
@@ -299,12 +328,20 @@ export function EditorChat({
       ];
       // 複数日まとめ（days）: 各日の **非空セクションのみ**を、その日付へ置換保存する。未来日には盤面スナップ
       // ショットが無いため削除検出は行わない（追加的）。許可セクション絞りは multiDayWrites 済み（meta 由来）。
+      // 連絡は各日付の pinned 行も保全する（その日付に入力済みの固定行を置換で消さない）。
       for (const day of days) {
         if (day.schedules.length > 0) {
           ops.push(setScheduleAction(scope, targetId, day.date, day.schedules));
         }
         if (day.notices.length > 0) {
-          ops.push(setNoticesAction(scope, targetId, day.date, day.notices));
+          ops.push(
+            setNoticesAction(
+              scope,
+              targetId,
+              day.date,
+              preservePinnedNotices(pinnedNotices, day.date, day.notices),
+            ),
+          );
         }
         if (day.assignments.length > 0) {
           ops.push(setAssignmentsAction(scope, targetId, day.date, day.assignments));
@@ -317,8 +354,13 @@ export function EditorChat({
       );
       if (!failed) {
         // 当日の盤面が当日下書きに一致した。次の差分判定（削除検出 / 確認カード表示）の基準を更新する
-        //（基準は当日 top-level のみ・days は未来日で当日盤面に無関係）。
-        setBoard({ schedules: d.schedules, notices: d.notices, assignments: d.assignments });
+        //（基準は当日 top-level のみ・days は未来日で当日盤面に無関係）。連絡は保存された**非 pinned 部**
+        //（pinned フラグの demote 後）を基準にする＝シードと同じ pinned 除外の土俵を維持する。
+        setBoard({
+          schedules: d.schedules,
+          notices: preservePinnedNotices(undefined, date, d.notices),
+          assignments: d.assignments,
+        });
         setConfirmHidden(true);
       }
     } catch {
@@ -326,7 +368,7 @@ export function EditorChat({
     } finally {
       setSaving(false);
     }
-  }, [saving, state.draft, state.allowedSections, board, scope, targetId, date]);
+  }, [saving, state.draft, state.allowedSections, board, scope, targetId, date, pinnedNotices]);
 
   /** ファイル取り込み: PDF/Word/Excel/画像を既存 action で全セクション下書きに（非ストリーミング・保存しない）。 */
   const onFile = useCallback(

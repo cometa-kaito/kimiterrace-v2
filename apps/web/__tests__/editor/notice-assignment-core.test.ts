@@ -257,6 +257,45 @@ describe("validateNoticeItems: 固定表示（pinned・§5.4）", () => {
   });
 });
 
+describe("validateNoticeItems: allowPinned=false（scope≠class の保存経路・HIGH-1 防御の二層目）", () => {
+  it("pinned を黙って剥がし、displayDays があればそれを生かす（拒否しない・fail-soft）", () => {
+    const r = validateNoticeItems(
+      [
+        { text: "固定のつもり", pinned: true, displayDays: 7 },
+        { text: "固定のみ", pinned: true },
+        { kind: "divider", text: "校訓", pinned: true },
+      ],
+      { allowPinned: false },
+    );
+    expect(r).toEqual({
+      ok: true,
+      value: [
+        { text: "固定のつもり", displayDays: 7 },
+        { text: "固定のみ" }, // 既定 1（入力日のみ）へ劣化
+        { kind: "divider", text: "校訓" },
+      ],
+    });
+  });
+
+  it("allowPinned=false でも不正な displayDays は従来どおり拒否（黙って通さない）", () => {
+    expect(
+      validateNoticeItems([{ text: "x", pinned: true, displayDays: 15 }], { allowPinned: false })
+        .ok,
+    ).toBe(false);
+  });
+
+  it("allowPinned 省略/true は従来どおり pinned を受理（後方互換・クラス保存経路）", () => {
+    expect(validateNoticeItems([{ text: "校訓", pinned: true }])).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+    expect(validateNoticeItems([{ text: "校訓", pinned: true }], { allowPinned: true })).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+  });
+});
+
 describe("copyableNoticeItems（前日/前週コピーの複製対象・§6.4）", () => {
   it("pinned（通常行・divider とも）を除外し、通常行と divider は残す（入力順保持）", () => {
     expect(

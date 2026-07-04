@@ -59,6 +59,7 @@ export function WysiwygBoardEditor({
   initialNotices,
   initialAssignments,
   pinnedNotices,
+  previewPinnedNotices,
   showBoard = true,
 }: {
   classId: string;
@@ -78,6 +79,13 @@ export function WysiwygBoardEditor({
    * 未指定/空なら一覧は出さない（従来挙動・回帰なし）。
    */
   pinnedNotices?: PinnedNoticeRow[];
+  /**
+   * **対象日以外**の日に入力された・対象日に活性な pinned 項目（サーバで
+   * `activePinnedNoticeItemsOutsideDate` が単一ソース `isNoticeActive` で抽出・入力日昇順・Reviewer
+   * MEDIUM-2）。ライブプレビューの notices に draft の**前置き**で合成し、実 TV の窓マージ結果と一致させる
+   * （実機に出ている校訓がプレビューで消える不一致の解消）。編集中は不変（固定行の増減は保存→再取得で反映）。
+   */
+  previewPinnedNotices?: NoticeItem[];
   /**
    * 盤面ライブプレビューを描くか。既定 true（今日の編集＝WYSIWYG）。false にすると盤面を出さず編集セクション
    * （予定/連絡/提出物）だけを出す＝「選択した日（未来）の編集」をフォームのみで軽く見せる用（要望 2026-06-23）。
@@ -179,9 +187,17 @@ export function WysiwygBoardEditor({
   }, []);
 
   // 下書きから実機 payload を合成（純関数）。編集のたび再合成され盤面が即時更新される。base が無ければ盤面は出さない。
+  // 他日入力の活性 pinned（previewPinnedNotices）は draft の前に連結され、実 TV の窓マージ結果と一致する（MEDIUM-2）。
   const previewPayload = useMemo(
-    () => (base ? buildEditorPreviewPayload(base, { schedules, notices, assignments }) : null),
-    [base, schedules, notices, assignments],
+    () =>
+      base
+        ? buildEditorPreviewPayload(
+            base,
+            { schedules, notices, assignments },
+            previewPinnedNotices ?? [],
+          )
+        : null,
+    [base, schedules, notices, assignments, previewPinnedNotices],
   );
   // 盤面プレビューでも実機と同じく広告を**ローテーション表示**する（要望 2026-06-23: エディタ画面でも広告が
   // 回るように）。回転 index の算出は実機（SignageClient）と同じ共有フック {@link useAdRotation} に寄せる。
@@ -272,6 +288,9 @@ export function WysiwygBoardEditor({
               initialItems={initialNotices}
               onItemsChange={onNotices}
               prefillRows={noticePrefill}
+              // 「ずっと（固定表示）」はクラスエディタ限定（HIGH-1）: 削除導線（下の PinnedNoticesList）と
+              // 必ず同居するここでだけ選択可能にする（scope/ops エディタは NoticeEditor 既定 false）。
+              allowPinned
             />
             {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
                 （幽霊化）ため、連絡カード内に入力日つき一覧と削除導線を出す（受入基準 PR-C-2）。 */}

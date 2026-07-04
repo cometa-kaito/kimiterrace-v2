@@ -96,10 +96,25 @@ function normalizeString(value: unknown, max: number): string | null {
 }
 
 /**
+ * {@link validateNoticeItems} のオプション。
+ * `allowPinned: false` は **pinned を黙って剥がす**（拒否しない・fail-soft）。固定表示はクラス scope 限定
+ * （§5.4 は校訓のクラス用途のみを規定・削除導線 {@link PinnedNoticeRow} もクラスエディタにしか無い）ため、
+ * scope=学校/学科/学年 の保存経路 (notice-assignment-actions) が UI 出し分けの**防御の二層目**として渡す。
+ * これが無いと「学校 scope で pin → 全クラス盤面に恒久表示なのにどのエディタからも消せない幽霊」が
+ * 作れてしまう (2026-07-04 Reviewer HIGH-1)。剥がした行は displayDays があればそれを、無ければ既定 1 に
+ * 劣化する（旧リーダの fail-soft と同じ性質）。既定は true（後方互換・読み取り/クラス保存はそのまま）。
+ */
+export type ValidateNoticeOptions = { allowPinned?: boolean };
+
+/**
  * 連絡配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
  * 入力順を保持する (連絡は表示順に意味があるため、schedule の period ソートとは異なる)。
  */
-export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
+export function validateNoticeItems(
+  raw: unknown,
+  options?: ValidateNoticeOptions,
+): Validated<NoticeItem[]> {
+  const allowPinned = options?.allowPinned !== false;
   if (!Array.isArray(raw)) {
     return { ok: false, message: "連絡の形式が不正です。" };
   }
@@ -114,7 +129,8 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
     const rec = entry as Record<string, unknown>;
     // 固定表示 (pinned・§5.4)。明示 true のみ採用 (isHighlight と同作法・"true" 等の truthy は無視)。
     // pinned のとき displayDays は保存しない (「ずっと」は期間ではなく固定という別概念＝排他をここで確定)。
-    const pinned = rec.pinned === true;
+    // allowPinned=false (scope=学校/学科/学年 の保存経路・HIGH-1) では黙って剥がし、displayDays 側を生かす。
+    const pinned = rec.pinned === true && allowPinned;
     // 表示日数 (任意・行タイプ共通のライフサイクル属性)。未指定は既定 1 (入力日のみ)。1..MAX の整数のみ
     // 許可し、既定 1 は省略して保存する (JSONB を最小化・後方互換)。区切り線も「本文が罫線であるだけの行」
     // として通常行と同一に扱う (§5.3・多日連絡のグルーピングを翌日崩さない)。pinned でも不正値は拒否する

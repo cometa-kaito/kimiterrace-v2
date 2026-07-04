@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DailyScopeRow,
+  activePinnedNoticeItemsOutsideDate,
   addDays,
   daysBetween,
   isAssignmentActive,
@@ -357,5 +358,55 @@ describe("mergeEffectiveWithWindow: 固定行 (pinned・§5.4)", () => {
       wrow("school", "2026-07-04", { notices: [{ text: "学校連絡" }] }),
     ]);
     expect(merged.notices).toEqual({ items: [{ text: "固定", pinned: true }], source: "class" });
+  });
+});
+
+/**
+ * エディタ WYSIWYG プレビューの pinned 合成入力 (Reviewer MEDIUM-2)。「対象日以外の日に入力された・対象日に
+ * 活性な pinned 項目」を実盤面のマージ順 (入力日昇順) で平坦化する。活性判定は isNoticeActive (単一ソース)。
+ */
+describe("activePinnedNoticeItemsOutsideDate (WYSIWYG プレビューの pinned 合成・MEDIUM-2)", () => {
+  it("対象日以外の行の pinned 項目だけを入力日昇順で平坦化する (非 pinned 項目は含めない)", () => {
+    const items = activePinnedNoticeItemsOutsideDate(
+      [
+        // 意図的に降順で渡してもソートされる。
+        { date: "2026-06-01", items: [{ text: "6月の固定", pinned: true }, { text: "通常" }] },
+        {
+          date: "2026-05-05",
+          items: [
+            { kind: "divider" as const, text: "校訓", pinned: true },
+            { text: "礼儀正しく 勤労を尊び", pinned: true },
+          ],
+        },
+      ].reverse(),
+      "2026-07-04",
+    );
+    expect(items).toEqual([
+      { kind: "divider", text: "校訓", pinned: true },
+      { text: "礼儀正しく 勤労を尊び", pinned: true },
+      { text: "6月の固定", pinned: true },
+    ]);
+  });
+
+  it("対象日の行は除外する (その pinned はエディタ draft 側に含まれる＝二重表示防止)", () => {
+    expect(
+      activePinnedNoticeItemsOutsideDate(
+        [{ date: "2026-07-04", items: [{ text: "対象日の固定", pinned: true }] }],
+        "2026-07-04",
+      ),
+    ).toEqual([]);
+  });
+
+  it("未来日の行は非活性 (isNoticeActive: 入力日以降のみ表示)", () => {
+    expect(
+      activePinnedNoticeItemsOutsideDate(
+        [{ date: "2026-07-10", items: [{ text: "未来の固定", pinned: true }] }],
+        "2026-07-04",
+      ),
+    ).toEqual([]);
+  });
+
+  it("固定行が無ければ空 (プレビューは従来どおり draft のみ)", () => {
+    expect(activePinnedNoticeItemsOutsideDate([], "2026-07-04")).toEqual([]);
   });
 });

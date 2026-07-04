@@ -10,6 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * - **「固定中のお知らせ」一覧（PinnedNoticesList）**: 対象日以外の日に入力された pinned 行は連絡エディタに
  *   出てこない幽霊になるため、入力日つき一覧＋削除（＝入力日の行の**置換保存**・既存 setNoticesAction）を
  *   提供する（受入基準 PR-C-2）。対象日の行は上のエディタに見えるので一覧から除く。
+ * - **「ずっと」はクラスエディタ限定（`allowPinned`・2026-07-04 Reviewer HIGH-1）**: 削除導線
+ *   （PinnedNoticesList）が無い scope（学校/学科/学年）・ops エディタには option 自体を出さない
+ *   （既存 pinned 行の表示・解除だけ fail-soft で可能）。
  *
  * Server Action は import 時に DB/認可を引き込むため mock（freedom-basics.test.tsx と同作法）。
  */
@@ -66,6 +69,7 @@ describe("NoticeEditor 「ずっと（固定表示）」select（§5.4）", () =
         classId={CLASS_ID}
         date={DATE}
         initialItems={[{ text: "校訓", displayDays: 3 }]}
+        allowPinned
       />,
     );
     act(() => {
@@ -82,6 +86,7 @@ describe("NoticeEditor 「ずっと（固定表示）」select（§5.4）", () =
         classId={CLASS_ID}
         date={DATE}
         initialItems={[{ text: "校訓", pinned: true }]}
+        allowPinned
       />,
     );
     const select = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
@@ -100,6 +105,7 @@ describe("NoticeEditor 「ずっと（固定表示）」select（§5.4）", () =
         classId={CLASS_ID}
         date={DATE}
         initialItems={[{ kind: "divider", text: "校訓" }]}
+        allowPinned
       />,
     );
     act(() => {
@@ -118,6 +124,7 @@ describe("NoticeEditor 「ずっと（固定表示）」select（§5.4）", () =
         classId={CLASS_ID}
         date={DATE}
         initialItems={[{ text: "校訓", displayDays: 5 }]}
+        allowPinned
       />,
     );
     // displayDays:5 はプリセット外＝カスタム入力が出ている。
@@ -126,6 +133,56 @@ describe("NoticeEditor 「ずっと（固定表示）」select（§5.4）", () =
       fireEvent.change(screen.getByLabelText("1 件目の表示日数"), { target: { value: "pinned" } });
     });
     expect(screen.queryByLabelText("1 件目の表示日数 (日)")).toBeNull();
+  });
+});
+
+describe("「ずっと」のクラス scope 限定（HIGH-1・allowPinned 出し分け）", () => {
+  it("allowPinned 無し（scope/ops エディタ既定）では「ずっと（固定表示）」option を出さない", () => {
+    // scope（学校全体）エディタ相当。displayDays:3 → 詳細は初期から開いている。
+    render(
+      <NoticeEditor
+        target={{ scope: "school" }}
+        date={DATE}
+        initialItems={[{ text: "学校からの連絡", displayDays: 3 }]}
+      />,
+    );
+    const select = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).not.toContain("pinned");
+    expect(screen.queryByText("ずっと（固定表示）")).toBeNull();
+  });
+
+  it("allowPinned 無しでも既存 pinned 行は「ずっと」を表示・解除できる（fail-soft）", async () => {
+    // 旧データに pinned が残っている scope/ops エディタ相当。現在値の表示と解除だけは可能にする。
+    render(
+      <NoticeEditor
+        target={{ scope: "school" }}
+        date={DATE}
+        initialItems={[{ text: "旧データの固定", pinned: true }]}
+      />,
+    );
+    const select = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
+    expect(select.value).toBe("pinned");
+    // 解除（プリセットへ変更）すると option ごと消え、以後は選び直せない。
+    act(() => {
+      fireEvent.change(select, { target: { value: "3" } });
+    });
+    await flushAutoSave();
+    expect(lastSaved()).toEqual([{ text: "旧データの固定", displayDays: 3 }]);
+    expect(Array.from(select.options).map((o) => o.value)).not.toContain("pinned");
+  });
+
+  it("allowPinned（クラスエディタ）では新規行にも「ずっと」option が出る", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡", displayDays: 3 }]}
+        allowPinned
+      />,
+    );
+    const select = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toContain("pinned");
   });
 });
 

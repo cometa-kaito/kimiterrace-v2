@@ -64,18 +64,26 @@ export type EditorBoardBase = Pick<
  * - `daily.schedules` / `daily.notices` / `daily.assignments` を編集中 items に差し替える（source は `class`＝
  *   クラス由来の編集として扱う。継承バッジを出さない）。`quietHours` は編集対象外なので基底のまま。
  * - `scheduleDays` は当日列（`date` 一致）だけ編集中 schedules に差し替え、他日付は基底のまま残す。
+ * - `pinnedNotices`（**対象日以外**の日に入力された・対象日に活性な固定行＝サーバで
+ *   {@link "@/lib/signage/effective-daily-data".activePinnedNoticeItemsOutsideDate} が単一ソース
+ *   `isNoticeActive` で抽出・入力日昇順）を編集中 notices の**前に連結**する（2026-07-04 Reviewer MEDIUM-2）。
+ *   実 TV は窓マージ（入力日昇順・対象日の行が末尾）で他日入力の pinned を出しているため、これが無いと
+ *   「実機には校訓が出ている／プレビューには出ない」の恒常不一致になる（WYSIWYG の存在意義に反する）。
+ *   対象日の pinned は draft 自体（NoticeEditor の「ずっと」行）に含まれるのでここでは足さない。
  *
  * 基底の他フィールド（広告・天気・クラス文脈・パターン2 専用ブロック・黒画面）は編集対象外なのでそのまま通す。
  */
 export function buildEditorPreviewPayload(
   base: EditorBoardBase,
   draft: EditorBoardDraft,
+  pinnedNotices: readonly NoticeItem[] = [],
 ): SignagePayload {
   const daily: EffectiveDailyData = {
     ...base.daily,
     // 編集中の当日セクションで上書き（クラス由来＝source: "class"。継承バッジは出さない）。
+    // notices は「他日入力の活性 pinned（入力日昇順）→ 対象日の編集中 items」の順で実盤面のマージ順に揃える。
     schedules: { items: draft.schedules, source: "class" },
-    notices: { items: draft.notices, source: "class" },
+    notices: { items: [...pinnedNotices, ...draft.notices], source: "class" },
     assignments: { items: draft.assignments, source: "class" },
   };
 

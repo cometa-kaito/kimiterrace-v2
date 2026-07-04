@@ -1,4 +1,8 @@
-import { ASSIGNMENT_GRACE_DAYS } from "@/lib/editor/notice-assignment-core";
+import {
+  ASSIGNMENT_GRACE_DAYS,
+  type NoticeItem,
+  type PinnedNoticeRow,
+} from "@/lib/editor/notice-assignment-core";
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
 import { type TenantTx, classes, dailyData, getClassConfigValue, grades } from "@kimiterrace/db";
 import { type InferSelectModel, and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
@@ -170,6 +174,28 @@ export function isNoticeActive(item: unknown, rowDate: string, today: string): b
   }
   const dd = typeof rec?.displayDays === "number" ? rec.displayDays : 1;
   return diff >= 0 && diff < dd;
+}
+
+/**
+ * クラス直の固定行（{@link PinnedNoticeRow}・getClassPinnedNoticeRows の結果）から、**対象日以外の日に
+ * 入力された・対象日に活性な pinned 項目**を、実盤面のマージ順（入力日昇順・{@link mergeWindowedSection}
+ * と同じ）で平坦化する（2026-07-04 Reviewer MEDIUM-2）。
+ *
+ * エディタ WYSIWYG プレビュー（editor-board-preview.ts）は対象日の draft で notices を**全置換**するため、
+ * 他日入力の pinned（実 TV には窓マージ済みで出ている）がプレビューから消えて実機と不一致になる。本 helper
+ * の結果を draft の**前に連結**すると実盤面の合成（class scope 採用時: 窓内の活性項目を入力日昇順・対象日の
+ * 行が末尾）と一致する。活性判定は単一ソース {@link isNoticeActive} を使う（第 3 の合成実装を作らない）。
+ * 対象日の行は除外する（その pinned は draft＝NoticeEditor の「ずっと」行として既に含まれる・二重表示防止）。
+ * 未来日の行は {@link isNoticeActive} が非活性と判定する（入力日以降のみ表示）。**純関数**。
+ */
+export function activePinnedNoticeItemsOutsideDate(
+  rows: readonly PinnedNoticeRow[],
+  date: string,
+): NoticeItem[] {
+  return [...rows]
+    .filter((r) => r.date !== date)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .flatMap((r) => r.items.filter((i) => i.pinned === true && isNoticeActive(i, r.date, date)));
 }
 
 /** 提出物が today に表示中か。期限 + ASSIGNMENT_GRACE_DAYS 日まで表示し、以後は消える。 */

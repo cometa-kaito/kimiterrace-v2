@@ -21,6 +21,7 @@ import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
+import { activePinnedNoticeItemsOutsideDate } from "@/lib/signage/effective-daily-data";
 import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
 import { jstDateString } from "@/lib/signage/rotation";
 import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
@@ -185,6 +186,10 @@ export default async function ClassEditorPage({
   // （`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。
   const boardBase: EditorBoardBase | null = board;
 
+  // 他日入力の・対象日に活性な固定行（pinned・Reviewer MEDIUM-2）。実 TV は窓マージで表示しているため、
+  // ライブプレビューにも draft の前置きで合成して実機と一致させる（活性判定は単一ソース isNoticeActive）。
+  const previewPinnedNotices = activePinnedNoticeItemsOutsideDate(pinnedNotices, date);
+
   return (
     <>
       {/* 画面付随物（戻る + クラス名）は小さく薄いパンくず＝主役（盤面エディタ）に視線が向くようにする。
@@ -232,6 +237,7 @@ export default async function ClassEditorPage({
           initialNotices={notices.items}
           initialAssignments={assignments.items}
           pinnedNotices={pinnedNotices}
+          previewPinnedNotices={previewPinnedNotices}
         />
         {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
             パターンのときだけ盤面の下に出す（死セクション防止・将来パターン追加にも単一ソースで自動追従）。
@@ -352,6 +358,9 @@ export default async function ClassEditorPage({
             notices: notices.items,
             assignments: assignments.items,
           }}
+          // 固定行（pinned）の保全（MEDIUM-3）: AI の per-date 置換保存が保存先日付の「ずっと」を消さない
+          // よう、クラス直の固定行を渡す（EditorChat が反映時に preservePinnedNotices で前置き合流させる）。
+          pinnedNotices={pinnedNotices}
           variant="floating"
         />
       </FloatingAiChat>
