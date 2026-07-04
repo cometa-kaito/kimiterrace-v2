@@ -45,6 +45,11 @@ type Selectable = Pick<PostgresJsDatabase, "select">;
 /**
  * 今日を含む過去 `lookbackDays` 日 ((今日 - lookbackDays, 今日] = N 日) の自校 daily_data を全 scope 返す。
  * 範囲・今日は SQL 側 JST で決める。活性 (今日も掲示中か) の判定は呼び出し側に委ねる。
+ *
+ * **固定表示 (pinned・設計書 editor-restructure-bulletin-2026-07.md §5.4)**: pinned な連絡は自然消滅しない
+ * ため、窓の**外**でも `notices @> '[{"pinned":true}]'` (JSONB 包含) の過去行を OR で拾う。これはサイネージ
+ * 実表示 (apps/web `getEffectiveDailyData` の同 OR 分岐) と対で、片側だけだと「ハブでは消えたのに盤面に
+ * 出続ける」不整合になる (設計書 §11-7)。行数は高々 1 行/日×scope なので index は張らない (§10)。
  */
 export async function getDailyWindowRows(
   db: Selectable,
@@ -64,7 +69,8 @@ export async function getDailyWindowRows(
     })
     .from(dailyData)
     .where(
-      sql`${dailyData.date} > (now() AT TIME ZONE 'Asia/Tokyo')::date - ${lookbackDays}::int
-        AND ${dailyData.date} <= (now() AT TIME ZONE 'Asia/Tokyo')::date`,
+      sql`${dailyData.date} <= (now() AT TIME ZONE 'Asia/Tokyo')::date
+        AND (${dailyData.date} > (now() AT TIME ZONE 'Asia/Tokyo')::date - ${lookbackDays}::int
+          OR ${dailyData.notices} @> '[{"pinned":true}]'::jsonb)`,
     );
 }

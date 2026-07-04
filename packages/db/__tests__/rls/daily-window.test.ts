@@ -37,6 +37,7 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
   let yesterday: string;
   let thirtyAgo: string;
   let fortyAgo: string;
+  let sixtyAgo: string;
   let tomorrow: string;
 
   /**
@@ -67,12 +68,13 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
     fx = await seedBaseFixture(sql);
 
     // JST 基準日 (今日/昨日/30 日前/40 日前/明日) を DB の同じ式で確定する。
-    [{ today, yesterday, thirtyAgo, fortyAgo, tomorrow }] = await sql<
+    [{ today, yesterday, thirtyAgo, fortyAgo, sixtyAgo, tomorrow }] = await sql<
       {
         today: string;
         yesterday: string;
         thirtyAgo: string;
         fortyAgo: string;
+        sixtyAgo: string;
         tomorrow: string;
       }[]
     >`
@@ -81,6 +83,7 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
         ((now() AT TIME ZONE 'Asia/Tokyo')::date - 1)::text          AS "yesterday",
         ((now() AT TIME ZONE 'Asia/Tokyo')::date - 30)::text         AS "thirtyAgo",
         ((now() AT TIME ZONE 'Asia/Tokyo')::date - 40)::text         AS "fortyAgo",
+        ((now() AT TIME ZONE 'Asia/Tokyo')::date - 60)::text         AS "sixtyAgo",
         ((now() AT TIME ZONE 'Asia/Tokyo')::date + 1)::text          AS "tomorrow"
     `;
 
@@ -99,6 +102,7 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
     )[0].id;
 
     const notice = sql.json([{ text: "三者面談のお知らせ", displayDays: 3 }]);
+    const pinnedNotice = sql.json([{ text: "校訓", pinned: true }]);
     const assignment = sql.json([{ deadline: today, subject: "数学", task: "p10" }]);
     const schedule = sql.json([{ period: 1, subject: "数学" }]);
     const empty = sql.json([]);
@@ -112,6 +116,9 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
       VALUES (${fx.schoolA}, 'class', ${classA}, ${thirtyAgo}, ${assignment})`;
     await sql`INSERT INTO daily_data (school_id, scope, class_id, date, notices)
       VALUES (${fx.schoolA}, 'class', ${classA}, ${fortyAgo}, ${notice})`; // 窓外
+    // 窓外だが固定行 (pinned) を含む行 → JSONB 包含 OR で返る (F-C §5.4)。
+    await sql`INSERT INTO daily_data (school_id, scope, class_id, date, notices)
+      VALUES (${fx.schoolA}, 'class', ${classA}, ${sixtyAgo}, ${pinnedNotice})`;
     await sql`INSERT INTO daily_data (school_id, scope, date, notices)
       VALUES (${fx.schoolA}, 'school', ${today}, ${notice})`;
     await sql`INSERT INTO daily_data (school_id, scope, date, schedules)
@@ -129,15 +136,23 @@ describeOrSkip("RLS: getDailyWindowRows (本日の掲示状態の遡及窓 read,
     await sql.end({ timeout: 5 });
   });
 
-  it("自校 (A): 窓内の行のみ返す (40日前=窓外 / 明日=未来 は除外)", async () => {
+  it("自校 (A): 窓内の行 + 窓外の pinned 行を返す (40日前=窓外の非 pinned / 明日=未来 は除外)", async () => {
     const rows = await asSchool(fx.schoolA, (db) => getDailyWindowRows(db as never, LOOKBACK_DAYS));
     const dates = rows.map((r) => r.date).sort();
-    // 窓内: today(class), yesterday(class), 30日前(class), today(school), yesterday(school, 空) = 5 行。
-    expect(rows).toHaveLength(5);
-    expect(dates).toEqual([thirtyAgo, yesterday, yesterday, today, today].sort());
-    // 窓外 / 未来は混ざらない。
+    // 窓内: today(class), yesterday(class), 30日前(class), today(school), yesterday(school, 空)
+    // + 窓外の pinned 行 (60日前, class) = 6 行 (F-C §5.4)。
+    expect(rows).toHaveLength(6);
+    expect(dates).toEqual([sixtyAgo, thirtyAgo, yesterday, yesterday, today, today].sort());
+    // 窓外の非 pinned / 未来は混ざらない。
     expect(rows.some((r) => r.date === fortyAgo)).toBe(false);
     expect(rows.some((r) => r.date === tomorrow)).toBe(false);
+  });
+
+  it("固定行 (pinned・§5.4): 窓外 (60日前) でも notices @> '[{\"pinned\":true}]' の行は中身ごと返る", async () => {
+    const rows = await asSchool(fx.schoolA, (db) => getDailyWindowRows(db as never, LOOKBACK_DAYS));
+    const pinnedRow = rows.find((r) => r.date === sixtyAgo);
+    expect(pinnedRow?.scope).toBe("class");
+    expect(pinnedRow?.notices).toEqual([{ text: "校訓", pinned: true }]);
   });
 
   it("各行の today は JST の今日 (境界判定の基準が SQL 側 JST で一貫)", async () => {

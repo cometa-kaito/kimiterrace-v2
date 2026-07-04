@@ -108,7 +108,14 @@ function revalidatePathsForTarget(target: EditorTarget, schoolId: string): void 
   revalidatePath("/app/signage-preview/[classId]", "page");
 }
 
-/** 指定対象・日付の連絡 (お知らせ) を保存する (scope 汎用)。`targetSchoolId` は system_admin の /ops 経路用。 */
+/**
+ * 指定対象・日付の連絡 (お知らせ) を保存する (scope 汎用)。`targetSchoolId` は system_admin の /ops 経路用。
+ *
+ * **固定表示 (pinned) はクラス scope 限定 (§5.4・2026-07-04 Reviewer HIGH-1)**: 学校/学科/学年 scope の
+ * 保存では validate が pinned を黙って剥がす (`allowPinned: false`)。scope の pinned は全クラス盤面へ恒久
+ * 表示されるのに削除導線 (PinnedNoticesList) がクラスエディタにしか無く、消せない幽霊になるため、UI の
+ * 出し分け (NoticeEditor `allowPinned`) と合わせた**防御の二層目**として保存経路でも構造的に不可能にする。
+ */
 export async function setNoticesAction(
   scope: unknown,
   targetId: unknown,
@@ -120,7 +127,7 @@ export async function setNoticesAction(
     scope,
     targetId,
     date,
-    validateNoticeItems(rawItems),
+    validateNoticeItems(rawItems, { allowPinned: scope === "class" }),
     "notices",
     targetSchoolId,
   );

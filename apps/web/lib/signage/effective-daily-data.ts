@@ -1,4 +1,8 @@
-import { ASSIGNMENT_GRACE_DAYS } from "@/lib/editor/notice-assignment-core";
+import {
+  ASSIGNMENT_GRACE_DAYS,
+  type NoticeItem,
+  type PinnedNoticeRow,
+} from "@/lib/editor/notice-assignment-core";
 import { readQuietRanges } from "@/lib/school-admin/quiet-hours-core";
 import { type TenantTx, classes, dailyData, getClassConfigValue, grades } from "@kimiterrace/db";
 import { type InferSelectModel, and, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
@@ -153,16 +157,45 @@ export function addDays(date: string, n: number): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 連絡が today に表示中か。入力日 (rowDate) から displayDays 日間 (既定 1=入力日のみ)。 */
+/**
+ * 連絡が today に表示中か。入力日 (rowDate) から displayDays 日間 (既定 1=入力日のみ)。
+ * **固定表示 (pinned・F-C §5.4)**: `pinned === true` の連絡は入力日以降**ずっと**活性 (displayDays 非依存)。
+ * 本 helper は盤面 (mergeWindowedSection) と学校管理ハブ (hub-queries の isWindowRowActiveToday) が共有する
+ * 活性判定の単一ソースなので、pinned の意味は両読み手へ同時に効く (§11-7: 片側だけ直さない)。
+ */
 export function isNoticeActive(item: unknown, rowDate: string, today: string): boolean {
-  const dd =
-    typeof item === "object" &&
-    item !== null &&
-    typeof (item as { displayDays?: unknown }).displayDays === "number"
-      ? (item as { displayDays: number }).displayDays
-      : 1;
+  const rec =
+    typeof item === "object" && item !== null
+      ? (item as { displayDays?: unknown; pinned?: unknown })
+      : null;
   const diff = daysBetween(rowDate, today);
+  if (rec?.pinned === true) {
+    return diff >= 0;
+  }
+  const dd = typeof rec?.displayDays === "number" ? rec.displayDays : 1;
   return diff >= 0 && diff < dd;
+}
+
+/**
+ * クラス直の固定行（{@link PinnedNoticeRow}・getClassPinnedNoticeRows の結果）から、**対象日以外の日に
+ * 入力された・対象日に活性な pinned 項目**を、実盤面のマージ順（入力日昇順・{@link mergeWindowedSection}
+ * と同じ）で平坦化する（2026-07-04 Reviewer MEDIUM-2）。
+ *
+ * エディタ WYSIWYG プレビュー（editor-board-preview.ts）は対象日の draft で notices を**全置換**するため、
+ * 他日入力の pinned（実 TV には窓マージ済みで出ている）がプレビューから消えて実機と不一致になる。本 helper
+ * の結果を draft の**前に連結**すると実盤面の合成（class scope 採用時: 窓内の活性項目を入力日昇順・対象日の
+ * 行が末尾）と一致する。活性判定は単一ソース {@link isNoticeActive} を使う（第 3 の合成実装を作らない）。
+ * 対象日の行は除外する（その pinned は draft＝NoticeEditor の「ずっと」行として既に含まれる・二重表示防止）。
+ * 未来日の行は {@link isNoticeActive} が非活性と判定する（入力日以降のみ表示）。**純関数**。
+ */
+export function activePinnedNoticeItemsOutsideDate(
+  rows: readonly PinnedNoticeRow[],
+  date: string,
+): NoticeItem[] {
+  return [...rows]
+    .filter((r) => r.date !== date)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .flatMap((r) => r.items.filter((i) => i.pinned === true && isNoticeActive(i, r.date, date)));
 }
 
 /** 提出物が today に表示中か。期限 + ASSIGNMENT_GRACE_DAYS 日まで表示し、以後は消える。 */
@@ -306,7 +339,11 @@ export async function getEffectiveDailyData(
 
   // 連絡(表示日数)・提出物(期限+猶予)を多日表示するため、当日だけでなく過去 EFFECTIVE_LOOKBACK_DAYS 日分の
   // 行を 1 クエリで読む (schedules/quietHours は当日行のみ使用 = mergeEffectiveWithWindow が振り分け)。
-  // RLS により自校に限定される (ルール2、手書き WHERE school_id 非依存)。
+  // **固定表示 (pinned・F-C §5.4)**: pinned な連絡は自然消滅しないため、遡及窓の**外**でも
+  // `notices @> '[{"pinned":true}]'` (JSONB 包含) の行を OR で拾う。クラスの daily_data は高々
+  // 1 行/日×scope なので全期間スキャンでも実害なし (性能問題が出たら partial GIN index を後続 migration で・
+  // 設計書 §10。v1 では張らない)。同じ拡張を学校管理ハブの窓 read (`packages/db` getDailyWindowRows) にも
+  // 同一 PR で適用している (§11-7)。RLS により自校に限定される (ルール2、手書き WHERE school_id 非依存)。
   const windowStart = addDays(date, -(EFFECTIVE_LOOKBACK_DAYS - 1));
   const rows = await tx
     .select({
@@ -320,8 +357,11 @@ export async function getEffectiveDailyData(
     .from(dailyData)
     .where(
       and(
-        gte(dailyData.date, windowStart),
         lte(dailyData.date, date),
+        or(
+          gte(dailyData.date, windowStart),
+          sql`${dailyData.notices} @> '[{"pinned":true}]'::jsonb`,
+        ),
         scopeRowsForClass(classId, cls),
       ),
     );

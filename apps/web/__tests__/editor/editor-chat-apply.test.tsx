@@ -284,6 +284,150 @@ describe("EditorChat 反映（編集 / 削除対応）", () => {
     expect(setAssignmentsAction).not.toHaveBeenCalled();
   });
 
+  it("AI 1 往復 + 反映後も対象日の pinned（ずっと）が残る（置換保存の pinned 保全・MEDIUM-3）", async () => {
+    // 盤面の現状 = 固定行 2 件（divider 含む）+ 通常の連絡 1 件。AI は連絡を書き換えて返す（pinned は
+    // シードから除かれるため AI 出力には現れない＝エコー保証に依存しない）。
+    stubSse({ schedules: [], notices: [{ text: "AIが書き換えた連絡" }], assignments: [] });
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={{
+          schedules: [],
+          notices: [
+            { kind: "divider", text: "校訓", pinned: true },
+            { text: "礼儀正しく 勤労を尊び", pinned: true },
+            { text: "既存の連絡" },
+          ],
+          assignments: [],
+        }}
+        pinnedNotices={[
+          {
+            date: "2026-06-20",
+            items: [
+              { kind: "divider", text: "校訓", pinned: true },
+              { text: "礼儀正しく 勤労を尊び", pinned: true },
+              { text: "既存の連絡" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    send("連絡を書き換えて");
+
+    const applyBtn = await screen.findByRole("button", { name: "反映する" });
+    fireEvent.click(applyBtn);
+    await screen.findByText("盤面に反映しました。");
+
+    // 置換保存には対象日の pinned 行が前置きで保全され、非 pinned 行だけが AI の出力に置き換わる。
+    expect(setNoticesAction).toHaveBeenCalledTimes(1);
+    expect(setNoticesAction).toHaveBeenCalledWith("class", "c1", "2026-06-20", [
+      { kind: "divider", text: "校訓", pinned: true },
+      { text: "礼儀正しく 勤労を尊び", pinned: true },
+      { text: "AIが書き換えた連絡" },
+    ]);
+  });
+
+  it("AI の全削除指示でも pinned は消えない（空下書き反映 = 非 pinned 行のみ全消去）", async () => {
+    // 盤面 = pinned 1 件 + 通常 1 件。AI は空の下書き（削除指示）を返す。
+    stubSse({ schedules: [], notices: [], assignments: [] });
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={{
+          schedules: [],
+          notices: [{ text: "校訓", pinned: true }, { text: "既存の連絡" }],
+          assignments: [],
+        }}
+        pinnedNotices={[
+          { date: "2026-06-20", items: [{ text: "校訓", pinned: true }, { text: "既存の連絡" }] },
+        ]}
+      />,
+    );
+
+    send("連絡を削除して");
+
+    const applyBtn = await screen.findByRole("button", { name: "反映する" });
+    fireEvent.click(applyBtn);
+    await screen.findByText("盤面に反映しました。");
+
+    // 「全消去」でも保存ペイロードには pinned が残る（AI が置換できるのは非 pinned 行のみ）。
+    expect(setNoticesAction).toHaveBeenCalledTimes(1);
+    expect(setNoticesAction).toHaveBeenCalledWith("class", "c1", "2026-06-20", [
+      { text: "校訓", pinned: true },
+    ]);
+  });
+
+  it("盤面が pinned のみ（AI から見て空）のときは聞き返しで確認カードを出さない＝pinned を触らない", async () => {
+    stubSse({ schedules: [], notices: [], assignments: [] });
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={{
+          schedules: [],
+          notices: [{ text: "校訓", pinned: true }],
+          assignments: [],
+        }}
+        pinnedNotices={[{ date: "2026-06-20", items: [{ text: "校訓", pinned: true }] }]}
+      />,
+    );
+
+    send("なにか提案して");
+
+    // pinned はシードから除外され差分基準（board）も空 → 反映対象なし＝カードを出さず何も書かない。
+    await waitFor(() => expect(screen.getByText("承知しました。")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "反映する" })).toBeNull();
+    expect(setNoticesAction).not.toHaveBeenCalled();
+  });
+
+  it("複数日（days）の連絡も各日付の pinned を保全して置換保存する", async () => {
+    const draft: AssistantDraft = {
+      schedules: [],
+      notices: [],
+      assignments: [],
+      days: [
+        {
+          date: "2026-06-29",
+          schedules: [],
+          notices: [{ text: "月曜の連絡" }],
+          assignments: [],
+        },
+      ],
+    };
+    stubSse(draft);
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={undefined}
+        pinnedNotices={[
+          { date: "2026-06-29", items: [{ text: "月曜入力の固定", pinned: true }] },
+          { date: "2026-06-20", items: [{ text: "今日の固定", pinned: true }] },
+        ]}
+      />,
+    );
+
+    send("来週月曜の連絡を入れて");
+
+    const applyBtn = await screen.findByRole("button", { name: "反映する" });
+    fireEvent.click(applyBtn);
+    await screen.findByText("盤面に反映しました。");
+
+    // 6/29 の置換保存にはその日付の pinned が前置きで保全される（当日 2026-06-20 へは書かない）。
+    expect(setNoticesAction).toHaveBeenCalledTimes(1);
+    expect(setNoticesAction).toHaveBeenCalledWith("class", "c1", "2026-06-29", [
+      { text: "月曜入力の固定", pinned: true },
+      { text: "月曜の連絡" },
+    ]);
+  });
+
   it("空盤面への聞き返し（下書きも盤面も空）では確認カードを出さない", async () => {
     stubSse({ schedules: [], notices: [], assignments: [] });
     render(<EditorChat scope="class" targetId="c1" date="2026-06-20" initialDraft={undefined} />);

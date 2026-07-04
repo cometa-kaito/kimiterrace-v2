@@ -225,6 +225,11 @@ resolveDefaultEditorDate(now, cutover):   // 新設: apps/web/lib/editor/default
 - データ表現: 行タイプの導入。`ScheduleItem` / `NoticeItem` に `kind?: "divider"` を追加。
   - divider 行は `subject` / `text` の必須検証を免除（**任意ラベル**として許容: 「------ 校訓 ------」の
     見出し用途を汲む。空なら純粋な罫線）。`isHighlight` / `displayDays` は divider では無視（validate で剥がす）。
+  - **設計判断の更新（2026-07-04 Reviewer MEDIUM-1・オーケストレータ決定・PR #1217 で実装済）**:
+    連絡の divider は「本文が罫線であるだけの行」＝**通常行と同一ライフサイクル**とし、`displayDays` を
+    **剥がさず保持**する（多日連絡のグルーピング＝校訓掲示板の区切りが翌日崩れないため）。`pinned`（§5.4）も
+    同様に divider へ許可する（「区切り線ごと固定」を成立させる）。divider で剥がすのは `isHighlight` のみ
+    （罫線に強調概念なし）。上の「`displayDays` は divider では無視」は本判断で**上書き**される。
   - 予定の divider の並び順: `period` を持たない divider は時限なしキー（3000）に落ちて末尾へ行ってしまうため、
     **divider は slot ソートの対象外＝配列上の位置を保持**する（validate のソートを「divider を挟んで区間ごとに
     ソート」に変更）。これで「1〜3限 ／ ─── ／ 午後の部」のような区切りが成立する。
@@ -266,6 +271,22 @@ resolveDefaultEditorDate(now, cutover):   // 新設: apps/web/lib/editor/default
   出てこない＝見えない幽霊**になる。→ F-C で連絡セクションに「固定中のお知らせ」小リスト（入力日と本文＋
   削除ボタン）を追加し、削除は**入力日の行の置換保存**として実装する（保存経路は既存の
   `setNoticesAction` を入力日向けに呼ぶ＝新 action 不要）。これを v1 の受入基準に含める（§11）。
+- **「ずっと」はクラス scope 限定（2026-07-04 Reviewer HIGH-1・オーケストレータ決定）**: 削除導線
+  （「固定中のお知らせ」一覧）は**クラスエディタにしか無い**ため、scope（学校/学科/学年）・ops エディタで
+  pinned を作れると「全クラスの盤面に恒久表示されるのにどのエディタからも消せない幽霊」が生まれる。対処は
+  二層: (1) UI — `DisplayDaysField` の「ずっと」option はクラスエディタ（WysiwygBoardEditor 経由・
+  `allowPinned`）だけに出す（既存 pinned 値の表示・解除は fail-soft で可）。(2) validate — `setNoticesAction`
+  が scope≠class の保存で pinned を黙って剥がす（`validateNoticeItems` の `allowPinned: false`）。§5.4 が
+  規定する pinned の用途はクラスの校訓掲示のみで、scope 版の固定が必要になったら scope 用の固定一覧
+  （削除導線）とセットで再訪する。
+- **帰結: クラスの pinned × 最具体勝ちマージによるスコープ連絡の恒久遮蔽（2026-07-04 Reviewer MEDIUM-4・
+  オーケストレータ決定 2026-07-04）**: `mergeWindowedSection` は最具体 scope に活性項目が 1 件でもあれば
+  その scope**のみ**を採用するため、クラスに pinned が 1 件あると、その教室の盤面には school / grade /
+  department の連絡が**二度と出なくなる**（従来はクラス連絡が最長 14 日で切れて学校連絡が透過した）。
+  掲示板型 pattern5（進路指導室前の校訓掲示）では正しい挙動だが、通常教室で校訓を固定すると「学校全体の
+  お知らせが届かない教室」が生まれる。**v1 はこの帰結を受容する**（マージ規約＝per-field 最具体勝ちは
+  変えない。テストもこれを不変条件として固定済み）。実運用で問題が観測されたら再訪する（候補: pinned を
+  マージの scope 選定から除外して「固定＋スコープ連絡」を併載する等）。
 
 ---
 

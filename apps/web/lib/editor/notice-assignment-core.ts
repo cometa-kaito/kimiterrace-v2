@@ -38,6 +38,15 @@ export type NoticeItem = {
   text: string;
   isHighlight?: boolean;
   displayDays?: number;
+  /**
+   * 固定表示（「ずっと」・F-C §5.4）。`true` のとき入力日以降**無期限**でサイネージ・学校管理ハブに表示し続ける。
+   * `displayDays` の番兵値ではなく独立フラグ＝「ずっと」は期間の一種ではなく**固定**という別概念
+   * （`NOTICE_MAX_DISPLAY_DAYS=14` が遡及窓の根拠である不変条件を壊さない）。pinned のとき `displayDays` は
+   * 保存しない（validate が剥がす＝排他）。divider 行にも許可（校訓掲示板で「区切り線ごと固定」を成立させる）。
+   * 旧リーダ（pinned を知らない盤面）では既定 1=入力日のみ表示に劣化するだけで壊れない（fail-soft）。
+   * JSONB なので migration 不要。明示 `true` のみ保存する（isHighlight と同作法）。
+   */
+  pinned?: boolean;
 };
 
 /**
@@ -53,6 +62,14 @@ export type AssignmentItem = {
   task: string;
   isHighlight?: boolean;
 };
+
+/**
+ * 固定表示 (pinned・F-C §5.4) を含む daily_data 1 行ぶんの連絡 (クラス直・入力日つき)。エディタの
+ * 「固定中のお知らせ」一覧と削除 (入力日の行の**置換保存**) が使う。`items` は行の連絡**全件**
+ * (pinned 以外も含む) — 削除は行全体の置換保存なので全件が要る。client component からも参照するため
+ * DB 非依存の本モジュールに置く (取得は notice-assignment-queries の getClassPinnedNoticeRows)。
+ */
+export type PinnedNoticeRow = { date: string; items: NoticeItem[] };
 
 /** 連絡の表示日数の上限 (入力日を含む日数)。サイネージの遡及読み取り窓の根拠にもなる。 */
 export const NOTICE_MAX_DISPLAY_DAYS = 14;
@@ -79,10 +96,25 @@ function normalizeString(value: unknown, max: number): string | null {
 }
 
 /**
+ * {@link validateNoticeItems} のオプション。
+ * `allowPinned: false` は **pinned を黙って剥がす**（拒否しない・fail-soft）。固定表示はクラス scope 限定
+ * （§5.4 は校訓のクラス用途のみを規定・削除導線 {@link PinnedNoticeRow} もクラスエディタにしか無い）ため、
+ * scope=学校/学科/学年 の保存経路 (notice-assignment-actions) が UI 出し分けの**防御の二層目**として渡す。
+ * これが無いと「学校 scope で pin → 全クラス盤面に恒久表示なのにどのエディタからも消せない幽霊」が
+ * 作れてしまう (2026-07-04 Reviewer HIGH-1)。剥がした行は displayDays があればそれを、無ければ既定 1 に
+ * 劣化する（旧リーダの fail-soft と同じ性質）。既定は true（後方互換・読み取り/クラス保存はそのまま）。
+ */
+export type ValidateNoticeOptions = { allowPinned?: boolean };
+
+/**
  * 連絡配列を検証・正規化する。1 件でも不正なら全体を拒否 (部分保存しない)。
  * 入力順を保持する (連絡は表示順に意味があるため、schedule の period ソートとは異なる)。
  */
-export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
+export function validateNoticeItems(
+  raw: unknown,
+  options?: ValidateNoticeOptions,
+): Validated<NoticeItem[]> {
+  const allowPinned = options?.allowPinned !== false;
   if (!Array.isArray(raw)) {
     return { ok: false, message: "連絡の形式が不正です。" };
   }
@@ -95,9 +127,14 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
       return { ok: false, message: "連絡の各件が不正です。" };
     }
     const rec = entry as Record<string, unknown>;
+    // 固定表示 (pinned・§5.4)。明示 true のみ採用 (isHighlight と同作法・"true" 等の truthy は無視)。
+    // pinned のとき displayDays は保存しない (「ずっと」は期間ではなく固定という別概念＝排他をここで確定)。
+    // allowPinned=false (scope=学校/学科/学年 の保存経路・HIGH-1) では黙って剥がし、displayDays 側を生かす。
+    const pinned = rec.pinned === true && allowPinned;
     // 表示日数 (任意・行タイプ共通のライフサイクル属性)。未指定は既定 1 (入力日のみ)。1..MAX の整数のみ
     // 許可し、既定 1 は省略して保存する (JSONB を最小化・後方互換)。区切り線も「本文が罫線であるだけの行」
-    // として通常行と同一に扱う (§5.3・多日連絡のグルーピングを翌日崩さない)。
+    // として通常行と同一に扱う (§5.3・多日連絡のグルーピングを翌日崩さない)。pinned でも不正値は拒否する
+    // (黙って通さない) が、正当値も保存はしない (pinned が勝つ)。
     let displayDays: number | undefined;
     if (rec.displayDays !== undefined) {
       const d = rec.displayDays;
@@ -107,7 +144,7 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
           message: `表示日数は 1〜${NOTICE_MAX_DISPLAY_DAYS} の整数で指定してください。`,
         };
       }
-      if (d > 1) {
+      if (d > 1 && !pinned) {
         displayDays = d;
       }
     }
@@ -127,6 +164,8 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
       items.push({
         kind: "divider",
         text: label,
+        // divider にも pinned を許可 (§5.4・「区切り線ごと固定」= 校訓掲示板の見出し用途)。
+        ...(pinned ? { pinned: true } : {}),
         ...(displayDays !== undefined ? { displayDays } : {}),
       });
       continue;
@@ -140,12 +179,24 @@ export function validateNoticeItems(raw: unknown): Validated<NoticeItem[]> {
     if (rec.isHighlight === true) {
       item.isHighlight = true;
     }
+    if (pinned) {
+      item.pinned = true;
+    }
     if (displayDays !== undefined) {
       item.displayDays = displayDays;
     }
     items.push(item);
   }
   return { ok: true, value: items };
+}
+
+/**
+ * 前日/前週コピーの複製対象となる連絡だけを残す (§6.4)。固定行 (pinned) は**除外**する — 既に全日
+ * 表示されており、コピーすると同じ内容が二重表示になるため。区切り線 (divider) はレイアウトの一部
+ * なので**含める**。純関数 (copy-day-actions が前営業日/前週の items に適用する)。
+ */
+export function copyableNoticeItems(items: NoticeItem[]): NoticeItem[] {
+  return items.filter((i) => i.pinned !== true);
 }
 
 /**

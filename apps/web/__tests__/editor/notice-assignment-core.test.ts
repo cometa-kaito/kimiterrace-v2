@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  copyableNoticeItems,
   validateAssignmentItems,
   validateNoticeItems,
 } from "../../lib/editor/notice-assignment-core";
@@ -198,6 +199,123 @@ describe("validateNoticeItems: 区切り線（kind:'divider'・§5.3）", () => 
         { text: "連絡B", isHighlight: true },
       ],
     });
+  });
+});
+
+// ===================== PR-C 固定行（pinned・「ずっと」・§5.4） =====================
+
+describe("validateNoticeItems: 固定表示（pinned・§5.4）", () => {
+  it("pinned は明示 true のみ受理（isHighlight と同作法・truthy 文字列は無視）", () => {
+    expect(validateNoticeItems([{ text: "校訓", pinned: true }])).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+    expect(validateNoticeItems([{ text: "x", pinned: "true" }])).toEqual({
+      ok: true,
+      value: [{ text: "x" }],
+    });
+    expect(validateNoticeItems([{ text: "x", pinned: false }])).toEqual({
+      ok: true,
+      value: [{ text: "x" }],
+    });
+  });
+
+  it("pinned のとき displayDays は保存しない（排他・「ずっと」は期間ではなく固定という別概念）", () => {
+    expect(validateNoticeItems([{ text: "校訓", pinned: true, displayDays: 7 }])).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+  });
+
+  it("pinned でも不正な displayDays は拒否（黙って通さない・1 件不正なら全体拒否）", () => {
+    expect(validateNoticeItems([{ text: "x", pinned: true, displayDays: 99 }]).ok).toBe(false);
+    expect(validateNoticeItems([{ text: "x", pinned: true, displayDays: "7" }]).ok).toBe(false);
+  });
+
+  it("pinned と isHighlight は両立する（固定かつ重要）", () => {
+    expect(validateNoticeItems([{ text: "避難経路", pinned: true, isHighlight: true }])).toEqual({
+      ok: true,
+      value: [{ text: "避難経路", pinned: true, isHighlight: true }],
+    });
+  });
+
+  it("divider にも pinned を許可（「区切り線ごと固定」＝校訓掲示板・isHighlight のみ剥がす）", () => {
+    const r = validateNoticeItems([
+      { kind: "divider", text: "校訓", pinned: true, displayDays: 7, isHighlight: true },
+    ]);
+    expect(r).toEqual({ ok: true, value: [{ kind: "divider", text: "校訓", pinned: true }] });
+  });
+
+  it("後方互換: pinned を持たない既存 JSONB（text/isHighlight/displayDays/divider）は従来どおり通る", () => {
+    const legacy = [
+      { text: "通常" },
+      { text: "重要", isHighlight: true },
+      { text: "三日間", displayDays: 3 },
+      { kind: "divider", text: "", displayDays: 14 },
+    ];
+    expect(validateNoticeItems(legacy)).toEqual({ ok: true, value: legacy });
+  });
+});
+
+describe("validateNoticeItems: allowPinned=false（scope≠class の保存経路・HIGH-1 防御の二層目）", () => {
+  it("pinned を黙って剥がし、displayDays があればそれを生かす（拒否しない・fail-soft）", () => {
+    const r = validateNoticeItems(
+      [
+        { text: "固定のつもり", pinned: true, displayDays: 7 },
+        { text: "固定のみ", pinned: true },
+        { kind: "divider", text: "校訓", pinned: true },
+      ],
+      { allowPinned: false },
+    );
+    expect(r).toEqual({
+      ok: true,
+      value: [
+        { text: "固定のつもり", displayDays: 7 },
+        { text: "固定のみ" }, // 既定 1（入力日のみ）へ劣化
+        { kind: "divider", text: "校訓" },
+      ],
+    });
+  });
+
+  it("allowPinned=false でも不正な displayDays は従来どおり拒否（黙って通さない）", () => {
+    expect(
+      validateNoticeItems([{ text: "x", pinned: true, displayDays: 15 }], { allowPinned: false })
+        .ok,
+    ).toBe(false);
+  });
+
+  it("allowPinned 省略/true は従来どおり pinned を受理（後方互換・クラス保存経路）", () => {
+    expect(validateNoticeItems([{ text: "校訓", pinned: true }])).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+    expect(validateNoticeItems([{ text: "校訓", pinned: true }], { allowPinned: true })).toEqual({
+      ok: true,
+      value: [{ text: "校訓", pinned: true }],
+    });
+  });
+});
+
+describe("copyableNoticeItems（前日/前週コピーの複製対象・§6.4）", () => {
+  it("pinned（通常行・divider とも）を除外し、通常行と divider は残す（入力順保持）", () => {
+    expect(
+      copyableNoticeItems([
+        { text: "通常" },
+        { text: "校訓", pinned: true },
+        { kind: "divider", text: "" },
+        { kind: "divider", text: "校訓", pinned: true },
+        { text: "三日間", displayDays: 3 },
+      ]),
+    ).toEqual([
+      { text: "通常" },
+      { kind: "divider", text: "" },
+      { text: "三日間", displayDays: 3 },
+    ]);
+  });
+
+  it("pinned が無ければ全件そのまま（従来コピーの回帰なし）", () => {
+    const items = [{ text: "a" }, { text: "b", isHighlight: true }];
+    expect(copyableNoticeItems(items)).toEqual(items);
   });
 });
 

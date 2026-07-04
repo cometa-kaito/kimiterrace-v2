@@ -1,8 +1,9 @@
 import { type TenantTx, classes, dailyData } from "@kimiterrace/db";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   type AssignmentItem,
   type NoticeItem,
+  type PinnedNoticeRow,
   validateAssignmentItems,
   validateNoticeItems,
 } from "./notice-assignment-core";
@@ -74,6 +75,40 @@ export async function getClassNotices(
     date,
     items: validated?.ok ? validated.value : [],
   };
+}
+
+/**
+ * クラス直 (scope=class) の daily_data から、pinned な連絡を含む行を**全期間**で取得する (入力日昇順)。
+ *
+ * pinned は自然消滅しないため対象日・遡及窓に依存しない (JSONB 包含 `@>`・クラスの行は高々 1 行/日なので
+ * 全期間スキャンでも実害なし・設計書 §10)。これが無いと pinned 行は「入力日以外の日のエディタに出てこない
+ * 幽霊」になり削除できない (§5.4 の削除経路が生命線)。**RLS (ルール2)**: 自校 tx 内で呼ぶ。クラス不可視
+ * (別テナント / 不存在) は空配列 (呼び出し元のページは getClassNotices 側で 404 済みの前提)。
+ * 保存済みデータは validate を通し、壊れた行・pinned を含まない行 (偽陽性) は防御的に落とす。
+ */
+export async function getClassPinnedNoticeRows(
+  tx: TenantTx,
+  classId: string,
+): Promise<PinnedNoticeRow[]> {
+  const rows = await tx
+    .select({ date: dailyData.date, notices: dailyData.notices })
+    .from(dailyData)
+    .where(
+      and(
+        eq(dailyData.scope, "class"),
+        eq(dailyData.classId, classId),
+        sql`${dailyData.notices} @> '[{"pinned":true}]'::jsonb`,
+      ),
+    )
+    .orderBy(asc(dailyData.date));
+  const out: PinnedNoticeRow[] = [];
+  for (const row of rows) {
+    const validated = validateNoticeItems(row.notices);
+    if (validated.ok && validated.value.some((i) => i.pinned === true)) {
+      out.push({ date: row.date, items: validated.value });
+    }
+  }
+  return out;
 }
 
 export async function getClassAssignments(

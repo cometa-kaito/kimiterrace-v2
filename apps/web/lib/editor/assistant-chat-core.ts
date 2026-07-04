@@ -1,6 +1,7 @@
 import {
   type AssignmentItem,
   type NoticeItem,
+  type PinnedNoticeRow,
   validateAssignmentItems,
   validateNoticeItems,
 } from "./notice-assignment-core";
@@ -321,6 +322,52 @@ export function draftItemCounts(
     assignments: draft.assignments.length,
     days: draft.days?.length ?? 0,
   };
+}
+
+/**
+ * AI 反映（置換保存）での**固定行（pinned・§5.4）の保全マージ**（2026-07-04 Reviewer MEDIUM-3・純関数）。
+ *
+ * 方式は前日/前週コピー（{@link "./notice-assignment-core".copyableNoticeItems} = pinned をコピー対象から
+ * 除外）と**対称**: **AI が置換できるのは非 pinned 行のみ**で、pinned のライフサイクル（作成＝「ずっと」
+ * select・削除＝PinnedNoticesList / NoticeEditor）は手動エディタが専任する。AI の下書きは pinned を除いて
+ * シードされる（{@link stripPinnedFromDraft}）ため、モデルが pinned をエコーする保証に依存せず、反映
+ * （per-date の置換保存）の直前に保存先日付の pinned 行を**前置きで合流**させて保全する。
+ *
+ * - `pinnedRows` はクラス直の固定行（入力日つき・getClassPinnedNoticeRows）。`date` の行の pinned 項目
+ *   だけを保全する（置換保存は per-date なので他日付の行は触られない）。undefined/該当なしは素通し。
+ * - `aiNotices` に pinned:true が紛れていたら**フラグを剥がして**通常行（1 日表示）に落とす（モデルの
+ *   幻覚で意図しない恒久表示を作らせない・行自体は落とさない）。
+ */
+export function preservePinnedNotices(
+  pinnedRows: readonly PinnedNoticeRow[] | undefined,
+  date: string,
+  aiNotices: readonly NoticeItem[],
+): NoticeItem[] {
+  const preserved = (pinnedRows ?? [])
+    .filter((r) => r.date === date)
+    .flatMap((r) => r.items.filter((i) => i.pinned === true));
+  const replaced = aiNotices.map((i) => {
+    if (i.pinned !== true) {
+      return i;
+    }
+    const { pinned: _pinned, ...rest } = i;
+    return rest;
+  });
+  return [...preserved, ...replaced];
+}
+
+/**
+ * AI 会話の下書きシードから pinned 行を除く（{@link preservePinnedNotices} と対）。AI には非 pinned 行だけを
+ * 見せ・編集させる（copyableNoticeItems と同じ絞り）。pinned 行は反映時に {@link preservePinnedNotices} が
+ * 保存先日付の固定行として合流させるので、AI が触れなくても消えない。undefined はそのまま（空下書き開始）。
+ */
+export function stripPinnedFromDraft(
+  draft: AssistantDraft | undefined,
+): AssistantDraft | undefined {
+  if (!draft) {
+    return undefined;
+  }
+  return { ...draft, notices: draft.notices.filter((i) => i.pinned !== true) };
 }
 
 /**

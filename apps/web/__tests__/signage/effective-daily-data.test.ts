@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DailyScopeRow,
+  activePinnedNoticeItemsOutsideDate,
   addDays,
   daysBetween,
   isAssignmentActive,
@@ -210,6 +211,24 @@ describe("isNoticeActive", () => {
   it("未来入力 (today < rowDate) は非活性", () => {
     expect(isNoticeActive({ text: "x", displayDays: 5 }, "2026-06-10", "2026-06-07")).toBe(false);
   });
+  it("pinned (固定表示・§5.4) は入力日以降ずっと活性 (displayDays 非依存・14 日超も表示)", () => {
+    const pinnedItem = { text: "校訓", pinned: true };
+    expect(isNoticeActive(pinnedItem, "2026-05-01", "2026-05-01")).toBe(true);
+    expect(isNoticeActive(pinnedItem, "2026-05-01", "2026-07-04")).toBe(true); // 60 日超
+    // 未来入力はまだ非活性 (入力日から表示開始)。
+    expect(isNoticeActive(pinnedItem, "2026-07-10", "2026-07-04")).toBe(false);
+    // pinned は displayDays が残っていても勝つ (validate は剥がすが JSONB 由来を防御的に)。
+    expect(
+      isNoticeActive({ text: "x", pinned: true, displayDays: 3 }, "2026-05-01", "2026-07-04"),
+    ).toBe(true);
+    // pinned が true 以外なら従来判定 (fail-soft)。
+    expect(isNoticeActive({ text: "x", pinned: "true" }, "2026-05-01", "2026-07-04")).toBe(false);
+  });
+  it("pinned な divider (区切り線ごと固定・§5.4) もずっと活性", () => {
+    expect(
+      isNoticeActive({ kind: "divider", text: "校訓", pinned: true }, "2026-05-01", "2026-07-04"),
+    ).toBe(true);
+  });
   it("区切り線 (kind:'divider') も通常行と同一のライフサイクル (§5.3 MEDIUM-1)", () => {
     // divider は「本文が罫線であるだけの行」。displayDays=3 なら翌日以降も残り、
     // 多日連絡のグルーピング（校訓掲示板等）が崩れない。displayDays 欠落は既定 1（入力日のみ）。
@@ -303,5 +322,91 @@ describe("mergeEffectiveWithWindow", () => {
       wrow("class", "2026-06-07", { schedules: ["今日の時間割"] }),
     ]);
     expect(merged.schedules).toEqual({ items: ["今日の時間割"], source: "class" });
+  });
+});
+
+/**
+ * PR-C 固定行 (pinned・§5.4): 遡及窓 (31 日) の**外**の行も getEffectiveDailyData の JSONB 包含 OR で
+ * 取得される前提で、マージ層が pinned を「ずっと活性」として通すことを固める (窓クエリ自体の DB 検証は
+ * packages/db の daily-window RLS テスト側)。
+ */
+describe("mergeEffectiveWithWindow: 固定行 (pinned・§5.4)", () => {
+  it("窓の外 (60 日前入力) の pinned が今日も表示され、同一 scope の当日連絡と統合 (入力日昇順=古い固定が先)", () => {
+    const merged = mergeEffectiveWithWindow("2026-07-04", [
+      wrow("class", "2026-05-05", {
+        notices: [
+          { kind: "divider", text: "校訓", pinned: true },
+          { text: "礼儀正しく 勤労を尊び", pinned: true },
+          { text: "当日のみ(切れ)" },
+        ],
+      }),
+      wrow("class", "2026-07-04", { notices: [{ text: "今日の連絡" }] }),
+    ]);
+    expect(merged.notices).toEqual({
+      items: [
+        { kind: "divider", text: "校訓", pinned: true },
+        { text: "礼儀正しく 勤労を尊び", pinned: true },
+        { text: "今日の連絡" },
+      ],
+      source: "class",
+    });
+  });
+
+  it("pinned でも per-field 最具体勝ちは不変 (class に活性 pinned があれば school 連絡は採らない)", () => {
+    const merged = mergeEffectiveWithWindow("2026-07-04", [
+      wrow("class", "2026-05-05", { notices: [{ text: "固定", pinned: true }] }),
+      wrow("school", "2026-07-04", { notices: [{ text: "学校連絡" }] }),
+    ]);
+    expect(merged.notices).toEqual({ items: [{ text: "固定", pinned: true }], source: "class" });
+  });
+});
+
+/**
+ * エディタ WYSIWYG プレビューの pinned 合成入力 (Reviewer MEDIUM-2)。「対象日以外の日に入力された・対象日に
+ * 活性な pinned 項目」を実盤面のマージ順 (入力日昇順) で平坦化する。活性判定は isNoticeActive (単一ソース)。
+ */
+describe("activePinnedNoticeItemsOutsideDate (WYSIWYG プレビューの pinned 合成・MEDIUM-2)", () => {
+  it("対象日以外の行の pinned 項目だけを入力日昇順で平坦化する (非 pinned 項目は含めない)", () => {
+    const items = activePinnedNoticeItemsOutsideDate(
+      [
+        // 意図的に降順で渡してもソートされる。
+        { date: "2026-06-01", items: [{ text: "6月の固定", pinned: true }, { text: "通常" }] },
+        {
+          date: "2026-05-05",
+          items: [
+            { kind: "divider" as const, text: "校訓", pinned: true },
+            { text: "礼儀正しく 勤労を尊び", pinned: true },
+          ],
+        },
+      ].reverse(),
+      "2026-07-04",
+    );
+    expect(items).toEqual([
+      { kind: "divider", text: "校訓", pinned: true },
+      { text: "礼儀正しく 勤労を尊び", pinned: true },
+      { text: "6月の固定", pinned: true },
+    ]);
+  });
+
+  it("対象日の行は除外する (その pinned はエディタ draft 側に含まれる＝二重表示防止)", () => {
+    expect(
+      activePinnedNoticeItemsOutsideDate(
+        [{ date: "2026-07-04", items: [{ text: "対象日の固定", pinned: true }] }],
+        "2026-07-04",
+      ),
+    ).toEqual([]);
+  });
+
+  it("未来日の行は非活性 (isNoticeActive: 入力日以降のみ表示)", () => {
+    expect(
+      activePinnedNoticeItemsOutsideDate(
+        [{ date: "2026-07-10", items: [{ text: "未来の固定", pinned: true }] }],
+        "2026-07-04",
+      ),
+    ).toEqual([]);
+  });
+
+  it("固定行が無ければ空 (プレビューは従来どおり draft のみ)", () => {
+    expect(activePinnedNoticeItemsOutsideDate([], "2026-07-04")).toEqual([]);
   });
 });

@@ -10,6 +10,7 @@ import {
   isUniqueViolation,
   upsertDailySectionForTarget,
 } from "./daily-data-write";
+import { copyableNoticeItems } from "./notice-assignment-core";
 import { getClassAssignments, getClassNotices } from "./notice-assignment-queries";
 import {
   type ActionResult,
@@ -86,7 +87,9 @@ export async function copyPreviousDayAction(
         const notices = await getClassNotices(tx, target.classId, fromDate);
         const assignments = await getClassAssignments(tx, target.classId, fromDate);
         const sch = schedule.items;
-        const not = notices?.items ?? [];
+        // 固定行 (pinned・§6.4) はコピー対象から除外する — 既に全日表示されており、複製すると同じ内容が
+        // 二重表示になる。区切り線 (divider) はレイアウトの一部なので含める。
+        const not = copyableNoticeItems(notices?.items ?? []);
         const asg = assignments?.items ?? [];
         if (sch.length === 0 && not.length === 0 && asg.length === 0) {
           return { kind: "empty" as const };
@@ -138,7 +141,10 @@ async function copyOneDay(
 ): Promise<boolean> {
   const schedule = await getClassSchedule(tx, target.classId, fromDate);
   const sch = schedule?.items ?? [];
-  const not = (await getClassNotices(tx, target.classId, fromDate))?.items ?? [];
+  // 固定行 (pinned・§6.4) は複製しない (前日コピーと同判断・既に全日表示中のため二重表示を防ぐ)。
+  const not = copyableNoticeItems(
+    (await getClassNotices(tx, target.classId, fromDate))?.items ?? [],
+  );
   const asg = (await getClassAssignments(tx, target.classId, fromDate))?.items ?? [];
   if (sch.length === 0 && not.length === 0 && asg.length === 0) {
     return false;
