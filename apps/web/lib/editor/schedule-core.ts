@@ -300,6 +300,56 @@ export function scheduleSlotSortKey(period: SchedulePeriod | undefined): number 
   return period;
 }
 
+/**
+ * 区切り線（行タイプ `kind: "divider"`）のラベル最大長。区切り線は「------ 校訓 ------」のような
+ * 短い見出し用途（§5.3 ダッシュ行ハックの正規化）なので科目名と同じ 32 文字に抑える。
+ * 予定（schedules）・連絡（notices）で共有する（divider の語彙を 1 か所に）。
+ */
+export const DIVIDER_LABEL_MAX = 32;
+
+/**
+ * opaque JSONB 要素が区切り線行（`kind: "divider"`）か。保存（validate）・盤面描画（SignageBoardView の
+ * 時限ソート）・整形（section-format）が同じ判定を共有する（ルール3: 判定を散らさない）。
+ * ランタイムは型を信用せず defensive に narrow する（fail-soft）。
+ */
+export function isDividerRecord(item: unknown): boolean {
+  return (
+    typeof item === "object" && item !== null && (item as { kind?: unknown }).kind === "divider"
+  );
+}
+
+/**
+ * 区切り線（divider）を挟んだ**区間ごと**の安定ソート（§5.3）。divider 行は配列上の位置を保持し、
+ * divider の間にある通常行だけを `sortKey` 昇順（安定）で並べる。これで「1〜3限 ／ ─── ／ 午後の部」の
+ * ような区切りが成立する（divider を時限なしキーで末尾へ流さない）。
+ * 保存（`validateScheduleItems`）と盤面描画（SignageBoardView の `sortByPeriod`）で同じ関数を使い、
+ * 保存順と表示順のズレを作らない。元配列は破壊しない。
+ */
+export function sortScheduleSegments<T>(
+  items: readonly T[],
+  sortKey: (item: T) => number,
+  isDivider: (item: T) => boolean,
+): T[] {
+  const out: T[] = [];
+  let segment: T[] = [];
+  const flush = () => {
+    // Array.prototype.sort は安定（ES2019+）＝同一キーは入力順を保つ（既存 validate と同じ前提）。
+    segment.sort((a, b) => sortKey(a) - sortKey(b));
+    out.push(...segment);
+    segment = [];
+  };
+  for (const item of items) {
+    if (isDivider(item)) {
+      flush();
+      out.push(item);
+    } else {
+      segment.push(item);
+    }
+  }
+  flush();
+  return out;
+}
+
 /** 時限の表示ラベル（数値→`N限`、特殊→朝 / 昼休み / 放課後、自由入力→その文字列）。サイネージ・エディタで共有。 */
 export function scheduleSlotLabel(period: SchedulePeriod): string {
   if (isCustomPeriod(period)) {
@@ -349,12 +399,20 @@ export const SCHEDULE_SLOT_OPTIONS: readonly ScheduleSlotOption[] = [
  * 描画し、`period` が無い要素は時限ラベルを出さず科目だけを描く（要望 2026-06-23: 科目のみで盤面に表示できるように）。
  */
 export type ScheduleItem = {
+  /**
+   * 行タイプ。`"divider"` = 区切り線（§5.3・ダッシュ行ハックの正規化）。divider 行は `subject` を
+   * **任意ラベル**（空文字なら純粋な罫線）として使い、`period` / `note` / `location` / `targetAudience` /
+   * `isHighlight` は持たない（validate が剥がす）。省略（undefined）は通常の予定行。JSONB なので migration 不要。
+   */
+  kind?: "divider";
   /** 時限。省略可（時限なし＝科目のみの予定）。盤面は無い場合 時限ラベルを出さず科目だけを描く。 */
   period?: SchedulePeriod;
   subject: string;
   note?: string;
   location?: string;
   targetAudience?: string;
+  /** 重要マーク（★・F-B1 §5.2）。明示 true のみ保存（連絡の isHighlight と同作法）。盤面は emphasis 表示。 */
+  isHighlight?: boolean;
 };
 
 /** 数値時限の上限（1..MAX_ITEMS）。特殊スロット（朝 / 昼休み / 放課後）はこの範囲外で別途許容する。 */
@@ -441,6 +499,23 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
       return { ok: false, message: "予定の各コマが不正です。" };
     }
     const rec = entry as Record<string, unknown>;
+    // 行タイプ（§5.3）: "divider" のみ受理し、それ以外の kind 値は拒否（不正 kind を黙って通さない）。
+    // divider 行は subject を任意ラベル（空可・DIVIDER_LABEL_MAX 以内）として持ち、period / note / 場所 /
+    // 対象者 / isHighlight は剥がす（divider では無視・保存 JSONB を最小に保つ）。
+    if (rec.kind !== undefined && rec.kind !== null) {
+      if (rec.kind !== "divider") {
+        return { ok: false, message: "予定の行タイプが不正です。" };
+      }
+      const label = typeof rec.subject === "string" ? rec.subject.trim() : "";
+      if (label.length > DIVIDER_LABEL_MAX) {
+        return {
+          ok: false,
+          message: `区切り線のラベルは ${DIVIDER_LABEL_MAX} 文字以内で入力してください。`,
+        };
+      }
+      items.push({ kind: "divider", subject: label });
+      continue;
+    }
     // 時限なし（科目のみ）: period キーが無い / null のときは period を持たない要素にする。
     // それ以外は normalizePeriod で検証し、不正値（0・未知文字列・空の自由入力等）は拒否する。
     let period: SchedulePeriod | undefined;
@@ -468,6 +543,10 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
       return { ok: false, message: `科目名は 1〜${SUBJECT_MAX} 文字で入力してください。` };
     }
     const item: ScheduleItem = period === undefined ? { subject } : { period, subject };
+    // 重要マーク（★・§5.2）: 明示 true のみ受理（連絡の isHighlight と同作法・"true" 等は false 扱い）。
+    if (rec.isHighlight === true) {
+      item.isHighlight = true;
+    }
     if (rec.note !== undefined && rec.note !== null && rec.note !== "") {
       const note = normalizeString(rec.note, NOTE_MAX);
       if (!note) {
@@ -496,6 +575,14 @@ export function validateScheduleItems(raw: unknown): Validated<ScheduleItem[]> {
     items.push(item);
   }
   // 時限の昇順に正規化 (保存・描画の決定性)。並びは morning < 1..12 < lunch < afterschool。
-  items.sort((a, b) => scheduleSlotSortKey(a.period) - scheduleSlotSortKey(b.period));
-  return { ok: true, value: items };
+  // 区切り線（divider）は slot ソートの対象外＝配列上の位置を保持し、divider を挟んだ区間ごとに安定ソート
+  // する（§5.3。divider 無しなら従来の全体ソートと同一結果）。同一キー（放課後×2 等）は入力順＝D&D 順を保つ。
+  return {
+    ok: true,
+    value: sortScheduleSegments(
+      items,
+      (item) => scheduleSlotSortKey(item.period),
+      (item) => item.kind === "divider",
+    ),
+  };
 }
