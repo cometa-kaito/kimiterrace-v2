@@ -16,7 +16,13 @@
  * `SignageClient` の dispatch に case を足すだけで拡張できる。
  */
 
-export const SIGNAGE_DESIGN_PATTERNS = ["pattern1", "pattern2", "pattern3", "pattern4"] as const;
+export const SIGNAGE_DESIGN_PATTERNS = [
+  "pattern1",
+  "pattern2",
+  "pattern3",
+  "pattern4",
+  "pattern5",
+] as const;
 
 export type SignageDesignPattern = (typeof SIGNAGE_DESIGN_PATTERNS)[number];
 
@@ -29,6 +35,7 @@ export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string>
   pattern2: "パターン2（予定 / 来校者 / 呼び出し / センサ / 天気 / 鉄道）",
   pattern3: "パターン3（廊下設置・pattern2 から時事ニュースを除く）",
   pattern4: "パターン4（教員入力最小・天気/ニュース主役・連絡のみ編集）",
+  pattern5: "パターン5（掲示板型・お知らせ主役）",
 };
 
 /**
@@ -45,6 +52,7 @@ export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string>
  *  - `pattern1` / `pattern2`: 標準・掲示盤面は「今後 3 平日」。
  *  - `pattern3`（廊下版）: 遠目最適化で「平日 5 日」（2026-06-22 ユーザー確定）。
  *  - `pattern4`（教員入力最小）: 予定セクションを描画しないため `0`（= 取得もしない）。
+ *  - `pattern5`（掲示板型）: 「今日の予定」1 列のみ（多日グリッドを出さない・editor-restructure-bulletin §6.1）。
  *
  * 土日はスキップして「平日 n 日」を出す（`signageScheduleDates`）。値を増やすと列が細くなるので、
  * 盤面の可読性（特に廊下版の遠目）とコマのはみ出しを実機で確認すること。
@@ -54,6 +62,7 @@ export const SIGNAGE_SCHEDULE_DAY_COUNT: Record<SignageDesignPattern, number> = 
   pattern2: 3,
   pattern3: 5,
   pattern4: 0,
+  pattern5: 1,
 };
 
 /** パターンの予定表示日数（= 予定グリッドの列数）。未知値は既定 pattern1 の日数に倒す（fail-soft）。 */

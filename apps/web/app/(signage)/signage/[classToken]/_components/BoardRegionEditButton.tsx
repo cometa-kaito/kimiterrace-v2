@@ -33,6 +33,7 @@ export type EditRegionsProps = {
   onRegion: (region: EditRegion) => void;
 };
 
+/** 既定ラベル（後方互換のフォールバック）。呼び出し側（`regionEditProps`）は原則 `label` を明示する。 */
 const REGION_LABEL: Record<EditRegion, string> = {
   schedules: "予定",
   notices: "連絡",
@@ -44,15 +45,21 @@ const REGION_LABEL: Record<EditRegion, string> = {
 /**
  * 実セクションを覆う編集ボタン。親 `<section>`（`position: relative`）の内側に絶対配置で敷く。
  * `editRegions` 不在時は呼び出し側で描かない（＝非編集の出力は一切変わらない）。
+ *
+ * `label` は領域の表示名（ジャンプチップ「○○を編集」）。パターン別ラベル上書き（`blockLabel` §6.2）に
+ * 追従させるため呼び出し側（`regionEditProps`）が盤面 region 名と**同じ値**を渡す＝盤面見出し・エディタ
+ * セクション見出し・本チップの 3 者が単一ソースで一致する（pattern1〜4 は従来値のまま非破壊）。
  */
 export function BoardRegionEditButton({
   region,
+  label: labelProp,
   editRegions,
 }: {
   region: EditRegion;
+  label?: string;
   editRegions: EditRegionsProps;
 }) {
-  const label = REGION_LABEL[region];
+  const label = labelProp ?? REGION_LABEL[region];
   const active = editRegions.active === region;
   return (
     <button

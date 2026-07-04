@@ -22,7 +22,7 @@ import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
 import { activePinnedNoticeItemsOutsideDate } from "@/lib/signage/effective-daily-data";
-import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import { patternIncludesBlock, scheduleInputVariant } from "@/lib/signage/pattern-blocks";
 import { jstDateString } from "@/lib/signage/rotation";
 import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
 import { getClassSignageUrl, getSchoolConfigValue } from "@kimiterrace/db";
@@ -177,10 +177,18 @@ export default async function ClassEditorPage({
   // ハイドレーション安全）。任意日はセグメント末尾の「📅 ほかの日」→ 月カレンダー（計画ゾーン）が担う。
   const segmentDates = editorDateSegments(today);
 
+  // 予定エディタの時限入力形態（単一ソース `scheduleInputVariant`）。掲示板型（pattern5）は「時刻＋内容」で
+  // 書くため、時限ベースの基本時間割（週次テンプレ）は seed も導線も出さない（§6.2・語彙不一致の再発防止）。
+  const periodSchedule =
+    patternIncludesBlock(pattern, "schedule") && scheduleInputVariant(pattern) === "period";
+
   // コピーオンライト seed（F5）: 対象日の予定が**空 かつ 平日**なら、その曜日の基本時間割をエディタの初期値に
   // する（教員は確認・差分編集して保存＝daily_data へ materialize。**保存前の daily_data には書かない**）。
-  // 既に入力がある日・土日はそのまま（seed しない）。盤面の表示は daily_data のみ。
-  const seed = seedSchedulesForDate(date, schedule.items, weeklyTimetable);
+  // 既に入力がある日・土日はそのまま（seed しない）。盤面の表示は daily_data のみ。時限入力でないパターン
+  //（掲示板型）には時限テンプレを流し込まない（seed しない）。
+  const seed = periodSchedule
+    ? seedSchedulesForDate(date, schedule.items, weeklyTimetable)
+    : { items: schedule.items, seeded: false };
 
   // WYSIWYG のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass` の出力
   // （`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。
@@ -276,12 +284,16 @@ export default async function ClassEditorPage({
         <div style={planRowStyle}>
           <CopyPreviousWeekButton classId={classId} />
         </div>
-        {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。 */}
-        <p style={planRowStyle}>
-          <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
-            基本時間割を設定 →
-          </Link>
-        </p>
+        {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。
+            時限ベースの予定を持つパターンのみ（掲示板型 pattern5 は時刻入力＝時限テンプレが馴染まない、
+            pattern4 は予定自体が無い＝いずれも死リンク/死導線防止・§6.2）。 */}
+        {periodSchedule ? (
+          <p style={planRowStyle}>
+            <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
+              基本時間割を設定 →
+            </Link>
+          </p>
+        ) : null}
         {/* 月カレンダー: 対象日そのものを選ぶ（?date= 一本化・旧 ?plan の第 2 スタックは廃止）。セグメントの
             「📅 ほかの日」がここへスクロールして開く。 */}
         <EditorDateCalendar

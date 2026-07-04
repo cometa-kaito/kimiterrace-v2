@@ -99,6 +99,10 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "提出物", level: 2 })).toBeTruthy();
+    // 編集セクションの DOM 順は PATTERN_BLOCKS 順（pattern1 = 予定→連絡→提出物・従来どおり＝回帰ガード）。
+    const p1Headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent ?? "");
+    expect(p1Headings.indexOf("予定")).toBeLessThan(p1Headings.indexOf("連絡"));
+    expect(p1Headings.indexOf("連絡")).toBeLessThan(p1Headings.indexOf("提出物"));
     // 盤面内部の予定/連絡/提出物 section は編集モードで aria-label を外すので named region landmark にならない
     //（編集器側 region と衝突しない）。盤面に残る region landmark は広告（complementary）のみ。
     expect(screen.queryByRole("region", { name: "予定" })).toBeNull();
@@ -312,6 +316,99 @@ describe("WysiwygBoardEditor", () => {
     );
     expect(screen.getByRole("button", { name: "来校者一覧を編集" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "生徒呼び出しを編集" })).toBeTruthy();
+  });
+
+  it("pattern5（掲示板型）: 編集欄は「お知らせ」「今日の予定」の 2 つのみ・ラベルは blockLabel 上書き（§6.2 の 3 者一致）", () => {
+    // 掲示板型はエディタも掲示板語彙: notice→「お知らせ」（主役・先頭）/ schedule→「今日の予定」。提出物・
+    // 呼び出し・来校者は出さない（v2-ed47-1 の根治）。盤面 region はプレビュー編集モードで AT から外れるので
+    // heading は編集器側の 1 つだけ＝盤面見出し・エディタ見出し・ジャンプチップが blockLabel 単一ソースで一致。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern5" }}
+        initialSchedules={[]}
+        initialNotices={[{ text: "既存お知らせ" }]}
+        initialAssignments={[]}
+      />,
+    );
+    // 編集セクション見出し（上書きラベル）。**DOM 順は PATTERN_BLOCKS の配列順に追従**＝お知らせ（主役）が
+    // 先頭・今日の予定が続く（§6.1「見たまま一致」。盤面プレビュー内の h2 は編集モードで aria-hidden のため
+    // role=heading には編集器側だけが並ぶ）。
+    expect(screen.getByRole("heading", { name: "お知らせ", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "今日の予定", level: 2 })).toBeTruthy();
+    const p5Headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent ?? "");
+    expect(p5Headings.indexOf("お知らせ")).toBeGreaterThanOrEqual(0);
+    expect(p5Headings.indexOf("お知らせ")).toBeLessThan(p5Headings.indexOf("今日の予定"));
+    // ジャンプチップ（BoardRegionEditButton）も同じ上書きラベル（「○○を編集」）。
+    expect(screen.getByRole("button", { name: "お知らせを編集" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "今日の予定を編集" })).toBeTruthy();
+    // 共通ラベルの見出し / チップは出ない（語彙が二重化しない）。
+    expect(screen.queryByRole("heading", { name: "連絡", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "予定", level: 2 })).toBeNull();
+    expect(screen.queryByRole("button", { name: "連絡を編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "予定を編集" })).toBeNull();
+    // 提出物・呼び出し・来校者のクラス語彙は編集欄ごと出さない。
+    expect(screen.queryByRole("heading", { name: "提出物", level: 2 })).toBeNull();
+    expect(screen.queryByRole("button", { name: "提出物を編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "生徒呼び出しを編集" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "来校者一覧を編集" })).toBeNull();
+  });
+
+  it("pattern5: 予定エディタは時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern5" }}
+        initialSchedules={[{ period: { custom: "13:00〜" }, subject: "進路ガイダンス" }]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    // 時限 select（「1 行目の時限」）は出ず、時刻テキスト入力（「1 行目の時刻」placeholder 13:00）が第一カラム。
+    expect(screen.queryByLabelText("1 行目の時限")).toBeNull();
+    const time = screen.getByLabelText("1 行目の時刻") as HTMLInputElement;
+    expect(time.value).toBe("13:00〜");
+    expect(time.placeholder).toBe("13:00");
+    // 内容カラムの語彙も掲示板型（科目名→内容）。
+    expect((screen.getByLabelText("1 行目の内容") as HTMLInputElement).value).toBe(
+      "進路ガイダンス",
+    );
+    // 時刻を編集すると CustomPeriod として下書きが更新される（保存形は既存の { custom } のまま）。
+    fireEvent.change(time, { target: { value: "14:30〜" } });
+    expect((screen.getByLabelText("1 行目の時刻") as HTMLInputElement).value).toBe("14:30〜");
+  });
+
+  it("pattern5 × pinned（#1221 合流）: 「ずっと」option・固定中一覧・他日 pinned のプレビュー合成が掲示板型でも成立する（校訓の受け皿）", () => {
+    // 校訓ユースケース: pattern5 のクラスエディタでも PR-C の固定行（pinned・§5.4）の 3 点が生きること。
+    // (1) お知らせエディタ（NoticeEditor allowPinned 経路）で「ずっと（固定表示）」が選択済み表示される
+    // (2) 対象日以外の固定行の削除導線「固定中のお知らせ」（PinnedNoticesList）が お知らせ カード内に出る
+    // (3) 他日入力の活性 pinned（previewPinnedNotices）が盤面プレビュー（お知らせ主役）に前置き合成される
+    const { container } = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern5" }}
+        initialSchedules={[]}
+        initialNotices={[{ text: "礼儀正しく 勤労を尊び", pinned: true }]}
+        initialAssignments={[]}
+        pinnedNotices={[
+          { date: "2026-06-01", items: [{ text: "校訓は掲示板に常時表示", pinned: true }] },
+        ]}
+        previewPinnedNotices={[{ text: "校訓は掲示板に常時表示", pinned: true }]}
+      />,
+    );
+    // (1) pinned 行は詳細が初期から開き、表示日数 select は「ずっと」（値 "pinned"）が選択されている。
+    const displayDays = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
+    expect(displayDays.value).toBe("pinned");
+    expect(screen.getByText("ずっと（固定表示）")).toBeTruthy();
+    // (2) 固定中のお知らせ一覧（削除導線・受入基準 PR-C-2）が pattern5 の お知らせ カードでも出る。
+    expect(screen.getByRole("heading", { name: "固定中のお知らせ" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "固定中のお知らせ 1 件目を削除" })).toBeTruthy();
+    // (3) 他日入力の活性 pinned が盤面プレビュー（aria-hidden の装飾プレビュー）に合成される（MEDIUM-2 の
+    // pattern5 版＝実機に出ている校訓がプレビューで消えない）。AT 非公開なので DOM テキストで照合する。
+    expect(container.textContent).toContain("校訓は掲示板に常時表示");
   });
 
   it("予定の時限で「その他」を選ぶと自由入力欄が出る（#予定 自由記入）", () => {
