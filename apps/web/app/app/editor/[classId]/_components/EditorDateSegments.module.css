@@ -1,0 +1,64 @@
+/*
+ * EditorDateSegments.module.css — 対象日セグメント（ゾーン1先頭の日付切替行）。
+ *
+ * 色はハードコードせず globals.css の既存ブランド変数（--brand-*）を参照し、未定義環境向けに
+ * トークン同値の hex フォールバックを添える（EditorDateCalendar.module.css と同方式）。
+ * 選択中はブランドのアクション色（--brand-primary）で塗り、色だけに頼らず aria-current と
+ * 太字でも選択を伝える（NFR05）。
+ */
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 0.85rem;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--brand-border, #e5e7eb);
+  border-radius: 999px;
+  background: var(--brand-surface, #fff);
+  color: var(--brand-ink, #1f2937);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.segment:hover {
+  background: var(--brand-bg-soft, #f7f8fa);
+}
+
+/* 選択中（編集中の対象日）。カレンダーの .selected と同じ視覚言語（橙地・白文字）。 */
+.selected {
+  background: var(--brand-primary, #ea580c);
+  border-color: var(--brand-primary, #ea580c);
+  color: #fff;
+}
+.selected:hover {
+  background: var(--brand-primary-hover, #c2410c);
+}
+
+/* 「今日」の接頭ラベル。選択中でも読めるよう色は継承にして弱く小さく出す。 */
+.todayPrefix {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* 「翌授業日」バッジ。ブランド青の枠で控えめに（選択中は白枠に反転）。 */
+.badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--brand-blue-strong, #2b4acb);
+  color: var(--brand-blue-strong, #2b4acb);
+}
+.selected .badge {
+  border-color: #fff;
+  color: #fff;
+}
