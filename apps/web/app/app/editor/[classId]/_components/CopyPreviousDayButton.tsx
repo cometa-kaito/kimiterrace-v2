@@ -56,6 +56,9 @@ export function CopyPreviousDayButton({
         // データで初期化する（router.refresh だけでは useState(initial…) が残り画面に反映されない。docstring 参照）。
         const params = new URLSearchParams(searchParams);
         params.set("copied", String(Date.now()));
+        // `?date` が URL に無いまま cutover（下校時刻）を跨ぐと、再ナビ時に既定対象日が翌授業日へ
+        // 再解決され「コピーが消えた」ように見える。コピーを適用した対象日を明示して固定する。
+        params.set("date", date);
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       } else {
         setMsg({ ok: false, text: res.error.message });
