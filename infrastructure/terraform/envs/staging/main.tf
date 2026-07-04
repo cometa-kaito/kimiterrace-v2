@@ -76,7 +76,7 @@ locals {
   # 91fd593: #675 で ads.advertiser_id を追加（運営側広告 CRM）。migrate runner は _schema_migrations で
   #          適用済みを追跡し未適用分のみ冪等適用するため、本 image で Job を実行すると advertiser_id（+ 途中の
   #          未適用があれば）のみ流れる。main HEAD(91fd593) から Cloud Build 済・AR push 済。
-  migrate_image_tag = "ad8a27f" # class_weekly_schedules 新テーブル+RLS 0036（#1205 F5 週次ベース時間割・additive・drizzle 20260702121657+手書き0036）。migrate-runner が未適用分のみ冪等適用（0034/0035 sort_order 含む）。prod の適用は人間専任（skill apply-migration）
+  migrate_image_tag = "bdcab46d" # 0037 is_highlight 列追加（class_visitors/student_callouts・#1218・additive・IF NOT EXISTS 冪等）。エディタ再構成 PR-A〜D（#1216〜#1223）の唯一の migration。migrate-runner が未適用分のみ冪等適用。prod の適用は人間専任（skill apply-migration）
 
   # #289 ④: seed Job が使うイメージタグ。migrate イメージに seed-staging-cli を含めて再ビルドした版
   # （同一 Dockerfile・command 上書きで `dist/seed-staging-cli.js` を起動）。app 層 E2E 用フィクスチャ投入。
@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "9deb1b4" # 盤面ページング全パターン#1209 + 前週コピー#1208 + F5週次時間割#1210（0036 は staging 適用済・secret 無変更・疎通 health200/login private,no-cache）
+  web_image_tag = "bdcab46" # エディタ再構成 PR-A〜D（#1216/#1217/#1218/#1220/#1221/#1222/#1223）: 単一スタック+日付セグメント+3ゾーン・⠿/★/区切り線・pinned固定行・掲示板型pattern5+AI/コピー動的化。schema=0037（staging 適用済・migrate_image_tag 同時 bump）・secret 無変更・疎通 health200/login private,no-cache
 }
 
 module "network" {
