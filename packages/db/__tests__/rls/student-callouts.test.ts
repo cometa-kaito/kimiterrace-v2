@@ -222,4 +222,15 @@ describeOrSkip("RLS: student_callouts（生徒呼び出し）", () => {
       ["鈴木花子", false],
     ]);
   });
+
+  it("is_highlight は列 DEFAULT false（旧経路の生 INSERT＝列未指定でも壊れない・後方互換）", async () => {
+    await seedCallout(fx.schoolA, classA, today, "旧データ", null);
+    const rows = await withTenantContext(
+      db,
+      ctxA(),
+      (tx) => getCalloutsForClass(tx, classA, today),
+      APP,
+    );
+    expect(rows.map((r) => [r.studentName, r.isHighlight])).toEqual([["旧データ", false]]);
+  });
 });
