@@ -129,6 +129,39 @@ export function useRowReorder(
 }
 
 /**
+ * D&D ドロップ後の**クライアント側 安定再ソート**（設計書 §5.1「同一ソートキー内並べ替え」）。サーバの
+ * validate が強制ソート（予定=slot キー / 提出物=期限昇順・いずれも安定）を持つセクションでは、ドロップ直後に
+ * 同じキーで並べ直して**見た目と保存結果を一致**させる（別バケットへ跨いだドロップはスナップバック）。
+ *
+ * 事前生成の**空行（prefill）は位置を保持**する: 実入力行（`!isBlank`）だけを取り出して `sortFilled`
+ * （呼び出し側がサーバと同じ安定ソートを渡す）にかけ、元の実入力行スロットへ順に戻す。空行をソートに含めると
+ * 既定キー（対象日・時限未選択）で実入力行の間へ滑り込み、レイアウトが跳ねて見えるため。元配列は破壊しない。
+ */
+export function resortFilledRows<T>(
+  rows: T[],
+  isBlank: (row: T) => boolean,
+  sortFilled: (filled: T[]) => T[],
+): T[] {
+  const filledIndexes: number[] = [];
+  const filled: T[] = [];
+  rows.forEach((row, i) => {
+    if (!isBlank(row)) {
+      filledIndexes.push(i);
+      filled.push(row);
+    }
+  });
+  const sorted = sortFilled(filled);
+  const next = rows.slice();
+  filledIndexes.forEach((slot, j) => {
+    const row = sorted[j];
+    if (row !== undefined) {
+      next[slot] = row;
+    }
+  });
+  return next;
+}
+
+/**
  * 配列の `from` 番目を `to` 番目へ移す純関数（並べ替えの単一ソース）。範囲外/同一は元配列をそのまま返す
  * （= 参照同一で no-op、再描画を増やさない）。
  */

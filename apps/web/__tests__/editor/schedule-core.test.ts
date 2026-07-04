@@ -382,3 +382,132 @@ describe("SCHEDULE_SLOT_OPTIONS", () => {
     expect(validateScheduleItems([{ period: 12, subject: "補習" }]).ok).toBe(true);
   });
 });
+
+// ===================== PR-B 自由度基本セット（区切り線 / ★重要 / 区間ソート） =====================
+
+import { isDividerRecord, sortScheduleSegments } from "../../lib/editor/schedule-core";
+
+describe("validateScheduleItems: 区切り線（kind:'divider'・§5.3）", () => {
+  it("divider を受理し subject を任意ラベル（trim）として保存する", () => {
+    expect(validateScheduleItems([{ kind: "divider", subject: " 午後の部 " }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", subject: "午後の部" }],
+    });
+  });
+
+  it("ラベル無し（subject 欠落 / 空）は純粋な罫線（subject=''）として受理", () => {
+    expect(validateScheduleItems([{ kind: "divider" }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", subject: "" }],
+    });
+    expect(validateScheduleItems([{ kind: "divider", subject: "  " }])).toEqual({
+      ok: true,
+      value: [{ kind: "divider", subject: "" }],
+    });
+  });
+
+  it("divider は period / note / 場所 / 対象者 / isHighlight を剥がす（無視・§5.3）", () => {
+    const r = validateScheduleItems([
+      { kind: "divider", subject: "校訓", period: 3, note: "x", isHighlight: true },
+    ]);
+    expect(r).toEqual({ ok: true, value: [{ kind: "divider", subject: "校訓" }] });
+  });
+
+  it("未知の kind 値は拒否（黙って通さない）", () => {
+    expect(validateScheduleItems([{ kind: "header", subject: "x" }]).ok).toBe(false);
+    expect(validateScheduleItems([{ kind: "", subject: "x" }]).ok).toBe(false);
+  });
+
+  it("divider ラベル 33 文字は拒否（境界 32 は許可）", () => {
+    expect(validateScheduleItems([{ kind: "divider", subject: "あ".repeat(32) }]).ok).toBe(true);
+    expect(validateScheduleItems([{ kind: "divider", subject: "あ".repeat(33) }]).ok).toBe(false);
+  });
+
+  it("divider は slot ソートの対象外＝配列位置を保持し、区間ごとに時限昇順（§5.3）", () => {
+    const r = validateScheduleItems([
+      { period: 3, subject: "数学" },
+      { kind: "divider", subject: "午後" },
+      { period: 2, subject: "国語" },
+      { period: 1, subject: "英語" },
+    ]);
+    expect(
+      r.ok && r.value.map((i) => ("kind" in i && i.kind === "divider" ? "|" : i.subject)),
+    ).toEqual(["数学", "|", "英語", "国語"]);
+  });
+
+  it("divider 越しでも数値時限の重複は拒否（時限の意味論は不変）", () => {
+    const r = validateScheduleItems([
+      { period: 1, subject: "数学" },
+      { kind: "divider" },
+      { period: 1, subject: "英語" },
+    ]);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("validateScheduleItems: ★重要（isHighlight・§5.2）", () => {
+  it("isHighlight は明示 true のみ採用（連絡と同作法）", () => {
+    expect(validateScheduleItems([{ period: 1, subject: "数学", isHighlight: true }])).toEqual({
+      ok: true,
+      value: [{ period: 1, subject: "数学", isHighlight: true }],
+    });
+    const r = validateScheduleItems([{ period: 1, subject: "数学", isHighlight: "true" }]);
+    expect(r.ok && r.value[0]).toEqual({ period: 1, subject: "数学" });
+  });
+
+  it("ソート後も isHighlight を保持する", () => {
+    const r = validateScheduleItems([
+      { period: 2, subject: "国語" },
+      { period: 1, subject: "数学", isHighlight: true },
+    ]);
+    expect(r.ok && r.value[0]).toEqual({ period: 1, subject: "数学", isHighlight: true });
+  });
+});
+
+describe("validateScheduleItems: 既存 JSONB の後方互換（PR-B 受入基準 4・リスク3）", () => {
+  it("既存の全形（数値 / 7-12限 / 特殊 / custom / 時限なし / note / 場所 / 対象者）が従来どおり通る", () => {
+    // 実運用でありうる保存済み JSONB の代表形（fixtures）。validate 変更でこれが落ちると
+    // 「読み取りが空になり置換保存で全消去」の退行になる（getClassSchedule は不合格を空扱いするため）。
+    const fixtures = [
+      { period: 1, subject: "数学" },
+      { period: 12, subject: "補習" },
+      { period: "3", subject: "文字列時限" },
+      { period: "afterschool", subject: "部活", note: "体育館" },
+      { period: { custom: "0限" }, subject: "自習" },
+      { subject: "終日行事", location: "体育館", targetAudience: "3年生" },
+    ];
+    const r = validateScheduleItems(fixtures);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.value).toHaveLength(fixtures.length);
+  });
+});
+
+describe("sortScheduleSegments / isDividerRecord（保存と盤面描画の共有単一ソース）", () => {
+  it("divider 無しは全体を安定ソート（従来と同一）", () => {
+    const out = sortScheduleSegments(
+      [3, 1, 2],
+      (n) => n,
+      () => false,
+    );
+    expect(out).toEqual([1, 2, 3]);
+  });
+
+  it("divider は位置を保持し区間ごとにソートする", () => {
+    const items = ["b", "a", "|", "d", "c"];
+    const out = sortScheduleSegments(
+      items,
+      (s) => s.charCodeAt(0),
+      (s) => s === "|",
+    );
+    expect(out).toEqual(["a", "b", "|", "c", "d"]);
+  });
+
+  it("isDividerRecord は kind:'divider' のオブジェクトのみ true（defensive）", () => {
+    expect(isDividerRecord({ kind: "divider" })).toBe(true);
+    expect(isDividerRecord({ kind: "divider", subject: "x" })).toBe(true);
+    expect(isDividerRecord({ kind: "header" })).toBe(false);
+    expect(isDividerRecord({ subject: "x" })).toBe(false);
+    expect(isDividerRecord(null)).toBe(false);
+    expect(isDividerRecord("divider")).toBe(false);
+  });
+});

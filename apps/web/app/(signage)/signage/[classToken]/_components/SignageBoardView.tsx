@@ -1,6 +1,12 @@
 import { formatClassIdentity } from "@/lib/signage/class-identity";
 import type { MergedSection, ScheduleDay } from "@/lib/signage/effective-daily-data";
-import { isSpecialSlot, scheduleSlotSortKey } from "@/lib/editor/schedule-core";
+import {
+  isCustomPeriod,
+  isDividerRecord,
+  isSpecialSlot,
+  scheduleSlotSortKey,
+  sortScheduleSegments,
+} from "@/lib/editor/schedule-core";
 import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   type SignageDesignPattern,
@@ -805,9 +811,13 @@ function scheduleMetaInline(row: SignageScheduleRow): string | null {
 
 /** pattern3 予定の 1 コマ（固定行高・単一行）。時限 + 内容 (+ 場所/対象者) を 1 行で出す（はみ出しは省略）。 */
 function Pattern3ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  // 区切り線（§5.3）: 水平罫線（ラベル任意）。固定行高（.p3SchItem）を保ちページングの数え方を変えない。
+  if (row.divider) {
+    return <DividerRow label={row.content} itemClassName={styles.p3SchItem} />;
+  }
   const meta = scheduleMetaInline(row);
   return (
-    <div className={styles.p3SchItem}>
+    <div className={`${styles.p3SchItem} ${row.emphasis ? styles.itemEmphasis : ""}`}>
       <span className={styles.p3SchMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         {row.content}
@@ -1267,10 +1277,14 @@ function Pattern2Schedule({
 
 /** パターン2 予定の 1 コマ: 時限 + 内容、その下に 場所 / 対象者（あるものだけ）を小さく添える。 */
 function Pattern2ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  // 区切り線（§5.3）: 水平罫線（ラベル任意）。行として数える（ページングは呼び出し側の chunk が担う）。
+  if (row.divider) {
+    return <DividerRow label={row.content} itemClassName={styles.p2ScheduleItem} />;
+  }
   const hasMeta = row.location != null || row.targetAudience != null;
   return (
     // 自然高さ（場所/対象者メタは 2 行目に伸びる）。超過分は F1 ページング（BoardPager）が順送りする。
-    <div className={styles.p2ScheduleItem}>
+    <div className={`${styles.p2ScheduleItem} ${row.emphasis ? styles.itemEmphasis : ""}`}>
       <span className={styles.p2ScheduleMain}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         {row.content}
@@ -1745,14 +1759,34 @@ function ScheduleColumn({
 }
 
 function ScheduleRow({ row }: { row: SignageScheduleRow }) {
+  // 区切り線（§5.3）: 水平罫線（ラベル付きなら中央にラベル）。ページング上は 1 行として数える（呼び出し側の
+  // chunkIntoPages が行単位で割るため自動で成立）。
+  if (row.divider) {
+    return <DividerRow label={row.content} itemClassName={styles.scheduleListItem} />;
+  }
   const meta = scheduleMetaInline(row);
   return (
-    <div className={styles.scheduleListItem}>
+    <div className={`${styles.scheduleListItem} ${row.emphasis ? styles.itemEmphasis : ""}`}>
       <span className={styles.scheduleRowInner}>
         {row.periodLabel ? <span className={styles.scheduleTime}>{row.periodLabel}</span> : null}
         <span className={styles.scheduleContent}>{row.content}</span>
         {meta ? <span className={styles.scheduleMetaInline}>{meta}</span> : null}
       </span>
+    </div>
+  );
+}
+
+/**
+ * 区切り線行（`kind:"divider"` §5.3）の共通描画。左右に水平罫線を伸ばし、ラベルがあれば中央に置く
+ * （空ラベルは純粋な罫線）。各盤面の既存 item クラス（固定行高・罫線の視覚言語）に `rowDivider` を併設して
+ * 行高・ページングの数え方を変えない。色は既存の `--border-color` / `--text-muted`（テーマ非依存・トークン参照）。
+ */
+function DividerRow({ label, itemClassName }: { label: string; itemClassName?: string }) {
+  // `role="separator"` は付けない（interactive role 扱いの a11y 制約＝focusable 要件を持ち込まない）。
+  // 罫線は視覚装飾で、意味はラベル（あれば素のテキストとして読み上げられる）が担う。テストの目印は data 属性。
+  return (
+    <div className={`${itemClassName ?? ""} ${styles.rowDivider}`} data-divider="true">
+      {label ? <span className={styles.rowDividerLabel}>{label}</span> : null}
     </div>
   );
 }
@@ -1790,6 +1824,16 @@ function NoticeList({
     i: number,
     fixedHeight: boolean,
   ) => {
+    // 区切り線（§5.3）: 水平罫線（ラベル任意・中央）。固定行高（autoScrollItem）を保ちページング上 1 行と数える。
+    // role="separator" は付けない（DividerRow と同判断・a11y の interactive role 制約を持ち込まない）。
+    if (line.divider) {
+      const cls = `${styles.listItem} ${styles.rowDivider} ${fixedHeight ? styles.autoScrollItem : ""}`;
+      return (
+        <li key={i} className={cls} data-divider="true">
+          {line.text ? <span className={styles.rowDividerLabel}>{line.text}</span> : null}
+        </li>
+      );
+    }
     const cls = `${styles.listItem} ${line.emphasis ? styles.itemEmphasis : ""} ${
       fixedHeight ? styles.autoScrollItem : ""
     }`;
@@ -1901,23 +1945,29 @@ function AssignmentTable({
             </tr>
           ) : (
             <>
-              {pageRows.map((row, i) => (
-                // 提出物は再並びしない静的リスト。index key で十分。
-                // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
-                <tr key={i} className={row.isOverdue ? styles.overdueRow : ""}>
-                  <td>
-                    <span
-                      className={
-                        row.isOverdue || row.isUrgent ? styles.daysUrgent : styles.daysLeft
-                      }
-                    >
-                      {row.daysLeft || row.deadlineShort}
-                    </span>
-                  </td>
-                  <td>{row.subject}</td>
-                  <td>{row.task}</td>
-                </tr>
-              ))}
+              {pageRows.map((row, i) => {
+                // ★（emphasis・§5.2）は期限切れ（overdueRow）と同じ inset 左線の視覚言語（emphasisRow）。
+                const rowCls = `${row.isOverdue ? styles.overdueRow : ""} ${
+                  row.emphasis ? styles.emphasisRow : ""
+                }`;
+                return (
+                  // 提出物は再並びしない静的リスト。index key で十分。
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+                  <tr key={i} className={rowCls}>
+                    <td>
+                      <span
+                        className={
+                          row.isOverdue || row.isUrgent ? styles.daysUrgent : styles.daysLeft
+                        }
+                      >
+                        {row.daysLeft || row.deadlineShort}
+                      </span>
+                    </td>
+                    <td>{row.subject}</td>
+                    <td>{row.task}</td>
+                  </tr>
+                );
+              })}
               {Array.from({ length: Math.max(0, visibleRows - pageRows.length) }, (_, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: 固定数プレースホルダー
                 <tr key={`ph-${i}`} className={styles.assignmentPlaceholder}>
@@ -1967,11 +2017,13 @@ const SOURCE_BADGE_LABEL: Record<"school" | "department" | "grade", string> = {
 };
 
 /**
- * 予定要素を時限 (period) 昇順に並べる。並びは morning < 1..12 < lunch < afterschool
- * （{@link scheduleSlotSortKey} 単一ソース）。period 欠損/不正は末尾へ。元配列は破壊しない。
+ * 予定要素を時限 (period) 昇順に並べる。並びは morning < 1..12 < lunch < afterschool < その他（custom）<
+ * 時限なし（{@link scheduleSlotSortKey} 単一ソース）。**区切り線（kind:"divider"）は slot ソートの対象外**＝
+ * 配列上の位置を保持し、divider を挟んだ区間ごとに安定ソートする（§5.3・validate と同じ
+ * {@link sortScheduleSegments} を共有＝保存順と表示順のズレを作らない）。元配列は破壊しない。
  */
 function sortByPeriod(items: unknown[]): unknown[] {
-  return [...items].sort((a, b) => periodOf(a) - periodOf(b));
+  return sortScheduleSegments(items, periodOf, isDividerRecord);
 }
 
 function periodOf(item: unknown): number {
@@ -1980,11 +2032,13 @@ function periodOf(item: unknown): number {
     if (typeof p === "number" && Number.isFinite(p)) {
       return scheduleSlotSortKey(p);
     }
-    if (isSpecialSlot(p)) {
+    if (isSpecialSlot(p) || isCustomPeriod(p)) {
       return scheduleSlotSortKey(p);
     }
   }
-  return Number.POSITIVE_INFINITY;
+  // 時限なし / 欠損 / 不正は末尾へ。validate と同じ有限キー（NO_PERIOD）に倒し、旧 Infinity 同士の
+  // NaN 比較（comparator 未定義動作）を避ける（validate 済み配列では従来と同一順序）。
+  return scheduleSlotSortKey(undefined);
 }
 
 /** 予定列の日付ヘッダー: `MM/DD (曜)`。不正値は素のまま返す。 */

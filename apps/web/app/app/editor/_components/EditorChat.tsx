@@ -684,12 +684,16 @@ function DraftSection({
     <div style={{ padding: "0.3rem 0", borderTop: `1px solid ${color.border}` }}>
       <div style={{ fontSize: fontSize.xs, color: color.muted }}>{title}</div>
       <ul style={{ margin: "0.2rem 0 0", paddingLeft: "1.1rem", display: "grid", gap: "0.15rem" }}>
-        {items.map((item, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: 静的下書きの描画
-          <li key={i} style={{ fontSize: fontSize.sm }}>
-            {formatSignageItem(kind, item).text}
-          </li>
-        ))}
+        {items.map((item, i) => {
+          const line = formatSignageItem(kind, item);
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 静的下書きの描画
+            <li key={i} style={{ fontSize: fontSize.sm }}>
+              {/* 区切り線（PR-B §5.3）は下書き一覧でも「── ラベル ──」として可視化（空テキスト行にしない）。 */}
+              {line.divider ? `── ${line.text || "区切り線"} ──` : line.text}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
