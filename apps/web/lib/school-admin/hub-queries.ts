@@ -149,6 +149,10 @@ export async function countClassesInGrade(tx: TenantTx, gradeId: string): Promis
  *  これにより「昨日入れた複数日連絡」「期限内の提出物 (今日の行なし)」のクラスも、サイネージに出ている
  *  限り「公開中」と表示される (旧実装の "本日付けの行のみ" による過小表示を解消)。日付境界は TZ 事故を
  *  避けるため getDailyWindowRows が SQL 側 JST で決める。RLS により自校の daily_data のみが対象 (ルール2)。
+ *
+ *  **固定表示 (pinned・F-C §5.4)**: pinned な連絡は窓の外でも getDailyWindowRows が JSONB 包含 OR で行ごと
+ *  拾い、`isNoticeActive` (共有 helper) が「入力日以降ずっと活性」と判定する。窓 read と活性判定の両方が
+ *  サイネージと単一ソースなので、ハブの「公開中」表示は pinned でも実盤面と一致する (設計書 §11-7)。
  * ------------------------------------------------------------------ */
 
 /** 本日サイネージに掲示中の中身を持つ daily_data の scope と対象 id。 */
@@ -179,7 +183,7 @@ export function isWindowRowActiveToday(r: DailyWindowRow): boolean {
   if (r.date === r.today && toArray(r.schedules).length > 0) {
     return true;
   }
-  // notices: 入力日から表示日数ぶん。窓内に今日も活性な連絡が 1 件でもあれば。
+  // notices: 入力日から表示日数ぶん (pinned は入力日以降ずっと・§5.4)。今日も活性な連絡が 1 件でもあれば。
   if (toArray(r.notices).some((n) => isNoticeActive(n, r.date, r.today))) {
     return true;
   }

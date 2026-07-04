@@ -54,6 +54,12 @@ type Row = {
   isHighlight: boolean;
   displayDays: number;
   custom: boolean;
+  /**
+   * 固定表示（「ずっと」・F-C §5.4）。表示日数 select の独立 option（値 "pinned"）で選び、保存時に
+   * `pinned: true` へ写像する（displayDays は保存しない＝排他は validate が確定）。divider 行にも許可
+   * （「区切り線ごと固定」）。
+   */
+  pinned: boolean;
 };
 
 /** 表示日数のプリセット (入力日を起点に N 日間)。これ以外は「カスタム」で 1..14 を直接指定。 */
@@ -74,29 +80,43 @@ function clampDisplayDays(n: number): number {
 }
 
 /**
- * 任意設定（重要 / 表示日数）が**既定でない**か。重要 ON / 表示日数が 1（今日のみ）以外 / プリセット外（カスタム）の
- * いずれかなら詳細を初期から開く（設定済みを隠さない・{@link useRowDisclosure}）。折りたたみ中の「設定あり」表示にも使う。
+ * 任意設定（重要 / 表示日数 / 固定）が**既定でない**か。重要 ON / 表示日数が 1（今日のみ）以外 / プリセット外
+ * （カスタム）/ 固定（ずっと）のいずれかなら詳細を初期から開く（設定済みを隠さない・{@link useRowDisclosure}）。
+ * 折りたたみ中の「設定あり」表示にも使う。
  */
-function hasNoticeDetail(r: { isHighlight: boolean; displayDays: number }): boolean {
-  return r.isHighlight || r.displayDays !== 1 || !PRESET_VALUES.has(r.displayDays);
+function hasNoticeDetail(r: {
+  isHighlight: boolean;
+  displayDays: number;
+  pinned: boolean;
+}): boolean {
+  return r.isHighlight || r.pinned || r.displayDays !== 1 || !PRESET_VALUES.has(r.displayDays);
 }
 
 /** 行 state を保存ペイロード（NoticeItem[]）に正規化する。dirty 判定と保存で同じ写像を使う。 */
 function toNoticeItems(rows: Row[]): NoticeItem[] {
   return rows.map((r) =>
-    // 区切り線（§5.3）: text を任意ラベル（trim・空可）として保存。表示日数は通常行と同じライフサイクル
-    // （既定 1 は省略）。重要のみ載せない（罫線に強調概念なし・validate も剥がす）。
+    // 区切り線（§5.3）: text を任意ラベル（trim・空可）として保存。表示日数/固定は通常行と同じライフサイクル
+    // （既定 1 は省略・pinned は displayDays と排他）。重要のみ載せない（罫線に強調概念なし・validate も剥がす）。
     r.kind === "divider"
       ? {
           kind: "divider" as const,
           text: r.text.trim(),
-          ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
+          ...(r.pinned
+            ? { pinned: true }
+            : r.displayDays > 1
+              ? { displayDays: r.displayDays }
+              : {}),
         }
       : {
           text: r.text,
           ...(r.isHighlight ? { isHighlight: true } : {}),
-          // 既定 1 (今日のみ) は省略して保存 (JSONB 最小化・後方互換)。
-          ...(r.displayDays > 1 ? { displayDays: r.displayDays } : {}),
+          // 固定（ずっと・§5.4）は displayDays を保存しない（排他）。既定 1 (今日のみ) は省略して保存
+          // (JSONB 最小化・後方互換)。
+          ...(r.pinned
+            ? { pinned: true }
+            : r.displayDays > 1
+              ? { displayDays: r.displayDays }
+              : {}),
         },
   );
 }
@@ -109,8 +129,10 @@ const detailLabelStyle: CSSProperties = {
 };
 
 /**
- * 表示日数（プリセット + カスタム 1..14）の選択 UI。通常行と区切り線行の詳細パネルで共有する
- * （§5.3: 区切り線も通常行と同じ表示期間ライフサイクルを持つため、同じ選択肢・同じ挙動で出す）。
+ * 表示日数（プリセット + カスタム 1..14 + ずっと＝固定表示）の選択 UI。通常行と区切り線行の詳細パネルで
+ * 共有する（§5.3: 区切り線も通常行と同じ表示期間ライフサイクルを持つため、同じ選択肢・同じ挙動で出す。
+ * §5.4: 「ずっと」は日数プリセットの一種ではなく**固定**という別概念なので、独立 option・値は "pinned"
+ * 番兵 → 保存時に `pinned: true` へ写像する）。
  */
 function DisplayDaysField({
   row,
@@ -126,13 +148,15 @@ function DisplayDaysField({
       <label style={detailLabelStyle}>
         表示
         <select
-          value={row.custom ? "custom" : String(row.displayDays)}
+          value={row.pinned ? "pinned" : row.custom ? "custom" : String(row.displayDays)}
           onChange={(e) => {
             const v = e.target.value;
-            if (v === "custom") {
-              onPatch({ custom: true });
+            if (v === "pinned") {
+              onPatch({ pinned: true });
+            } else if (v === "custom") {
+              onPatch({ pinned: false, custom: true });
             } else {
-              onPatch({ custom: false, displayDays: Number(v) });
+              onPatch({ pinned: false, custom: false, displayDays: Number(v) });
             }
           }}
           style={inputStyle}
@@ -144,9 +168,10 @@ function DisplayDaysField({
             </option>
           ))}
           <option value="custom">カスタム</option>
+          <option value="pinned">ずっと（固定表示）</option>
         </select>
       </label>
-      {row.custom ? (
+      {row.custom && !row.pinned ? (
         <label style={detailLabelStyle}>
           <input
             type="number"
@@ -201,6 +226,7 @@ export function NoticeEditor({
           isHighlight: i.isHighlight ?? false,
           displayDays: dd,
           custom: !PRESET_VALUES.has(dd),
+          pinned: i.pinned === true,
         };
       }),
       prefillRows,
@@ -210,6 +236,7 @@ export function NoticeEditor({
         isHighlight: false,
         displayDays: 1,
         custom: false,
+        pinned: false,
       }),
     ),
   );
@@ -224,6 +251,7 @@ export function NoticeEditor({
         has: hasNoticeDetail({
           isHighlight: i.isHighlight ?? false,
           displayDays: i.displayDays ?? 1,
+          pinned: i.pinned === true,
         }),
       }))
       .filter((x) => x.has)
@@ -261,7 +289,7 @@ export function NoticeEditor({
     nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { id, text: "", isHighlight: false, displayDays: 1, custom: false },
+      { id, text: "", isHighlight: false, displayDays: 1, custom: false, pinned: false },
     ]);
   }
   // 区切り線を末尾に追加（§5.3・行追加ボタンの脇）。ラベルは任意（空なら純粋な罫線）。位置は ⠿ で動かす。
@@ -270,7 +298,15 @@ export function NoticeEditor({
     nextId.current += 1;
     setRows((prev) => [
       ...prev,
-      { id, kind: "divider" as const, text: "", isHighlight: false, displayDays: 1, custom: false },
+      {
+        id,
+        kind: "divider" as const,
+        text: "",
+        isHighlight: false,
+        displayDays: 1,
+        custom: false,
+        pinned: false,
+      },
     ]);
   }
   function removeRow(index: number) {

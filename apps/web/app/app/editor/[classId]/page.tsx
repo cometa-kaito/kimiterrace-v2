@@ -9,7 +9,11 @@ import {
   resolveDefaultEditorDate,
 } from "@/lib/editor/default-date";
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
-import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
+import {
+  getClassAssignments,
+  getClassNotices,
+  getClassPinnedNoticeRows,
+} from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { seedSchedulesForDate } from "@/lib/editor/weekly-timetable-core";
@@ -101,6 +105,9 @@ export default async function ClassEditorPage({
     // class>grade>dept>school のマージ結果なので、編集フォーム用にはこちらを別途引く（用途が違う）。
     const notices = await getClassNotices(tx, classId, date);
     const assignments = await getClassAssignments(tx, classId, date);
+    // 固定中のお知らせ（pinned・F-C §5.4）: 対象日以外の日に入力された固定行は連絡エディタに出てこない
+    // （幽霊化）ため、クラス直の固定行を全期間で引いて「固定中のお知らせ」一覧（削除導線）に渡す。
+    const pinnedNotices = await getClassPinnedNoticeRows(tx, classId);
     // 週次ベース時間割（F5・コピーオンライト）: 対象日の予定が空のとき、その曜日の基本時間割をエディタの初期値に
     // seed するために引く（自校 RLS・同一 tx）。テンプレ未登録は空。盤面の表示時マージはしない（seed は編集初期値のみ）。
     const weeklyTimetable = (await getClassWeeklyTimetable(tx, classId))?.timetable ?? {};
@@ -136,6 +143,7 @@ export default async function ClassEditorPage({
       schedule,
       notices,
       assignments,
+      pinnedNotices,
       pattern,
       showVisitors,
       showCallouts,
@@ -154,6 +162,7 @@ export default async function ClassEditorPage({
     schedule,
     notices,
     assignments,
+    pinnedNotices,
     pattern,
     showVisitors,
     showCallouts,
@@ -222,6 +231,7 @@ export default async function ClassEditorPage({
           initialSchedules={seed.items}
           initialNotices={notices.items}
           initialAssignments={assignments.items}
+          pinnedNotices={pinnedNotices}
         />
         {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
             パターンのときだけ盤面の下に出す（死セクション防止・将来パターン追加にも単一ソースで自動追従）。

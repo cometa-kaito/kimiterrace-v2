@@ -153,15 +153,22 @@ export function addDays(date: string, n: number): string {
   return `${y}-${m}-${day}`;
 }
 
-/** 連絡が today に表示中か。入力日 (rowDate) から displayDays 日間 (既定 1=入力日のみ)。 */
+/**
+ * 連絡が today に表示中か。入力日 (rowDate) から displayDays 日間 (既定 1=入力日のみ)。
+ * **固定表示 (pinned・F-C §5.4)**: `pinned === true` の連絡は入力日以降**ずっと**活性 (displayDays 非依存)。
+ * 本 helper は盤面 (mergeWindowedSection) と学校管理ハブ (hub-queries の isWindowRowActiveToday) が共有する
+ * 活性判定の単一ソースなので、pinned の意味は両読み手へ同時に効く (§11-7: 片側だけ直さない)。
+ */
 export function isNoticeActive(item: unknown, rowDate: string, today: string): boolean {
-  const dd =
-    typeof item === "object" &&
-    item !== null &&
-    typeof (item as { displayDays?: unknown }).displayDays === "number"
-      ? (item as { displayDays: number }).displayDays
-      : 1;
+  const rec =
+    typeof item === "object" && item !== null
+      ? (item as { displayDays?: unknown; pinned?: unknown })
+      : null;
   const diff = daysBetween(rowDate, today);
+  if (rec?.pinned === true) {
+    return diff >= 0;
+  }
+  const dd = typeof rec?.displayDays === "number" ? rec.displayDays : 1;
   return diff >= 0 && diff < dd;
 }
 
@@ -306,7 +313,11 @@ export async function getEffectiveDailyData(
 
   // 連絡(表示日数)・提出物(期限+猶予)を多日表示するため、当日だけでなく過去 EFFECTIVE_LOOKBACK_DAYS 日分の
   // 行を 1 クエリで読む (schedules/quietHours は当日行のみ使用 = mergeEffectiveWithWindow が振り分け)。
-  // RLS により自校に限定される (ルール2、手書き WHERE school_id 非依存)。
+  // **固定表示 (pinned・F-C §5.4)**: pinned な連絡は自然消滅しないため、遡及窓の**外**でも
+  // `notices @> '[{"pinned":true}]'` (JSONB 包含) の行を OR で拾う。クラスの daily_data は高々
+  // 1 行/日×scope なので全期間スキャンでも実害なし (性能問題が出たら partial GIN index を後続 migration で・
+  // 設計書 §10。v1 では張らない)。同じ拡張を学校管理ハブの窓 read (`packages/db` getDailyWindowRows) にも
+  // 同一 PR で適用している (§11-7)。RLS により自校に限定される (ルール2、手書き WHERE school_id 非依存)。
   const windowStart = addDays(date, -(EFFECTIVE_LOOKBACK_DAYS - 1));
   const rows = await tx
     .select({
@@ -320,8 +331,11 @@ export async function getEffectiveDailyData(
     .from(dailyData)
     .where(
       and(
-        gte(dailyData.date, windowStart),
         lte(dailyData.date, date),
+        or(
+          gte(dailyData.date, windowStart),
+          sql`${dailyData.notices} @> '[{"pinned":true}]'::jsonb`,
+        ),
         scopeRowsForClass(classId, cls),
       ),
     );

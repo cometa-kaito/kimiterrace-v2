@@ -3,7 +3,11 @@
 import type { EditRegion } from "@/app/(signage)/signage/[classToken]/_components/BoardRegionEditButton";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
 import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
-import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
+import type {
+  AssignmentItem,
+  NoticeItem,
+  PinnedNoticeRow,
+} from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
 import { blockRowCapacity, patternIncludesBlock } from "@/lib/signage/pattern-blocks";
@@ -11,6 +15,7 @@ import { useAdRotation } from "@/lib/signage/useAdRotation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
+import { PinnedNoticesList } from "./PinnedNoticesList";
 import { ScheduleEditor } from "./ScheduleEditor";
 import styles from "./WysiwygBoardEditor.module.css";
 import { editorRegionAnchorId } from "./region-anchor";
@@ -53,6 +58,7 @@ export function WysiwygBoardEditor({
   initialSchedules,
   initialNotices,
   initialAssignments,
+  pinnedNotices,
   showBoard = true,
 }: {
   classId: string;
@@ -66,6 +72,12 @@ export function WysiwygBoardEditor({
   initialSchedules: ScheduleItem[];
   initialNotices: NoticeItem[];
   initialAssignments: AssignmentItem[];
+  /**
+   * 固定表示（pinned・F-C §5.4）を含むクラス直の連絡行（入力日つき・全期間）。連絡カード内に
+   * 「固定中のお知らせ」一覧（{@link PinnedNoticesList}・対象日以外の固定行の削除導線）を出すために使う。
+   * 未指定/空なら一覧は出さない（従来挙動・回帰なし）。
+   */
+  pinnedNotices?: PinnedNoticeRow[];
   /**
    * 盤面ライブプレビューを描くか。既定 true（今日の編集＝WYSIWYG）。false にすると盤面を出さず編集セクション
    * （予定/連絡/提出物）だけを出す＝「選択した日（未来）の編集」をフォームのみで軽く見せる用（要望 2026-06-23）。
@@ -261,6 +273,11 @@ export function WysiwygBoardEditor({
               onItemsChange={onNotices}
               prefillRows={noticePrefill}
             />
+            {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
+                （幽霊化）ため、連絡カード内に入力日つき一覧と削除導線を出す（受入基準 PR-C-2）。 */}
+            {pinnedNotices && pinnedNotices.length > 0 ? (
+              <PinnedNoticesList classId={classId} currentDate={date} rows={pinnedNotices} />
+            ) : null}
           </EditorCard>
         ) : null}
         {showAssignment ? (

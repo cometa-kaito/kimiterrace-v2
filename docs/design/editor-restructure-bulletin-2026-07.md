@@ -225,6 +225,11 @@ resolveDefaultEditorDate(now, cutover):   // 新設: apps/web/lib/editor/default
 - データ表現: 行タイプの導入。`ScheduleItem` / `NoticeItem` に `kind?: "divider"` を追加。
   - divider 行は `subject` / `text` の必須検証を免除（**任意ラベル**として許容: 「------ 校訓 ------」の
     見出し用途を汲む。空なら純粋な罫線）。`isHighlight` / `displayDays` は divider では無視（validate で剥がす）。
+  - **設計判断の更新（2026-07-04 Reviewer MEDIUM-1・オーケストレータ決定・PR #1217 で実装済）**:
+    連絡の divider は「本文が罫線であるだけの行」＝**通常行と同一ライフサイクル**とし、`displayDays` を
+    **剥がさず保持**する（多日連絡のグルーピング＝校訓掲示板の区切りが翌日崩れないため）。`pinned`（§5.4）も
+    同様に divider へ許可する（「区切り線ごと固定」を成立させる）。divider で剥がすのは `isHighlight` のみ
+    （罫線に強調概念なし）。上の「`displayDays` は divider では無視」は本判断で**上書き**される。
   - 予定の divider の並び順: `period` を持たない divider は時限なしキー（3000）に落ちて末尾へ行ってしまうため、
     **divider は slot ソートの対象外＝配列上の位置を保持**する（validate のソートを「divider を挟んで区間ごとに
     ソート」に変更）。これで「1〜3限 ／ ─── ／ 午後の部」のような区切りが成立する。
