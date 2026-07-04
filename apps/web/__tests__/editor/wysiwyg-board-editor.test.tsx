@@ -380,6 +380,37 @@ describe("WysiwygBoardEditor", () => {
     expect((screen.getByLabelText("1 行目の時刻") as HTMLInputElement).value).toBe("14:30〜");
   });
 
+  it("pattern5 × pinned（#1221 合流）: 「ずっと」option・固定中一覧・他日 pinned のプレビュー合成が掲示板型でも成立する（校訓の受け皿）", () => {
+    // 校訓ユースケース: pattern5 のクラスエディタでも PR-C の固定行（pinned・§5.4）の 3 点が生きること。
+    // (1) お知らせエディタ（NoticeEditor allowPinned 経路）で「ずっと（固定表示）」が選択済み表示される
+    // (2) 対象日以外の固定行の削除導線「固定中のお知らせ」（PinnedNoticesList）が お知らせ カード内に出る
+    // (3) 他日入力の活性 pinned（previewPinnedNotices）が盤面プレビュー（お知らせ主役）に前置き合成される
+    const { container } = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern5" }}
+        initialSchedules={[]}
+        initialNotices={[{ text: "礼儀正しく 勤労を尊び", pinned: true }]}
+        initialAssignments={[]}
+        pinnedNotices={[
+          { date: "2026-06-01", items: [{ text: "校訓は掲示板に常時表示", pinned: true }] },
+        ]}
+        previewPinnedNotices={[{ text: "校訓は掲示板に常時表示", pinned: true }]}
+      />,
+    );
+    // (1) pinned 行は詳細が初期から開き、表示日数 select は「ずっと」（値 "pinned"）が選択されている。
+    const displayDays = screen.getByLabelText("1 件目の表示日数") as HTMLSelectElement;
+    expect(displayDays.value).toBe("pinned");
+    expect(screen.getByText("ずっと（固定表示）")).toBeTruthy();
+    // (2) 固定中のお知らせ一覧（削除導線・受入基準 PR-C-2）が pattern5 の お知らせ カードでも出る。
+    expect(screen.getByRole("heading", { name: "固定中のお知らせ" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "固定中のお知らせ 1 件目を削除" })).toBeTruthy();
+    // (3) 他日入力の活性 pinned が盤面プレビュー（aria-hidden の装飾プレビュー）に合成される（MEDIUM-2 の
+    // pattern5 版＝実機に出ている校訓がプレビューで消えない）。AT 非公開なので DOM テキストで照合する。
+    expect(container.textContent).toContain("校訓は掲示板に常時表示");
+  });
+
   it("予定の時限で「その他」を選ぶと自由入力欄が出る（#予定 自由記入）", () => {
     render(
       <WysiwygBoardEditor
