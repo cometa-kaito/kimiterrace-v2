@@ -2,6 +2,12 @@ import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
+import {
+  editorDateSegments,
+  parseEditorDayCutover,
+  planRedirectPath,
+  resolveDefaultEditorDate,
+} from "@/lib/editor/default-date";
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import { getClassAssignments, getClassNotices } from "@/lib/editor/notice-assignment-queries";
 import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
@@ -10,45 +16,47 @@ import { seedSchedulesForDate } from "@/lib/editor/weekly-timetable-core";
 import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
-import { resolveDesignPattern } from "@/lib/signage/design-pattern";
+import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
 import { patternIncludesBlock } from "@/lib/signage/pattern-blocks";
-import { getSignageDesignPattern } from "@/lib/signage/signage-design";
+import { jstDateString } from "@/lib/signage/rotation";
 import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
-import { getClassSignageUrl } from "@kimiterrace/db";
+import { getClassSignageUrl, getSchoolConfigValue } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
 import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
-import {
-  EditorDateCalendar,
-  SELECTED_DAY_ANCHOR_ID,
-  TODAY_ANCHOR_ID,
-} from "./_components/EditorDateCalendar";
+import { EditorDateCalendar } from "./_components/EditorDateCalendar";
+import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
 
 /**
- * クラス別エディタ — **盤面エディタを本画面・AI は浮遊チャット**（ユーザー判断 2026-06-16）。
+ * クラス別エディタ — **単一編集スタック + 対象日セグメント + 3 ゾーン分層**
+ * （editor-restructure-bulletin-2026-07.md §3・オーナー決定 3）。
  *
  * `/app` 配下 (#48-C layout で認証) + 本ページで `EDITOR_ROLES` (teacher / school_admin) に限定。
- * `?date=YYYY-MM-DD` で対象日（既定は JST 今日）。別テナントのクラスは RLS 不可視 → 404。
+ * 別テナントのクラスは RLS 不可視 → 404。
  *
- * **構成（タブ shell 廃止）**: WYSIWYG 盤面エディタ（{@link WysiwygBoardEditor}）を直接の本画面にし
- * （ライブ盤面が旧「プレビュー」タブを兼ねるので preview タブは廃止）、会話型 AI（{@link EditorChat}）は
- * 右下に浮く支援チャット（{@link FloatingAiChat} の FAB → パネル）に格下げする。`広告管理` / `静粛時間` は
- * school_admin の per-class 管理導線として盤面の上に残す（teacher には出さない＝死リンク防止）。
- * 黒画面トグル（{@link BlackoutToggle}）は実教室へ即時影響する強い操作なので最下部にまとめる。
+ * **対象日モデル（§3.2）**: 編集スタックは常に 1 つ。対象日はゾーン1先頭のセグメント
+ * （今日 → 翌授業日 → … → 📅 月カレンダー）で切り替え、盤面プレビュー・編集セクション・AI FAB・
+ * 前日コピーがすべてその日に追随する。`?date=YYYY-MM-DD` が明示されていれば常にそれが対象日。無指定の
+ * 既定は {@link resolveDefaultEditorDate}（授業日の下校時刻 `editorDayCutover`・既定 16:00 まで＝今日、
+ * それ以降と休日＝次の授業日）。旧 `?plan=X`（今日＋選択日の 2 スタック並存）は**廃止**し、後方互換で
+ * `?date=X` へ redirect する（§3.3・ブックマーク/履歴を壊さない）。
+ *
+ * **3 ゾーン分層（§3.1・v2-ed47-4 の是正）**: 毎日の編集（セグメント＋盤面 WYSIWYG＋編集セクション）／
+ * 計画（前日・前週コピー、基本時間割、月カレンダー）／このモニタ（サイネージを開く・黒画面・
+ * school_admin の広告管理/静粛時間）を視覚的に分ける。
  *
  * 反映の取りこぼし防止: 会話の下書きを**現在の盤面でシード**する（per-section save は置換のため、AI が
- * 触れなかったセクションも全体像として保持してから反映する）。`key={date}`（対象日変更で各エディタ・AI を
- * 再マウントし新日付で初期化）と Approach A（盤面実セクションを覆う編集ボタン）は維持する。
+ * 触れなかったセクションも全体像として保持してから反映する）。`key={date}:{copied}`（対象日変更・コピーで
+ * 各エディタ・AI を再マウントし新データで初期化）は**絶対に維持**する（無いと旧日付の入力が新日付へ保存
+ * される混線バグが再発する・2026-06-16 実バグ）。
  */
-const JST = "Asia/Tokyo";
-
 export default async function ClassEditorPage({
   params,
   searchParams,
@@ -62,19 +70,29 @@ export default async function ClassEditorPage({
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
   const { date: dateParam, plan: planParam, copied: copiedParam } = await searchParams;
-  // 前日コピー成功時の再マウント nonce（CopyPreviousDayButton が ?copied=<ts> を付けて再ナビゲート）。
+  // 旧 `?plan=X`（2 スタック時代の下スタック URL）は `?date=X` へ後方互換 redirect（§3.3）。恒久 URL では
+  // ないので Next 既定の 307 で十分。不正な plan 値は無視して既定挙動に fail-soft。
+  const planRedirect = planRedirectPath(classId, planParam);
+  if (planRedirect) {
+    redirect(planRedirect);
+  }
+  // 前日/前週コピー成功時の再マウント nonce（CopyPreviousDayButton が ?copied=<ts> を付けて再ナビゲート）。
   // エディタ key に含めることで、同一日付への複製でも配下エディタの useState(initial…) を複製後データで
   // 確実に再初期化する（key={date} だけでは同じ日への操作で再マウントされない）。値は key 用の不透明文字列
   // なので形式検証は長さ制限のみ（fail-soft）。
   const copied = typeof copiedParam === "string" ? copiedParam.slice(0, 24) : "";
-  // 上＝「今日の編集」: 既定は JST 今日。?date= の明示指定があればそれを上に出す（互換・通常は未使用）。
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: JST });
-  const date = dateParam && isValidDate(dateParam) ? dateParam : today;
-  // 下＝「選択した日の編集」: カレンダーで選んだ先の日（?plan=）。上と同じ日なら下は出さない（重複回避）。
-  const planValid = planParam && isValidDate(planParam) ? planParam : null;
-  const plan = planValid && planValid !== date ? planValid : null;
+  const now = new Date();
+  const today = jstDateString(now);
+  // `?date=` 明示は常に優先（deep link 安定）。無指定の既定は school_configs の cutover を読んでから
+  // tx 内で決める（下記）。
+  const requestedDate = dateParam && isValidDate(dateParam) ? dateParam : null;
 
   const data = await withSession(async (tx) => {
+    // display_settings（opaque JSONB）は 1 回だけ読み、既定対象日の cutover（editorDayCutover・§3.2）と
+    // 学校レベル既定デザイン（signageDesign）の両方をここから defensive にパースする。
+    const displaySettings = await getSchoolConfigValue(tx, "display_settings");
+    const date =
+      requestedDate ?? resolveDefaultEditorDate(now, parseEditorDayCutover(displaySettings));
     const schedule = await getClassSchedule(tx, classId, date);
     if (!schedule) {
       return null;
@@ -92,14 +110,16 @@ export default async function ClassEditorPage({
     // サイネージデザインパターンを解決（**端末別 `?design` > 学校レベル既定 > pattern1**）。実機 TV / モニタの壁と
     // 同じ優先順位（`resolveDesignPattern` 単一ソース）で、このクラスの実機が実際に出すパターンでプレビュー・編集
     // セクションを出し分ける（学校既定が pattern1 でも端末が pattern2/3/4 なら追従＝旧「学校既定のみ参照」を是正）。
-    const pattern = resolveDesignPattern(liveSignageUrl, await getSignageDesignPattern(tx));
+    const pattern = resolveDesignPattern(
+      liveSignageUrl,
+      parseSignageDesignPattern(displaySettings),
+    );
     // WYSIWYG（盤面を編集タブ）のライブプレビュー基底は、**実機サイネージと完全に同一の payload builder**
     // （`buildSignagePayloadForClass`）から組む。これにより自動コンテンツ系ブロック（時事ニュース / 鉄道 /
     // 人感センサ / 防災・安全帯）も実機と同じ取得ゲート（`PATTERN_BLOCKS`）・同じ fail-soft で取得・描画され、
-    // エディタの盤面と実機 TV の見た目が一致する。旧実装は base を手組みして自動ブロックを `null` 固定していたため
-    // pattern2/3/4 でニュース等が空欄になり「エディタのパターンと実機の表示が合わない」ズレが出ていた（本修正の主眼・
-    // ユーザー報告 2026-06-20）。`pattern` を designParam として渡すので builder 内の二重パターン解決は起きない。
-    // schoolId 不明時は null（盤面を出さず WysiwygBoardEditor が従来の縦積みフォームへ fail-soft フォールバック）。
+    // エディタの盤面と実機 TV の見た目が一致する。`pattern` を designParam として渡すので builder 内の二重パターン
+    // 解決は起きない。schoolId 不明時は null（盤面を出さず WysiwygBoardEditor が従来の縦積みフォームへ fail-soft
+    // フォールバック）。
     const board = user.schoolId
       ? await buildSignagePayloadForClass(tx, user.schoolId, classId, date, pattern)
       : null;
@@ -108,35 +128,11 @@ export default async function ClassEditorPage({
     // 単一ソース駆動で `=== "pattern2"` のハードコード分岐を作らない（将来パターン追加に自動追従）。
     const showVisitors = patternIncludesBlock(pattern, "visitor");
     const showCallouts = patternIncludesBlock(pattern, "callout");
-    // カレンダー（内容ドット）用: 表示しそうな月（選択日があればその月・無ければ今日の月）±1 か月を自校 RLS 内で引く。
-    const calWindow = monthWindow(plan ?? date);
+    // カレンダー（内容ドット）用: 対象日の月±1 か月を自校 RLS 内で引く。
+    const calWindow = monthWindow(date);
     const contentDates = await getClassContentDates(tx, classId, calWindow.start, calWindow.end);
-    // 下＝「選択した日の編集」用: ?plan の日のデータを同 tx で取得（無選択 or 取得不能なら null）。盤面は描かない
-    // （showBoard=false）が、パターン別の出し分けと来校者/呼び出しデータのため board は今日と対称に組む
-    // （データ経路を分岐させない＝バグ源を増やさない）。
-    let planData: {
-      schedule: NonNullable<Awaited<ReturnType<typeof getClassSchedule>>>;
-      notices: NonNullable<Awaited<ReturnType<typeof getClassNotices>>>;
-      assignments: NonNullable<Awaited<ReturnType<typeof getClassAssignments>>>;
-      board: Awaited<ReturnType<typeof buildSignagePayloadForClass>> | null;
-    } | null = null;
-    if (plan) {
-      const pSchedule = await getClassSchedule(tx, classId, plan);
-      const pNotices = await getClassNotices(tx, classId, plan);
-      const pAssignments = await getClassAssignments(tx, classId, plan);
-      if (pSchedule && pNotices && pAssignments) {
-        const pBoard = user.schoolId
-          ? await buildSignagePayloadForClass(tx, user.schoolId, classId, plan, pattern)
-          : null;
-        planData = {
-          schedule: pSchedule,
-          notices: pNotices,
-          assignments: pAssignments,
-          board: pBoard,
-        };
-      }
-    }
     return {
+      date,
       schedule,
       notices,
       assignments,
@@ -146,7 +142,6 @@ export default async function ClassEditorPage({
       board,
       liveSignageUrl,
       contentDates,
-      planData,
       weeklyTimetable,
     };
   });
@@ -155,6 +150,7 @@ export default async function ClassEditorPage({
     notFound();
   }
   const {
+    date,
     schedule,
     notices,
     assignments,
@@ -164,31 +160,26 @@ export default async function ClassEditorPage({
     board,
     liveSignageUrl,
     contentDates,
-    planData,
     weeklyTimetable,
   } = data;
 
-  // コピーオンライト seed（F5・設計書 §3 F5 / §6.5）: 対象日の予定が**空 かつ 平日**なら、その曜日の基本時間割を
-  // エディタの初期値にする（教員は確認・差分編集して保存＝daily_data へ materialize。**保存前の daily_data には
-  // 書かない**）。既に入力がある日・土日はそのまま（seed しない）。盤面の表示は daily_data のみ（seed は編集フォームの
-  // 初期値だけ・表示時マージはしない）。上（今日）と下（選択した日）で同じ純関数を使う。
-  const todaySeed = seedSchedulesForDate(date, schedule.items, weeklyTimetable);
-  const planSeed =
-    plan && planData ? seedSchedulesForDate(plan, planData.schedule.items, weeklyTimetable) : null;
+  // 対象日セグメント（§3.1）: 今日を常に先頭に、翌授業日からの授業日を時系列で並べる（サーバ決定＝
+  // ハイドレーション安全）。任意日はセグメント末尾の「📅 ほかの日」→ 月カレンダー（計画ゾーン）が担う。
+  const segmentDates = editorDateSegments(today);
 
-  // WYSIWYG（盤面を編集タブ）のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass`
-  // の出力（`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。盤面は
-  // このクラスの実機が出すパターン（`board.designPattern`＝端末別 `?design` 解決済み）の `PATTERN_BLOCKS` レイアウトで
-  // 描かれ、予定 / 連絡 / 提出物 / 来校者 / 呼び出しに加え、自動コンテンツ（ニュース / 鉄道 / 人感センサ / 防災帯）も
-  // **実機とまったく同じデータ**で出る（編集連動は予定/連絡/提出物のみ・来校者/呼び出しの編集欄は盤面下に出す）。
-  // 取得不能（クラス不可視 / schoolId 不明）は `null` で、WysiwygBoardEditor が盤面を畳んで従来フォームのみに
-  // フォールバックする（盤面を壊さない・編集は引き続き可能）。
+  // コピーオンライト seed（F5）: 対象日の予定が**空 かつ 平日**なら、その曜日の基本時間割をエディタの初期値に
+  // する（教員は確認・差分編集して保存＝daily_data へ materialize。**保存前の daily_data には書かない**）。
+  // 既に入力がある日・土日はそのまま（seed しない）。盤面の表示は daily_data のみ。
+  const seed = seedSchedulesForDate(date, schedule.items, weeklyTimetable);
+
+  // WYSIWYG のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass` の出力
+  // （`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。
   const boardBase: EditorBoardBase | null = board;
 
   return (
     <>
-      {/* 画面付随物（戻る + クラス名）は小さく薄いパンくずに格下げ＝主役（盤面エディタ）に視線が向くように
-          する（ユーザー指摘 2026-06-15）。クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ控えめにする。
+      {/* 画面付随物（戻る + クラス名）は小さく薄いパンくず＝主役（盤面エディタ）に視線が向くようにする。
+          クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ控えめにする。
           ?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
       <nav aria-label="パンくず" style={breadcrumbRowStyle}>
         <Link href="/app/editor?stay=1" style={breadcrumbBackStyle}>
@@ -200,180 +191,144 @@ export default async function ClassEditorPage({
         <h1 style={classTitleStyle}>{schedule.className}</h1>
       </nav>
 
-      {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線。teacher には出さない（死リンク防止）。盤面の上に残す。 */}
-      {canManageAds || canManageQuietHours ? (
-        <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 1rem" }}>
-          {canManageAds ? (
-            <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-              広告管理 →
-            </Link>
-          ) : null}
-          {canManageQuietHours ? (
-            <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
-              静粛時間 →
-            </Link>
-          ) : null}
+      {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
+          編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。 */}
+      <section aria-labelledby="zone-daily-heading">
+        <h2 id="zone-daily-heading" style={zoneLabelStyle}>
+          毎日の編集
+        </h2>
+        <EditorDateSegments
+          classId={classId}
+          today={today}
+          selectedDate={date}
+          segmentDates={segmentDates}
+        />
+        {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
+        <p style={editingHeadingStyle}>
+          編集中: {jpDate(date)}
+          {date === today ? "（今日）" : ""}
         </p>
-      ) : null}
-
-      {/* 本画面: 実サイネージ配置（50 インチ TV と同一の `SignageBoardView`）の上で見ながら編集する WYSIWYG。
-          ライブ盤面が旧「プレビュー」タブを兼ねるので preview タブは廃止した。領域クリックで該当セクションの
-          編集欄へ移動・フォーカスする（連動プレビュー）。各セクションの保存・検証・自動保存・scope・RLS/監査は
-          従来の ScheduleEditor / NoticeEditor / AssignmentEditor が温存して担う。見出し「予定」「連絡」「提出物」と
-          placeholder は維持（e2e 温存）。スマホ（≤899px）はプレビューを畳み従来の縦積みフォームに倒す。
-          key={date}: 対象日変更時に再マウントして新日付のデータで初期化する。これが無いと配下エディタの
-          useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
-          混線バグになる（ユーザー報告 2026-06-16）。 */}
-      {/* 上＝「今日の編集」。常にここ（先の日の選択では動かさない）・盤面プレビュー付き（要望 2026-06-23）。
-          id はカレンダーで「今日」を押したときのスクロール戻り先（TODAY_ANCHOR_ID・空振り解消）。 */}
-      <p id={TODAY_ANCHOR_ID} style={todayHeadingStyle}>
-        今日の編集 — {jpDate(today)}
-      </p>
-      {/* 前日コピー（F3・editor-input-tiers-and-signage-paging.md §7）: 前営業日の予定/連絡/提出物を今日へ
-          複製する。既存入力があれば上書き確認（ボタン側）。盤面エディタの直上に置く。 */}
-      <div style={{ margin: "0 0 1rem" }}>
-        <CopyPreviousDayButton
+        {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定＝daily_data へ
+            materialize されることを伝える）。 */}
+        {seed.seeded ? <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p> : null}
+        {/* key={date}:{copied}: 対象日変更・コピー時に再マウントして新データで初期化する。これが無いと配下エディタの
+            useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
+            混線バグになる（ユーザー報告 2026-06-16・設計書 §11-1）。 */}
+        <WysiwygBoardEditor
+          key={`${date}:${copied}`}
           classId={classId}
           date={date}
-          hasExistingData={
-            schedule.items.length > 0 || notices.items.length > 0 || assignments.items.length > 0
-          }
+          base={boardBase}
+          initialSchedules={seed.items}
+          initialNotices={notices.items}
+          initialAssignments={assignments.items}
         />
-      </div>
-      {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定＝daily_data へ
-          materialize されることを伝える）。 */}
-      {todaySeed.seeded ? <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p> : null}
-      <WysiwygBoardEditor
-        key={`${date}:${copied}`}
-        classId={classId}
-        date={date}
-        base={boardBase}
-        initialSchedules={todaySeed.items}
-        initialNotices={notices.items}
-        initialAssignments={assignments.items}
-      />
+        {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
+            パターンのときだけ盤面の下に出す（死セクション防止・将来パターン追加にも単一ソースで自動追従）。
+            対象日ソフトナビ（?date=）時の複製/押し出しバグの前例（本番 6/21→6/22）があるため、条件付き短絡で
+            同一親に隣接させず常に単一の安定コンポーネントとして描く（設計書 §11-2・詳細は
+            VisitorsCalloutsSection の docstring）。 */}
+        <VisitorsCalloutsSection
+          classId={classId}
+          date={date}
+          pattern={pattern}
+          showVisitors={showVisitors}
+          showCallouts={showCallouts}
+          visitors={board?.visitors ?? null}
+          callouts={board?.callouts ?? null}
+        />
+      </section>
 
-      {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
-          パターンのときだけ 2 カラムで盤面の下に出す（含まないパターンでは盤面に出ないので編集セクションも
-          出さない＝死セクション防止・finding①。将来パターン追加にも単一ソースで自動追従）。
-          各エディタの key は VisitorsCalloutsSection 内で衝突しない安定キー（visitors-* / callouts-*）にして
-          いる。旧実装は両方を同じ key={date} で、条件付き短絡（showVisitors && … / showCallouts && …）のまま
-          同一親に隣接させており、対象日変更（?date= ソフトナビ＝同一ページ再レンダ）時に「来校者一覧」複製・
-          「生徒呼び出し」が下へ押し出される実バグが観測された（本番 6/21→6/22 再現）。日付変更で再マウントし
-          新日付データで初期化する意図は key に date を含めて維持する。詳細・観測条件は VisitorsCalloutsSection
-          の docstring 参照。盤面のパターン選択（showVisitors / showCallouts）は親で決めた値をそのまま渡すだけで
-          増減させない。 */}
-      <VisitorsCalloutsSection
-        classId={classId}
-        date={date}
-        pattern={pattern}
-        showVisitors={showVisitors}
-        showCallouts={showCallouts}
-        visitors={board?.visitors ?? null}
-        callouts={board?.callouts ?? null}
-      />
-
-      {/* 中＝カレンダー。先の日付を選ぶと下の「選択した日の編集」に入る（?plan= ルーティング・上の今日は動かさない）。
-          内容のある日は点で俯瞰（要望 2026-06-23: 今日と未来を完全に別セクションに分ける）。 */}
-      {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。 */}
-      <p style={{ margin: "1.25rem 0 0.5rem" }}>
-        <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
-          📅 基本時間割を設定 →
-        </Link>
-      </p>
-      <EditorDateCalendar
-        classId={classId}
-        today={today}
-        selectedDate={plan ?? undefined}
-        contentDates={contentDates}
-      />
-
-      {/* 前週コピー（C2・editor-input-tiers-and-signage-paging.md §7）: 今週（月〜金）を前週の同じ曜日の
-          予定/連絡/提出物 で置換複製する計画操作。カレンダー（計画の起点）の直後・「選択した日の編集」の前に
-          小さくまとめる（ファースト層＝今日の編集には足さない・3 層分類）。今週の上書き確認と成功後の
-          ?copied= 再ナビゲート（エディタ再マウント）はボタン側。 */}
-      <div style={{ margin: "1rem 0" }}>
-        <CopyPreviousWeekButton classId={classId} />
-      </div>
-
-      {/* 下＝「選択した日の編集」。?plan の先の日をフォームのみ（盤面なし＝showBoard=false）で編集する。データ経路・
-          保存・検証・RLS は今日と同じ部品を date=plan で再利用（key={plan} で日付ごとに初期化）。来校者/呼び出しも
-          pattern2/3 なら同様に出す。plan 未選択 or その日が取得不能なら出さない。 */}
-      {plan && planData ? (
-        <section id={SELECTED_DAY_ANCHOR_ID} aria-label={`選択した日の編集 ${jpDate(plan)}`}>
-          <p style={futureHeadingStyle}>選択した日の編集 — {jpDate(plan)}</p>
-          {/* 選択した日にも前日コピーを置く（先の日の計画を前営業日から立ち上げる用途・F3）。 */}
-          <div style={{ margin: "0 0 1rem" }}>
-            <CopyPreviousDayButton
-              classId={classId}
-              date={plan}
-              hasExistingData={
-                planData.schedule.items.length > 0 ||
-                planData.notices.items.length > 0 ||
-                planData.assignments.items.length > 0
-              }
-            />
-          </div>
-          {/* 基本時間割からの seed 注記（F5・上の今日と同じ出し分け）。 */}
-          {planSeed?.seeded ? (
-            <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p>
-          ) : null}
-          <WysiwygBoardEditor
-            key={`${plan}:${copied}`}
-            showBoard={false}
-            classId={classId}
-            date={plan}
-            base={planData.board}
-            initialSchedules={planSeed?.items ?? planData.schedule.items}
-            initialNotices={planData.notices.items}
-            initialAssignments={planData.assignments.items}
-          />
-          <VisitorsCalloutsSection
-            classId={classId}
-            date={plan}
-            pattern={pattern}
-            anchored={false}
-            showVisitors={showVisitors}
-            showCallouts={showCallouts}
-            visitors={planData.board?.visitors ?? null}
-            callouts={planData.board?.callouts ?? null}
-          />
-        </section>
-      ) : null}
-
-      {/* 実機サイネージへの導線。旧「別タブで全画面表示」（内部プレビュー /app/signage-preview）は、TV が実際に
-          表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）へ差し替え（ユーザー判断
-          2026-06-16）。これは Next アプリ内ルートだが別 host/別 origin になりうる絶対 URL なので素の <a> で開く
-          （client-side prefetch を避ける）。編集を失わないよう別タブで開く（rel=noopener）。設置 TV が無いクラスは
-          liveSignageUrl が undefined → リンク自体を出さない（死リンク防止・本ファイルの導線方針と一貫）。 */}
-      {liveSignageUrl ? (
-        <p style={{ margin: "1.5rem 0 0.75rem" }}>
-          <a
-            href={liveSignageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
-          >
-            このクラスのサイネージを開く →
-          </a>
-        </p>
-      ) : null}
-
-      {/* 黒画面トグル（per-class 運用）= 編集画面の最下部。実教室のサイネージを一時的に真っ黒にする / 解除する。
-          実画面に即時影響するので押下時に確認を挟む（BlackoutToggle 側）。見出し・現在状態・説明文も内包する。 */}
-      <section aria-labelledby="blackout-heading" style={blackoutSectionStyle}>
-        <h2 id="blackout-heading" style={blackoutHeadingStyle}>
-          サイネージを黒画面にする
+      {/* ─ ゾーン2: 計画（§3.1）─ 前日コピー / 前週コピー / 基本時間割 / 月カレンダー。日常編集と視覚的に分ける。 */}
+      <section aria-labelledby="zone-plan-heading" style={zoneSectionStyle}>
+        <h2 id="zone-plan-heading" style={zoneLabelStyle}>
+          計画
         </h2>
-        <BlackoutToggle classId={classId} initialBlackout={board?.blackout ?? false} />
+        {/* 前日コピー（F3）: 前営業日の予定/連絡/提出物を**編集中の対象日**へ複製する（対象日に追随・§3.1）。
+            既存入力があれば上書き確認（ボタン側）。成功時の ?copied= 再ナビは現在の ?date= を保持する
+            （URLSearchParams 引き継ぎ・ボタン側実装）。 */}
+        <div style={planRowStyle}>
+          <CopyPreviousDayButton
+            classId={classId}
+            date={date}
+            hasExistingData={
+              schedule.items.length > 0 || notices.items.length > 0 || assignments.items.length > 0
+            }
+          />
+        </div>
+        {/* 前週コピー（C2）: 「JST 今日を含む週」固定の一括複製（選択日基準ではない・§3.3 で据え置き）。 */}
+        <div style={planRowStyle}>
+          <CopyPreviousWeekButton classId={classId} />
+        </div>
+        {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。 */}
+        <p style={planRowStyle}>
+          <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
+            基本時間割を設定 →
+          </Link>
+        </p>
+        {/* 月カレンダー: 対象日そのものを選ぶ（?date= 一本化・旧 ?plan の第 2 スタックは廃止）。セグメントの
+            「📅 ほかの日」がここへスクロールして開く。 */}
+        <EditorDateCalendar
+          classId={classId}
+          today={today}
+          selectedDate={date}
+          contentDates={contentDates}
+        />
+      </section>
+
+      {/* ─ ゾーン3: このモニタ（§3.1）─ 実機サイネージへの導線・黒画面・school_admin の per-class 管理導線。 */}
+      <section aria-labelledby="zone-monitor-heading" style={zoneSectionStyle}>
+        <h2 id="zone-monitor-heading" style={zoneLabelStyle}>
+          このモニタ
+        </h2>
+        {/* TV が実際に表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）を開く。
+            Next アプリ内ルートだが別 host/別 origin になりうる絶対 URL なので素の <a> で開く（client-side
+            prefetch を避ける）。編集を失わないよう別タブで開く（rel=noopener）。設置 TV が無いクラスは
+            liveSignageUrl が undefined → リンク自体を出さない（死リンク防止）。 */}
+        {liveSignageUrl ? (
+          <p style={{ margin: "0 0 0.75rem" }}>
+            <a
+              href={liveSignageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+            >
+              このクラスのサイネージを開く →
+            </a>
+          </p>
+        ) : null}
+        {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線（端末系＝このモニタへ集約・§3.1）。
+            teacher には出さない（死リンク防止）。 */}
+        {canManageAds || canManageQuietHours ? (
+          <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
+            {canManageAds ? (
+              <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                広告管理 →
+              </Link>
+            ) : null}
+            {canManageQuietHours ? (
+              <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
+                静粛時間 →
+              </Link>
+            ) : null}
+          </p>
+        ) : null}
+        {/* 黒画面トグル（per-class 運用）。実教室のサイネージを一時的に真っ黒にする / 解除する。
+            実画面に即時影響するので押下時に確認を挟む（BlackoutToggle 側）。 */}
+        <section aria-labelledby="blackout-heading" style={blackoutSectionStyle}>
+          <h3 id="blackout-heading" style={blackoutHeadingStyle}>
+            サイネージを黒画面にする
+          </h3>
+          <BlackoutToggle classId={classId} initialBlackout={board?.blackout ?? false} />
+        </section>
       </section>
 
       <RememberLastClass classId={classId} />
 
-      {/* AI は右下に浮く支援チャット（タブ shell 廃止）。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。
+      {/* AI は右下に浮く支援チャット。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。対象日に追随する。
           key: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。
           copied（前日/前週コピーの nonce）も含める＝コピー直後に AI の下書きシードがコピー前の盤面のまま残り、
-          AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（Reviewer 指摘 LOW・各エディタ key と同じ理由）。 */}
+          AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（各エディタ key と同じ理由・設計書 §11-1）。 */}
       <FloatingAiChat>
         <EditorChat
           key={`${date}:${copied}`}
@@ -382,8 +337,8 @@ export default async function ClassEditorPage({
           date={date}
           initialDraft={{
             // 盤面エディタと同じ seed 済み初期値（F5）。AI の下書きが seed を知らないと、per-section 置換保存で
-            // seed 内容を消しうるため一致させる。
-            schedules: todaySeed.items,
+            // seed 内容を消しうるため一致させる（設計書 §11-6）。
+            schedules: seed.items,
             notices: notices.items,
             assignments: assignments.items,
           }}
@@ -394,10 +349,29 @@ export default async function ClassEditorPage({
   );
 }
 
-// 黒画面トグル節（編集画面の最下部）。見出し + トグル + 説明をまとめる枠。
-const blackoutSectionStyle: React.CSSProperties = {
+// ゾーン見出し（毎日の編集 / 計画 / このモニタ）。小さく太く muted で「層のラベル」として出す（主役は中身）。
+const zoneLabelStyle: React.CSSProperties = {
+  fontSize: tokens.fontSize.xs,
+  fontWeight: 700,
+  color: tokens.color.muted,
+  letterSpacing: "0.08em",
+  margin: "0 0 0.6rem",
+};
+// ゾーン2/3 の区切り（上枠線 + 余白）。カード化はせず罫線で層を分ける（盤面/フォームの視覚ノイズを増やさない）。
+const zoneSectionStyle: React.CSSProperties = {
   marginTop: "2rem",
   paddingTop: "1.25rem",
+  borderTop: `1px solid ${tokens.color.border}`,
+};
+// 計画ゾーン内の操作行（コピー系ボタン・リンク）。
+const planRowStyle: React.CSSProperties = {
+  margin: "0 0 0.75rem",
+};
+
+// 黒画面トグル節（このモニタ ゾーン内）。見出し + トグル + 説明をまとめる枠。
+const blackoutSectionStyle: React.CSSProperties = {
+  marginTop: "1rem",
+  paddingTop: "1rem",
   borderTop: `1px solid ${tokens.color.border}`,
 };
 const blackoutHeadingStyle: React.CSSProperties = {
@@ -435,18 +409,13 @@ const classTitleStyle: React.CSSProperties = {
   margin: 0,
 };
 
-// 「今日の編集」/「選択した日の編集」のセクション見出し（色で 今日=青 / 未来=橙 に分け、視覚的に別物だと示す）。
-const todayHeadingStyle: React.CSSProperties = {
+// 「編集中: ◯月◯日」の見出し（対象日の明示・受入基準 PR-A-1）。今日/未来で色を変えない（対象日は 1 つ＝
+// 旧 2 スタックの青/橙の使い分けは廃止。選択の強調はセグメント側が担う）。
+const editingHeadingStyle: React.CSSProperties = {
   fontSize: tokens.fontSize.md,
   fontWeight: 600,
-  color: tokens.color.blueStrong,
-  margin: "0.5rem 0 0.7rem",
-};
-const futureHeadingStyle: React.CSSProperties = {
-  fontSize: tokens.fontSize.md,
-  fontWeight: 600,
-  color: tokens.color.primaryHover,
-  margin: "1.5rem 0 0.7rem",
+  color: tokens.color.ink,
+  margin: "0 0 0.7rem",
 };
 // 基本時間割からの seed 注記（F5・コピーオンライト）。控えめな補足テキスト（既存の xs/muted と同じ視覚言語）。
 const seedNoteStyle: React.CSSProperties = {
