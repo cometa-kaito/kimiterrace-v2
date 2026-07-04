@@ -70,3 +70,18 @@ describe("validateVisitorItems", () => {
     expect(validateVisitorItems(many).ok).toBe(false);
   });
 });
+
+describe("validateVisitorItems: ★重要（isHighlight・PR-B §5.2 / migration 0037）", () => {
+  it("isHighlight は明示 true のみ採用（連絡の isHighlight と同作法）", () => {
+    const r = validateVisitorItems([{ visitorName: "佐藤", isHighlight: true }]);
+    expect(r.ok && r.value[0]?.isHighlight).toBe(true);
+  });
+
+  it("true 以外（truthy 文字列 / 1 / 未指定）はキーを付けない（DB 側 DEFAULT false に委ねる）", () => {
+    for (const v of ["true", 1, false, undefined]) {
+      const r = validateVisitorItems([{ visitorName: "佐藤", isHighlight: v }]);
+      expect(r.ok).toBe(true);
+      expect(r.ok && "isHighlight" in (r.value[0] ?? {})).toBe(false);
+    }
+  });
+});
