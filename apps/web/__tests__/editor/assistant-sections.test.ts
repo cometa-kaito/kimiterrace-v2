@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  assistantGreeting,
   resolveAllowedSections,
+  resolveDraftSectionLabels,
   resolveManualSectionLabels,
 } from "../../lib/editor/assistant-sections";
 
@@ -9,6 +11,7 @@ import {
  * （`editableBlocksForPattern`）を consume し、会話型 AI が下書きできるセクション（schedule/notice/
  * assignment）と、AI が作らない手入力セクション（来校者/呼び出し・ADR-034）を導く（finding①）。
  * 本テストは実 PATTERN_BLOCKS を使う（独自表を作らない＝ドリフトしたら本テストが落ちて気づける）。
+ * ラベル・歓迎文はパターン別上書き（blockLabel §6.2）込みで固定する（v2-ed47-5 のドリフトガード）。
  */
 
 describe("resolveAllowedSections", () => {
@@ -19,6 +22,10 @@ describe("resolveAllowedSections", () => {
   it("pattern2 = 予定のみ（来校者/呼び出しは AI 生成しない・ADR-034）", () => {
     expect(resolveAllowedSections("pattern2")).toEqual(["schedules"]);
   });
+
+  it("pattern5（掲示板型）= お知らせ（notices）と今日の予定（schedules）・notice 主役の順（§6.1）", () => {
+    expect(resolveAllowedSections("pattern5")).toEqual(["notices", "schedules"]);
+  });
 });
 
 describe("resolveManualSectionLabels", () => {
@@ -28,5 +35,49 @@ describe("resolveManualSectionLabels", () => {
 
   it("pattern2 は来校者/呼び出しを手入力ラベルとして返す（AI 誘導用）", () => {
     expect(resolveManualSectionLabels("pattern2")).toEqual(["生徒呼び出し", "来校者一覧"]);
+  });
+
+  it("pattern5 は手入力セクション無し（お知らせ / 今日の予定はどちらも AI 下書き可）", () => {
+    expect(resolveManualSectionLabels("pattern5")).toEqual([]);
+  });
+});
+
+describe("resolveDraftSectionLabels（AI 下書き対象の表示ラベル・blockLabel §6.2 経由）", () => {
+  it("pattern1 = 予定・連絡・提出物 / pattern2 = 予定 / pattern4 = 連絡", () => {
+    expect(resolveDraftSectionLabels("pattern1")).toEqual(["予定", "連絡", "提出物"]);
+    expect(resolveDraftSectionLabels("pattern2")).toEqual(["予定"]);
+    expect(resolveDraftSectionLabels("pattern4")).toEqual(["連絡"]);
+  });
+
+  it("pattern5 は上書きラベル（お知らせ・今日の予定）を盤面の並び順で返す", () => {
+    expect(resolveDraftSectionLabels("pattern5")).toEqual(["お知らせ", "今日の予定"]);
+  });
+});
+
+describe("assistantGreeting（歓迎文のパターン合成・v2-ed47-5 の根治 §6.4）", () => {
+  it("pattern1 は従来の固定文言と同値（回帰なし）", () => {
+    expect(assistantGreeting("pattern1")).toBe(
+      "今日の連絡、話しかけてください。話す・書く・ファイルでOK。予定・連絡・提出物にまとめて下書きします。",
+    );
+  });
+
+  it("pattern2/3 は下書き対象=予定＋呼び出し/来校者の手入力誘導（ADR-034 の文言化）", () => {
+    for (const pattern of ["pattern2", "pattern3"] as const) {
+      expect(assistantGreeting(pattern)).toBe(
+        "今日の連絡、話しかけてください。話す・書く・ファイルでOK。予定にまとめて下書きします。生徒呼び出し・来校者一覧は氏名を含むため下のフォームから入力してください。",
+      );
+    }
+  });
+
+  it("pattern4 は連絡のみ", () => {
+    expect(assistantGreeting("pattern4")).toBe(
+      "今日の連絡、話しかけてください。話す・書く・ファイルでOK。連絡にまとめて下書きします。",
+    );
+  });
+
+  it("pattern5（掲示板型）は掲示板語彙（お知らせ・今日の予定）で下書き対象を伝える", () => {
+    expect(assistantGreeting("pattern5")).toBe(
+      "今日の連絡、話しかけてください。話す・書く・ファイルでOK。お知らせ・今日の予定にまとめて下書きします。",
+    );
   });
 });

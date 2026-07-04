@@ -22,7 +22,12 @@ import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
 import { activePinnedNoticeItemsOutsideDate } from "@/lib/signage/effective-daily-data";
-import { patternIncludesBlock, scheduleInputVariant } from "@/lib/signage/pattern-blocks";
+import {
+  blockLabel,
+  editableBlocksForPattern,
+  patternIncludesBlock,
+  scheduleInputVariant,
+} from "@/lib/signage/pattern-blocks";
 import { jstDateString } from "@/lib/signage/rotation";
 import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
 import { getClassSignageUrl, getSchoolConfigValue } from "@kimiterrace/db";
@@ -268,16 +273,24 @@ export default async function ClassEditorPage({
         <h2 id="zone-plan-heading" style={zoneLabelStyle}>
           計画
         </h2>
-        {/* 前日コピー（F3）: 前営業日の予定/連絡/提出物を**編集中の対象日**へ複製する（対象日に追随・§3.1）。
-            既存入力があれば上書き確認（ボタン側）。成功時の ?copied= 再ナビは現在の ?date= を保持する
-            （URLSearchParams 引き継ぎ・ボタン側実装）。 */}
+        {/* 前日コピー（F3・§6.4 パターン動的化）: 前営業日の**実セクション**（実効パターンの編集ブロック＝
+            pattern2/3 なら 予定/呼び出し/来校者、pattern5 なら お知らせ/今日の予定）を編集中の対象日へ複製する
+            （対象日に追随・§3.1）。既存入力があれば上書き確認（ボタン側・ラベルもパターン別）。成功時の
+            ?copied= 再ナビは現在の ?date= を保持する（URLSearchParams 引き継ぎ・ボタン側実装）。 */}
         <div style={planRowStyle}>
           <CopyPreviousDayButton
             classId={classId}
             date={date}
             hasExistingData={
-              schedule.items.length > 0 || notices.items.length > 0 || assignments.items.length > 0
+              (patternIncludesBlock(pattern, "schedule") && schedule.items.length > 0) ||
+              (patternIncludesBlock(pattern, "notice") && notices.items.length > 0) ||
+              (patternIncludesBlock(pattern, "assignment") && assignments.items.length > 0) ||
+              (board?.visitors?.length ?? 0) > 0 ||
+              (board?.callouts?.length ?? 0) > 0
             }
+            sectionsLabel={editableBlocksForPattern(pattern)
+              .map((block) => blockLabel(pattern, block))
+              .join("・")}
           />
         </div>
         {/* 前週コピー（C2）: 「JST 今日を含む週」固定の一括複製（選択日基準ではない・§3.3 で据え置き）。 */}
@@ -363,6 +376,9 @@ export default async function ClassEditorPage({
           scope="class"
           targetId={classId}
           date={date}
+          // 歓迎文をこのクラスの実効パターンの実セクションで合成する（§6.4・v2-ed47-5 の根治）。許可セクション
+          // 自体はサーバ（chat route）が別途解決＝この prop は表示文言のみ。
+          pattern={pattern}
           initialDraft={{
             // 盤面エディタと同じ seed 済み初期値（F5）。AI の下書きが seed を知らないと、per-section 置換保存で
             // seed 内容を消しうるため一致させる（設計書 §11-6）。

@@ -22,11 +22,18 @@ export function CopyPreviousDayButton({
   classId,
   date,
   hasExistingData,
+  sectionsLabel = "予定・連絡・提出物",
 }: {
   classId: string;
   date: string;
-  /** 対象日に既に予定/連絡/提出物のいずれかがあるか。true のとき上書き確認を挟む。 */
+  /** 対象日に既に実セクション（実効パターンの編集ブロック）のいずれかに入力があるか。true のとき上書き確認を挟む。 */
   hasExistingData: boolean;
+  /**
+   * 上書き確認に出すコピー対象セクションのラベル列（例 pattern1「予定・連絡・提出物」/ pattern5
+   * 「お知らせ・今日の予定」）。親（page.tsx）が実効パターンから `blockLabel` で合成して渡す（§6.4）。
+   * 成功メッセージは action の返す `sections`（サーバ解決のラベル+件数）から組む。
+   */
+  sectionsLabel?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,7 +46,7 @@ export function CopyPreviousDayButton({
     if (
       hasExistingData &&
       !window.confirm(
-        "対象日にすでに入力があります。前営業日の予定・連絡・提出物で置き換えますか？（現在の入力は上書きされます）",
+        `対象日にすでに入力があります。前営業日の${sectionsLabel}で置き換えますか？（現在の入力は上書きされます）`,
       )
     ) {
       return;
@@ -47,10 +54,11 @@ export function CopyPreviousDayButton({
     startTransition(async () => {
       const res = await copyPreviousDayAction(classId, date);
       if (res.ok) {
-        const { schedules, notices, assignments } = res.data.counts;
+        // 実効パターンの実セクション（サーバが解決したラベル+件数）で成功メッセージを合成する（§6.4）。
+        const summary = res.data.sections.map((s) => `${s.label} ${s.count}`).join(" / ");
         setMsg({
           ok: true,
-          text: `前営業日（${res.data.fromDate}）を複製しました（予定 ${schedules} / 連絡 ${notices} / 提出物 ${assignments}）。`,
+          text: `前営業日（${res.data.fromDate}）を複製しました（${summary}）。`,
         });
         // `?copied=<nonce>` を付けて再ナビゲート → page.tsx がエディタ key に含めて**再マウント**し、複製後
         // データで初期化する（router.refresh だけでは useState(initial…) が残り画面に反映されない。docstring 参照）。

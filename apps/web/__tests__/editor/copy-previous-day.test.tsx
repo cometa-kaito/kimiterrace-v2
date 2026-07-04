@@ -9,14 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *   では useState(initial…) が残り画面に反映されない・Reviewer 指摘 HIGH の回帰ガード）。
  */
 
+type CopiedSection = { block: string; label: string; count: number };
 type CopyResult =
-  | {
-      ok: true;
-      data: {
-        fromDate: string;
-        counts: { schedules: number; notices: number; assignments: number };
-      };
-    }
+  | { ok: true; data: { fromDate: string; sections: CopiedSection[] } }
   | { ok: false; error: { code: string; message: string } };
 
 const h = vi.hoisted(() => ({
@@ -26,15 +21,20 @@ const h = vi.hoisted(() => ({
     ): Promise<
       | {
           ok: true;
-          data: {
-            fromDate: string;
-            counts: { schedules: number; notices: number; assignments: number };
-          };
+          data: { fromDate: string; sections: { block: string; label: string; count: number }[] };
         }
       | { ok: false; error: { code: string; message: string } }
     > => ({
       ok: true,
-      data: { fromDate: "2026-06-12", counts: { schedules: 3, notices: 1, assignments: 2 } },
+      data: {
+        fromDate: "2026-06-12",
+        // action はパターンの実セクション（サーバ解決のラベル+件数）を返す（§6.4）。既定は pattern1 相当。
+        sections: [
+          { block: "schedule", label: "予定", count: 3 },
+          { block: "notice", label: "連絡", count: 1 },
+          { block: "assignment", label: "提出物", count: 2 },
+        ],
+      },
     }),
   ),
   replace: vi.fn(),
@@ -77,7 +77,42 @@ describe("CopyPreviousDayButton（前日コピー）", () => {
     expect(url).toContain("date=2026-06-15");
     expect(url).toMatch(/copied=\d+/);
     expect(opts).toEqual({ scroll: false });
-    expect(screen.getByText(/前営業日（2026-06-12）を複製しました/)).toBeInTheDocument();
+    // 成功メッセージは action の返す sections（サーバ解決のラベル+件数）から合成する（§6.4）。
+    expect(
+      screen.getByText("前営業日（2026-06-12）を複製しました（予定 3 / 連絡 1 / 提出物 2）。"),
+    ).toBeInTheDocument();
+  });
+
+  it("上書き確認・成功メッセージがパターンの実セクションのラベルで出る（§6.4・掲示板型の語彙）", async () => {
+    // 親（page.tsx）が実効パターンから blockLabel で合成した sectionsLabel を渡す（pattern5 の例）。
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    h.copy.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        fromDate: "2026-06-12",
+        sections: [
+          { block: "notice", label: "お知らせ", count: 2 },
+          { block: "schedule", label: "今日の予定", count: 1 },
+        ],
+      },
+    });
+    render(
+      <CopyPreviousDayButton
+        classId={CLASS_ID}
+        date={DATE}
+        hasExistingData={true}
+        sectionsLabel="お知らせ・今日の予定"
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "前日をコピー" }));
+    });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "対象日にすでに入力があります。前営業日のお知らせ・今日の予定で置き換えますか？（現在の入力は上書きされます）",
+    );
+    expect(
+      screen.getByText("前営業日（2026-06-12）を複製しました（お知らせ 2 / 今日の予定 1）。"),
+    ).toBeInTheDocument();
   });
 
   it("既存入力ありで確認をキャンセルすると action を呼ばない", () => {
