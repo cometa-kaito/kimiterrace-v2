@@ -13,7 +13,7 @@ import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
 import {
   blockLabel,
   blockRowCapacity,
-  patternIncludesBlock,
+  editableBlocksForPattern,
   scheduleInputVariant,
 } from "@/lib/signage/pattern-blocks";
 import { useAdRotation } from "@/lib/signage/useAdRotation";
@@ -209,16 +209,14 @@ export function WysiwygBoardEditor({
   // 広告 0/1 件なら 0 のまま回らない・base 未取得（previewPayload=null）時は空配列で no-op。
   const adIndex = useAdRotation(previewPayload?.ads ?? EMPTY_ADS);
 
-  // このクラスの実機が出すパターンに含まれる**編集対象ブロックだけ**を出す（`PATTERN_BLOCKS` 単一ソース駆動）。
-  // 予定は pattern1/2/3 共通だが **pattern4 だけは予定を持たない**（教員入力最小・連絡のみ編集）ので、予定の
-  // 編集欄も `patternIncludesBlock` で出し分ける（死セクション防止・finding① の対称ケース）。連絡 / 提出物も
-  // 同様（pattern2/3 は盤面に出ず編集欄も出さない／pattern4 は連絡のみ出す）。来校者 / 生徒呼び出しは pattern2/3
-  // 用で親（page.tsx）が盤面下に出し分ける。盤面取得不能（base=null）は既定 pattern1 に倒し従来の縦積みフォーム
-  // （予定/連絡/提出物）を出す。
+  // このクラスの実機が出すパターンに含まれる**編集対象ブロックだけ**を、**盤面と同じ並び順**で出す
+  // （`PATTERN_BLOCKS` 単一ソース＝`editableBlocksForPattern` の配列順。§6.1「見たまま一致」。pattern1 は
+  // 予定→連絡→提出物、pattern4 は連絡のみ、pattern5 は**お知らせ（主役・先頭）→今日の予定**）。パターンに
+  // 無いブロックは配列に出ないので編集欄も自動で消える（死セクション防止・finding① の対称ケース）。
+  // 来校者 / 生徒呼び出しは pattern2/3 用で親（page.tsx）が盤面下に出し分ける（下の map では描かない）。
+  // 盤面取得不能（base=null）は既定 pattern1 に倒し従来の縦積みフォーム（予定/連絡/提出物）を出す。
   const pattern = base?.designPattern ?? DEFAULT_SIGNAGE_DESIGN_PATTERN;
-  const showSchedule = patternIncludesBlock(pattern, "schedule");
-  const showNotice = patternIncludesBlock(pattern, "notice");
-  const showAssignment = patternIncludesBlock(pattern, "assignment");
+  const editorBlocks = editableBlocksForPattern(pattern);
   // このクラスの実機が出すパターンの**規定枠ぶん**、各エディタに空行を事前生成させる（盤面に出る行数を入力前から
   // 提示する・2026-06-23 ユーザー要望）。値は単一ソース {@link blockRowCapacity}。空行は保存・自動保存判定から
   // 除外されるので埋めなくても保存をブロックしない（各エディタの isBlank*Row）。
@@ -261,69 +259,83 @@ export function WysiwygBoardEditor({
       ) : null}
 
       {/* 下段: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存して担う）。
-          見出しはパターン別ラベル（blockLabel §6.2）＝盤面 region 名・ジャンプチップと単一ソースで一致
-          （pattern5 では 予定→「今日の予定」/ 連絡→「お知らせ」。pattern1〜4 は従来値のまま非破壊）。 */}
+          **並び順は PATTERN_BLOCKS の配列順に自動追従**（盤面レイアウトの主役順と「見たまま一致」・§6.1。
+          pattern5 は お知らせ が先頭）。見出しはパターン別ラベル（blockLabel §6.2）＝盤面 region 名・
+          ジャンプチップと単一ソースで一致（pattern1〜4 は従来の順・従来値のまま非破壊）。 */}
       <div className={styles.editors}>
-        {/* 予定は pattern1/2/3/5 の共通ブロックだが pattern4 は持たない（連絡のみ編集）ので出し分ける。 */}
-        {showSchedule ? (
-          <EditorCard
-            title={blockLabel(pattern, "schedule")}
-            cardRef={scheduleRef}
-            active={active === "schedules"}
-            onFocusCapture={() => setActive("schedules")}
-          >
-            <ScheduleEditor
-              classId={classId}
-              date={date}
-              initialItems={initialSchedules}
-              onItemsChange={onSchedules}
-              showDateNav={false}
-              prefillRows={schedulePrefill}
-              // 掲示板型（pattern5）は時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）。
-              slotInput={scheduleInputVariant(pattern)}
-            />
-          </EditorCard>
-        ) : null}
-        {showNotice ? (
-          <EditorCard
-            title={blockLabel(pattern, "notice")}
-            cardRef={noticeRef}
-            active={active === "notices"}
-            onFocusCapture={() => setActive("notices")}
-          >
-            <NoticeEditor
-              classId={classId}
-              date={date}
-              initialItems={initialNotices}
-              onItemsChange={onNotices}
-              prefillRows={noticePrefill}
-              // 「ずっと（固定表示）」はクラスエディタ限定（HIGH-1）: 削除導線（下の PinnedNoticesList）と
-              // 必ず同居するここでだけ選択可能にする（scope/ops エディタは NoticeEditor 既定 false）。
-              allowPinned
-            />
-            {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
-                （幽霊化）ため、連絡カード内に入力日つき一覧と削除導線を出す（受入基準 PR-C-2）。 */}
-            {pinnedNotices && pinnedNotices.length > 0 ? (
-              <PinnedNoticesList classId={classId} currentDate={date} rows={pinnedNotices} />
-            ) : null}
-          </EditorCard>
-        ) : null}
-        {showAssignment ? (
-          <EditorCard
-            title={blockLabel(pattern, "assignment")}
-            cardRef={assignmentRef}
-            active={active === "assignments"}
-            onFocusCapture={() => setActive("assignments")}
-          >
-            <AssignmentEditor
-              classId={classId}
-              date={date}
-              initialItems={initialAssignments}
-              onItemsChange={onAssignments}
-              prefillRows={assignmentPrefill}
-            />
-          </EditorCard>
-        ) : null}
+        {editorBlocks.map((kind) => {
+          if (kind === "schedule") {
+            return (
+              <EditorCard
+                key={kind}
+                title={blockLabel(pattern, "schedule")}
+                cardRef={scheduleRef}
+                active={active === "schedules"}
+                onFocusCapture={() => setActive("schedules")}
+              >
+                <ScheduleEditor
+                  classId={classId}
+                  date={date}
+                  initialItems={initialSchedules}
+                  onItemsChange={onSchedules}
+                  showDateNav={false}
+                  prefillRows={schedulePrefill}
+                  // 掲示板型（pattern5）は時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）。
+                  slotInput={scheduleInputVariant(pattern)}
+                />
+              </EditorCard>
+            );
+          }
+          if (kind === "notice") {
+            return (
+              <EditorCard
+                key={kind}
+                title={blockLabel(pattern, "notice")}
+                cardRef={noticeRef}
+                active={active === "notices"}
+                onFocusCapture={() => setActive("notices")}
+              >
+                <NoticeEditor
+                  classId={classId}
+                  date={date}
+                  initialItems={initialNotices}
+                  onItemsChange={onNotices}
+                  prefillRows={noticePrefill}
+                  // 「ずっと（固定表示）」はクラスエディタ限定（HIGH-1）: 削除導線（下の PinnedNoticesList）と
+                  // 必ず同居するここでだけ選択可能にする（scope/ops エディタは NoticeEditor 既定 false）。
+                  // pattern5（掲示板型）でも同じ経路で生きる＝校訓の受け皿（PR-C × PR-D の合流点）。
+                  allowPinned
+                />
+                {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
+                    （幽霊化）ため、連絡カード内に入力日つき一覧と削除導線を出す（受入基準 PR-C-2）。 */}
+                {pinnedNotices && pinnedNotices.length > 0 ? (
+                  <PinnedNoticesList classId={classId} currentDate={date} rows={pinnedNotices} />
+                ) : null}
+              </EditorCard>
+            );
+          }
+          if (kind === "assignment") {
+            return (
+              <EditorCard
+                key={kind}
+                title={blockLabel(pattern, "assignment")}
+                cardRef={assignmentRef}
+                active={active === "assignments"}
+                onFocusCapture={() => setActive("assignments")}
+              >
+                <AssignmentEditor
+                  classId={classId}
+                  date={date}
+                  initialItems={initialAssignments}
+                  onItemsChange={onAssignments}
+                  prefillRows={assignmentPrefill}
+                />
+              </EditorCard>
+            );
+          }
+          // visitor / callout は親（page.tsx の VisitorsCalloutsSection）が盤面下に出す（本コンポーネント外）。
+          return null;
+        })}
       </div>
     </div>
   );

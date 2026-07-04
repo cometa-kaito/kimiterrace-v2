@@ -99,6 +99,10 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "連絡", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "提出物", level: 2 })).toBeTruthy();
+    // 編集セクションの DOM 順は PATTERN_BLOCKS 順（pattern1 = 予定→連絡→提出物・従来どおり＝回帰ガード）。
+    const p1Headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent ?? "");
+    expect(p1Headings.indexOf("予定")).toBeLessThan(p1Headings.indexOf("連絡"));
+    expect(p1Headings.indexOf("連絡")).toBeLessThan(p1Headings.indexOf("提出物"));
     // 盤面内部の予定/連絡/提出物 section は編集モードで aria-label を外すので named region landmark にならない
     //（編集器側 region と衝突しない）。盤面に残る region landmark は広告（complementary）のみ。
     expect(screen.queryByRole("region", { name: "予定" })).toBeNull();
@@ -328,10 +332,14 @@ describe("WysiwygBoardEditor", () => {
         initialAssignments={[]}
       />,
     );
-    // 編集セクション見出し（上書きラベル）。並びは notice 先頭（PATTERN_BLOCKS 順）だが DOM 上は
-    // schedule カードが先に定義されるため、ここでは存在と一意性のみ固定する。
+    // 編集セクション見出し（上書きラベル）。**DOM 順は PATTERN_BLOCKS の配列順に追従**＝お知らせ（主役）が
+    // 先頭・今日の予定が続く（§6.1「見たまま一致」。盤面プレビュー内の h2 は編集モードで aria-hidden のため
+    // role=heading には編集器側だけが並ぶ）。
     expect(screen.getByRole("heading", { name: "お知らせ", level: 2 })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "今日の予定", level: 2 })).toBeTruthy();
+    const p5Headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent ?? "");
+    expect(p5Headings.indexOf("お知らせ")).toBeGreaterThanOrEqual(0);
+    expect(p5Headings.indexOf("お知らせ")).toBeLessThan(p5Headings.indexOf("今日の予定"));
     // ジャンプチップ（BoardRegionEditButton）も同じ上書きラベル（「○○を編集」）。
     expect(screen.getByRole("button", { name: "お知らせを編集" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "今日の予定を編集" })).toBeTruthy();
