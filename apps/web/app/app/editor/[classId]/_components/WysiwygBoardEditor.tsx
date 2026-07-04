@@ -10,7 +10,12 @@ import type {
 } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
-import { blockRowCapacity, patternIncludesBlock } from "@/lib/signage/pattern-blocks";
+import {
+  blockLabel,
+  blockRowCapacity,
+  patternIncludesBlock,
+  scheduleInputVariant,
+} from "@/lib/signage/pattern-blocks";
 import { useAdRotation } from "@/lib/signage/useAdRotation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
@@ -255,12 +260,14 @@ export function WysiwygBoardEditor({
         </>
       ) : null}
 
-      {/* 下段: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存して担う）。 */}
+      {/* 下段: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存して担う）。
+          見出しはパターン別ラベル（blockLabel §6.2）＝盤面 region 名・ジャンプチップと単一ソースで一致
+          （pattern5 では 予定→「今日の予定」/ 連絡→「お知らせ」。pattern1〜4 は従来値のまま非破壊）。 */}
       <div className={styles.editors}>
-        {/* 予定は pattern1/2/3 の主役ブロックだが pattern4 は持たない（連絡のみ編集）ので出し分ける。 */}
+        {/* 予定は pattern1/2/3/5 の共通ブロックだが pattern4 は持たない（連絡のみ編集）ので出し分ける。 */}
         {showSchedule ? (
           <EditorCard
-            title="予定"
+            title={blockLabel(pattern, "schedule")}
             cardRef={scheduleRef}
             active={active === "schedules"}
             onFocusCapture={() => setActive("schedules")}
@@ -272,12 +279,14 @@ export function WysiwygBoardEditor({
               onItemsChange={onSchedules}
               showDateNav={false}
               prefillRows={schedulePrefill}
+              // 掲示板型（pattern5）は時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）。
+              slotInput={scheduleInputVariant(pattern)}
             />
           </EditorCard>
         ) : null}
         {showNotice ? (
           <EditorCard
-            title="連絡"
+            title={blockLabel(pattern, "notice")}
             cardRef={noticeRef}
             active={active === "notices"}
             onFocusCapture={() => setActive("notices")}
@@ -301,7 +310,7 @@ export function WysiwygBoardEditor({
         ) : null}
         {showAssignment ? (
           <EditorCard
-            title="提出物"
+            title={blockLabel(pattern, "assignment")}
             cardRef={assignmentRef}
             active={active === "assignments"}
             onFocusCapture={() => setActive("assignments")}

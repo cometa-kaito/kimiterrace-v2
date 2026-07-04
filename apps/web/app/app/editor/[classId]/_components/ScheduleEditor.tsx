@@ -10,10 +10,12 @@ import {
   editorBasePath,
   isCustomPeriod,
   isSpecialSlot,
+  scheduleSlotLabel,
   scheduleSlotSortKey,
   sortScheduleSegments,
   targetId,
 } from "@/lib/editor/schedule-core";
+import type { ScheduleInputVariant } from "@/lib/signage/pattern-blocks";
 import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
@@ -95,6 +97,22 @@ function slotSelectValue(period: SchedulePeriod): string {
     return "";
   }
   return String(period);
+}
+
+/**
+ * 時刻テキスト入力（`slotInput="time"`・掲示板型 §6.2）の表示値。自由入力（CustomPeriod）はその文字列、
+ * 未選択は空。**旧データの数値時限 / 特殊スロットは表示ラベル（「3限」「放課後」等）をそのまま見せる**
+ * （教員が触らない限り period は書き換えない＝開いただけで自動保存が走らない。編集した時点で
+ * `{ custom: 入力値 }` に置き換わる）。
+ */
+function timeInputValue(period: SchedulePeriod): string {
+  if (isCustomPeriod(period)) {
+    return period.custom;
+  }
+  if (period === UNSELECTED_PERIOD) {
+    return "";
+  }
+  return scheduleSlotLabel(period);
 }
 
 /**
@@ -208,6 +226,7 @@ export function ScheduleEditor({
   onItemsChange,
   showDateNav = true,
   prefillRows = 0,
+  slotInput = "period",
 }: {
   classId?: string;
   target?: EditorTarget;
@@ -231,6 +250,13 @@ export function ScheduleEditor({
    * 空行は保存ペイロード・自動保存判定から除外されるので、埋めなくても保存をブロックしない（{@link isBlankScheduleRow}）。
    */
   prefillRows?: number;
+  /**
+   * 時限入力の形態（掲示板型 §6.2・単一ソース `scheduleInputVariant`）。既定 `"period"` = 従来の時限 select。
+   * `"time"` = 時刻テキスト入力（placeholder「13:00」）。内部表現は既存の自由入力 `CustomPeriod` に時刻文字列を
+   * 入れるだけで**保存形（`ScheduleItem.period`）・検証・盤面描画は不変**。空欄は「時限なし（時刻なし）」として
+   * period を省いて保存する（従来と同じ写像 {@link toScheduleItems}）。
+   */
+  slotInput?: ScheduleInputVariant;
 }) {
   const target = toEditorTarget(targetProp, classId);
   // 対象校スコープ (system_admin の /ops 経路) を末尾引数に結ぶ。Provider 無し (=/app) なら従来動作 (回帰なし)。
@@ -427,8 +453,8 @@ export function ScheduleEditor({
           <thead>
             <tr>
               <th style={thStyle} aria-label="並べ替え" />
-              <th style={thStyle}>時限</th>
-              <th style={thStyle}>科目</th>
+              <th style={thStyle}>{slotInput === "time" ? "時刻" : "時限"}</th>
+              <th style={thStyle}>{slotInput === "time" ? "内容" : "科目"}</th>
               <th style={thStyle} aria-label="詳細" />
               <th style={thStyle} />
             </tr>
@@ -508,35 +534,53 @@ export function ScheduleEditor({
                       ) : null}
                     </td>
                     <td style={tdStyle}>
-                      <select
-                        ref={(el) => registerCell(i, 0, el)}
-                        value={slotSelectValue(r.period)}
-                        onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
-                        onKeyDown={(e) => onCellKeyDown(e, i, 0)}
-                        style={{ ...inputStyle, width: "6rem" }}
-                        aria-label={`${i + 1} 行目の時限`}
-                      >
-                        {/* 未選択（時限なし）。事前生成・新規行はここで始まる。時限は任意で、選ばなければ
-                            時限ラベルなしの「科目のみ」の予定として盤面に出る（要望 2026-06-23）。 */}
-                        <option value="">（時限なし）</option>
-                        {SCHEDULE_SLOT_OPTIONS.map((opt) => (
-                          <option key={String(opt.value)} value={String(opt.value)}>
-                            {opt.label}
-                          </option>
-                        ))}
-                        {/* 「その他」を選ぶと下に自由入力欄が出る（番兵値・実 period ではない）。 */}
-                        <option value={CUSTOM_SLOT_VALUE}>その他</option>
-                      </select>
-                      {isCustomPeriod(r.period) ? (
+                      {slotInput === "time" ? (
+                        // 掲示板型（§6.2）: 時限 select を出さず時刻テキスト入力を第一カラムに。内部は既存の
+                        // 自由入力（CustomPeriod）＝保存形不変。旧データの数値時限はラベル表示のまま、編集した
+                        // 時点で { custom } に置き換わる（開いただけでは書き換えない＝自動保存を走らせない）。
                         <input
-                          value={r.period.custom}
+                          ref={(el) => registerCell(i, 0, el)}
+                          value={timeInputValue(r.period)}
                           onChange={(e) => update(i, { period: { custom: e.target.value } })}
-                          placeholder="例: 補習"
+                          onKeyDown={(e) => onCellKeyDown(e, i, 0)}
+                          placeholder="13:00"
                           maxLength={CUSTOM_PERIOD_MAX}
-                          style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
-                          aria-label={`${i + 1} 行目の時限（自由入力）`}
+                          style={{ ...inputStyle, width: "6rem" }}
+                          aria-label={`${i + 1} 行目の時刻`}
                         />
-                      ) : null}
+                      ) : (
+                        <>
+                          <select
+                            ref={(el) => registerCell(i, 0, el)}
+                            value={slotSelectValue(r.period)}
+                            onChange={(e) => update(i, { period: parseSlotValue(e.target.value) })}
+                            onKeyDown={(e) => onCellKeyDown(e, i, 0)}
+                            style={{ ...inputStyle, width: "6rem" }}
+                            aria-label={`${i + 1} 行目の時限`}
+                          >
+                            {/* 未選択（時限なし）。事前生成・新規行はここで始まる。時限は任意で、選ばなければ
+                                時限ラベルなしの「科目のみ」の予定として盤面に出る（要望 2026-06-23）。 */}
+                            <option value="">（時限なし）</option>
+                            {SCHEDULE_SLOT_OPTIONS.map((opt) => (
+                              <option key={String(opt.value)} value={String(opt.value)}>
+                                {opt.label}
+                              </option>
+                            ))}
+                            {/* 「その他」を選ぶと下に自由入力欄が出る（番兵値・実 period ではない）。 */}
+                            <option value={CUSTOM_SLOT_VALUE}>その他</option>
+                          </select>
+                          {isCustomPeriod(r.period) ? (
+                            <input
+                              value={r.period.custom}
+                              onChange={(e) => update(i, { period: { custom: e.target.value } })}
+                              placeholder="例: 補習"
+                              maxLength={CUSTOM_PERIOD_MAX}
+                              style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
+                              aria-label={`${i + 1} 行目の時限（自由入力）`}
+                            />
+                          ) : null}
+                        </>
+                      )}
                     </td>
                     <td style={tdStyle}>
                       <input
@@ -544,9 +588,11 @@ export function ScheduleEditor({
                         value={r.subject}
                         onChange={(e) => update(i, { subject: e.target.value })}
                         onKeyDown={(e) => onCellKeyDown(e, i, 1)}
-                        placeholder="科目名"
+                        // 掲示板型（time）は時限×科目でなく「時刻＋内容」の語彙（§6.2）。保存フィールドは
+                        // 従来どおり subject（表示語彙だけの差・保存形不変）。
+                        placeholder={slotInput === "time" ? "内容" : "科目名"}
                         style={{ ...inputStyle, width: "100%" }}
-                        aria-label={`${i + 1} 行目の科目名`}
+                        aria-label={`${i + 1} 行目の${slotInput === "time" ? "内容" : "科目名"}`}
                       />
                     </td>
                     <td style={tdStyle}>

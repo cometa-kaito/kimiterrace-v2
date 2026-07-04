@@ -12,7 +12,7 @@ import {
   type SignageDesignPattern,
 } from "@/lib/signage/design-pattern";
 import { SIGNAGE_PAGE_DWELL_MS, boardPageSize, chunkIntoPages } from "@/lib/signage/board-paging";
-import { blockRowCapacity } from "@/lib/signage/pattern-blocks";
+import { blockLabel, blockRowCapacity } from "@/lib/signage/pattern-blocks";
 import {
   type SignageScheduleRow,
   formatSignageItem,
@@ -139,7 +139,9 @@ function regionEditProps(
     // section 自体は aria-hidden にしない（内側の編集ボタンを操作可能に保つ）。可視テキスト・見た目は不変。
     sectionProps: { className: `${base} ${editStyles.regionHost}` },
     hideHeading: true,
-    button: <BoardRegionEditButton region={region} editRegions={editRegions} />,
+    // ジャンプチップ「○○を編集」のラベルは region 名（ariaLabel）と同じ値を渡す＝パターン別ラベル上書き
+    //（blockLabel §6.2）に自動追従し、盤面見出し・エディタ見出し・チップの 3 者一致を単一ソースで保つ。
+    button: <BoardRegionEditButton region={region} label={ariaLabel} editRegions={editRegions} />,
   };
 }
 
@@ -181,6 +183,8 @@ const PATTERN_BOARDS: Record<
   pattern3: Pattern3Board,
   // pattern4 = 教員入力最小（連絡のみ編集）・天気/ニュースを主役にした自動寄りの盤面。
   pattern4: Pattern4Board,
+  // pattern5 = 掲示板型（お知らせ主役 + 今日の予定[時刻表示] + ニュース/天気/広告・editor-restructure §6）。
+  pattern5: Pattern5Board,
 };
 
 /**
@@ -524,6 +528,230 @@ function Pattern4Board({
         <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * パターン5: **掲示板型（お知らせ主役）**の盤面（editor-restructure-bulletin-2026-07.md §6・オーナー決定 1）。
+ * 部屋型運用（進路指導室前など）で、教員入力は「お知らせ」（notice・主役）と「今日の予定」（schedule・
+ * 時刻フォーマット 1 列）のみ。呼び出し / 来校者 / 提出物は出さない（クラス語彙の強制 = v2-ed47-1 の根治。
+ * ダッシュ行 / 校訓ハックの受け皿は区切り線 divider・固定行 pinned が担う）。
+ *
+ * レイアウト（§6.3・モック基準）:
+ *   - ヘッダー: pattern3 の時刻主役大型ヘッダーを流用（実時計＋日付＋当日気温＝weather はヘッダー内包）。
+ *   - **主役 = お知らせ**（左 2/3・大型タイポ）: ★行は emphasis（橙アクセント）・区切り線は罫線描画。行数超過は
+ *     既存 F1 ページング（`boardPageSize` = ROW_CAPACITY 経由・滞留 8 秒）で自動送り。
+ *   - 右 1/3 = 今日の予定: 「時刻ラベル＋内容」の縦リスト（時刻は既存 `CustomPeriod` の自由入力文字列を
+ *     `scheduleSlotLabel` がそのまま返す＝新しい時刻フィールドは作らない）。
+ *   - フッタ: 時事ニュース 1 件自動送り（{@link Pattern3NewsTicker} 流用・#1156 の作法）。
+ *   - 広告 aside: 既存共通（`ad` は hasRegion=false の complementary landmark）。
+ *
+ * region ラベルは **パターン別上書き**（{@link blockLabel} §6.2）: notice=「お知らせ」/ schedule=「今日の予定」。
+ * 盤面 region 名・エディタ見出し・ジャンプチップが同一関数を引きドリフトしない（SignageClient.test の
+ * region ドリフトガードも blockLabel 基準で照合）。既存部品（ヘッダー / ニュース / 広告 / DividerRow /
+ * BoardPager）は再利用し、pattern1〜4 は無改修（既存端末は不変）。
+ */
+function Pattern5Board({
+  data,
+  ad,
+  adLink,
+  adCount,
+  safeIndex,
+  now,
+  onAdTap,
+  editRegions,
+}: SignageBoardProps) {
+  return (
+    <div className={`${styles.signageRoot} ${styles.p5Root}`}>
+      <Pattern3Header data={data} now={now} />
+      <div className={styles.container}>
+        <main className={styles.infoArea}>
+          <div className={styles.p5Grid}>
+            <Pattern5Notices section={data.daily.notices} editRegions={editRegions} />
+            <Pattern5Schedule
+              days={data.scheduleDays}
+              today={data.date}
+              editRegions={editRegions}
+            />
+            <div className={styles.p5Foot}>
+              <Pattern3NewsTicker news={data.news} />
+            </div>
+          </div>
+        </main>
+        <AdAside
+          ad={ad}
+          adLink={adLink}
+          adCount={adCount}
+          safeIndex={safeIndex}
+          onAdTap={onAdTap}
+          editRegions={editRegions}
+        />
+        <footer className={styles.mobileFooter}>キミテラス by Rebounder</footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * パターン5 の主役「お知らせ」。連絡（notices）を大型タイポで縦に出す。★（isHighlight）は既存の連絡★と
+ * 同一視覚言語（emphasis + 【重要】・色非依存 NFR05）、区切り線（kind:"divider"）は共通 {@link DividerRow}。
+ * 可視行数は単一ソース `blockRowCapacity("pattern5","notice")`（CSS の `--p5-notice-visible` と対）で、超過は
+ * F1 ページング（{@link BoardPager}・滞留 8 秒）で全行を順に見せる。region は `blockLabel` の「お知らせ」
+ * （盤面 region ドリフトガード・エディタ見出し・ジャンプチップと同源 §6.2）。
+ */
+function Pattern5Notices({
+  section,
+  editRegions,
+}: {
+  section: MergedSection;
+  editRegions?: EditRegionsProps;
+}) {
+  const lines = section.items.map((item) => formatSignageItem("notices", item));
+  const label = blockLabel("pattern5", "notice");
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "notices",
+    styles.p5Notice,
+    label,
+    editRegions,
+  );
+  const pages = chunkIntoPages(
+    lines,
+    boardPageSize("pattern5", "notice") ?? blockRowCapacity("pattern5", "notice"),
+  );
+  const pageTrack = (pageLines: readonly ReturnType<typeof formatSignageItem>[]) => (
+    <ul className={styles.p5NoticeTrack}>
+      {pageLines.map((line, i) => {
+        if (line.divider) {
+          return (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+              key={i}
+              className={`${styles.p5NoticeItem} ${styles.rowDivider}`}
+              data-divider="true"
+            >
+              {line.text ? <span className={styles.rowDividerLabel}>{line.text}</span> : null}
+            </li>
+          );
+        }
+        return (
+          <li
+            // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+            key={i}
+            className={`${styles.p5NoticeItem} ${line.emphasis ? styles.itemEmphasis : ""}`}
+          >
+            <span className={styles.p5NoticeText}>
+              {line.emphasis ? "【重要】" : ""}
+              {line.text}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+  return (
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.p5SectionTitle} aria-hidden={hideHeading || undefined}>
+        {label}
+        <SourceBadge source={section.source} />
+      </h2>
+      <div className={styles.p5Rows}>
+        {lines.length === 0 ? (
+          <span className={styles.p5Empty}>お知らせはありません</span>
+        ) : pages.length > 1 ? (
+          <BoardPager
+            dwellMs={SIGNAGE_PAGE_DWELL_MS}
+            play={!editRegions}
+            viewportClassName={styles.p5PagerViewport}
+            pages={pages.map(pageTrack)}
+          />
+        ) : (
+          pageTrack(lines)
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * パターン5 の「今日の予定」（右 1/3）。多日グリッドは出さず**当日 1 列のみ**（`SIGNAGE_SCHEDULE_DAY_COUNT
+ * .pattern5 = 1`）。各行は「時刻ラベル＋内容」で、時刻は既存 `CustomPeriod`（自由入力）の文字列を
+ * `scheduleSlotLabel` がそのまま返す（掲示板の時刻フォーマット表示 §6.2・新フィールド無し）。旧データの
+ * 数値時限（`3限` 等）もそのままラベル描画され壊れない（fail-soft）。★は emphasis・区切り線は共通
+ * {@link DividerRow}。可視行数は `blockRowCapacity("pattern5","schedule")`（CSS `--p5-sch-visible` と対）、
+ * 超過は F1 ページング。region は `blockLabel` の「今日の予定」。
+ */
+function Pattern5Schedule({
+  days,
+  today,
+  editRegions,
+}: {
+  days: ScheduleDay[];
+  today: string;
+  editRegions?: EditRegionsProps;
+}) {
+  // データ層は pattern5 に当日 1 日ぶんだけ渡す（SIGNAGE_SCHEDULE_DAY_COUNT）。防御的に「盤面日付の列 →
+  // 先頭列」の順で拾う（想定外の複数日 payload でも当日だけ描く・fail-soft）。
+  const day = days.find((d) => d.date === today) ?? days[0] ?? null;
+  const rows = day ? sortByPeriod(day.schedule.items).map((item) => parseScheduleRow(item)) : [];
+  const label = blockLabel("pattern5", "schedule");
+  const { sectionProps, hideHeading, button } = regionEditProps(
+    "schedules",
+    styles.p5Schedule,
+    label,
+    editRegions,
+  );
+  const pages = chunkIntoPages(
+    rows,
+    boardPageSize("pattern5", "schedule") ?? blockRowCapacity("pattern5", "schedule"),
+  );
+  const pageTrack = (pageRows: readonly SignageScheduleRow[]) => (
+    <div className={styles.p5SchTrack}>
+      {pageRows.map((row, i) => {
+        if (row.divider) {
+          // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+          return <DividerRow key={i} label={row.content} itemClassName={styles.p5SchItem} />;
+        }
+        const meta = scheduleMetaInline(row);
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 不変リストの描画
+          <div key={i} className={`${styles.p5SchItem} ${row.emphasis ? styles.itemEmphasis : ""}`}>
+            <span className={styles.p5SchMain}>
+              {row.periodLabel ? (
+                <span className={styles.scheduleTime}>{row.periodLabel}</span>
+              ) : null}
+              {row.content}
+              {meta ? <span className={styles.p5SchMeta}>{meta}</span> : null}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+  return (
+    <section {...sectionProps}>
+      {button}
+      {/* biome-ignore lint/a11y/useHeadingContent: 編集モード時のみ意図的に AT から隠す装飾見出し（重複回避・操作名は編集ボタンが担保）。 */}
+      <h2 className={styles.p5SectionTitle} aria-hidden={hideHeading || undefined}>
+        {label}
+        {day ? <SourceBadge source={day.schedule.source ?? null} /> : null}
+      </h2>
+      <div className={styles.p5Rows}>
+        {rows.length === 0 ? (
+          <span className={styles.p5Empty}>予定はありません</span>
+        ) : pages.length > 1 ? (
+          <BoardPager
+            dwellMs={SIGNAGE_PAGE_DWELL_MS}
+            play={!editRegions}
+            viewportClassName={styles.p5PagerViewport}
+            pages={pages.map(pageTrack)}
+          />
+        ) : (
+          pageTrack(rows)
+        )}
+      </div>
+    </section>
   );
 }
 

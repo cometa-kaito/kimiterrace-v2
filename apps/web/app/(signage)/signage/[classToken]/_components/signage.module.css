@@ -1926,6 +1926,174 @@
   }
 }
 
+/* ===================== 11e. パターン5 盤面（掲示板型・お知らせ主役） =====================
+   editor-restructure-bulletin-2026-07.md §6.3。部屋型（進路指導室前など）の掲示板。ヘッダーは pattern3 の
+   大型ヘッダー（.p3Header）を流用し、情報エリアは「お知らせ（左 2/3・主役・大型タイポ）＋今日の予定
+   （右 1/3・時刻リスト）＋フッタ（時事ニュース 1 件送り）」の 3 領域。右 30% の広告（9:16）は共通で不変。
+   可視行数（--p5-notice-visible / --p5-sch-visible）は blockRowCapacity("pattern5", …) と対（値を変えたら
+   pattern-blocks.ts 側も必ず合わせる＝ページ内再クリップ防止）。文字サイズは盤面設計指針
+   （盤面設計指針-研究-2026-06-30.md: コントラスト 7:1・滞留 5-10s・色非依存）に従い、お知らせ本文は
+   pattern3 の拡大タイポ以上を初期値にする（実機実測で調整）。pattern1〜4 のクラスには触れない（無改修）。 */
+.signageRoot.p5Root {
+  /* 大型ヘッダー流用: --header-height を p3Root と同値に（.p3Header は class 直指定なので流用可）。 */
+  --header-height: 64px;
+  /* パネル境界 / 二次テキスト: pattern3 と同じ根拠の値（部屋内でも掲示板は数 m の距離で読むため遠目基準を
+     踏襲）。#475467 は白 / #f7f8fa 上で約 7:1（盤面設計指針のコントラスト目標を充足）。p5 スコープ限定＝
+     グローバル brand トークンには影響しない。 */
+  --p5-panel-border: #cbd2dc;
+  --p5-ink-secondary: #475467;
+}
+/* 情報エリアの 3 領域グリッド: お知らせ(2fr) / 今日の予定(1fr)、最下段はフッタ（ニュース）を全幅で。 */
+.p5Grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "notice schedule"
+    "foot foot";
+  gap: 0 1.4vmin;
+}
+/* 主役: お知らせ（左 2/3）。1 列の可視行数は --p5-notice-visible（blockRowCapacity と対）。 */
+.p5Notice {
+  grid-area: notice;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  --p5-notice-visible: 5;
+}
+/* 今日の予定（右 1/3）。お知らせとは縦線で区切る（p3 の線基調と一貫・箱を使わない）。 */
+.p5Schedule {
+  grid-area: schedule;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--p5-panel-border);
+  padding-left: 1vmin;
+  --p5-sch-visible: 5;
+}
+/* セクション見出し＝名札（アクセント下線・p3PersonTitle と同じ視覚言語）。ラベルは blockLabel 単一ソース。 */
+.p5SectionTitle {
+  font-weight: 800;
+  font-size: clamp(1.05rem, 1.6vw, 1.5rem);
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--accent-color);
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.3rem;
+  flex-shrink: 0;
+}
+/* 残り高さいっぱいの表示窓。size container にして 1 行高を cqh で割り付け、可視数ぶんで埋める。超過は
+   F1 ページング（§10b・.p5PagerViewport が絶対フィル）。position:relative はページャの絶対配置基準。 */
+.p5Rows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  container-type: size;
+  position: relative;
+}
+/* pattern5 用のページャ・ビューポート override（p3PagerViewport と同作法・§10b の基底 flex:1 を絶対フィルに）。 */
+.p5PagerViewport {
+  position: absolute;
+  inset: 0;
+}
+.p5NoticeTrack {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+}
+/* お知らせ 1 行 = 窓高 / 可視数。行間は横線（点線）で区切る（掲示板の行罫線）。 */
+.p5NoticeItem {
+  height: calc(100cqh / var(--p5-notice-visible));
+  display: flex;
+  align-items: center;
+  border-bottom: 1px dotted var(--p5-panel-border);
+  min-width: 0;
+}
+/* お知らせ本文 = 主役の大型タイポ（pattern3 の予定本文 clamp(0.95rem,1.3vw,1.3rem) 以上・盤面設計指針）。
+   はみ出しは 2 行まで折り返してから省略（掲示板の文は長め・1 行 ellipsis だと語尾が落ちすぎる）。 */
+.p5NoticeText {
+  font-size: clamp(1.15rem, 1.9vw, 1.9rem);
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+.p5SchTrack {
+  display: flex;
+  flex-direction: column;
+}
+/* 予定 1 行 = 窓高 / 可視数（時刻ラベル＋内容の単一行）。 */
+.p5SchItem {
+  height: calc(100cqh / var(--p5-sch-visible));
+  display: flex;
+  align-items: center;
+  border-bottom: 1px dotted var(--p5-panel-border);
+  min-width: 0;
+}
+.p5SchMain {
+  width: 100%;
+  font-size: clamp(0.95rem, 1.3vw, 1.3rem);
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* 予定行の補助メタ（場所 / 対象者）。同一行に添える（p3SchMeta と同作法・二次テキスト色）。 */
+.p5SchMeta {
+  margin-left: 0.4em;
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--p5-ink-secondary);
+}
+.p5Empty {
+  color: var(--p5-ink-secondary);
+  font-size: clamp(0.76rem, 1.1vw, 1rem);
+  font-weight: 600;
+  padding: 0.3rem 0;
+}
+/* フッタ: 時事ニュース 1 件送り（Pattern3NewsTicker 流用）。上罫で情報エリアと区切る。 */
+.p5Foot {
+  grid-area: foot;
+  border-top: 2px solid var(--p5-panel-border);
+  padding-top: 0.4vmin;
+  min-height: 0;
+}
+/* パターン5 のモバイル（縦長・小型画面）: 2 カラムをやめ縦積み（お知らせ → 今日の予定 → ニュース）で
+   自然高さスクロール。固定行高（cqh）は解除する（p2Grid モバイルと同作法）。 */
+@media (max-width: 899px) {
+  .p5Grid {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .p5Notice,
+  .p5Schedule {
+    flex: none;
+    overflow: visible;
+    border-left: 0;
+    padding-left: 0;
+  }
+  .p5Rows {
+    container-type: normal;
+    overflow: visible;
+  }
+  .p5NoticeItem,
+  .p5SchItem {
+    height: auto;
+    padding: 0.35rem 0;
+  }
+}
+
 /* ===================== 防災・安全帯（pattern1 / pattern4・条件付き・ADR-044） ===================== */
 /* 予定の直上（infoArea 先頭）に出る安全情報帯。アクティブな警報/熱中症がある時だけ描画されるため、
    既定（無アラート）では DOM に存在せず予定以下のレイアウトは不変。flex 子として高さを取り過ぎないよう
@@ -2011,11 +2179,12 @@
   white-space: nowrap;
 }
 
-/* パターン3 / パターン4 のモバイル（縦長・小型画面）: 大型ヘッダー（.p3Header・pattern4 も流用）は sticky に
-   倒して上部固定、ブランドは省く。--header-height を 0 にして .container の上余白二重を避ける。 */
+/* パターン3 / パターン4 / パターン5 のモバイル（縦長・小型画面）: 大型ヘッダー（.p3Header・pattern4/5 も流用）は
+   sticky に倒して上部固定、ブランドは省く。--header-height を 0 にして .container の上余白二重を避ける。 */
 @media (max-width: 899px) {
   .signageRoot.p3Root,
-  .signageRoot.p4Root {
+  .signageRoot.p4Root,
+  .signageRoot.p5Root {
     --header-height: 0px;
   }
   .p3Header {

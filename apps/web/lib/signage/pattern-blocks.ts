@@ -125,6 +125,13 @@ export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockK
   // 条件付きで先頭、その後 天気→ニュース→連絡→鉄道→人感センサ、広告は末尾。schedule/callout/visitor/assignment
   // は教員入力を要するため**載せない**（editableBlocksForPattern→[notice] のみ。2026-06-20 ユーザー確定）。
   pattern4: ["safety_alert", "weather", "news", "notice", "train", "presence", "ad"],
+  // pattern5（掲示板型・お知らせ主役 = editor-restructure-bulletin-2026-07.md §6・オーナー決定 1）: 部屋型盤面
+  //（進路指導室前など）の掲示板用途。**notice を先頭 = 主役（大きく表示）**とし、schedule は「今日の予定」を
+  // 時刻フォーマット（自由入力 CustomPeriod に時刻文字列）で 1 列だけ添える。callout / visitor / assignment は
+  // 出さない（クラス語彙の強制 = v2-ed47-1 の根治）。news は最下段フッタ（Pattern3NewsTicker 流用）＋天気は
+  // ヘッダー内包＋広告は共通 aside。ラベルは PATTERN_BLOCK_LABEL_OVERRIDES で notice=「お知らせ」/
+  // schedule=「今日の予定」に上書きする（§6.2）。
+  pattern5: ["notice", "schedule", "news", "weather", "ad"],
 };
 
 /**
@@ -191,6 +198,9 @@ export const PATTERN_BLOCK_ROW_CAPACITY: Record<
   pattern2: { schedule: 5, callout: 5, visitor: 5 },
   pattern3: { schedule: 5, callout: 5, visitor: 5 },
   pattern4: { notice: 5 },
+  // pattern5（掲示板型）: お知らせ主役 5 行＋今日の予定 5 行（§6.1 の初期値。実機文字サイズで調整・盤面
+  // ページング boardPageSize もこれに追従）。CSS の可視行数（--p5-notice-visible / --p5-sch-visible）と対で変える。
+  pattern5: { notice: 5, schedule: 5 },
 };
 
 /**
@@ -203,4 +213,52 @@ export function blockRowCapacity(pattern: SignageDesignPattern, kind: SignageBlo
     PATTERN_BLOCK_ROW_CAPACITY[pattern] ??
     PATTERN_BLOCK_ROW_CAPACITY[DEFAULT_SIGNAGE_DESIGN_PATTERN];
   return table[kind] ?? 0;
+}
+
+/**
+ * **パターン別ラベル上書きマップ**（editor-restructure-bulletin-2026-07.md §6.2）。掲示板型（pattern5）では
+ * 部屋の掲示板語彙（notice=「お知らせ」/ schedule=「今日の予定」）で呼びたいので、全パターン共通の
+ * {@link SIGNAGE_BLOCK_META}.label をパターン単位で上書きする。**未定義のパターン × ブロックは共通ラベルの
+ * まま**（pattern1〜4 は値が変わらない＝既存盤面・e2e 非破壊）。
+ *
+ * 消費者は必ず {@link blockLabel} を経由すること（このマップを直接引かない）。盤面 region `aria-label`・
+ * エディタセクション見出し（`EditorCard title`）・盤面のジャンプチップ（`BoardRegionEditButton`）・AI の
+ * 振り分け/手入力誘導ラベルの **4 者が同じ関数を引く**ことで、掲示板型の語彙ドリフト（v2-ed47-1/-5 の再発）を
+ * 機械的に排す（ドリフトガード: SignageClient.test / pattern-blocks.test）。
+ */
+export const PATTERN_BLOCK_LABEL_OVERRIDES: Partial<
+  Record<SignageDesignPattern, Partial<Record<SignageBlockKind, string>>>
+> = {
+  pattern5: { notice: "お知らせ", schedule: "今日の予定" },
+};
+
+/**
+ * パターン × ブロックの表示ラベル（単一ソース）。上書き（{@link PATTERN_BLOCK_LABEL_OVERRIDES}）があれば
+ * それを、無ければ共通ラベル（{@link SIGNAGE_BLOCK_META}.label）を返す。盤面 region 名・エディタ見出し・
+ * ジャンプチップ・AI ラベルはすべて本関数を経由する（§6.2・二重定義禁止）。
+ */
+export function blockLabel(pattern: SignageDesignPattern, kind: SignageBlockKind): string {
+  return PATTERN_BLOCK_LABEL_OVERRIDES[pattern]?.[kind] ?? SIGNAGE_BLOCK_META[kind].label;
+}
+
+/**
+ * 予定エディタの時限入力形態。`"period"`（既定）= 時限 select（1〜6 限・朝/昼休み/放課後・その他）。
+ * `"time"` = 時刻テキスト入力（掲示板型 §6.2。内部表現は既存の自由入力 `CustomPeriod` に時刻文字列
+ * （例 `13:00〜`）を入れるだけで、**保存形（`ScheduleItem.period`）は不変**＝盤面・検証・AI 経路は無改修）。
+ */
+export type ScheduleInputVariant = "period" | "time";
+
+/** パターン → 予定エディタの時限入力形態の上書き（未定義は既定 `"period"`）。 */
+const SCHEDULE_INPUT_VARIANTS: Partial<Record<SignageDesignPattern, ScheduleInputVariant>> = {
+  // 掲示板型: 時限×科目でなく「時刻＋内容」で書く（§6.2）。基本時間割（週次テンプレ）の seed / 導線も
+  // この variant を見て出し分ける（時限ベースのテンプレは掲示板に馴染まない）。
+  pattern5: "time",
+};
+
+/**
+ * パターンの予定エディタが使う時限入力形態を返す（エディタ出し分け・基本時間割導線の表示判定で共有）。
+ * 未知パターンは既定 `"period"`（fail-soft・他ヘルパと同作法）。
+ */
+export function scheduleInputVariant(pattern: SignageDesignPattern): ScheduleInputVariant {
+  return SCHEDULE_INPUT_VARIANTS[pattern] ?? "period";
 }
