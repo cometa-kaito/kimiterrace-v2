@@ -23,8 +23,13 @@ import {
   stripPinnedFromDraft,
 } from "@/lib/editor/assistant-chat-core";
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
+import { assistantGreeting } from "@/lib/editor/assistant-sections";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { PinnedNoticeRow } from "@/lib/editor/notice-assignment-core";
+import {
+  DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  type SignageDesignPattern,
+} from "@/lib/signage/design-pattern";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import { formatSignageItem } from "@/lib/signage/section-format";
 import { sttErrorHint } from "@/lib/teacher-input/stt-error-hint";
@@ -50,8 +55,8 @@ const { color, radius, fontSize } = tokens;
  * - レイアウトは全画面（{@link file://./EditorChat.module.css} `.chat` = ビューポート高・会話は内部
  *   スクロール・入力欄は最下部に常時表示 = LINE 風）。
  */
-const GREETING =
-  "今日の連絡、話しかけてください。話す・書く・ファイルでOK。予定・連絡・提出物にまとめて下書きします。";
+// 歓迎文は固定文言でなく実効パターンから合成する（assistantGreeting・v2-ed47-5 の根治 §6.4）。
+// pattern 未指定（scope エディタ等・3 セクション編集）は pattern1 相当＝従来文言と同値（回帰なし）。
 
 // 入力欄の自動伸長の上限（px）。これを超えたら内部スクロール（~5〜6 行）。CSS の inputStyle.maxHeight と同値。
 const INPUT_MAX_HEIGHT = 140;
@@ -89,6 +94,7 @@ export function EditorChat({
   date,
   initialDraft,
   pinnedNotices,
+  pattern = DEFAULT_SIGNAGE_DESIGN_PATTERN,
   variant = "page",
 }: {
   scope: string;
@@ -105,6 +111,13 @@ export function EditorChat({
    * （scope の保存経路は setNoticesAction 側が pinned を剥がす＝HIGH-1 の二層目）。
    */
   pinnedNotices?: PinnedNoticeRow[];
+  /**
+   * クラスの実効サイネージパターン（歓迎文の合成用 §6.4）。class エディタ（page.tsx）は解決済みの実効
+   * パターンを渡す。scope エディタ（学校/学科/学年＝3 セクション編集）は未指定＝pattern1 相当で従来文言。
+   * **下書きの許可セクション自体はサーバ（chat route）が別途解決**するので、この prop は表示文言のみに使う
+   * （クライアントを信用しない構図は不変）。
+   */
+  pattern?: SignageDesignPattern;
   /**
    * レイアウト形態。`"page"`（既定）は従来どおりビューポート高を占める全画面チャット。`"floating"` は
    * {@link "../[classId]/_components/FloatingAiChat"} の浮遊パネル内に収まるよう、親（パネル本体）の高さを
@@ -452,7 +465,7 @@ export function EditorChat({
       className={variant === "floating" ? `${styles.chat} ${styles.floating}` : styles.chat}
     >
       <div className={styles.thread}>
-        <Bubble from="assistant">{GREETING}</Bubble>
+        <Bubble from="assistant">{assistantGreeting(pattern)}</Bubble>
         {state.messages.map((m, i) => (
           // 会話は追記のみで並び替えしないため index key で十分。
           // biome-ignore lint/suspicious/noArrayIndexKey: 追記専用の会話ログ
