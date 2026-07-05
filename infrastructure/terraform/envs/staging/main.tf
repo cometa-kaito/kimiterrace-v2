@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "4ce9594" # AI精度改善 #1226(F03契約修正)/#1227(会話型 日付表+days)/#1229(eval基盤)。schema・secret無変更・/api/health 200・cache-control 健全
+  web_image_tag = "2f26680" # 2026-07-05: system_admin 学校詳細/一覧の taste 改善（#1239・3トーンのアクション言語・情報階層/AA/モバイル）反映。4ce9594→2f26680（教員エディタ #1230-1237 + AI精度 #1226-1229 の catch-up 込み=いずれも既 prod・schema非変更）。schema・secret 無変更=migrate 不要。health200/login private,no-cache/ops 307→login
 }
 
 module "network" {
