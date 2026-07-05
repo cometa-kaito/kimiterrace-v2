@@ -89,6 +89,7 @@ export function PinnedNoticesList({
                 onClick={() => remove(row, index)}
                 disabled={pendingKey !== null}
                 style={removeBtnStyle}
+                className="kt-row-delete"
                 aria-label={`固定中のお知らせ ${i + 1} 件目を削除`}
               >
                 {pendingKey === key ? "削除中…" : "削除"}

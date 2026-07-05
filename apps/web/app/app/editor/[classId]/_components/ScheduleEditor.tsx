@@ -22,13 +22,15 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import {
+  blankRowStyle,
   detailPanelStyle,
   draggingRowStyle,
   dropOverRowStyle,
   inputStyle,
+  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  secondaryBtnStyle,
+  subtleBtnStyle,
   tableStyle,
   tableWrapStyle,
   tdStyle,
@@ -203,19 +205,6 @@ function sortRowsLikeServer(rows: Row[]): Row[] {
     (r) => scheduleSlotSortKey(isRowPeriodComplete(r.period) ? r.period : undefined),
     (r) => r.kind === "divider",
   );
-}
-
-/** 曜日（日始まり）。日付文字列から決まり today に依存しないので SSR/クライアントで一致する。 */
-const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
-
-/** "2026-06-23" → "2026年6月23日（火）"。対象日を切り替えない場面（クラス編集）で日付を読みやすく示す。 */
-function formatEditorDate(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  if (!y || !m || !d) {
-    return date;
-  }
-  const weekday = WEEKDAY_JP[new Date(y, m - 1, d).getDay()] ?? "";
-  return `${y}年${m}月${d}日（${weekday}）`;
 }
 
 export function ScheduleEditor({
@@ -434,19 +423,9 @@ export function ScheduleEditor({
             style={inputStyle}
           />
         </label>
-      ) : (
-        // クラス編集では対象日はカレンダーで切替。ここは編集中の日付をテキストで示すだけ（要望 2026-06-23）。
-        <p
-          style={{
-            margin: 0,
-            fontSize: tokens.fontSize.md,
-            fontWeight: 600,
-            color: tokens.color.ink,
-          }}
-        >
-          {formatEditorDate(date)}
-        </p>
-      )}
+      ) : null}
+      {/* クラス編集では日付を出さない（#5 日付の重複排除）: 左パネルの「編集中: ◯月◯日」が唯一の日付表示。
+          ここに再掲すると同じ日付が2箇所に出て型スケールも濁るため撤去（対象日はカレンダー/日付タブで切替）。 */}
 
       <div style={tableWrapStyle}>
         <table style={tableStyle}>
@@ -508,6 +487,7 @@ export function ScheduleEditor({
                         type="button"
                         onClick={() => removeRow(i)}
                         style={removeBtnStyle}
+                        className="kt-row-delete"
                         aria-label={`${i + 1} 行目を削除`}
                       >
                         削除
@@ -524,6 +504,8 @@ export function ScheduleEditor({
                   <tr
                     {...reorder.rowProps}
                     style={{
+                      // 空行は薄く（#3 記入済みだけ濃く）。入力すると空行判定が外れて濃くなる。
+                      ...(isBlankScheduleRow(r) ? blankRowStyle : {}),
                       ...(reorder.isDragging ? draggingRowStyle : {}),
                       ...(reorder.isOver ? dropOverRowStyle : {}),
                     }}
@@ -596,28 +578,35 @@ export function ScheduleEditor({
                       />
                     </td>
                     <td style={tdStyle}>
-                      <RowDetailToggle
-                        open={open}
-                        hasValue={hasScheduleDetail(r)}
-                        onToggle={() => disclosure.toggle(r.id)}
-                        controlsId={detailId}
-                        label={`${i + 1} 行目の詳細項目`}
-                      />
+                      {/* 空行では詳細/削除の chrome を畳む（#1/#3: 反復するボタン壁を減らし空行を軽くする）。
+                          科目等を入力すると行が「空でない」になり詳細/削除が現れる。 */}
+                      {!isBlankScheduleRow(r) ? (
+                        <RowDetailToggle
+                          open={open}
+                          hasValue={hasScheduleDetail(r)}
+                          onToggle={() => disclosure.toggle(r.id)}
+                          controlsId={detailId}
+                          label={`${i + 1} 行目の詳細項目`}
+                        />
+                      ) : null}
                     </td>
                     <td style={tdStyle}>
-                      <button
-                        type="button"
-                        onClick={() => removeRow(i)}
-                        style={removeBtnStyle}
-                        aria-label={`${i + 1} 行目を削除`}
-                      >
-                        削除
-                      </button>
+                      {!isBlankScheduleRow(r) ? (
+                        <button
+                          type="button"
+                          onClick={() => removeRow(i)}
+                          style={removeBtnStyle}
+                          className="kt-row-delete"
+                          aria-label={`${i + 1} 行目を削除`}
+                        >
+                          削除
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                   {/* 詳細行（重要 / 補足 / 場所 / 対象者）。開いている時だけ描画。D&D のドロップ先にしないため
-                      reorder.rowProps を付けない。 */}
-                  {open ? (
+                      reorder.rowProps を付けない。空行では畳む（Reviewer MINOR: 詳細トグルが消え畳めなくなる穴を塞ぐ）。 */}
+                  {open && !isBlankScheduleRow(r) ? (
                     <tr>
                       <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>
@@ -677,11 +666,11 @@ export function ScheduleEditor({
       </div>
 
       <div style={saveBarStyle}>
-        <button type="button" onClick={addRow} style={secondaryBtnStyle}>
+        <button type="button" onClick={addRow} style={primaryBtnStyle}>
           予定を追加
         </button>
-        {/* 区切り線（§5.3・行追加ボタンの脇）: ダッシュ行ハックの正規化。位置は ⠿ で動かす。 */}
-        <button type="button" onClick={addDividerRow} style={secondaryBtnStyle}>
+        {/* 区切り線（§5.3）: 主アクション（予定を追加＝塗り）と差をつける三次アクション（#4 ボタン階層）。 */}
+        <button type="button" onClick={addDividerRow} style={subtleBtnStyle}>
           ＋区切り線
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />

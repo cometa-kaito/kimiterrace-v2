@@ -41,14 +41,31 @@ export const secondaryBtnStyle: React.CSSProperties = {
   borderRadius: radius.sm,
   cursor: "pointer",
 };
-export const removeBtnStyle: React.CSSProperties = {
-  padding: "0.3rem 0.6rem",
+// 三次アクション（＋区切り線 等・#4 ボタン階層）。主アクション（○○を追加＝primary 塗り）と差をつけるため、
+// 枠・地色を持たない静かなテキストボタンにする。タップ領域 44px は維持。
+export const subtleBtnStyle: React.CSSProperties = {
+  minHeight: "44px",
+  padding: "0.45rem 0.6rem",
   background: "transparent",
-  color: color.dangerFg,
-  border: `1px solid ${color.dangerBorder}`,
+  color: color.muted,
+  border: "none",
   borderRadius: radius.sm,
   cursor: "pointer",
   fontSize: fontSize.sm,
+};
+// 行削除ボタン（#2 ゴースト化）。5 行反復で赤枠ボタンが並ぶと chrome が content を上回るため、枠・地色を
+// 外した控えめなゴーストにする。**色（既定 muted → hover/focus で危険色）はグローバルクラス `.kt-row-delete`
+// が持つ**（インライン color は :hover を上書きできないため。className と併用する前提）。タッチ端末では hover が
+// 無いので「常時 muted で見える」＝発見性を保ちつつ、hover/focus で赤くして破壊操作だと分かるようにする。
+export const removeBtnStyle: React.CSSProperties = {
+  padding: "0.3rem 0.4rem",
+  background: "transparent",
+  border: "none",
+  borderRadius: radius.sm,
+  cursor: "pointer",
+  // 隣の「詳細」トグル（sm）より一段小さくして従属させる（敵対的批評 R2: 削除が詳細と同じ視覚的重みで競う）。
+  // 色（赤）で破壊操作と分かり、サイズで主役（本文）より下位だと分かる。
+  fontSize: fontSize.xs,
   // 「削除」が幅不足で 2 行に折返すのを防ぐ（狭い列でも 1 行表示）。
   whiteSpace: "nowrap",
 };
@@ -120,7 +137,8 @@ export const gripStyle: React.CSSProperties = {
   background: "transparent",
   border: "none",
   cursor: "grab",
-  color: color.muted,
+  // 掴めることに気づけるよう muted より濃い neutralFg にする（敵対的批評: ハンドルが極薄で発見不能）。
+  color: color.neutralFg,
   fontSize: fontSize.md,
   lineHeight: 1,
   padding: "0.25rem 0.15rem",
@@ -130,6 +148,18 @@ export const gripStyle: React.CSSProperties = {
 /** ドラッグ中の行（半透明＝掴んでいることを示す）。 */
 export const draggingRowStyle: React.CSSProperties = {
   opacity: 0.5,
+};
+/**
+ * 事前生成した空行の de-emphasis（#3「空欄が埋まって見える」→ 記入済みだけ濃く）。盤面の規定枠ぶん並ぶ空行を
+ * 薄くして、実際に記入済みの行と視覚的な濃淡差をつける（真の空状態＝これから埋める枠だと分かる）。入力すると
+ * 行が「空でない」と判定され本スタイルは外れて濃くなる（{@link isBlankScheduleRow} 等）。opacity なので操作は
+ * 引き続き可能（disabled ではない）。
+ */
+export const blankRowStyle: React.CSSProperties = {
+  // 記入済みの行を主役にし、空の予備行はさらに後退させる（敵対的批評 R2: 空行が実入力と同じ強さに見える）。
+  // 削除/詳細の chrome も畳んでいるので、この薄さでも「これから埋める空スロット」と読める。薄すぎて「無効」に
+  // 見えない下限として 0.6（プレースホルダは元々ヒントで AA 対象外）。
+  opacity: 0.6,
 };
 /** ドロップ先候補の行（左辺にブランド色の差し込み線で「ここに入る」を示す）。 */
 export const dropOverRowStyle: React.CSSProperties = {
@@ -176,13 +206,13 @@ export const detailDotStyle: React.CSSProperties = {
   borderRadius: radius.pill,
   background: color.primary,
 };
-/** 行の任意項目を入れる詳細パネル（主役の下にぶら下がる薄い枠・横並びで折返し）。 */
+/** 行の任意項目を入れる詳細パネル（主役の下にぶら下がる副次領域・横並びで折返し）。
+ *  #1: 枠線は外し「面（bgSoft）」だけで主役の下位であることを示す（box-in-box の視覚ノイズを減らす）。 */
 export const detailPanelStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   gap: "0.6rem 0.9rem",
   padding: "0.6rem 0.75rem",
-  border: `1px solid ${color.border}`,
   borderRadius: radius.sm,
   background: color.bgSoft,
 };

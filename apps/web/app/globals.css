@@ -306,6 +306,27 @@ body {
 }
 
 /*
+ * エディタ行の「削除」ボタン（#2 ゴースト化）。予定/連絡/提出物/来校者/呼び出し等の各行末に並ぶ削除を、
+ * 赤枠ボックスの反復から控えめなゴーストに落とす。既定は muted、hover / focus で危険色に切り替えて破壊操作
+ * だと分かるようにする（色は tokens.color.dangerFg/dangerBg と同値・単一ソースは tokens.ts）。レイアウト
+ * （余白・角丸・折返し）はインライン `removeBtnStyle` が持ち、色と hover はここが持つ（インライン color だと
+ * :hover を上書きできないため）。タッチ端末は hover が無いので既定 muted のまま常時見え、発見性を保つ。
+ */
+.kt-row-delete {
+  /* 破壊操作だと分かる控えめな赤（枠は外しゴースト）。灰色にすると「詳細」と見分けがつかず危険signalが消える
+   * （敵対的批評 D3）。値は tokens.color.dangerFg と同値。 */
+  color: #b91c1c;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+.kt-row-delete:hover,
+.kt-row-delete:focus-visible {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/*
  * ブランドヘッダ（AppShell）。インライン style だとメディアクエリが書けず、モバイルで
  * 「配信管理」「教員」等が縮んで 1 文字ずつ縦に折返し・ログアウトが画面外・横スクロール発生
  * （2026-06-15 本番報告「モバイル画面の見にくさ致命的」）。クラス化して折返しを禁止し、

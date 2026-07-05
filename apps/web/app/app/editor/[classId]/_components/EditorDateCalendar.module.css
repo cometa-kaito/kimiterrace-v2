@@ -100,15 +100,17 @@
   color: var(--brand-blue-strong, #2b4acb);
   font-weight: 600;
 }
-/* 編集中の日（ブランドのアクション色で塗る）。.today より後に定義し、両方該当時はこちらを優先。 */
+/* 編集中の日（**選択＝ブランド青**）。日付タブ（EditorDateSegments）の選択色と揃え、選択/現在地は青・アクション
+   はオレンジ、と役割で色を分ける（敵対的批評 D2 の一貫適用）。.today（青枠）より後に定義し両方該当時はこちら（青塗り）
+   を優先。塗り vs 枠で today と区別できる。 */
 .selected {
-  background: var(--brand-primary, #ea580c);
-  border-color: var(--brand-primary, #ea580c);
+  background: var(--brand-blue-strong, #2b4acb);
+  border-color: var(--brand-blue-strong, #2b4acb);
   color: #fff;
   font-weight: 600;
 }
 .selected:hover {
-  background: var(--brand-primary-hover, #c2410c);
+  background: #1e3a8a;
 }
 .selected .dot {
   background: #fff;

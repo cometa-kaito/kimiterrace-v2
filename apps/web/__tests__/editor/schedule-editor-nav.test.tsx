@@ -58,8 +58,8 @@ describe("ScheduleEditor 対象日切替（改善3: scroll 位置保持）", () 
   });
 });
 
-describe("ScheduleEditor 日付表示（showDateNav=false: クラス編集はカレンダーが日付ナビ）", () => {
-  it("対象日 input を出さず、編集中の日付をテキストで表示する", () => {
+describe("ScheduleEditor 日付表示（showDateNav=false: 日付は親の全幅バーが担う・二重掲載の排除）", () => {
+  it("対象日 input も日付テキストも出さない（#5 日付の重複排除）", () => {
     render(
       <ScheduleEditor
         classId={CLASS_ID}
@@ -70,8 +70,9 @@ describe("ScheduleEditor 日付表示（showDateNav=false: クラス編集はカ
     );
     // 対象日の date input は出さない（日付ナビはページ下部のカレンダーが担う）。
     expect(screen.queryByLabelText("対象日")).toBeNull();
-    // 代わりに編集中の日付をテキストで示す。
-    expect(screen.getByText(/2026年6月23日/)).toBeTruthy();
+    // 日付テキストも出さない: 親の「編集中: ◯月◯日」全幅バーが唯一の日付表示（同じ日付が2箇所に出て型
+    // スケールが濁るのを避ける・敵対的批評の合意 #5）。
+    expect(screen.queryByText(/2026年6月23日/)).toBeNull();
   });
 });
 

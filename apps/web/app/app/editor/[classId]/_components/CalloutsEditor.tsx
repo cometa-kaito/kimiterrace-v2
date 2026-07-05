@@ -18,7 +18,7 @@ import {
   inputStyle,
   removeBtnStyle,
   saveBarStyle,
-  secondaryBtnStyle,
+  primaryBtnStyle,
   tableStyle,
   tableWrapStyle,
   tdStyle,
@@ -289,6 +289,7 @@ export function CalloutsEditor({
                         type="button"
                         onClick={() => removeRow(i)}
                         style={removeBtnStyle}
+                        className="kt-row-delete"
                         aria-label={`${i + 1} 行目を削除`}
                       >
                         削除
@@ -348,7 +349,7 @@ export function CalloutsEditor({
       </div>
 
       <div style={saveBarStyle}>
-        <button type="button" onClick={addRow} style={secondaryBtnStyle}>
+        <button type="button" onClick={addRow} style={primaryBtnStyle}>
           呼び出しを追加
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />
