@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "0ed01fd" # class_weekly_schedules 新テーブル+RLS 0036（#1205 F5 週次ベース時間割・additive・resolve_magic_link 無関係）＋未適用だった 0034/0035 sort_order を冪等適用。prod Job 実行=人間（2026-07-03 rp8ql 成功・applied 0034/0035/0036 確認済）
+  migrate_image_tag = "bdcab46d" # 0037 is_highlight 列追加（class_visitors/student_callouts・#1218・additive・IF NOT EXISTS 冪等・resolve_magic_link 無関係）。エディタ再構成 PR-A〜D（#1216〜#1223）の唯一の migration。prod Job 実行=人間（apply-migration）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "9deb1b4" # 盤面ページング全パターン#1209 + 前週コピー#1208 + F5週次時間割#1210（schema 0036 は事前に人間適用済＝migrate Job rp8ql・secret 無変更・疎通 health200/login private,no-cache。apply 中の一時 DNS 断で state 保存が遅延→force-unlock+state push で復旧済）
+  web_image_tag = "1bed55f" # エディタ再構成 PR-A〜D（#1216/#1217/#1218/#1220/#1221/#1222/#1223・アプリコードは bdcab46d 同一）: 単一スタック+日付セグメント+3ゾーン・⠿/★/区切り線・pinned固定行・掲示板型pattern5+AI/コピー動的化。schema=0037（prod 適用済 7shvb・migrate_image_tag 同時 bump）・secret 無変更・疎通 health200/login private,no-cache
 }
 
 module "network" {
