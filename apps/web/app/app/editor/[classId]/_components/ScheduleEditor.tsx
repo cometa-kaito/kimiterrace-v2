@@ -605,8 +605,8 @@ export function ScheduleEditor({
                     </td>
                   </tr>
                   {/* 詳細行（重要 / 補足 / 場所 / 対象者）。開いている時だけ描画。D&D のドロップ先にしないため
-                      reorder.rowProps を付けない。 */}
-                  {open ? (
+                      reorder.rowProps を付けない。空行では畳む（Reviewer MINOR: 詳細トグルが消え畳めなくなる穴を塞ぐ）。 */}
+                  {open && !isBlankScheduleRow(r) ? (
                     <tr>
                       <td colSpan={5} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>

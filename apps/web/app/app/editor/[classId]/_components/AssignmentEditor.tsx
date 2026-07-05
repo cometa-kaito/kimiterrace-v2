@@ -294,8 +294,9 @@ export function AssignmentEditor({
                       ) : null}
                     </td>
                   </tr>
-                  {/* 詳細行（★重要・§5.2）。開いている時だけ描画。D&D のドロップ先にしないため rowProps を付けない。 */}
-                  {open ? (
+                  {/* 詳細行（★重要・§5.2）。開いている時だけ描画。D&D のドロップ先にしないため rowProps を付けない。
+                      空行では畳む（Reviewer MINOR: 詳細トグルが消え畳めなくなる穴を塞ぐ）。 */}
+                  {open && !isBlankAssignmentRow(r) ? (
                     <tr>
                       <td colSpan={6} style={{ ...tdStyle, paddingTop: 0 }}>
                         <div id={detailId} style={detailPanelStyle}>

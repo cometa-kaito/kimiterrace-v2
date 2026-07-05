@@ -17,7 +17,7 @@ import {
   inputStyle,
   removeBtnStyle,
   saveBarStyle,
-  secondaryBtnStyle,
+  primaryBtnStyle,
   tableStyle,
   tableWrapStyle,
   tdStyle,
@@ -397,7 +397,7 @@ export function VisitorsEditor({
       </div>
 
       <div style={saveBarStyle}>
-        <button type="button" onClick={addRow} style={secondaryBtnStyle}>
+        <button type="button" onClick={addRow} style={primaryBtnStyle}>
           来校者を追加
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />

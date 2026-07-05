@@ -461,8 +461,10 @@ export function NoticeEditor({
                 </>
               ) : null}
               {/* 詳細（重要 / 表示日数）。開いている時だけ、行下に全幅で開く（flexBasis:100% で次行へ折返す）。
-                  重要 / 表示日数の onChange ロジックは従来と同一（挙動不変・畳んでも state は保持）。 */}
-              {open ? (
+                  重要 / 表示日数の onChange ロジックは従来と同一（挙動不変・畳んでも state は保持）。
+                  空行では畳む（Reviewer MINOR: 本文入力→詳細を開く→本文全消去 で詳細トグルが消え、開いた
+                  パネルが畳めず宙に残る穴を塞ぐ。open 状態は保持され、再入力で戻る）。 */}
+              {open && r.text.trim() !== "" ? (
                 <div id={detailId} style={{ ...detailPanelStyle, flexBasis: "100%" }}>
                   <label style={detailLabelStyle}>
                     <input
