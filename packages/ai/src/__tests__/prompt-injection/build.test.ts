@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, buildUserPrompt, neutralizeInput } from "../../prompt/build.js";
+import {
+  KIND_OUTPUT_SHAPE,
+  buildSystemPrompt,
+  buildUserPrompt,
+  neutralizeInput,
+} from "../../prompt/build.js";
+import { EXTRACTION_KINDS, schemaForKind } from "../../schema/extraction.js";
 
 describe("プロンプトインジェクション対策", () => {
   it("ユーザー入力を XML タグでセパレートする", () => {
@@ -28,14 +34,38 @@ describe("プロンプトインジェクション対策", () => {
   it("system プロンプトはタグ内を指示でなくデータとして扱うと宣言する", () => {
     const sys = buildSystemPrompt("schedule");
     expect(sys).toContain("【データ】");
-    expect(sys).toContain("confidence_score");
     expect(sys).toContain("JSON");
+  });
+
+  it("KIND_OUTPUT_SHAPE の全例が検証スキーマ（Zod）をそのまま通る（契約 1:1 の機械固定）", () => {
+    // プロンプトに見せる「出力の形」がスキーマとズレると F03 が全滅する（2026-07-05 eval）。
+    // コメント規律でなくテストで固定: 例を書き換えたら必ずここで突き合わせられる（Reviewer MEDIUM-1）。
+    for (const kind of EXTRACTION_KINDS) {
+      const parsed = schemaForKind(kind).safeParse(JSON.parse(KIND_OUTPUT_SHAPE[kind]));
+      expect(
+        parsed.success,
+        `${kind}: ${parsed.success ? "" : JSON.stringify(parsed.error.issues)}`,
+      ).toBe(true);
+    }
+  });
+
+  it("出力契約は検証スキーマ（camelCase）とフィールド名が一致する", () => {
+    // 2026-07-05 eval で発覚した契約不一致の再発防止: プロンプトが snake_case
+    // （confidence_score 等）を要求すると Zod（camelCase）に必ず落ち、F03 が全滅する。
+    for (const kind of ["schedule", "announcement", "summary", "tag"] as const) {
+      const sys = buildSystemPrompt(kind);
+      // 出力例 JSON はスキーマと同じ camelCase キーを示す（snake_case の出力例は書かない）。
+      expect(sys).toContain('"confidenceScore":');
+      expect(sys).not.toContain('"confidence_score"');
+      expect(sys).toContain(`"kind":"${kind}"`);
+      expect(sys).toContain('"evidence":');
+    }
   });
 
   it("公開先・掲示期間の提案を要求し、捏造を促さない（F01）", () => {
     const sys = buildSystemPrompt("announcement");
-    expect(sys).toContain("suggested_publish_scope");
-    expect(sys).toContain("suggested_period");
+    expect(sys).toContain("suggestedPublishScope");
+    expect(sys).toContain("suggestedPeriod");
     // 許可値域を明示する。
     expect(sys).toContain("school");
     expect(sys).toContain("private");
