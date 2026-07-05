@@ -15,6 +15,53 @@
   gap: 1.25rem;
 }
 
+/*
+ * 配置最適化（2026-07-05・user-observed「スクロールしないと分からない/盤面が上へ流れて消える/同じ情報の
+ * 二重掲載で縦に伸びる」）: 広い PC では盤面プレビューを左に **sticky 固定**し、編集セクションを右で独立
+ * スクロールさせる 2 カラムにする（＝結果を見失わずに編集できる・Dillinger/CodePen の常時プレビューを横長
+ * 盤面へ翻案）。狭い画面・スマホは従来どおり縦積み（プレビュー上／編集下）。**編集できる範囲・保存・自動保存・
+ * クリックジャンプは一切不変**＝配置だけの最適化。プレビューが無い（base=null / showBoard=false）ときは
+ * `.layout` を付けず素の縦積みにフォールバックする（JSX 側で分岐）。
+ */
+/* 既定（狭い画面・スマホ）は縦積み。flex-column の gap で盤面↔編集の従来の縦間隔（1.25rem）を保つ
+   （block だと gap が効かず両者が密着する）。≥1240px で 2 カラムへ切替（下）。 */
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+/* プレビューカラム（左）。hint↔盤面の小さな縦間隔を保つ。≥1240px で sticky 化（下）。 */
+.previewCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+/* 編集カラム（右）。min-width:0 で子の表（min-width 30rem）による横溢れを防ぐ。来校者/呼び出し（gridCq）が
+   「親カラムの実幅」で 1/2 カラムを決められるよう container 化する（狭い右カラムでは自動で 1 カラム）。 */
+.editorCol {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+  container-type: inline-size;
+}
+@media (min-width: 1240px) {
+  .layout {
+    display: grid;
+    /* 盤面（左・やや広め）｜編集（右・>=480px 確保できる比率）。閾値 1240px で右カラム >=約 527px を確保し
+       提出物/来校者の表（min-width 30rem=480px）を窮屈にしない（実測で微調整可）。 */
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  /* 盤面は左カラムで sticky（右の編集をスクロールしても常に見える）。align-self:start が無いとグリッド行いっぱいに
+     引き伸ばされて sticky が効かない。top はアプリヘッダー（.admin-header＝非 fixed）下にわずかな余白。 */
+  .previewCol {
+    position: sticky;
+    top: 1rem;
+    align-self: start;
+  }
+}
+
 /* プレビュー（盤面）枠。盤面の 16:9 をそのまま見せ、影で浮かせる。領域クリックは盤面内部の実セクションが担う。 */
 .canvas {
   width: 100%;

@@ -38,6 +38,15 @@ vi.mock("@/lib/editor/notice-assignment-actions", () => ({
   setNoticesAction: (...a: unknown[]) => h.setNoticesAction(...a),
   setAssignmentsAction: (...a: unknown[]) => h.setAssignmentsAction(...a),
 }));
+// WysiwygBoardEditor は来校者/呼び出し（VisitorsCalloutsSection）を編集カラムに内包するようになった（配置最適化
+// 2026-07-05）。その配下エディタ（CalloutsEditor / VisitorsEditor）が引く server action（"use server" → next/cache・
+// @kimiterrace/db）をモックして島だけ評価する（visitors-callouts-section.test と同じ作法）。
+vi.mock("@/lib/editor/visitors-actions", () => ({
+  setVisitorsAction: vi.fn(async () => ({ ok: true, data: { count: 0 } })),
+}));
+vi.mock("@/lib/editor/callouts-actions", () => ({
+  setCalloutsAction: vi.fn(async () => ({ ok: true, data: { count: 0 } })),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: h.refresh, push: h.push }),
 }));
@@ -470,5 +479,45 @@ describe("WysiwygBoardEditor", () => {
     ).toBe("true");
 
     document.body.removeChild(target);
+  });
+
+  it("pattern2: 来校者/呼び出しの編集欄を編集カラム内に同居させる（配置最適化 2026-07-05・VisitorsCalloutsSection を内包）", () => {
+    // 配置最適化で、来校者/呼び出し（pattern2/3 のブロック）は親（page.tsx）の兄弟ではなく WysiwygBoardEditor の
+    // 編集カラム内に同居する（盤面プレビュー＝左 sticky を見失わずに編集できる）。showVisitors/showCallouts と
+    // データを渡すと、予定に加えて 来校者一覧 / 生徒呼び出し の見出しが同じエディタ内に出る。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={{ ...base(), designPattern: "pattern2" }}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        showVisitors
+        showCallouts
+        visitors={[]}
+        callouts={[]}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "予定", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "来校者一覧", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "生徒呼び出し", level: 2 })).toBeTruthy();
+  });
+
+  it("既定（showVisitors/showCallouts 未指定）では来校者/呼び出しを出さない（optional 既定 false・回帰なし）", () => {
+    // 新プロップは optional・既定 false。渡さないパターン（pattern1 等）や既存テストは従来どおり来校者/呼び出しを
+    // 描かない（VisitorsCalloutsSection は showVisitors||showCallouts が false なら null を返す）。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    expect(screen.queryByRole("heading", { name: "来校者一覧", level: 2 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "生徒呼び出し", level: 2 })).toBeNull();
   });
 });

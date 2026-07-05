@@ -10,6 +10,7 @@ import type {
 } from "@/lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { DEFAULT_SIGNAGE_DESIGN_PATTERN } from "@/lib/signage/design-pattern";
+import type { ClassVisitor, StudentCallout } from "@kimiterrace/db";
 import {
   blockLabel,
   blockRowCapacity,
@@ -22,6 +23,7 @@ import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
 import { PinnedNoticesList } from "./PinnedNoticesList";
 import { ScheduleEditor } from "./ScheduleEditor";
+import { VisitorsCalloutsSection } from "./VisitorsCalloutsSection";
 import styles from "./WysiwygBoardEditor.module.css";
 import { editorRegionAnchorId } from "./region-anchor";
 
@@ -47,8 +49,11 @@ import { editorRegionAnchorId } from "./region-anchor";
  * 保存ペイロード相当だけを親へ通知する。親はそれをプレビュー描画に使うだけで、保存・RLS・監査には一切関与しない
  * （データ非破壊・既存挙動温存）。検証前の生値が来ても盤面整形（`section-format.ts`）が fail-soft で受ける。
  *
- * ## レスポンシブ
- * スマホ（≤899px）はプレビューを畳み、従来の縦積みフォーム編集に倒す（タスク指示: スマホは現行 UI のままで良い）。
+ * ## レスポンシブ / 配置（配置最適化 2026-07-05・user-observed「スクロールしないと分からない/盤面が流れて消える」）
+ * 広い PC（≥1240px）は盤面プレビューを左に **sticky 固定**し、編集セクション（予定/連絡/提出物 + 来校者/呼び出し）を
+ * 右カラムで独立スクロールさせる 2 カラム（`.layout`/`.previewCol`/`.editorCol`・CSS）。結果を見失わず編集できる。
+ * 中間幅（900–1239px）は従来どおり縦積み（プレビュー上／編集下）、スマホ（≤899px）はプレビューを畳み従来の縦積み
+ * フォームに倒す。**編集できる範囲・保存・自動保存・クリックジャンプは一切不変**＝配置だけの最適化。
  */
 // 領域識別子は盤面の編集ボタンと**単一ソース**を共有する（`EditRegion`）。ここで再定義してドリフトさせない。
 type Region = EditRegion;
@@ -66,6 +71,10 @@ export function WysiwygBoardEditor({
   pinnedNotices,
   previewPinnedNotices,
   showBoard = true,
+  showVisitors = false,
+  showCallouts = false,
+  visitors = null,
+  callouts = null,
 }: {
   classId: string;
   date: string;
@@ -97,6 +106,17 @@ export function WysiwygBoardEditor({
    * パターン別の出し分け・保存・検証・自動保存は変わらない。
    */
   showBoard?: boolean;
+  /**
+   * 来校者一覧 / 生徒呼び出し（pattern2/3 のブロック）を編集カラムに同居させるためのデータと出し分け。親
+   * （page.tsx）が `patternIncludesBlock` 単一ソースで決めた `showVisitors` / `showCallouts` と、盤面 payload
+   * 由来の `visitors` / `callouts` をそのまま渡す。既定は非表示（渡さないパターン・単体テストは従来どおり
+   * 来校者/呼び出しを描かない）。実体の表示・保存・検証・RLS/監査・複製ガードは {@link VisitorsCalloutsSection}
+   * が温存して担い、本コンポーネントは配置（編集カラム内）だけを与える（配置最適化 2026-07-05）。
+   */
+  showVisitors?: boolean;
+  showCallouts?: boolean;
+  visitors?: ClassVisitor[] | null;
+  callouts?: StudentCallout[] | null;
 }) {
   // ライブプレビュー用の下書き集約。各エディタの onItemsChange で更新され、盤面再描画のみに使う（保存は各エディタ）。
   const [schedules, setSchedules] = useState<ScheduleItem[]>(initialSchedules);
@@ -224,118 +244,144 @@ export function WysiwygBoardEditor({
   const noticePrefill = blockRowCapacity(pattern, "notice");
   const assignmentPrefill = blockRowCapacity(pattern, "assignment");
 
+  // 配置最適化（2026-07-05・user-observed「スクロールしないと分からない/盤面が流れて消える」）: 盤面プレビューが
+  // ある通常時は 2 カラム（左=盤面 sticky／右=編集）にする（CSS `.layout` が ≥1240px で 2 カラム化・それ未満は
+  // 縦積み）。プレビューが無い（base=null / showBoard=false）ときは `.layout` を付けず素の縦積みへフォールバック。
+  const hasPreview = Boolean(showBoard && previewPayload);
   return (
     <div className={styles.root}>
-      {showBoard && previewPayload ? (
-        <>
-          <p className={styles.hint}>
-            実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
-          </p>
+      <div className={hasPreview ? styles.layout : undefined}>
+        {/* 生条件（showBoard && previewPayload）で分岐＝この中で previewPayload が非 null に絞り込まれる
+            （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
+        {showBoard && previewPayload ? (
+          <div className={styles.previewCol}>
+            <p className={styles.hint}>
+              実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
+            </p>
 
-          {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
+            {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
               そのもの**（Approach A）。`editRegions` を渡すと `SignageBoardView` が予定 / 連絡 / 提出物の実 `<section>` を
               `position:relative` 化して `inset:0` の編集ボタンを内側に敷く＝実描画要素を覆うので％近似のズレが原理的に
               起きない（旧・別レイヤーの％オーバーレイを廃止）。盤面内部の装飾見出し / region 名は編集モードで AT から
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
-          <div ref={canvasRef} className={styles.canvas}>
-            {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
+            <div ref={canvasRef} className={styles.canvas}>
+              {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
                 幅計測（ResizeObserver / マウント）が済むまでは盤面を出せないので、その間は真っ白な空箱ではなく
                 スケルトンを敷く（LEDGER v2-ed-uo11: 読み込み中の "白い空箱" を解消）。 */}
-            {boardWidth != null ? (
-              <ScaledSignageBoard
-                payload={previewPayload}
-                width={boardWidth}
-                editRegions={{ active, onRegion: focusRegion }}
-                now={now}
-                // 実機と同じく広告をローテーション表示（要望）。index は useAdRotation が duration 秒ごとに進める。
-                adIndex={adIndex}
-              />
-            ) : (
-              <div className={styles.skeleton} aria-hidden="true" />
-            )}
+              {boardWidth != null ? (
+                <ScaledSignageBoard
+                  payload={previewPayload}
+                  width={boardWidth}
+                  editRegions={{ active, onRegion: focusRegion }}
+                  now={now}
+                  // 実機と同じく広告をローテーション表示（要望）。index は useAdRotation が duration 秒ごとに進める。
+                  adIndex={adIndex}
+                />
+              ) : (
+                <div className={styles.skeleton} aria-hidden="true" />
+              )}
+            </div>
           </div>
-        </>
-      ) : null}
+        ) : null}
 
-      {/* 下段: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存して担う）。
-          **並び順は PATTERN_BLOCKS の配列順に自動追従**（盤面レイアウトの主役順と「見たまま一致」・§6.1。
-          pattern5 は お知らせ が先頭）。見出しはパターン別ラベル（blockLabel §6.2）＝盤面 region 名・
-          ジャンプチップと単一ソースで一致（pattern1〜4 は従来の順・従来値のまま非破壊）。 */}
-      <div className={styles.editors}>
-        {editorBlocks.map((kind) => {
-          if (kind === "schedule") {
-            return (
-              <EditorCard
-                key={kind}
-                title={blockLabel(pattern, "schedule")}
-                cardRef={scheduleRef}
-                active={active === "schedules"}
-                onFocusCapture={() => setActive("schedules")}
-              >
-                <ScheduleEditor
-                  classId={classId}
-                  date={date}
-                  initialItems={initialSchedules}
-                  onItemsChange={onSchedules}
-                  showDateNav={false}
-                  prefillRows={schedulePrefill}
-                  // 掲示板型（pattern5）は時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）。
-                  slotInput={scheduleInputVariant(pattern)}
-                />
-              </EditorCard>
-            );
-          }
-          if (kind === "notice") {
-            return (
-              <EditorCard
-                key={kind}
-                title={blockLabel(pattern, "notice")}
-                cardRef={noticeRef}
-                active={active === "notices"}
-                onFocusCapture={() => setActive("notices")}
-              >
-                <NoticeEditor
-                  classId={classId}
-                  date={date}
-                  initialItems={initialNotices}
-                  onItemsChange={onNotices}
-                  prefillRows={noticePrefill}
-                  // 「ずっと（固定表示）」はクラスエディタ限定（HIGH-1）: 削除導線（下の PinnedNoticesList）と
-                  // 必ず同居するここでだけ選択可能にする（scope/ops エディタは NoticeEditor 既定 false）。
-                  // pattern5（掲示板型）でも同じ経路で生きる＝校訓の受け皿（PR-C × PR-D の合流点）。
-                  allowPinned
-                />
-                {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
+        {/* 編集セクション（右カラム）: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存
+            して担う）。**並び順は PATTERN_BLOCKS の配列順に自動追従**（盤面レイアウトの主役順と「見たまま一致」・
+            §6.1。pattern5 は お知らせ が先頭）。見出しはパターン別ラベル（blockLabel §6.2）＝盤面 region 名・
+            ジャンプチップと単一ソースで一致（pattern1〜4 は従来の順・従来値のまま非破壊）。 */}
+        <div className={styles.editorCol}>
+          <div className={styles.editors}>
+            {editorBlocks.map((kind) => {
+              if (kind === "schedule") {
+                return (
+                  <EditorCard
+                    key={kind}
+                    title={blockLabel(pattern, "schedule")}
+                    cardRef={scheduleRef}
+                    active={active === "schedules"}
+                    onFocusCapture={() => setActive("schedules")}
+                  >
+                    <ScheduleEditor
+                      classId={classId}
+                      date={date}
+                      initialItems={initialSchedules}
+                      onItemsChange={onSchedules}
+                      showDateNav={false}
+                      prefillRows={schedulePrefill}
+                      // 掲示板型（pattern5）は時限 select でなく時刻テキスト入力（内部は CustomPeriod・保存形不変 §6.2）。
+                      slotInput={scheduleInputVariant(pattern)}
+                    />
+                  </EditorCard>
+                );
+              }
+              if (kind === "notice") {
+                return (
+                  <EditorCard
+                    key={kind}
+                    title={blockLabel(pattern, "notice")}
+                    cardRef={noticeRef}
+                    active={active === "notices"}
+                    onFocusCapture={() => setActive("notices")}
+                  >
+                    <NoticeEditor
+                      classId={classId}
+                      date={date}
+                      initialItems={initialNotices}
+                      onItemsChange={onNotices}
+                      prefillRows={noticePrefill}
+                      // 「ずっと（固定表示）」はクラスエディタ限定（HIGH-1）: 削除導線（下の PinnedNoticesList）と
+                      // 必ず同居するここでだけ選択可能にする（scope/ops エディタは NoticeEditor 既定 false）。
+                      // pattern5（掲示板型）でも同じ経路で生きる＝校訓の受け皿（PR-C × PR-D の合流点）。
+                      allowPinned
+                    />
+                    {/* 固定中のお知らせ（F-C §5.4）: 対象日以外の日に入力された pinned 行は上のエディタに出てこない
                     （幽霊化）ため、連絡カード内に入力日つき一覧と削除導線を出す（受入基準 PR-C-2）。 */}
-                {pinnedNotices && pinnedNotices.length > 0 ? (
-                  <PinnedNoticesList classId={classId} currentDate={date} rows={pinnedNotices} />
-                ) : null}
-              </EditorCard>
-            );
-          }
-          if (kind === "assignment") {
-            return (
-              <EditorCard
-                key={kind}
-                title={blockLabel(pattern, "assignment")}
-                cardRef={assignmentRef}
-                active={active === "assignments"}
-                onFocusCapture={() => setActive("assignments")}
-              >
-                <AssignmentEditor
-                  classId={classId}
-                  date={date}
-                  initialItems={initialAssignments}
-                  onItemsChange={onAssignments}
-                  prefillRows={assignmentPrefill}
-                />
-              </EditorCard>
-            );
-          }
-          // visitor / callout は親（page.tsx の VisitorsCalloutsSection）が盤面下に出す（本コンポーネント外）。
-          return null;
-        })}
+                    {pinnedNotices && pinnedNotices.length > 0 ? (
+                      <PinnedNoticesList
+                        classId={classId}
+                        currentDate={date}
+                        rows={pinnedNotices}
+                      />
+                    ) : null}
+                  </EditorCard>
+                );
+              }
+              if (kind === "assignment") {
+                return (
+                  <EditorCard
+                    key={kind}
+                    title={blockLabel(pattern, "assignment")}
+                    cardRef={assignmentRef}
+                    active={active === "assignments"}
+                    onFocusCapture={() => setActive("assignments")}
+                  >
+                    <AssignmentEditor
+                      classId={classId}
+                      date={date}
+                      initialItems={initialAssignments}
+                      onItemsChange={onAssignments}
+                      prefillRows={assignmentPrefill}
+                    />
+                  </EditorCard>
+                );
+              }
+              // visitor / callout は本コンポーネントが編集カラム内に VisitorsCalloutsSection として出す（下記）。
+              return null;
+            })}
+          </div>
+          {/* 来校者 / 生徒呼び出し（pattern2/3 のブロック）。編集カラムに同居させ、盤面プレビュー（左・sticky）を
+              見失わずに編集できる。実体（表示・保存・検証・RLS/監査・複製ガード）は VisitorsCalloutsSection が温存。
+              親カラム（editorCol＝container）の実幅で 呼び出し｜来校者 の 2/1 カラムを切替（狭い右カラムは 1 カラム）。 */}
+          <VisitorsCalloutsSection
+            classId={classId}
+            date={date}
+            pattern={pattern}
+            showVisitors={showVisitors}
+            showCallouts={showCallouts}
+            visitors={visitors}
+            callouts={callouts}
+          />
+        </div>
       </div>
     </div>
   );

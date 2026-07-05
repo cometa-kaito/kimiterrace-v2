@@ -9,7 +9,9 @@ import boardLayout from "./board-layout.module.css";
 import { editorRegionAnchorId } from "./region-anchor";
 
 /**
- * 来校者一覧 / 生徒呼び出しの編集セクション（pattern2/3 専用ブロック）。盤面の下に 2 カラムで出す。
+ * 来校者一覧 / 生徒呼び出しの編集セクション（pattern2/3 専用ブロック）。WysiwygBoardEditor の編集カラム内に
+ * 置き、親カラムの実幅（container query）で 呼び出し｜来校者 の 2 カラム / 1 カラムを切り替える（配置最適化
+ * 2026-07-05）。盤面プレビュー横の狭いカラムでは 1 カラムに畳み、全幅の縦積み時は従来どおり 2 カラム。
  *
  * ## なぜ独立コンポーネントにしたか（バグ修正の本丸）
  * 旧実装は親（`page.tsx`）が `VisitorsEditor` と `CalloutsEditor` を**同じ `key={date}`** で、しかも
@@ -70,7 +72,10 @@ export function VisitorsCalloutsSection({
   const calloutPrefill = blockRowCapacity(pattern, "callout");
   const visitorPrefill = blockRowCapacity(pattern, "visitor");
   return (
-    <div className={boardLayout.grid} style={{ marginTop: "1rem" }}>
+    // gridCq: 親カラム（WysiwygBoardEditor の編集カラム＝container）の**実幅**で 1/2 カラムを決める。盤面
+    // プレビュー横の狭い編集カラムに入ると自動で 1 カラムに畳み、表（min-width 30rem）の横溢れを防ぐ。全幅
+    // （狭い画面の縦積み）では従来どおり 呼び出し｜来校者 の 2 カラム。marginTop は親 editorCol の gap が担う。
+    <div className={boardLayout.gridCq}>
       {/* 盤面（pattern2/3）と同じ左右順: 生徒呼び出し（左）→ 来校者一覧（右）。各エディタは盤面クリックの
           ジャンプ先になるよう anchor id 付きのラッパで囲む（id はラッパに置き、エディタ本体は無改修に保つ）。
           兄弟間で衝突しない安定キー（callouts-* / visitors-*）を維持し、date を含めて日付変更で再マウントする

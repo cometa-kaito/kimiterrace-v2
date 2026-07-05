@@ -22,6 +22,24 @@
 }
 
 /*
+ * 配置最適化（2026-07-05・user-observed「スクロールしないと分からない/盤面が流れて消える」）版の grid。
+ * `.grid` はビューポート幅（@media）で 2 カラム化するが、盤面プレビュー横の**狭い編集カラム**に入れると、
+ * ビューポートは広くてもカラムは狭い→表（min-width 30rem=480px）が横溢れする。そこで親カラムを container 化
+ * した文脈では「実際に使える親の幅」（@container）で 1/2 カラムを決める。狭いカラム＝1 カラム（溢れない）、
+ * 全幅＝従来どおり 2 カラム。container query 非対応環境は既定の 1 カラムへフォールバック（安全側）。
+ */
+.gridCq {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+@container (min-width: 1000px) {
+  .gridCq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+/*
  * 各編集セクション（来校者一覧 / 生徒呼び出し）を予定/連絡/提出物の EditorCard と同じ枠で囲む
  * （要望 2026-06-23: 予定だけ四角で囲まれていて不揃い → 全セクションを枠で揃える）。値は
  * WysiwygBoardEditor.module.css の .editorCard と意図的に同一にする（枠の見た目の基準を 1 つに保つ）。
