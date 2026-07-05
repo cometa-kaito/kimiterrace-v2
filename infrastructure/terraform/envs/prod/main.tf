@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "9e687a4" # 2026-07-05: 教員エディタ ヘッダー引き算（#1235・説明文削除/「毎日の編集」sr-only化/「編集中」圧縮/余白圧縮=盤面 top 347→245px 上昇・機能不変）を prod 反映。1a52b0d→9e687a4（純粋加算）。schema・secret 無変更・health200/login private,no-cache
+  web_image_tag = "48e2184" # 2026-07-05: 教員エディタ 日付タブを2カラム上の全幅 sticky バーに（#1237・狭い左カラムで2行折り返しを是正→全幅で1行・盤面 top はバー実測高さぶん下げ重なり回避・機能不変）を prod 反映。9e687a4→48e2184（純粋加算）。schema・secret 無変更・health200/login private,no-cache（実測: 日付タブ1行/バー幅1100/盤面重なり無し）
 }
 
 module "network" {
