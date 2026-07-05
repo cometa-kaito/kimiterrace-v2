@@ -559,6 +559,131 @@ body {
   }
 }
 
+/* ---- 管理アクション言語（一次 / 二次 の共有 chip トーン・単一ソース） ----
+ * 運営コンソール各ページがヘッダの操作リンクを個別のインライン style で組み、色（オレンジ #ea580c 生
+ * テキスト＝白地3.6:1 で本文AA未達／別ページは #1d4ed8 生hex）と重み付けがページ間でドリフトしていた。
+ * 操作の意味をトーンに揃えて className 1 本で共有する（値は既存 --brand-* のみ・新規トークンなし）:
+ *   - 一次(--primary)  = 塗りオレンジの CTA（1画面1つ。例: 学校一覧の「新規登録」）。
+ *   - 二次(既定)       = ブランド青 --brand-blue-strong のアウトライン chip（白地 7.1:1・AA/AAA）。
+ * 破壊アクション（削除）は現状 SchoolDeleteButton が確認フロー込みで自前スタイルを持つため共有 chip
+ * トーンには含めない（共有 chip 化は将来ボタンを結線する時・#1240）。危険ゾーンの面（.kt-dangerzone）で
+ * 使う danger 生 hex（#fef2f2/#fca5a5）は既存 danger サーフェス（.chat-panel__error 等）と同値で踏襲。 */
+.kt-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.kt-page-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+}
+.kt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.kt-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--brand-border);
+  border-radius: 0.6rem;
+  background: #fff;
+  color: var(--brand-blue-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.kt-action:hover {
+  background: var(--brand-bg-soft);
+  border-color: var(--brand-blue-strong);
+}
+/* 新規インタラクティブ要素のキーボード可視フォーカス（UA 既定リングは白地×薄枠 chip 上で埋もれる）。 */
+.kt-action:focus-visible {
+  outline: 2px solid var(--brand-blue-strong);
+  outline-offset: 2px;
+}
+.kt-action--primary {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: #fff;
+}
+.kt-action--primary:hover {
+  background: var(--brand-primary-hover);
+  border-color: var(--brand-primary-hover);
+}
+.kt-action--primary:focus-visible {
+  outline-color: var(--brand-primary);
+}
+/* 操作ゾーンの帯: この対象（学校）を操作する頻用アクションを、マスタ編集/破壊から分離する。
+   bg-soft の面差だけでは白ページ上で知覚できない（実測 1.06:1）ため、左のブランド橙アクセント罫 +
+   ink 級の見出しでゾーン識別を担わせる（面の淡さは補助・ここで橙が本文に一点入り主従も回復する）。 */
+.kt-opzone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid var(--brand-border);
+  border-left: 4px solid var(--brand-primary);
+  border-radius: 0.75rem;
+  background: var(--brand-bg-soft);
+  padding: 0.75rem 0.9rem;
+}
+.kt-opzone__label {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--brand-ink);
+}
+/* 帯の中の chip は白地で薄面から浮かせる（帯=薄面、chip=白サーフェス）。 */
+.kt-opzone .kt-action {
+  background: #fff;
+}
+.kt-opzone .kt-action:hover {
+  background: var(--brand-bg-soft);
+}
+/* 危険ゾーン（ページ末尾）: 破壊操作を routine 動線から物理的に離す（誤操作耐性）。白面では上の
+   ツリー（白＋薄枠）と見分けがつかず「危険」に見えないため、既存の danger サーフェス
+   （.chat-panel__error）と同じ薄赤面 #fef2f2 + 濃いめ赤枠 #fca5a5（SchoolDeleteButton パネルと同値）で
+   警告面として立てる。注意文と実行ボタンは近接（flex-start）させ「読んでから押す」導線にする。 */
+.kt-dangerzone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem 1rem;
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #fca5a5;
+  border-radius: 0.75rem;
+  background: #fef2f2;
+}
+.kt-dangerzone__note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--brand-muted);
+}
+@media (max-width: 640px) {
+  /* モバイルのタップ領域 44px（推奨）と間隔拡大。 */
+  .kt-action {
+    min-height: 2.75rem;
+  }
+  .kt-actions {
+    gap: 0.6rem;
+  }
+}
+
 /*
  * 横断統一: AI 処理中の「考え中…」即時フィードバック（ADR-033 §3-④ / #243 ②UI-UX）。
  * 動かないスピナーは「失敗」と読まれ二重送信（Vertex 課金/レート）を招くため、AI が働いている間は
