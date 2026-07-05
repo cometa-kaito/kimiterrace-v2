@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "1bed55f" # エディタ再構成 PR-A〜D（#1216/#1217/#1218/#1220/#1221/#1222/#1223・アプリコードは bdcab46d 同一）: 単一スタック+日付セグメント+3ゾーン・⠿/★/区切り線・pinned固定行・掲示板型pattern5+AI/コピー動的化。schema=0037（prod 適用済 7shvb・migrate_image_tag 同時 bump）・secret 無変更・疎通 health200/login private,no-cache
+  web_image_tag = "4ce9594" # AI精度改善 #1226(F03契約修正)/#1227(会話型 日付表+days)/#1229(eval基盤)。schema・secret無変更・/api/health 200・cache-control 健全
 }
 
 module "network" {
