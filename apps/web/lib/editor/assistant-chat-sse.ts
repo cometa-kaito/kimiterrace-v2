@@ -13,7 +13,7 @@ import {
   unmaskPII,
 } from "@kimiterrace/ai";
 import { type TenantContext, auditLog, withTenantContext } from "@kimiterrace/db";
-import { jstDateLabel } from "./assistant-core";
+import { jstDateLabel, jstUpcomingDateTable } from "./assistant-core";
 import {
   ASSISTANT_CHAT_EVENTS,
   type AssistantChatErrorReason,
@@ -236,6 +236,8 @@ export async function respondWithAssistantChat(
           args.allowedSections,
           dateLabel,
           args.manualSectionLabels,
+          // 実在日付↔曜日の対応表（曜日算術ミス・相対日付の解決ミスの根治。deps.nowMs 基準で決定的）。
+          jstUpcomingDateTable(now),
         );
         const { masked, dictionary } = maskPII(userPrompt, []);
         if (findUnmaskedPii(masked, []).length > 0) {
