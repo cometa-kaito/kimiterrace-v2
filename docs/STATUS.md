@@ -23,10 +23,10 @@
 
 ---
 
-## 現在地サマリ（2026-06-21）
+## 現在地サマリ（2026-07-05）
 
-- **main HEAD**: `c10e7958`（#1111 magic link 一覧 GET 可視性チェック squash merge）。URL は `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（[[ref_namespace_rename_breaks_e2e_url_asserts]]）。
-- **staging live / prod live**: image `web:c10e795`（2026-06-21 **多ロール バグ修正リリース**＝下記「直近の完了」2026-06-21・web のみ・schema/secret 無変更・両 env `/api/health` 200・`/login` `private,no-cache`＝force-dynamic 健全）。前 image `web:2cd6d03`（pattern4 カルーセル一式 #1097-1103・signage 表示層、別セッション）。**fb826fc→2cd6d03 の中間 signage リリース**（#1061 monitor/#1070 hotfix/#1087 news要約/#1093 monitor token/#1094-1100 pattern4 等）は各 terraform コメント / PR body / memory が一次ソース。
+- **main HEAD**: `134eb58f`（#1242 bump=下記 #1239 反映記録）。直下 `2f266805`（[#1239](https://github.com/cometa-kaito/kimiterrace-v2/pull/1239) system_admin 学校詳細/一覧の taste 改善）。URL は `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（[[ref_namespace_rename_breaks_e2e_url_asserts]]）。
+- **staging live / prod live**: image `web:2f26680`（2026-07-05 **#1239 system_admin 学校詳細 taste 改善**＝下記「直近の完了」2026-07-05・web のみ・schema/secret 無変更・両 env `/api/health` 200・`/login` `private,no-cache`＝force-dynamic 健全・`/ops` 307→login・prod rev `00140-9p8`）。この image は先行の**教員エディタ #1230-1237 + AI精度 #1226-1229** を内包（prod は各スレッドの bump #1231/#1232-1238 で既反映済・staging は本デプロイで catch-up）。前 prod image `web:48e2184`（#1237 エディタ日付タブ・別スレッド）。
 - **migrate 実行済**（最新 `migrate_image_tag=ea93c5f`: news/weather/heat/snippets/calendar/air_quality の 0028-0033・#1061 ad_target_monitors 含む。本リリースは **schema 無変更=migrate 不要**）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash・`GEMINI_THINKING_BUDGET=0`）。
 - **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/ops/schools/<id>/edit`（旧 `/admin/system/...`、§4.1 改称）で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
@@ -39,6 +39,11 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-07-05: **system_admin 運営コンソール(/ops) の taste 改善「学校詳細を3トーンのアクション言語で再設計」を staging→prod 反映済み（夜間自律: ux-discovery→忠実再現レンダで多レンズ敵対的批評2周→実装→CI 13/13緑 + fresh Reviewer APPROVE→自律 merge→staging→prod・prod live `web:2f26680` rev `00140-9p8`）**。ユーザー依頼「system_admin 面全体の UX 改善・無人でデプロイまで（就寝中）」。
+  - **発見（ux-discovery）**: 学校詳細 `/ops/schools/[id]` のヘッダが**8操作を1列フラット**（エディタ/クラス設定/広告掲載/静粛時間/生徒アクセスリンク/センサー/編集=全て同一の生hex青リンク `#1d4ed8`＋削除）で情報階層ゼロ・削除が編集の直後で誤クリック導線・モバイル375で245×207pxの縦に絡む塊。画面間で編集リンク色も割れ（学校一覧=オレンジ `#ea580c` 白地 **3.56:1 AA未達** / 詳細=青 `#1d4ed8`）。
+  - **[#1239](https://github.com/cometa-kaito/kimiterrace-v2/pull/1239)**: アクション言語（一次=塗りオレンジCTA / 二次=ブランド青 `--brand-blue-strong #2b4acb` アウトライン chip・白地 **7.13:1**）を `globals.css` に**単一ソース化**。学校詳細=タイトル行(編集のみ)＋橙アクセント罫/ink見出しの「操作ゾーン」帯(6運用操作)＋末尾の**危険ゾーン**(薄赤面 `#fef2f2`・削除を編集から DOM 距離9で隔離)。端末設定リンク/空状態を token 化。学校一覧=新規登録を一次CTA・行内編集をオレンジ→青(AA是正)。値は既存 `--brand-*` のみ(新規トークン無し=ドリフトテスト非該当)・**schema/RLS/認可/監査 非接触の taste**。`SchoolDeleteButton` は再配置のみ(内部不変)。多レンズ批評(情報階層/使いやすさ/ブランド)2周で名前付き欠陥ゼロに収束。
+  - **デプロイ**: web のみ・**migrate 不要**。staging `4ce9594`→`2f26680`(教員エディタ #1230-1237 + AI精度 #1226-1229 の catch-up 込み=いずれも既 prod)/ prod `48e2184`→`2f26680`(**純粋加算=本修正のみ**・`48e2184..2f266805` に migration/他機能なし)。両 env Cloud Build SUCCESS・apply 0add/1change/0destroy・health200/login private,no-cache/`/ops` 307→login。bump 記録 [#1242](https://github.com/cometa-kaito/kimiterrace-v2/pull/1242)。
+  - **残 follow-up** [#1240](https://github.com/cometa-kaito/kimiterrace-v2/issues/1240): 他 /ops 画面(publishes/ai-chat のオレンジ詳細リンク・~18ファイルの `#1d4ed8`)の青 `#2b4acb` 統一。**実画面 click-through は system_admin 本人ログイン要**(Claude 不可・CI E2E認証済みレンダ + fresh Reviewer + 実CSS描画実測 + staging/prod route smoke で担保)。
 - 2026-07-05: **AI 精度改善（eval 基盤起点）を main へ merge 済（#1226/#1227/#1229・各 CI 13/13 緑 + fresh Reviewer・merge は人間承認）。未デプロイ＝次回 web デプロイで本番反映**。実 Vertex eval（[#1229](https://github.com/cometa-kaito/kimiterrace-v2/pull/1229) `apps/web/__tests__/ai/evals/`・`RUN_AI_EVAL=1` gate・レポート reports/）を新設し測定→修正→再測定。**会話型 90.4%→98.8% / F03 0%→100%**（TB=0 本番同等・2 連続再現）。
   - [#1226](https://github.com/cometa-kaito/kimiterrace-v2/pull/1226) **F03 全滅の根治（P1）**: プロンプト `confidence_score`(snake) ⇄ Zod `confidenceScore`(camel) の契約不一致で全 kind status=failed（音声/ファイル抽出が常に失敗）。KIND_OUTPUT_SHAPE（Zod と 1:1 の出力例）を system に明示 + 1:1 を機械固定するテスト追加。vertex-live は failed も合格扱いで CI 検出不能だった。
   - [#1227](https://github.com/cometa-kaito/kimiterrace-v2/pull/1227) **会話型の曜日算術ミス+days 偽成功の根治**: `jstUpcomingDateTable`（実在日付↔曜日 14 日表）を system 注入で表引き解決（「来週の水曜」→木曜日付事故の根治）/ top-level=基準日のみ・別日は 1 日でも days / 未投入の「作成しました」宣言禁止（date 77→100%・multiday 66→100%）。
