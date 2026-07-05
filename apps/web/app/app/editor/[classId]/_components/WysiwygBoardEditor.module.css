@@ -91,27 +91,37 @@
     0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-/* 編集器スタック（プレビューの下）。各セクションをカードに包み、選択中はハイライト。 */
+/* 編集器スタック（プレビューの下）。#1: 全カードを同じ灰枠ボックスにせず、境界は最小限に。box（1px 枠）を
+   廃し、セクション間は薄い罫線だけで分ける。編集中のカードだけ「面（淡い青）＋左アクセント帯」で前に出す
+   （アクセント色は“今編集している所”だけに絞る）。 */
 .editors {
   display: grid;
-  gap: 1rem;
+  gap: 0;
 }
 .editorCard {
-  border: 1px solid var(--editor-border, #e5e7eb);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
+  padding: 1.15rem 0.5rem 1.35rem 0.85rem;
+  border-left: 3px solid transparent;
   scroll-margin-top: 1rem;
   transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
+/* セクション間の薄い罫線（枠箱の代わり）。先頭カード（＝盤面直下）には引かない。 */
+.editorCard:not(:first-child) {
+  border-top: 1px solid var(--editor-border, #e5e7eb);
+}
+/* 編集中のカード＝盤面の該当領域と対応。3 セクションを対等に見せるため、面（淡い青の塗り）はやめて左アクセント
+   帯だけにする（敵対的批評 D4: 予定だけ塗ると「予定が唯一の選択中セクション」に誤読される）。盤面側の該当領域は
+   点線ハイライトが主たる対応キューで、こちらは軽い補助。 */
 .editorCardActive {
-  border-color: #2c5282;
-  box-shadow: 0 0 0 3px rgba(44, 82, 130, 0.18);
+  border-left-color: var(--brand-blue-strong, #2b4acb);
 }
+/* #5 型スケール: セクション見出しを明確な第1階層に（本文 0.95rem・ラベル 0.78–0.85rem と 3 段化）。 */
 .editorCardTitle {
-  font-size: 1.05rem;
-  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--brand-ink, #1f2937);
+  margin: 0 0 0.6rem;
 }
 
 /*

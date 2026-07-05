@@ -9,13 +9,14 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import {
+  blankRowStyle,
   detailPanelStyle,
   draggingRowStyle,
   dropOverRowStyle,
   inputStyle,
+  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  secondaryBtnStyle,
   tableStyle,
   tableWrapStyle,
   tdStyle,
@@ -113,8 +114,9 @@ export function AssignmentEditor({
         isHighlight: i.isHighlight === true,
       })),
       prefillRows,
-      // 事前生成の空行は提出期限を対象日で初期化（addRow と同じ既定。そのまま使えることが多い）。
-      (index) => ({ id: `r${index}`, deadline: date, subject: "", task: "", isHighlight: false }),
+      // 事前生成の空行の提出期限は**空**にする（#3: 既定日が入っていると空行が「記入済み」に見えるため）。
+      // 内容を入れ始めたら update() が対象日を補うので保存の摩擦は無い。
+      (index) => ({ id: `r${index}`, deadline: "", subject: "", task: "", isHighlight: false }),
     ),
   );
   // 新規行の安定キー用カウンタ（初期行 + 事前生成の空行は r0.. を使うので、その総数から続けて衝突しない）。
@@ -149,7 +151,20 @@ export function AssignmentEditor({
   });
 
   function update(index: number, patch: Partial<Row>) {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== index) {
+          return r;
+        }
+        const next = { ...r, ...patch };
+        // 空だった行に内容を入れ始めたら、空表示にしていた提出期限へ既定（対象日）を補う（#3 の空表示と、
+        // 期限未設定で保存されない摩擦を両立）。deadline が空のときだけ補完＝教員の明示編集は上書きしない。
+        if (next.deadline === "" && (next.subject.trim() !== "" || next.task.trim() !== "")) {
+          next.deadline = date;
+        }
+        return next;
+      }),
+    );
   }
   function addRow() {
     const id = `r${nextId.current}`;
@@ -210,6 +225,8 @@ export function AssignmentEditor({
                   <tr
                     {...reorder.rowProps}
                     style={{
+                      // 空行は薄く（#3 記入済みだけ濃く）。科目・提出物を入力すると濃くなる。
+                      ...(isBlankAssignmentRow(r) ? blankRowStyle : {}),
                       ...(reorder.isDragging ? draggingRowStyle : {}),
                       ...(reorder.isOver ? dropOverRowStyle : {}),
                     }}
@@ -251,23 +268,30 @@ export function AssignmentEditor({
                       />
                     </td>
                     <td style={tdStyle}>
-                      <RowDetailToggle
-                        open={open}
-                        hasValue={r.isHighlight}
-                        onToggle={() => disclosure.toggle(r.id)}
-                        controlsId={detailId}
-                        label={`${i + 1} 件目の詳細項目`}
-                      />
+                      {/* 空行では詳細/削除の chrome を畳む（#1/#3: 5〜N 行の反復ボタン壁を減らし、空行を軽くする）。
+                          内容を入れると行が「空でない」になり詳細/削除が現れる。 */}
+                      {!isBlankAssignmentRow(r) ? (
+                        <RowDetailToggle
+                          open={open}
+                          hasValue={r.isHighlight}
+                          onToggle={() => disclosure.toggle(r.id)}
+                          controlsId={detailId}
+                          label={`${i + 1} 件目の詳細項目`}
+                        />
+                      ) : null}
                     </td>
                     <td style={tdStyle}>
-                      <button
-                        type="button"
-                        onClick={() => removeRow(i)}
-                        style={removeBtnStyle}
-                        aria-label={`${i + 1} 件目を削除`}
-                      >
-                        削除
-                      </button>
+                      {!isBlankAssignmentRow(r) ? (
+                        <button
+                          type="button"
+                          onClick={() => removeRow(i)}
+                          style={removeBtnStyle}
+                          className="kt-row-delete"
+                          aria-label={`${i + 1} 件目を削除`}
+                        >
+                          削除
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                   {/* 詳細行（★重要・§5.2）。開いている時だけ描画。D&D のドロップ先にしないため rowProps を付けない。 */}
@@ -303,7 +327,7 @@ export function AssignmentEditor({
       </div>
 
       <div style={saveBarStyle}>
-        <button type="button" onClick={addRow} style={secondaryBtnStyle}>
+        <button type="button" onClick={addRow} style={primaryBtnStyle}>
           提出物を追加
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />

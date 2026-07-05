@@ -289,6 +289,7 @@ export function CalloutsEditor({
                         type="button"
                         onClick={() => removeRow(i)}
                         style={removeBtnStyle}
+                        className="kt-row-delete"
                         aria-label={`${i + 1} 行目を削除`}
                       >
                         削除

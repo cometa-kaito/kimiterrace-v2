@@ -10,13 +10,15 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { AutoSaveStatusText } from "./AutoSaveStatusText";
 import { DragHandle } from "./DragHandle";
 import {
+  blankRowStyle,
   detailPanelStyle,
   draggingRowStyle,
   dropOverRowStyle,
   inputStyle,
+  primaryBtnStyle,
   removeBtnStyle,
   saveBarStyle,
-  secondaryBtnStyle,
+  subtleBtnStyle,
 } from "./editor-styles";
 import { RowDetailToggle, useRowDisclosure } from "./RowDetails";
 import { toEditorTarget } from "./target";
@@ -389,6 +391,7 @@ export function NoticeEditor({
                   type="button"
                   onClick={() => removeRow(i)}
                   style={removeBtnStyle}
+                  className="kt-row-delete"
                   aria-label={`${i + 1} 件目を削除`}
                 >
                   削除
@@ -416,6 +419,8 @@ export function NoticeEditor({
                 gap: "0.5rem",
                 alignItems: "center",
                 flexWrap: "wrap",
+                // 空行は薄く（#3 記入済みだけ濃く）。本文を入力すると濃くなる。
+                ...(r.text.trim() === "" ? blankRowStyle : {}),
                 ...(reorder.isDragging ? draggingRowStyle : {}),
                 ...(reorder.isOver ? dropOverRowStyle : {}),
               }}
@@ -433,21 +438,28 @@ export function NoticeEditor({
                 style={{ ...inputStyle, flex: 1, minWidth: "12rem" }}
                 aria-label={`${i + 1} 件目の連絡事項`}
               />
-              <RowDetailToggle
-                open={open}
-                hasValue={hasNoticeDetail(r)}
-                onToggle={() => disclosure.toggle(r.id)}
-                controlsId={detailId}
-                label={`${i + 1} 件目の詳細項目`}
-              />
-              <button
-                type="button"
-                onClick={() => removeRow(i)}
-                style={removeBtnStyle}
-                aria-label={`${i + 1} 件目を削除`}
-              >
-                削除
-              </button>
+              {/* 空行では詳細/削除の chrome を畳む（#1/#3: 反復ボタン壁を減らし空行を軽くする）。本文を入力
+                  すると行が「空でない」になり詳細/削除が現れる。 */}
+              {r.text.trim() !== "" ? (
+                <>
+                  <RowDetailToggle
+                    open={open}
+                    hasValue={hasNoticeDetail(r)}
+                    onToggle={() => disclosure.toggle(r.id)}
+                    controlsId={detailId}
+                    label={`${i + 1} 件目の詳細項目`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeRow(i)}
+                    style={removeBtnStyle}
+                    className="kt-row-delete"
+                    aria-label={`${i + 1} 件目を削除`}
+                  >
+                    削除
+                  </button>
+                </>
+              ) : null}
               {/* 詳細（重要 / 表示日数）。開いている時だけ、行下に全幅で開く（flexBasis:100% で次行へ折返す）。
                   重要 / 表示日数の onChange ロジックは従来と同一（挙動不変・畳んでも state は保持）。 */}
               {open ? (
@@ -474,11 +486,11 @@ export function NoticeEditor({
       </ul>
 
       <div style={saveBarStyle}>
-        <button type="button" onClick={addRow} style={secondaryBtnStyle}>
+        <button type="button" onClick={addRow} style={primaryBtnStyle}>
           連絡を追加
         </button>
-        {/* 区切り線（§5.3・行追加ボタンの脇）: ダッシュ行ハックの正規化。位置は ⠿ で動かす。 */}
-        <button type="button" onClick={addDividerRow} style={secondaryBtnStyle}>
+        {/* 区切り線（§5.3）: 主アクション（連絡を追加＝塗り）と差をつける三次アクション（#4 ボタン階層）。 */}
+        <button type="button" onClick={addDividerRow} style={subtleBtnStyle}>
           ＋区切り線
         </button>
         <AutoSaveStatusText status={auto.status} error={auto.error} />

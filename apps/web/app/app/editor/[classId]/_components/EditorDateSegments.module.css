@@ -33,14 +33,16 @@
   background: var(--brand-bg-soft, #f7f8fa);
 }
 
-/* 選択中（編集中の対象日）。カレンダーの .selected と同じ視覚言語（橙地・白文字）。 */
+/* 選択中（編集中の対象日）。**選択＝ブランド青**（アクション色オレンジと役割を分ける）。オレンジは「追加」等の
+   アクション専用にし、選択/現在地は青にすることで、日付タブと直下の「○○を追加」オレンジボタンが同色で競合しない
+   （敵対的批評 D2: 選択とアクションが同一オレンジで用途が二重化）。白文字 on #2b4acb は AA 十分。 */
 .selected {
-  background: var(--brand-primary, #ea580c);
-  border-color: var(--brand-primary, #ea580c);
+  background: var(--brand-blue-strong, #2b4acb);
+  border-color: var(--brand-blue-strong, #2b4acb);
   color: #fff;
 }
 .selected:hover {
-  background: var(--brand-primary-hover, #c2410c);
+  background: #1e3a8a;
 }
 
 /* 「今日」の接頭ラベル。選択中でも読めるよう色は継承にして弱く小さく出す。 */
