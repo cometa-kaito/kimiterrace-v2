@@ -14,9 +14,12 @@ import {
 import { TV_STATUS_ICON, TV_STATUS_LABEL, classifyTvLiveness } from "@/lib/tv/status";
 import { getSchoolDetail } from "@kimiterrace/db";
 import type { SchoolHierarchyMode } from "@kimiterrace/db/schema";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SchoolDeleteButton } from "./_components/SchoolDeleteButton";
+
+const { color } = tokens;
 
 /** 階層モードの表示ラベル。enum 値を網羅 (型でズレ検出、ルール3、一覧ページと同方針)。 */
 const HIERARCHY_MODE_LABEL: Record<SchoolHierarchyMode, string> = {
@@ -60,39 +63,48 @@ export default async function SystemSchoolDetailPage({
     <article style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <Breadcrumb items={[{ label: "学校一覧", href: "/ops/schools" }, { label: school.name }]} />
 
-      <header style={headerStyle}>
-        <h1 style={titleStyle}>{school.name}</h1>
-        <div style={headerActionsStyle}>
+      {/* タイトル行: マスタ編集（この学校の属性）のみ。破壊（削除）は誤操作耐性のためページ末尾の
+          危険ゾーンへ分離する（旧: 8 操作を1列フラットに並べ、削除が編集の直後に隣接していた）。 */}
+      <div className="kt-page-head">
+        <h1 className="kt-page-title">{school.name}</h1>
+        <div className="kt-actions">
+          <Link href={`/ops/schools/${school.id}/edit`} className="kt-action">
+            編集
+          </Link>
+        </div>
+      </div>
+
+      {/* 操作ゾーン: この学校を対象にした運用操作（頻用）を、マスタ編集/破壊から「地の差」で分離した
+          帯にまとめる（橙アクセント罫 + 見出し）。個々は二次トーンの chip（アクション言語の単一ソース）。 */}
+      <section className="kt-opzone" aria-label={`${school.name} の操作`}>
+        <p className="kt-opzone__label">この学校で操作</p>
+        <div className="kt-actions">
           {/* エディタ導線 (C2): 運営がこの学校のクラスを選び、予定 / 連絡 / 提出物 (daily_data) を編集する。 */}
-          <Link href={`/ops/schools/${school.id}/editor`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/editor`} className="kt-action">
             エディタ
           </Link>
           {/* クラス設定導線: 運営がこの学校の学科 / 学年 / クラス階層を編集する (対象校スコープ、監査記録)。 */}
-          <Link href={`/ops/schools/${school.id}/hierarchy`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/hierarchy`} className="kt-action">
             クラス設定
           </Link>
           {/* 広告掲載導線 (#46): 運営がこの学校のクラスを選び、クラス別広告管理で素材/リンク/秒数を設定する。 */}
-          <Link href={`/ops/schools/${school.id}/ads`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/ads`} className="kt-action">
             広告掲載
           </Link>
           {/* 静粛時間導線 (#1002 対称): 運営がこの学校のクラスを選び、サイネージ静音/非表示の時間帯を設定する。 */}
-          <Link href={`/ops/schools/${school.id}/quiet-hours`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/quiet-hours`} className="kt-action">
             静粛時間
           </Link>
           {/* 生徒アクセスリンク導線 (F05): 運営がこの学校のクラスを選び、magic link を発行/失効する。 */}
-          <Link href={`/ops/schools/${school.id}/magic-link`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/magic-link`} className="kt-action">
             生徒アクセスリンク
           </Link>
           {/* 来場検知センサー導線 (ADR-041 D3): 運営がこの学校のセンサーを登録/編集する (対象校スコープ、監査記録)。 */}
-          <Link href={`/ops/schools/${school.id}/sensors`} style={editLinkStyle}>
+          <Link href={`/ops/schools/${school.id}/sensors`} className="kt-action">
             センサー
           </Link>
-          <Link href={`/ops/schools/${school.id}/edit`} style={editLinkStyle}>
-            編集
-          </Link>
-          <SchoolDeleteButton schoolId={school.id} schoolName={school.name} />
         </div>
-      </header>
+      </section>
 
       <dl style={dlStyle}>
         <Field label="都道府県" value={school.prefecture} />
@@ -120,6 +132,16 @@ export default async function SystemSchoolDetailPage({
           設置場所はモニタのラベルで表します。モニタ行から端末設定を編集できます。
         </p>
         <SchoolTreeView tree={tree} now={now} />
+      </section>
+
+      {/* 危険ゾーン: 破壊操作（学校削除）を routine 動線（タイトル/操作ゾーン）から物理的に末尾へ隔離する。
+          薄赤の danger サーフェスで「危険」を面として明示し、注意文と削除ボタンを近接させる。削除自体の
+          認可・子データ保護・監査・テスト校ガード・校名タイプ確認は SchoolDeleteButton + Server Action + RLS。 */}
+      <section className="kt-dangerzone" aria-label="危険な操作">
+        <p className="kt-dangerzone__note">
+          この学校と配下のクラス・モニタ紐付けを削除します。元に戻せません。
+        </p>
+        <SchoolDeleteButton schoolId={school.id} schoolName={school.name} />
       </section>
     </article>
   );
@@ -280,19 +302,6 @@ function formatJstDateTime(value: Date): string {
   }).format(value);
 }
 
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: "1rem",
-};
-const titleStyle: React.CSSProperties = { fontSize: "1.4rem", fontWeight: 700, margin: 0 };
-const headerActionsStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: "1rem",
-};
-const editLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.9rem" };
 const dlStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "max-content 1fr",
@@ -360,7 +369,7 @@ const badgeCountStyle: React.CSSProperties = { fontSize: "0.72rem", color: "#6b7
 const deviceWrapStyle: React.CSSProperties = { marginLeft: "1.25rem" };
 const deviceCaptionStyle: React.CSSProperties = {
   fontSize: "0.75rem",
-  color: "#9ca3af",
+  color: color.muted,
   margin: "0.25rem 0",
 };
 const deviceListStyle: React.CSSProperties = {
@@ -384,9 +393,10 @@ const statusBadgeStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
   color: "#374151",
 };
-const deviceLinkStyle: React.CSSProperties = { color: "#1d4ed8", fontSize: "0.8rem" };
+// 端末設定リンクは AA 合格のブランド青（アクション言語と同色）に統一（旧 #1d4ed8 生hex → 単一ソース）。
+const deviceLinkStyle: React.CSSProperties = { color: color.blueStrong, fontSize: "0.8rem" };
 const emptyStyle: React.CSSProperties = {
-  color: "#9ca3af",
+  color: color.muted,
   fontSize: "0.82rem",
   margin: "0.25rem 0",
 };

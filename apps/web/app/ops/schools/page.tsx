@@ -47,7 +47,8 @@ export default async function SystemSchoolsPage({
         <h1 style={titleStyle}>学校一覧</h1>
         <div style={headerRightStyle}>
           <span style={countStyle}>{total} 校</span>
-          <Link href="/ops/schools/new" style={newLinkStyle}>
+          {/* 一次アクション（塗りオレンジ CTA）はアクション言語の単一ソース（globals.css .kt-action--primary）。 */}
+          <Link href="/ops/schools/new" className="kt-action kt-action--primary">
             ＋ 新規登録
           </Link>
         </div>
@@ -128,13 +129,7 @@ const headerRightStyle: React.CSSProperties = {
   alignItems: "center",
   gap: space.lg,
 };
-const newLinkStyle: React.CSSProperties = {
-  fontSize: fontSize.sm,
-  color: "#fff",
-  background: color.primary,
-  padding: "0.4rem 0.9rem",
-  borderRadius: "6px",
-  textDecoration: "none",
-};
-const editLinkStyle: React.CSSProperties = { color: color.primary, fontSize: fontSize.sm };
+// 行内「編集」は AA 合格のブランド青（学校詳細のアクション言語と同色）。旧オレンジ色 (color.primary) は
+// 白地 3.56:1 で本文 AA 未達 + 詳細ページと不一致だった → color.blueStrong (7.13:1) に統一。
+const editLinkStyle: React.CSSProperties = { color: color.blueStrong, fontSize: fontSize.sm };
 const nameLinkStyle: React.CSSProperties = { color: color.ink, textDecoration: "none" };
