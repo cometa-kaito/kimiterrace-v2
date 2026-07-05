@@ -41,7 +41,6 @@ import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
-import { VisitorsCalloutsSection } from "./_components/VisitorsCalloutsSection";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
 
 /**
@@ -241,6 +240,12 @@ export default async function ClassEditorPage({
         {/* key={date}:{copied}: 対象日変更・コピー時に再マウントして新データで初期化する。これが無いと配下エディタの
             useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
             混線バグになる（ユーザー報告 2026-06-16・設計書 §11-1）。 */}
+        {/* 単一の盤面エディタが「盤面プレビュー（左・sticky）＋ 編集セクション（右・独立スクロール）」の 2 カラム
+            （配置最適化 2026-07-05・user-observed）を担う。来校者 / 呼び出し（pattern2/3・`patternIncludesBlock`
+            駆動）も編集カラムに同居させ、盤面プレビューを見失わずに編集できる。含むパターンのときだけ出す（死
+            セクション防止・将来パターン追加にも単一ソースで自動追従）。対象日ソフトナビ（?date=）時の複製/押し出し
+            バグ（本番 6/21→6/22）回避のため、VisitorsCalloutsSection は WysiwygBoardEditor 内に単一の安定
+            コンポーネントとして 1 つだけ描く（設計書 §11-2）。 */}
         <WysiwygBoardEditor
           key={`${date}:${copied}`}
           classId={classId}
@@ -251,16 +256,6 @@ export default async function ClassEditorPage({
           initialAssignments={assignments.items}
           pinnedNotices={pinnedNotices}
           previewPinnedNotices={previewPinnedNotices}
-        />
-        {/* 来校者 / 呼び出しは pattern2/3 のブロック（`PATTERN_BLOCKS` 駆動・`patternIncludesBlock`）。含む
-            パターンのときだけ盤面の下に出す（死セクション防止・将来パターン追加にも単一ソースで自動追従）。
-            対象日ソフトナビ（?date=）時の複製/押し出しバグの前例（本番 6/21→6/22）があるため、条件付き短絡で
-            同一親に隣接させず常に単一の安定コンポーネントとして描く（設計書 §11-2・詳細は
-            VisitorsCalloutsSection の docstring）。 */}
-        <VisitorsCalloutsSection
-          classId={classId}
-          date={date}
-          pattern={pattern}
           showVisitors={showVisitors}
           showCallouts={showCallouts}
           visitors={board?.visitors ?? null}
