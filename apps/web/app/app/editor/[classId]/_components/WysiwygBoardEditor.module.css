@@ -47,9 +47,10 @@
 @media (min-width: 1240px) {
   .layout {
     display: grid;
-    /* 盤面（左・やや広め）｜編集（右・>=480px 確保できる比率）。閾値 1240px で右カラム >=約 527px を確保し
-       提出物/来校者の表（min-width 30rem=480px）を窮屈にしない（実測で微調整可）。 */
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    /* 盤面（左）｜編集（右・やや広め）。編集は作業する場所なので広い側に振る（2026-07-05 user 要望 #2: 右カラムが
+       狭く表 min-width 30rem=480px が横溢れ→横スクロールが面倒、を解消）。1.15fr で右カラム内側 >=約 500px を
+       確保し 480px の表が横スクロール無しで収まる。盤面プレビューは一覧用途なので少し小さくても実用上 OK。 */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     gap: 1.5rem;
     align-items: start;
   }

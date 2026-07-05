@@ -220,23 +220,6 @@ export default async function ClassEditorPage({
       {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
           編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。 */}
       <section aria-labelledby="zone-daily-heading">
-        <h2 id="zone-daily-heading" style={zoneLabelStyle}>
-          毎日の編集
-        </h2>
-        <EditorDateSegments
-          classId={classId}
-          today={today}
-          selectedDate={date}
-          segmentDates={segmentDates}
-        />
-        {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
-        <p style={editingHeadingStyle}>
-          編集中: {jpDate(date)}
-          {date === today ? "（今日）" : ""}
-        </p>
-        {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定＝daily_data へ
-            materialize されることを伝える）。 */}
-        {seed.seeded ? <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p> : null}
         {/* key={date}:{copied}: 対象日変更・コピー時に再マウントして新データで初期化する。これが無いと配下エディタの
             useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
             混線バグになる（ユーザー報告 2026-06-16・設計書 §11-1）。 */}
@@ -245,7 +228,10 @@ export default async function ClassEditorPage({
             駆動）も編集カラムに同居させ、盤面プレビューを見失わずに編集できる。含むパターンのときだけ出す（死
             セクション防止・将来パターン追加にも単一ソースで自動追従）。対象日ソフトナビ（?date=）時の複製/押し出し
             バグ（本番 6/21→6/22）回避のため、VisitorsCalloutsSection は WysiwygBoardEditor 内に単一の安定
-            コンポーネントとして 1 つだけ描く（設計書 §11-2）。 */}
+            コンポーネントとして 1 つだけ描く（設計書 §11-2）。
+            dayHeader（日付タブ+「毎日の編集」見出し+「編集中」）は盤面と同じ左パネル（sticky）に入れて一体で固定する
+            ため node で渡す（ちらつき解消 2026-07-05・user #1: 日付タブが static でスクロール消失し盤面だけ残る差分が
+            ちらつきの原因だった）。 */}
         <WysiwygBoardEditor
           key={`${date}:${copied}`}
           classId={classId}
@@ -260,6 +246,28 @@ export default async function ClassEditorPage({
           showCallouts={showCallouts}
           visitors={board?.visitors ?? null}
           callouts={board?.callouts ?? null}
+          dayHeader={
+            <>
+              <h2 id="zone-daily-heading" style={zoneLabelStyle}>
+                毎日の編集
+              </h2>
+              <EditorDateSegments
+                classId={classId}
+                today={today}
+                selectedDate={date}
+                segmentDates={segmentDates}
+              />
+              {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
+              <p style={editingHeadingStyle}>
+                編集中: {jpDate(date)}
+                {date === today ? "（今日）" : ""}
+              </p>
+              {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定）。 */}
+              {seed.seeded ? (
+                <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p>
+              ) : null}
+            </>
+          }
         />
       </section>
 

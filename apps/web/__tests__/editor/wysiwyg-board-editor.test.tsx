@@ -520,4 +520,34 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.queryByRole("heading", { name: "来校者一覧", level: 2 })).toBeNull();
     expect(screen.queryByRole("heading", { name: "生徒呼び出し", level: 2 })).toBeNull();
   });
+
+  it("dayHeader（日付タブ+編集中）を描く。盤面ありは左パネル内・base=null フォールバックでも編集の上に出す（user #1 ちらつき解消）", () => {
+    // 日付タブ+「編集中」を盤面と同じ左パネル（sticky）に入れて一体で固定するため node で受け取り、previewCol
+    // 先頭に描く。盤面が無い（base=null）フォールバックでも日付タブは常に見える必要があるので描く。
+    const withBoard = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        dayHeader={<div>DAY_HEADER_MARK</div>}
+      />,
+    );
+    expect(screen.getByText("DAY_HEADER_MARK")).toBeTruthy();
+    withBoard.unmount();
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={null}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        dayHeader={<div>DAY_HEADER_MARK</div>}
+      />,
+    );
+    expect(screen.getByText("DAY_HEADER_MARK")).toBeTruthy();
+  });
 });

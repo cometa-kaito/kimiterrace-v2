@@ -75,6 +75,7 @@ export function WysiwygBoardEditor({
   showCallouts = false,
   visitors = null,
   callouts = null,
+  dayHeader,
 }: {
   classId: string;
   date: string;
@@ -117,6 +118,13 @@ export function WysiwygBoardEditor({
   showCallouts?: boolean;
   visitors?: ClassVisitor[] | null;
   callouts?: StudentCallout[] | null;
+  /**
+   * 対象日セグメント（日付タブ）+「毎日の編集」見出し+「編集中: ◯月◯日」を、**盤面と同じ左パネル（sticky）に
+   * 入れて一体で固定**するため親（page.tsx）から node で受け取る（ちらつき解消 2026-07-05・user 要望 #1: 日付タブが
+   * static でスクロール消失し盤面だけ残る差分がちらつきの原因だった → 左パネルごと固定して差分ゼロに）。プレビューが
+   * 無いフォールバック（base=null 等）では編集の上に素で全幅表示する（日付タブは常に見える必要がある）。
+   */
+  dayHeader?: React.ReactNode;
 }) {
   // ライブプレビュー用の下書き集約。各エディタの onItemsChange で更新され、盤面再描画のみに使う（保存は各エディタ）。
   const [schedules, setSchedules] = useState<ScheduleItem[]>(initialSchedules);
@@ -171,6 +179,53 @@ export function WysiwygBoardEditor({
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
+  }, [showBoard]);
+
+  // 逆連動（スクロール→盤面ハイライト・2026-07-05 user 要望 #3）: 右の編集をスクロールすると、いま画面上部の
+  // 「フォーカス帯」に来ている編集セクションに対応する盤面領域を自動でハイライトする（固定した盤面が「今どこを
+  // 編集中か」の地図になる＝#1 の固定と噛み合う）。盤面が無い（!showBoard）or IntersectionObserver 非対応
+  // （jsdom テスト）では何もしない。クリックジャンプ / フォーカスの setActive とは last-writer で協調（どちらも
+  // 「今いる場所」を指すので概ね一致）。編集セクションは pattern で決まり本コンポーネントは date で再マウントする
+  // ので、対象の収集は mount 後 1 回で足りる（来校者/呼び出しの anchor も同じ描画で DOM にあるため mount 時に拾える）。
+  useEffect(() => {
+    if (!showBoard || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const targets: Array<{ region: Region; el: HTMLElement }> = [];
+    const push = (region: Region, el: HTMLElement | null) => {
+      if (el) {
+        targets.push({ region, el });
+      }
+    };
+    push("schedules", scheduleRef.current);
+    push("notices", noticeRef.current);
+    push("assignments", assignmentRef.current);
+    if (typeof document !== "undefined") {
+      push("visitors", document.getElementById(editorRegionAnchorId("visitors")));
+      push("callouts", document.getElementById(editorRegionAnchorId("callouts")));
+    }
+    if (targets.length === 0) {
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        // フォーカス帯（rootMargin で上 18%〜下 72% を除外＝画面上部の細い帯）に交差している中で最も上の
+        // セクションを active にする。帯に何も無ければ据え置き（highlight をちらつかせない）。
+        const inBand = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        const topEl = inBand[0]?.target;
+        const hit = topEl ? targets.find((t) => t.el === topEl) : undefined;
+        if (hit) {
+          setActive(hit.region);
+        }
+      },
+      { rootMargin: "-18% 0px -72% 0px", threshold: 0 },
+    );
+    for (const t of targets) {
+      io.observe(t.el);
+    }
+    return () => io.disconnect();
   }, [showBoard]);
 
   const focusRegion = useCallback((region: Region) => {
@@ -255,6 +310,9 @@ export function WysiwygBoardEditor({
             （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
         {showBoard && previewPayload ? (
           <div className={styles.previewCol}>
+            {/* 日付タブ+「編集中」を盤面と同じ左パネルに入れて一体で sticky 固定（ちらつき解消・user #1）。
+                左（日付+盤面）は丸ごと動かず、右の編集だけスクロールする。 */}
+            {dayHeader}
             <p className={styles.hint}>
               実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
             </p>
@@ -283,7 +341,9 @@ export function WysiwygBoardEditor({
               )}
             </div>
           </div>
-        ) : null}
+        ) : (
+          dayHeader
+        )}
 
         {/* 編集セクション（右カラム）: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存
             して担う）。**並び順は PATTERN_BLOCKS の配列順に自動追従**（盤面レイアウトの主役順と「見たまま一致」・
