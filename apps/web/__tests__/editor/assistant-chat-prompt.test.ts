@@ -29,6 +29,33 @@ describe("buildAssistantChatSystem", () => {
     expect(sys).toContain("{ reply, schedules, notices, assignments }");
   });
 
+  it("日付対応表（dateTable）を渡すと表引きで日付解決させる指示を出し、未指定なら出さない", () => {
+    const table = "2026-07-06(月・今日) / 2026-07-07(火・明日)";
+    const sys = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年7月6日（月）",
+      [],
+      table,
+    );
+    expect(sys).toContain(table);
+    expect(sys).toContain("必ずこの表から実在日付を引く");
+    const without = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年7月6日（月）",
+    );
+    expect(without).not.toContain("対応表");
+  });
+
+  it("基準日と別の日への指示は 1 日でも days に入れる指示・偽成功（未投入の作成済み宣言）の禁止を出す", () => {
+    const sys = buildAssistantChatSystem(
+      ["schedules", "notices", "assignments"],
+      "2026年7月6日（月）",
+    );
+    expect(sys).toContain("基準日と別の日への指示");
+    expect(sys).toContain("1 日だけでも top-level に入れず days に入れる");
+    expect(sys).toContain("下書きに入れていない内容を作成済みと言わない");
+  });
+
   it("日付・期間が不明なときは創作も省略もせず reply で聞き返す指示を出す", () => {
     const sys = buildAssistantChatSystem(
       ["schedules", "notices", "assignments"],
