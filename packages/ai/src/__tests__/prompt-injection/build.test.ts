@@ -28,14 +28,26 @@ describe("プロンプトインジェクション対策", () => {
   it("system プロンプトはタグ内を指示でなくデータとして扱うと宣言する", () => {
     const sys = buildSystemPrompt("schedule");
     expect(sys).toContain("【データ】");
-    expect(sys).toContain("confidence_score");
     expect(sys).toContain("JSON");
+  });
+
+  it("出力契約は検証スキーマ（camelCase）とフィールド名が一致する", () => {
+    // 2026-07-05 eval で発覚した契約不一致の再発防止: プロンプトが snake_case
+    // （confidence_score 等）を要求すると Zod（camelCase）に必ず落ち、F03 が全滅する。
+    for (const kind of ["schedule", "announcement", "summary", "tag"] as const) {
+      const sys = buildSystemPrompt(kind);
+      // 出力例 JSON はスキーマと同じ camelCase キーを示す（snake_case の出力例は書かない）。
+      expect(sys).toContain('"confidenceScore":');
+      expect(sys).not.toContain('"confidence_score"');
+      expect(sys).toContain(`"kind":"${kind}"`);
+      expect(sys).toContain('"evidence":');
+    }
   });
 
   it("公開先・掲示期間の提案を要求し、捏造を促さない（F01）", () => {
     const sys = buildSystemPrompt("announcement");
-    expect(sys).toContain("suggested_publish_scope");
-    expect(sys).toContain("suggested_period");
+    expect(sys).toContain("suggestedPublishScope");
+    expect(sys).toContain("suggestedPeriod");
     // 許可値域を明示する。
     expect(sys).toContain("school");
     expect(sys).toContain("private");
