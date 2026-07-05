@@ -278,6 +278,30 @@ export function jstDateLabel(epochMs: number): string {
   return `${get("year")}年${get("month")}月${get("day")}日（${get("weekday")}）`;
 }
 
+/**
+ * 基準日から `days` 日分の **実在日付↔曜日の対応表**（例 `2026-07-06(月・今日) / 2026-07-07(火・明日) / …`）。
+ * 会話型 AI の system プロンプトに注入し、「来週水曜」等の相対表現をモデルの曜日計算に任せず表引きで
+ * 解決させる（2026-07-05 eval: 曜日算術ミス「来週の水曜→07-16(木)」を確認・決定的な根治）。
+ * JST は DST が無いため 86,400,000ms 加算で日を進めてよい。決定的（epochMs 基準・テスト可能）。
+ */
+export function jstUpcomingDateTable(epochMs: number, days = 14): string {
+  const fmt = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+  });
+  const out: string[] = [];
+  for (let i = 0; i < days; i += 1) {
+    const parts = fmt.formatToParts(new Date(epochMs + i * 86_400_000));
+    const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? "";
+    const rel = i === 0 ? "・今日" : i === 1 ? "・明日" : i === 2 ? "・明後日" : "";
+    out.push(`${get("year")}-${get("month")}-${get("day")}(${get("weekday")}${rel})`);
+  }
+  return out.join(" / ");
+}
+
 /** 入力長の上限（過大入力を弾く・rate/コスト保護）。 */
 export const ASSIST_INPUT_MAX = 4000;
 

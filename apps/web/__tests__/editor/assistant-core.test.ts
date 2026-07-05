@@ -9,6 +9,7 @@ import {
   buildNoticeAssistUser,
   buildSectionAssistUser,
   jstDateLabel,
+  jstUpcomingDateTable,
   parseAllProposal,
   parseAssignmentProposal,
   parseNoticeProposal,
@@ -56,6 +57,22 @@ describe("jstDateLabel", () => {
   it("UTC 夜は翌日の JST 日付になる（タイムゾーン反映）", () => {
     // 2026-06-07T20:00:00Z = JST 2026-06-08 05:00（月）
     expect(jstDateLabel(Date.UTC(2026, 5, 7, 20, 0, 0))).toBe("2026年6月8日（月）");
+  });
+});
+
+describe("jstUpcomingDateTable", () => {
+  it("基準日から YYYY-MM-DD(曜) の連続表を作り、今日/明日/明後日の相対ラベルを付す", () => {
+    // 2026-07-06T03:00:00Z = JST 2026-07-06 12:00（月）
+    const table = jstUpcomingDateTable(Date.UTC(2026, 6, 6, 3, 0, 0), 4);
+    expect(table).toBe(
+      "2026-07-06(月・今日) / 2026-07-07(火・明日) / 2026-07-08(水・明後日) / 2026-07-09(木)",
+    );
+  });
+
+  it("月跨ぎでも実在日付で連続する", () => {
+    // 2026-07-31（金）JST 正午から 2 日分 → 8月1日へ跨ぐ。
+    const table = jstUpcomingDateTable(Date.UTC(2026, 6, 31, 3, 0, 0), 2);
+    expect(table).toBe("2026-07-31(金・今日) / 2026-08-01(土・明日)");
   });
 });
 
