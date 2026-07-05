@@ -521,9 +521,10 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.queryByRole("heading", { name: "生徒呼び出し", level: 2 })).toBeNull();
   });
 
-  it("dayHeader（日付タブ+編集中）を描く。盤面ありは左パネル内・base=null フォールバックでも編集の上に出す（user #1 ちらつき解消）", () => {
-    // 日付タブ+「編集中」を盤面と同じ左パネル（sticky）に入れて一体で固定するため node で受け取り、previewCol
-    // 先頭に描く。盤面が無い（base=null）フォールバックでも日付タブは常に見える必要があるので描く。
+  it("dayHeader（日付タブ+編集中）を描く。盤面あり/base=null どちらでも全幅 sticky バーに常時出る（ちらつき解消#1・2行折り返し是正）", () => {
+    // 日付タブ+「編集中」は全幅 sticky バー（.dayBar・2 カラムの上）として node で受け取り描く（狭い左カラムだと
+    // 日付タブが 2 行折り返すため全幅で 1 行に・user 2026-07-05）。盤面あり/base=null どちらでもバーは常に出る＝
+    // 日付タブは常時見える。
     const withBoard = render(
       <WysiwygBoardEditor
         classId={CLASS_ID}

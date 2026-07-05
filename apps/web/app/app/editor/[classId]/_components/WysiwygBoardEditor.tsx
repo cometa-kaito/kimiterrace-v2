@@ -166,6 +166,26 @@ export function WysiwygBoardEditor({
     return () => ro.disconnect();
   }, []);
 
+  // 全幅日付バー（.dayBar）の実測高さを CSS var `--day-bar-h` に渡し、盤面（.previewCol）の sticky top をバー高さ
+  // ぶん下げてバーと重ならないようにする（≥1240px の 2 カラム時に CSS 側で使用）。バー高さは日付タブ1行＋「編集中」＋
+  // seed 注記で可変なので magic number でなく ResizeObserver で追従する（計測前の初期値は CSS の fallback 4.5rem）。
+  const dayBarRef = useRef<HTMLDivElement>(null);
+  const [dayBarHeight, setDayBarHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const el = dayBarRef.current;
+    if (!el) {
+      return;
+    }
+    const measure = () => setDayBarHeight(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // 編集プレビューのヘッダー実時計を **live TV（SignageClient）と同じ作法**で動かす（マウント後のみ・1 秒刻み）。
   // SSR/初回は null＝時計なしで描き（ハイドレーション不一致を避ける）、マウント後に実時計を出して実盤面の
   // ヘッダーと一致させる（now の扱いの差を縮める）。これにより教員は「実機にどう出るか」をヘッダー込みで確認できる。
@@ -304,18 +324,29 @@ export function WysiwygBoardEditor({
   // 縦積み）。プレビューが無い（base=null / showBoard=false）ときは `.layout` を付けず素の縦積みへフォールバック。
   const hasPreview = Boolean(showBoard && previewPayload);
   return (
-    <div className={styles.root}>
+    // --day-bar-h: 全幅日付バーの実測高さ。盤面（.previewCol）の sticky top をこのぶん下げてバーと重ならないように
+    // する（CSS 側 ≥1240px の calc で使用）。計測前は undefined＝CSS の fallback（4.5rem）が効く。
+    <div
+      className={styles.root}
+      style={
+        dayBarHeight != null
+          ? ({ "--day-bar-h": `${dayBarHeight}px` } as React.CSSProperties)
+          : undefined
+      }
+    >
+      {/* 日付タブ+「編集中」は 2 カラムの上の**全幅 sticky バー**として出す（≥1240px）。狭い左カラム（~500px）に
+          入れると日付タブ 5 個（~572px）が 2 行に折り返す（user 2026-07-05）ため、全幅（~1076px）で 1 行にする。バーも
+          sticky なのでスクロールで消えず、ちらつき（#1）も維持する。盤面はこのバーの下に sticky（.previewCol の top で
+          バー高さぶん下げる）。説明文は引き算済（見れば分かる・クリック→ジャンプは盤面各領域の編集ボタン aria-label が
+          担う）。フォールバック（base=null）でもこのバーは常に出る＝日付タブは常時見える。 */}
+      <div ref={dayBarRef} className={styles.dayBar}>
+        {dayHeader}
+      </div>
       <div className={hasPreview ? styles.layout : undefined}>
         {/* 生条件（showBoard && previewPayload）で分岐＝この中で previewPayload が非 null に絞り込まれる
             （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
         {showBoard && previewPayload ? (
           <div className={styles.previewCol}>
-            {/* 日付タブ+「編集中」を盤面と同じ左パネルに入れて一体で sticky 固定（ちらつき解消・user #1）。
-                左（日付+盤面）は丸ごと動かず、右の編集だけスクロールする。説明文「実際の画面の見え方です…
-                領域をクリックすると編集欄へ移動します」は削除した（見れば分かる・引き算 2026-07-05 user 要望
-                「ヘッダーが領域を取りすぎ」。クリック→ジャンプは盤面上の各領域の編集ボタン aria-label が担う）。 */}
-            {dayHeader}
-
             {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
               そのもの**（Approach A）。`editRegions` を渡すと `SignageBoardView` が予定 / 連絡 / 提出物の実 `<section>` を
               `position:relative` 化して `inset:0` の編集ボタンを内側に敷く＝実描画要素を覆うので％近似のズレが原理的に
@@ -340,9 +371,7 @@ export function WysiwygBoardEditor({
               )}
             </div>
           </div>
-        ) : (
-          dayHeader
-        )}
+        ) : null}
 
         {/* 編集セクション（右カラム）: 既存の各セクションエディタ（保存・検証・自動保存・RLS/監査はここが温存
             して担う）。**並び順は PATTERN_BLOCKS の配列順に自動追従**（盤面レイアウトの主役順と「見たまま一致」・

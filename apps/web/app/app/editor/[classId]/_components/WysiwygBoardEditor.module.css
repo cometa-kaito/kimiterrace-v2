@@ -55,11 +55,23 @@
     gap: 1.5rem;
     align-items: start;
   }
+  /* 日付タブ+「編集中」は全幅の sticky バー（≥1240px）。狭い左カラム（~500px）だと日付タブ 5 個（~572px）が 2 行に
+     折り返す（user 2026-07-05）ため、2 カラムの上に全幅（~1076px）で置いて 1 行にする。スクロールする編集がバー下に
+     潜るので不透明背景（.admin-main/ body と同じ #fff）＋前面 z-index。 */
+  .dayBar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #fff;
+    padding-bottom: 0.5rem;
+  }
   /* 盤面は左カラムで sticky（右の編集をスクロールしても常に見える）。align-self:start が無いとグリッド行いっぱいに
-     引き伸ばされて sticky が効かない。top はアプリヘッダー（.admin-header＝非 fixed）下にわずかな余白。 */
+     引き伸ばされて sticky が効かない。top は上の全幅日付バーの**実測高さ**（--day-bar-h・JS が ResizeObserver で
+     設定）ぶん下げてバーと重ならないようにする（バー高さは日付タブ1行＋「編集中」＋seed 注記で可変なので magic
+     number でなく実測。計測前の初期値は 4.5rem）。 */
   .previewCol {
     position: sticky;
-    top: 1rem;
+    top: calc(var(--day-bar-h, 4.5rem) + 0.5rem);
     align-self: start;
   }
 }
