@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, buildUserPrompt, neutralizeInput } from "../../prompt/build.js";
+import {
+  KIND_OUTPUT_SHAPE,
+  buildSystemPrompt,
+  buildUserPrompt,
+  neutralizeInput,
+} from "../../prompt/build.js";
+import { EXTRACTION_KINDS, schemaForKind } from "../../schema/extraction.js";
 
 describe("プロンプトインジェクション対策", () => {
   it("ユーザー入力を XML タグでセパレートする", () => {
@@ -29,6 +35,18 @@ describe("プロンプトインジェクション対策", () => {
     const sys = buildSystemPrompt("schedule");
     expect(sys).toContain("【データ】");
     expect(sys).toContain("JSON");
+  });
+
+  it("KIND_OUTPUT_SHAPE の全例が検証スキーマ（Zod）をそのまま通る（契約 1:1 の機械固定）", () => {
+    // プロンプトに見せる「出力の形」がスキーマとズレると F03 が全滅する（2026-07-05 eval）。
+    // コメント規律でなくテストで固定: 例を書き換えたら必ずここで突き合わせられる（Reviewer MEDIUM-1）。
+    for (const kind of EXTRACTION_KINDS) {
+      const parsed = schemaForKind(kind).safeParse(JSON.parse(KIND_OUTPUT_SHAPE[kind]));
+      expect(
+        parsed.success,
+        `${kind}: ${parsed.success ? "" : JSON.stringify(parsed.error.issues)}`,
+      ).toBe(true);
+    }
   });
 
   it("出力契約は検証スキーマ（camelCase）とフィールド名が一致する", () => {

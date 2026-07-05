@@ -25,16 +25,18 @@ const KIND_INSTRUCTION: Record<ExtractionKind, string> = {
  * フィールド名・型を 1:1 で一致させる。従来はプロンプトが `confidence_score`（snake_case）を要求する
  * 一方で Zod は `confidenceScore`（camelCase）を検証しており、**モデルが指示に忠実なほど必ず検証に
  * 落ちる**契約不一致だった（2026-07-05 eval で全 kind の status=failed を確認）。プロンプトの形の
- * 権威はスキーマ側とし、ここを変える時は必ず extraction.ts と突き合わせる。
+ * 権威はスキーマ側とし、1:1 はテスト（build.test.ts が各例を `schemaForKind(kind).parse` に通す）で
+ * 機械的に固定する（コメント規律だけに頼らない・Reviewer MEDIUM-1）。confidenceScore の例値は
+ * 意図的にばらす（全例 0.9 だと自己評価がアンカリングされ F04.3 の <0.7 低確信バッジが鈍る）。
  */
-const KIND_OUTPUT_SHAPE: Record<ExtractionKind, string> = {
+export const KIND_OUTPUT_SHAPE: Record<ExtractionKind, string> = {
   schedule:
     '{"kind":"schedule","data":{"entries":[{"period":1,"subject":"数学","date":"2026-06-10","note":"教室変更あり"}]},"confidenceScore":0.9,"evidence":[{"text":"入力からの引用"}]}',
   announcement:
-    '{"kind":"announcement","data":{"title":"保護者会のお知らせ","body":"本文…","dueDate":"2026-06-10"},"confidenceScore":0.9,"evidence":[{"text":"入力からの引用"}]}',
+    '{"kind":"announcement","data":{"title":"保護者会のお知らせ","body":"本文…","dueDate":"2026-06-10"},"confidenceScore":0.85,"evidence":[{"text":"入力からの引用"}]}',
   summary:
-    '{"kind":"summary","data":{"summary":"要約本文…","keyPoints":["要点1","要点2"]},"confidenceScore":0.9,"evidence":[{"text":"入力からの引用"}]}',
-  tag: '{"kind":"tag","data":{"tags":["体育祭","持ち物"]},"confidenceScore":0.9,"evidence":[{"text":"入力からの引用"}]}',
+    '{"kind":"summary","data":{"summary":"要約本文…","keyPoints":["要点1","要点2"]},"confidenceScore":0.75,"evidence":[{"text":"入力からの引用"}]}',
+  tag: '{"kind":"tag","data":{"tags":["体育祭","持ち物"]},"confidenceScore":0.95,"evidence":[{"text":"入力からの引用"}]}',
 };
 
 /** ユーザー入力中の山括弧を無害化し、XML セパレータの脱出を防ぐ。 */
@@ -51,6 +53,9 @@ export function buildSystemPrompt(kind: ExtractionKind): string {
     "厳守事項:",
     "- 出力は次の形の JSON オブジェクト 1 つのみ。前後に説明文・コードフェンスを付けない。",
     `  出力の形（フィールド名は大文字小文字までこの通り）: ${KIND_OUTPUT_SHAPE[kind]}`,
+    "  ※形の例に加え、後述の提案フィールド（suggestedPublishScope / suggestedPeriod）を任意で含めてよい。",
+    "  ※例中の日付・文言・confidenceScore の値は例示。入力に根拠が無い任意フィールド（date / dueDate /",
+    "    note 等）は値を捏造せずフィールドごと省略し、confidenceScore は例の値でなく実際の確信度を出す。",
     `- kind は必ず文字列 "${kind}"（固定値）。`,
     "- confidenceScore を 0.0〜1.0 の数値の自己評価値として必ず含める（キー名は confidenceScore。",
     "  confidence_score 等の別表記は不可）。",
