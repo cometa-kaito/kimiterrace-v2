@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "bdcab46" # エディタ再構成 PR-A〜D（#1216/#1217/#1218/#1220/#1221/#1222/#1223）: 単一スタック+日付セグメント+3ゾーン・⠿/★/区切り線・pinned固定行・掲示板型pattern5+AI/コピー動的化。schema=0037（staging 適用済・migrate_image_tag 同時 bump）・secret 無変更・疎通 health200/login private,no-cache
+  web_image_tag = "4ce9594" # AI精度改善 #1226(F03契約修正)/#1227(会話型 日付表+days)/#1229(eval基盤)。schema・secret無変更・/api/health 200・cache-control 健全
 }
 
 module "network" {
