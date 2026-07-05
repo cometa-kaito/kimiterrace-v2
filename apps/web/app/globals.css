@@ -538,14 +538,15 @@ body {
   }
 }
 
-/* ---- 管理アクション言語（一次 / 二次 / 破壊 の3トーン・単一ソース） ----
+/* ---- 管理アクション言語（一次 / 二次 の共有 chip トーン・単一ソース） ----
  * 運営コンソール各ページがヘッダの操作リンクを個別のインライン style で組み、色（オレンジ #ea580c 生
  * テキスト＝白地3.6:1 で本文AA未達／別ページは #1d4ed8 生hex）と重み付けがページ間でドリフトしていた。
- * 操作の意味を3トーンに揃えて className 1 本で共有する（値は既存 --brand-* のみ・新規トークンなし）:
+ * 操作の意味をトーンに揃えて className 1 本で共有する（値は既存 --brand-* のみ・新規トークンなし）:
  *   - 一次(--primary)  = 塗りオレンジの CTA（1画面1つ。例: 学校一覧の「新規登録」）。
  *   - 二次(既定)       = ブランド青 --brand-blue-strong のアウトライン chip（白地 7.1:1・AA/AAA）。
- *   - 破壊(--danger)   = 危険トーン（赤枠＋赤字＋アイコンで色のみ依存を回避、NFR05）。
- * danger の生 hex（#b91c1c/#fecaca/#fef2f2）は既存 .login-error / .chat-panel__error と同値で踏襲。 */
+ * 破壊アクション（削除）は現状 SchoolDeleteButton が確認フロー込みで自前スタイルを持つため共有 chip
+ * トーンには含めない（共有 chip 化は将来ボタンを結線する時・#1240）。危険ゾーンの面（.kt-dangerzone）で
+ * 使う danger 生 hex（#fef2f2/#fca5a5）は既存 danger サーフェス（.chat-panel__error 等）と同値で踏襲。 */
 .kt-page-head {
   display: flex;
   flex-wrap: wrap;
@@ -605,17 +606,6 @@ body {
 .kt-action--primary:focus-visible {
   outline-color: var(--brand-primary);
 }
-.kt-action--danger {
-  color: #b91c1c;
-  border-color: #b91c1c;
-  background: #fff;
-}
-.kt-action--danger:hover {
-  background: #fef2f2;
-}
-.kt-action--danger:focus-visible {
-  outline-color: #b91c1c;
-}
 /* 操作ゾーンの帯: この対象（学校）を操作する頻用アクションを、マスタ編集/破壊から分離する。
    bg-soft の面差だけでは白ページ上で知覚できない（実測 1.06:1）ため、左のブランド橙アクセント罫 +
    ink 級の見出しでゾーン識別を担わせる（面の淡さは補助・ここで橙が本文に一点入り主従も回復する）。 */
@@ -662,10 +652,6 @@ body {
   margin: 0;
   font-size: 0.8rem;
   color: var(--brand-muted);
-}
-/* 薄赤面の上では破壊ボタン地を白に保ち面から浮かせる。 */
-.kt-dangerzone .kt-action--danger {
-  background: #fff;
 }
 @media (max-width: 640px) {
   /* モバイルのタップ領域 44px（推奨）と間隔拡大。 */
