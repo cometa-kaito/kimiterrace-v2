@@ -248,7 +248,10 @@ export default async function ClassEditorPage({
           callouts={board?.callouts ?? null}
           dayHeader={
             <>
-              <h2 id="zone-daily-heading" style={zoneLabelStyle}>
+              {/* 「毎日の編集」ラベルは視覚的に隠す（sr-only）＝画面から消して縦を節約するが、section の
+                  aria-labelledby 参照とスクリーンリーダ向けの節ラベルは維持（引き算 2026-07-05 user 要望
+                  「ヘッダーが領域を取りすぎ」。日付タブが自明なので視覚ラベルは不要）。 */}
+              <h2 id="zone-daily-heading" style={srOnlyStyle}>
                 毎日の編集
               </h2>
               <EditorDateSegments
@@ -436,7 +439,7 @@ const breadcrumbRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "0.4rem",
-  marginBottom: "0.85rem",
+  marginBottom: "0.5rem",
   flexWrap: "wrap",
 };
 const breadcrumbBackStyle: React.CSSProperties = {
@@ -459,13 +462,27 @@ const classTitleStyle: React.CSSProperties = {
   margin: 0,
 };
 
-// 「編集中: ◯月◯日」の見出し（対象日の明示・受入基準 PR-A-1）。今日/未来で色を変えない（対象日は 1 つ＝
-// 旧 2 スタックの青/橙の使い分けは廃止。選択の強調はセグメント側が担う）。
+// 「編集中: ◯月◯日」の見出し（対象日の明示・受入基準 PR-A-1・選択の強調はセグメント側が担う）。遠い日をカレンダーで
+// 選ぶとタブに無いのでこれが唯一の日付表示になるため残すが、引き算 2026-07-05（user「ヘッダーが領域を取りすぎ」）で
+// 小さめ・余白最小にして縦を節約する。
 const editingHeadingStyle: React.CSSProperties = {
-  fontSize: tokens.fontSize.md,
+  fontSize: tokens.fontSize.sm,
   fontWeight: 600,
   color: tokens.color.ink,
-  margin: "0 0 0.7rem",
+  margin: "0.25rem 0 0",
+};
+// sr-only（視覚的に隠すがスクリーンリーダ・aria-labelledby には残す）。「毎日の編集」節ラベルを画面から消して
+// 縦を節約する用（引き算 2026-07-05）。値は一般的な visually-hidden 定義。
+const srOnlyStyle: React.CSSProperties = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+  border: 0,
 };
 // 基本時間割からの seed 注記（F5・コピーオンライト）。控えめな補足テキスト（既存の xs/muted と同じ視覚言語）。
 const seedNoteStyle: React.CSSProperties = {

@@ -311,11 +311,10 @@ export function WysiwygBoardEditor({
         {showBoard && previewPayload ? (
           <div className={styles.previewCol}>
             {/* 日付タブ+「編集中」を盤面と同じ左パネルに入れて一体で sticky 固定（ちらつき解消・user #1）。
-                左（日付+盤面）は丸ごと動かず、右の編集だけスクロールする。 */}
+                左（日付+盤面）は丸ごと動かず、右の編集だけスクロールする。説明文「実際の画面の見え方です…
+                領域をクリックすると編集欄へ移動します」は削除した（見れば分かる・引き算 2026-07-05 user 要望
+                「ヘッダーが領域を取りすぎ」。クリック→ジャンプは盤面上の各領域の編集ボタン aria-label が担う）。 */}
             {dayHeader}
-            <p className={styles.hint}>
-              実際の画面の見え方です。領域をクリックすると編集欄へ移動します。
-            </p>
 
             {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
               そのもの**（Approach A）。`editRegions` を渡すと `SignageBoardView` が予定 / 連絡 / 提出物の実 `<section>` を
