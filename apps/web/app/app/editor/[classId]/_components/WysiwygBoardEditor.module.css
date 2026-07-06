@@ -45,6 +45,17 @@
   min-width: 0;
   container-type: inline-size;
 }
+/* 日付タブ+「編集中」は**全幅の sticky バー**（全レイアウト共通・2026-07-06 スマホ改善で ≥1240px 限定を撤廃）。
+   スマホの長い縦フォームでも「今どの日を編集しているか」が常時見える。スクロールする内容がバー下に潜るので
+   不透明背景（.admin-main/body と同じ #fff）＋前面 z-index。 */
+.dayBar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #fff;
+  padding-bottom: 0.5rem;
+}
+
 @media (min-width: 1240px) {
   .layout {
     display: grid;
@@ -54,16 +65,6 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     gap: 1.5rem;
     align-items: start;
-  }
-  /* 日付タブ+「編集中」は全幅の sticky バー（≥1240px）。狭い左カラム（~500px）だと日付タブ 5 個（~572px）が 2 行に
-     折り返す（user 2026-07-05）ため、2 カラムの上に全幅（~1076px）で置いて 1 行にする。スクロールする編集がバー下に
-     潜るので不透明背景（.admin-main/ body と同じ #fff）＋前面 z-index。 */
-  .dayBar {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    background: #fff;
-    padding-bottom: 0.5rem;
   }
   /* 盤面は左カラムで sticky（右の編集をスクロールしても常に見える）。align-self:start が無いとグリッド行いっぱいに
      引き伸ばされて sticky が効かない。top は上の全幅日付バーの**実測高さ**（--day-bar-h・JS が ResizeObserver で
@@ -177,9 +178,35 @@
   }
 }
 
-/* スマホ（≤899px）: WYSIWYG プレビューを畳む（実機もこの幅で縦積みに倒れる）。従来の縦積みフォームを主に。 */
+/* 盤面の開閉トグル（スマホ専用・2026-07-06）。≥900px は盤面が常時表示なのでトグル自体を出さない。 */
+.boardToggle {
+  display: none;
+}
+
+/* スマホ（≤899px）: 盤面プレビューは既定で畳む（縦積みフォームが主役）が、旧来の「完全非表示」をやめ
+   「盤面を確認」トグルで開けるようにする（2026-07-06 実画面監査: スマホの教員は自分の編集結果を確認する
+   手段がゼロ＝WYSIWYG の価値が消えていた。利用端末=職員室FHD+スマホ）。開いた時の縮小率は
+   ResizeObserver が実幅で追従する（canvas の既存機構）。 */
 @media (max-width: 899px) {
   .canvas {
     display: none;
+  }
+  .canvas.canvasOpen {
+    display: block;
+  }
+  .boardToggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    align-self: flex-start;
+    min-height: 40px;
+    padding: 0.35rem 0.9rem;
+    background: #fff;
+    color: var(--brand-blue-strong, #2b4acb);
+    border: 1px solid var(--brand-blue-strong, #2b4acb);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
   }
 }

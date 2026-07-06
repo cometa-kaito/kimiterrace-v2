@@ -177,11 +177,16 @@ export function WysiwygBoardEditor({
   // **明示 width** を渡して決定的に 16:9 に収める（cqw 非依存）。ウィンドウ/レイアウト変化にも追従する。
   const canvasRef = useRef<HTMLDivElement>(null);
   const [boardWidth, setBoardWidth] = useState<number | null>(null);
+  // スマホ（≤899px）の盤面開閉。既定は畳み（縦積みフォームが主役）。≥900px ではトグル自体が CSS で消え、
+  // canvas は常時表示なのでこの state は効かない（開閉はスマホ幅のみの概念）。
+  const [mobileBoardOpen, setMobileBoardOpen] = useState(false);
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) {
       return;
     }
+    // スマホで畳み中（display:none）は clientWidth=0 のまま描かれるが不可視なので無害。開いた瞬間に
+    // ResizeObserver が実幅で再計測して正しい縮小率になる（既存機構がそのまま働く・jsdom テストも 0 で描画）。
     const measure = () => setBoardWidth(el.clientWidth);
     measure();
     // ResizeObserver 非対応環境（jsdom テスト等）では 1 回の計測のみで打ち切る（throw 回避）。本番ブラウザでは
@@ -384,7 +389,20 @@ export function WysiwygBoardEditor({
               起きない（旧・別レイヤーの％オーバーレイを廃止）。盤面内部の装飾見出し / region 名は編集モードで AT から
               外れ、操作名は編集ボタンの aria-label が担うので、編集器側の見出し・既存 e2e の strict locator と二重化
               しない。盤面のテキストは下の編集器に等価で出るのでスクリーンリーダ利用者が情報を失わない。 */}
-            <div ref={canvasRef} className={styles.canvas}>
+            {/* スマホ専用の盤面開閉トグル（≥900px は CSS で非表示・盤面常時表示）。旧来の「≤899px は完全
+                非表示」をやめ、編集結果をその場で確認できるようにする（2026-07-06 スマホ改善）。 */}
+            <button
+              type="button"
+              className={styles.boardToggle}
+              aria-expanded={mobileBoardOpen}
+              onClick={() => setMobileBoardOpen((v) => !v)}
+            >
+              {mobileBoardOpen ? "盤面を閉じる" : "盤面を確認"}
+            </button>
+            <div
+              ref={canvasRef}
+              className={`${styles.canvas} ${mobileBoardOpen ? styles.canvasOpen : ""}`}
+            >
               {/* 枠の実幅を明示 width で渡し、cqw 非依存で確実に 16:9 へ収める（右・下のクリップ解消）。
                 幅計測（ResizeObserver / マウント）が済むまでは盤面を出せないので、その間は真っ白な空箱ではなく
                 スケルトンを敷く（LEDGER v2-ed-uo11: 読み込み中の "白い空箱" を解消）。 */}

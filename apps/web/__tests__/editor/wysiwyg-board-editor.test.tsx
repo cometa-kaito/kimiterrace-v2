@@ -610,4 +610,23 @@ describe("WysiwygBoardEditor", () => {
     );
     expect(screen.queryByRole("link", { name: /実物のサイネージを開く/ })).toBeNull();
   });
+
+  it("スマホ用の盤面開閉トグル「盤面を確認」を出し、押すと開閉が切り替わる（≤899px 用・≥900px は CSS 非表示）", () => {
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    const toggle = screen.getByRole("button", { name: "盤面を確認" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "盤面を閉じる" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
 });
