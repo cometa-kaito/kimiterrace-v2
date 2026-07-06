@@ -7,7 +7,7 @@
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
 - **web デプロイ手順: [runbooks/web-deploy.md](runbooks/web-deploy.md)（`scripts/deploy/deploy-web.sh <env> --apply`）。過去の引き継ぎ内の長い再デプロイ手順は読み返さずこれを使う。**
-- 最終更新: 2026-06-21 (JST) ／ 更新者: Claude Code
+- 最終更新: 2026-07-06 (JST) ／ 更新者: Claude Code
 
 ---
 
@@ -23,10 +23,10 @@
 
 ---
 
-## 現在地サマリ（2026-07-05）
+## 現在地サマリ（2026-07-06）
 
-- **main HEAD**: `134eb58f`（#1242 bump=下記 #1239 反映記録）。直下 `2f266805`（[#1239](https://github.com/cometa-kaito/kimiterrace-v2/pull/1239) system_admin 学校詳細/一覧の taste 改善）。URL は `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（[[ref_namespace_rename_breaks_e2e_url_asserts]]）。
-- **staging live / prod live**: image `web:2f26680`（2026-07-05 **#1239 system_admin 学校詳細 taste 改善**＝下記「直近の完了」2026-07-05・web のみ・schema/secret 無変更・両 env `/api/health` 200・`/login` `private,no-cache`＝force-dynamic 健全・`/ops` 307→login・prod rev `00140-9p8`）。この image は先行の**教員エディタ #1230-1237 + AI精度 #1226-1229** を内包（prod は各スレッドの bump #1231/#1232-1238 で既反映済・staging は本デプロイで catch-up）。前 prod image `web:48e2184`（#1237 エディタ日付タブ・別スレッド）。
+- **main HEAD**: `4bb63233`（[#1245](https://github.com/cometa-kaito/kimiterrace-v2/pull/1245) 教員エディタ AI反映⇄フォーム同期のP1修正）。bump 記録 = [#1247](https://github.com/cometa-kaito/kimiterrace-v2/pull/1247)。その前 `78216a80`（#1244 bump）・`a74053cc`（#1241 エディタ taste）・`2f266805`（[#1239](https://github.com/cometa-kaito/kimiterrace-v2/pull/1239) system_admin 学校詳細/一覧の taste 改善）。URL は `/ops`(運営)・`/app`(学校) の 2 namespace、`/admin` は物理撤去・旧 `/admin/*` は 308 温存（[[ref_namespace_rename_breaks_e2e_url_asserts]]）。
+- **staging live / prod live**: image `web:4bb6323`（2026-07-06 **#1245 AI反映⇄フォーム同期のP1修正**＝web のみ・schema/secret 無変更・両 env health200/login private,no-cache）。前 image `web:a74053c`（#1241 taste・staging/prod とも）。それ以前: `web:2f26680`（2026-07-05 **#1239 system_admin 学校詳細 taste 改善**＝下記「直近の完了」2026-07-05・web のみ・schema/secret 無変更・両 env `/api/health` 200・`/login` `private,no-cache`＝force-dynamic 健全・`/ops` 307→login・prod rev `00140-9p8`）。この image は先行の**教員エディタ #1230-1237 + AI精度 #1226-1229** を内包（prod は各スレッドの bump #1231/#1232-1238 で既反映済・staging は本デプロイで catch-up）。前 prod image `web:48e2184`（#1237 エディタ日付タブ・別スレッド）。
 - **migrate 実行済**（最新 `migrate_image_tag=ea93c5f`: news/weather/heat/snippets/calendar/air_quality の 0028-0033・#1061 ad_target_monitors 含む。本リリースは **schema 無変更=migrate 不要**）。デプロイ手順は [web-deploy.md](runbooks/web-deploy.md)。`AI_ENABLED='true'`（実 Vertex ON・gemini-2.5-flash・`GEMINI_THINKING_BUDGET=0`）。
 - **本セッション追加（2026-06-08）**: [#740](https://github.com/cometa-kaito/kimiterrace-v2/pull/740) 学校編集ページ（`/admin/system/schools/[id]/edit`）で DB 到達不能時にルートエラーバウンダリに吹き上がるバグを修正（`.catch(→null) + notFound()`）。[#743](https://github.com/cometa-kaito/kimiterrace-v2/pull/743) で staging デプロイ済。
 - **★ デプロイ後の残（要 人間/学校入力）**: ①**岐南 TVデバイス実投入** = staging に岐南工業テナント（school+電子工学科+1-3年 grades/classes）が未seed。岐南テナント seed CLI + TV-seed Cloud Run Job を要追加してから `seed-ginan-tv-devices-cli` を実行。②**教員ログイン有効化** = system_admin が `/ops/schools/<id>/edit`（旧 `/admin/system/...`、§4.1 改称）で学校共通パスワードを設定（学校が選ぶPWゆえ運営/学校が入力）。
@@ -39,6 +39,12 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-07-06: **教員エディタの実画面UX監査 → AI反映⇄フォーム双方向非同期のデータ消失（P1）を修正し staging→prod 反映済み（prod live `web:4bb6323`）**。ユーザー依頼「教員エディタをITリテラシー低/高の両教員が満足するUIUXに」。テストクラス（1組）の Chrome 実操作で監査→実証→修正。
+  - **実証した3症状**: (1) AI「反映する」後もフォーム/盤面プレビューが古いまま（リロードまで見えない）(2) その古いフォームへの1入力で自動保存（置換）が AI 反映分を上書き消去（実証: AI の「1限 英語」が消えた）(3) ロード後の手入力が AI 下書き基底（ページロード時 snapshot）に含まれず AI 反映で消える（実証: 手入力の「1限 数学」+連絡1件が消えた）。
+  - **[#1245](https://github.com/cometa-kaito/kimiterrace-v2/pull/1245)**: `?applied=<nonce>` 再ナビ（?copied= と同型）で反映成功時にフォーム側 key（`${date}:${copied}:${applied}`）だけ再マウント（AIチャット key は不変=会話保持・新設 ClassEditorChat が onApplied 注入）+ 新設 `EditorDraftSyncContext`（ref ブリッジ）で会話の最初の送信時に下書き基底をフォーム現在値へ再シード（`rebaseDraftBeforeFirstTurn` 純関数・未送信かつ idle のみ・ファイル取込後は不変・Provider 外 fail-soft）。保存/RLS/監査/自動保存 不変。CI 13/13 + fresh Reviewer APPROVE 相当（LOW のみ）→ merge は人間承認（auto 分類器が --admin を拒否したため）。
+  - **follow-up [#1246](https://github.com/cometa-kaito/kimiterrace-v2/issues/1246)**: scope エディタへの同配線 / 会話途中の手入力非合流 / unmount flush 残窓 / 取込失敗経路 / 型 nit。
+  - **監査の残改善（未実装・優先度順）**: ①盤面プレビューの忠実度2種（〆切持ち越し提出物が他日プレビューに出ない=実TVは31日窓で出る / 基本時間割seedはプレビューに出るが実TVは保存まで出ない）②AI文言（挨拶が常に「今日の連絡」・反映先日付をカード/ボタンに明示・「直す」押下でカードが黙って消える・カードに場所/重要が出ない）③配置（FHD: キャンバス1100px拡張+計画操作を盤面下へ / スマホ: 日付バー sticky 化+盤面プレビュー折りたたみ復活=現状≤899pxで盤面 display:none）。利用端末=職員室FHD+スマホ（ユーザー確認済）。
+  - **prod 実地検証の残**: デプロイ後にテストURLの教員セッションが期限切れ（403）で AI 反映フローの live 再確認が未了。再ログイン後に (1) 空の日でAI反映→リロード無しでフォーム反映 (2) 直後の手入力でAI分が残存、を確認する。
 - 2026-07-05: **system_admin 運営コンソール(/ops) の taste 改善「学校詳細を3トーンのアクション言語で再設計」を staging→prod 反映済み（夜間自律: ux-discovery→忠実再現レンダで多レンズ敵対的批評2周→実装→CI 13/13緑 + fresh Reviewer APPROVE→自律 merge→staging→prod・prod live `web:2f26680` rev `00140-9p8`）**。ユーザー依頼「system_admin 面全体の UX 改善・無人でデプロイまで（就寝中）」。
   - **発見（ux-discovery）**: 学校詳細 `/ops/schools/[id]` のヘッダが**8操作を1列フラット**（エディタ/クラス設定/広告掲載/静粛時間/生徒アクセスリンク/センサー/編集=全て同一の生hex青リンク `#1d4ed8`＋削除）で情報階層ゼロ・削除が編集の直後で誤クリック導線・モバイル375で245×207pxの縦に絡む塊。画面間で編集リンク色も割れ（学校一覧=オレンジ `#ea580c` 白地 **3.56:1 AA未達** / 詳細=青 `#1d4ed8`）。
   - **[#1239](https://github.com/cometa-kaito/kimiterrace-v2/pull/1239)**: アクション言語（一次=塗りオレンジCTA / 二次=ブランド青 `--brand-blue-strong #2b4acb` アウトライン chip・白地 **7.13:1**）を `globals.css` に**単一ソース化**。学校詳細=タイトル行(編集のみ)＋橙アクセント罫/ink見出しの「操作ゾーン」帯(6運用操作)＋末尾の**危険ゾーン**(薄赤面 `#fef2f2`・削除を編集から DOM 距離9で隔離)。端末設定リンク/空状態を token 化。学校一覧=新規登録を一次CTA・行内編集をオレンジ→青(AA是正)。値は既存 `--brand-*` のみ(新規トークン無し=ドリフトテスト非該当)・**schema/RLS/認可/監査 非接触の taste**。`SchoolDeleteButton` は再配置のみ(内部不変)。多レンズ批評(情報階層/使いやすさ/ブランド)2周で名前付き欠陥ゼロに収束。
