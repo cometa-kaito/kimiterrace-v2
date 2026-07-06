@@ -551,4 +551,63 @@ describe("WysiwygBoardEditor", () => {
     );
     expect(screen.getByText("DAY_HEADER_MARK")).toBeTruthy();
   });
+
+  it("planActions（前日/前週コピー・基本時間割）を盤面直下に描く。base=null フォールバックでは編集の上に出す（FHD 配置 2026-07-06）", () => {
+    const withBoard = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        planActions={<button type="button">PLAN_ACTIONS_MARK</button>}
+      />,
+    );
+    expect(screen.getByText("PLAN_ACTIONS_MARK")).toBeTruthy();
+    withBoard.unmount();
+    // フォールバック（盤面取得不能）でも計画操作を失わない。
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={null}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        planActions={<button type="button">PLAN_ACTIONS_MARK</button>}
+      />,
+    );
+    expect(screen.getByText("PLAN_ACTIONS_MARK")).toBeTruthy();
+  });
+
+  it("liveSignageUrl があれば盤面直下に「実物のサイネージを開く」リンクを別タブで出す。無ければ出さない（死リンク防止）", () => {
+    const withUrl = render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+        liveSignageUrl="https://example.com/signage/token"
+      />,
+    );
+    const link = screen.getByRole("link", { name: /実物のサイネージを開く/ }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://example.com/signage/token");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    withUrl.unmount();
+    render(
+      <WysiwygBoardEditor
+        classId={CLASS_ID}
+        date={TODAY}
+        base={base()}
+        initialSchedules={[]}
+        initialNotices={[]}
+        initialAssignments={[]}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: /実物のサイネージを開く/ })).toBeNull();
+  });
 });
