@@ -37,6 +37,7 @@ import { notFound, redirect } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { ClassEditorChat } from "./_components/ClassEditorChat";
 import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
+import { EDITOR_STACK_ANCHOR_ID } from "./_components/editor-anchors";
 import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
@@ -233,8 +234,11 @@ export default async function ClassEditorPage({
       </nav>
 
       {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
-          編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。 */}
-      <section aria-labelledby="zone-daily-heading">
+          編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。
+          id=EDITOR_STACK_ANCHOR_ID: 月カレンダーで日付を選んだ後の「編集エリアへ戻る」スクロール先。
+          旧来はセグメント nav に付いていたが、#1237 で nav が sticky バー内に入り「常に視界内」となって
+          scrollIntoView が空振りしていた（2026-07-06 実画面監査で実証）。非 sticky のゾーン先頭へ移設。 */}
+      <section aria-labelledby="zone-daily-heading" id={EDITOR_STACK_ANCHOR_ID}>
         {/* key={date}:{copied}:{applied}: 対象日変更・コピー・AI 反映時に再マウントして新データで初期化する。これが
             無いと配下エディタの useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が
             変更先の日付に移る」混線バグ（ユーザー報告 2026-06-16・設計書 §11-1）や、AI 反映後の古いフォームの
@@ -262,6 +266,36 @@ export default async function ClassEditorPage({
           showCallouts={showCallouts}
           visitors={board?.visitors ?? null}
           callouts={board?.callouts ?? null}
+          // 実物サイネージへの直結リンク（盤面直下・本物一致の確認動線）。未設置クラスは undefined＝出さない。
+          liveSignageUrl={liveSignageUrl}
+          // 計画系の即応操作（FHD 配置最適化 2026-07-06）: 前日/前週コピー・基本時間割リンクを盤面直下（左
+          // sticky カラム）へ常駐させる。「昨日と同じ＋1ヶ所変更」の最頻ワークフローがスクロールゼロで完結する
+          // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。実体（上書き確認・
+          // ?copied= 再ナビ・パターン別ラベル・対象日追随）は各ボタンが従来どおり担う＝配置のみの変更。
+          planActions={
+            <>
+              <CopyPreviousDayButton
+                classId={classId}
+                date={date}
+                hasExistingData={
+                  (patternIncludesBlock(pattern, "schedule") && schedule.items.length > 0) ||
+                  (patternIncludesBlock(pattern, "notice") && notices.items.length > 0) ||
+                  (patternIncludesBlock(pattern, "assignment") && assignments.items.length > 0) ||
+                  (board?.visitors?.length ?? 0) > 0 ||
+                  (board?.callouts?.length ?? 0) > 0
+                }
+                sectionsLabel={editableBlocksForPattern(pattern)
+                  .map((block) => blockLabel(pattern, block))
+                  .join("・")}
+              />
+              <CopyPreviousWeekButton classId={classId} />
+              {periodSchedule ? (
+                <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
+                  基本時間割を設定 →
+                </Link>
+              ) : null}
+            </>
+          }
           dayHeader={
             <>
               {/* 「毎日の編集」ラベルは視覚的に隠す（sr-only）＝画面から消して縦を節約するが、section の
@@ -290,47 +324,15 @@ export default async function ClassEditorPage({
         />
       </section>
 
-      {/* ─ ゾーン2: 計画（§3.1）─ 前日コピー / 前週コピー / 基本時間割 / 月カレンダー。日常編集と視覚的に分ける。 */}
+      {/* ─ ゾーン2: 計画（§3.1）─ 月カレンダー（任意日の選択）。前日/前週コピー・基本時間割リンクは
+          FHD 配置最適化（2026-07-06）で盤面直下（WysiwygBoardEditor の planActions・上記）へ常駐化し、
+          このゾーンはカレンダーに純化した。 */}
       <section aria-labelledby="zone-plan-heading" style={zoneSectionStyle}>
         <h2 id="zone-plan-heading" style={zoneLabelStyle}>
           計画
         </h2>
-        {/* 前日コピー（F3・§6.4 パターン動的化）: 前営業日の**実セクション**（実効パターンの編集ブロック＝
-            pattern2/3 なら 予定/呼び出し/来校者、pattern5 なら お知らせ/今日の予定）を編集中の対象日へ複製する
-            （対象日に追随・§3.1）。既存入力があれば上書き確認（ボタン側・ラベルもパターン別）。成功時の
-            ?copied= 再ナビは現在の ?date= を保持する（URLSearchParams 引き継ぎ・ボタン側実装）。 */}
-        <div style={planRowStyle}>
-          <CopyPreviousDayButton
-            classId={classId}
-            date={date}
-            hasExistingData={
-              (patternIncludesBlock(pattern, "schedule") && schedule.items.length > 0) ||
-              (patternIncludesBlock(pattern, "notice") && notices.items.length > 0) ||
-              (patternIncludesBlock(pattern, "assignment") && assignments.items.length > 0) ||
-              (board?.visitors?.length ?? 0) > 0 ||
-              (board?.callouts?.length ?? 0) > 0
-            }
-            sectionsLabel={editableBlocksForPattern(pattern)
-              .map((block) => blockLabel(pattern, block))
-              .join("・")}
-          />
-        </div>
-        {/* 前週コピー（C2）: 「JST 今日を含む週」固定の一括複製（選択日基準ではない・§3.3 で据え置き）。 */}
-        <div style={planRowStyle}>
-          <CopyPreviousWeekButton classId={classId} />
-        </div>
-        {/* 週次ベース時間割（F5・セカンド層）への導線。計画系の操作なのでカレンダーとセットで置く。
-            時限ベースの予定を持つパターンのみ（掲示板型 pattern5 は時刻入力＝時限テンプレが馴染まない、
-            pattern4 は予定自体が無い＝いずれも死リンク/死導線防止・§6.2）。 */}
-        {periodSchedule ? (
-          <p style={planRowStyle}>
-            <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
-              基本時間割を設定 →
-            </Link>
-          </p>
-        ) : null}
         {/* 月カレンダー: 対象日そのものを選ぶ（?date= 一本化・旧 ?plan の第 2 スタックは廃止）。セグメントの
-            「📅 ほかの日」がここへスクロールして開く。 */}
+            「📅 ほかの日」がここへスクロールして開く。選択後はゾーン1先頭（EDITOR_STACK_ANCHOR_ID）へ戻す。 */}
         <EditorDateCalendar
           classId={classId}
           today={today}
@@ -432,11 +434,6 @@ const zoneSectionStyle: React.CSSProperties = {
   paddingTop: "1.25rem",
   borderTop: `1px solid ${tokens.color.border}`,
 };
-// 計画ゾーン内の操作行（コピー系ボタン・リンク）。
-const planRowStyle: React.CSSProperties = {
-  margin: "0 0 0.75rem",
-};
-
 // 黒画面トグル節（このモニタ ゾーン内）。見出し + トグル + 説明をまとめる枠。
 const blackoutSectionStyle: React.CSSProperties = {
   marginTop: "1rem",

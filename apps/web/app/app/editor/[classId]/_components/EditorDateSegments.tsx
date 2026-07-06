@@ -2,11 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import styles from "./EditorDateSegments.module.css";
-import {
-  EDITOR_CALENDAR_ANCHOR_ID,
-  EDITOR_STACK_ANCHOR_ID,
-  scrollToAnchor,
-} from "./editor-anchors";
+import { EDITOR_CALENDAR_ANCHOR_ID, scrollToAnchor } from "./editor-anchors";
 
 /**
  * 対象日セグメント（単一スタック化・editor-restructure-bulletin-2026-07.md §3.1）。
@@ -66,8 +62,11 @@ export function EditorDateSegments({
     router.push(`/app/editor/${classId}?date=${date}`, { scroll: false });
   }
 
+  // スクロールアンカー（EDITOR_STACK_ANCHOR_ID）はこの nav ではなく親（page.tsx のゾーン1 section）に付ける。
+  // この nav は #1237 以降 sticky バー内にあり常に視界内のため、scrollIntoView が「既に見えている」と判定して
+  // 空振りする（カレンダー選択後に編集エリアへ戻れない実バグ・2026-07-06 実画面監査）。
   return (
-    <nav id={EDITOR_STACK_ANCHOR_ID} aria-label="対象日" className={styles.row}>
+    <nav aria-label="対象日" className={styles.row}>
       {dates.map((date) => {
         const isSelected = date === selectedDate;
         const isToday = date === today;

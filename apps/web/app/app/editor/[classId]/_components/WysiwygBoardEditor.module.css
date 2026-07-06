@@ -76,6 +76,30 @@
   }
 }
 
+/* 実物サイネージへの直結リンク（盤面プレビュー直下・右寄せ）。「プレビュー＝実物の写像」の確認動線。
+   ナビゲーション（見る）なので選択・ナビ系のブランド青（#1241 の役割分離: 選択/ナビ=青・アクション=橙）。 */
+.liveLink {
+  align-self: flex-end;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand-blue-strong, #2b4acb);
+  text-decoration: none;
+}
+.liveLink:hover,
+.liveLink:focus-visible {
+  text-decoration: underline;
+}
+
+/* 計画系の即応操作の行（前日コピー / 前週コピー / 基本時間割リンク）。盤面直下（左 sticky カラム内）または
+   フォールバック時は編集の上。各ボタンは自前のメッセージ行を持つため wrap で崩れず折り返す。 */
+.planRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.35rem;
+}
+
 /* プレビュー（盤面）枠。盤面の 16:9 をそのまま見せ、影で浮かせる。領域クリックは盤面内部の実セクションが担う。 */
 .canvas {
   width: 100%;

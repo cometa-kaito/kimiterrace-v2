@@ -77,6 +77,8 @@ export function WysiwygBoardEditor({
   visitors = null,
   callouts = null,
   dayHeader,
+  planActions,
+  liveSignageUrl,
 }: {
   classId: string;
   date: string;
@@ -126,6 +128,20 @@ export function WysiwygBoardEditor({
    * 無いフォールバック（base=null 等）では編集の上に素で全幅表示する（日付タブは常に見える必要がある）。
    */
   dayHeader?: React.ReactNode;
+  /**
+   * 計画系の即応操作（前日コピー / 前週コピー / 基本時間割リンク）を、**盤面プレビュー直下（左 sticky カラム内）**に
+   * 常駐させるため親（page.tsx）から node で受け取る（FHD 配置最適化 2026-07-06）。左カラムは盤面の下が常に
+   * 空白で、教員の最頻ワークフロー「昨日と同じ＋1ヶ所変更」がページ最下部（旧ゾーン2）まで往復していた摩擦を
+   * 解消する。プレビューが無いフォールバック（base=null / showBoard=false）では編集セクションの上に全幅で出す
+   * （操作を失わない）。実体（確認ダイアログ・?copied= 再ナビ・パターン別ラベル）は各ボタンが温存して担う。
+   */
+  planActions?: React.ReactNode;
+  /**
+   * このクラスの実機サイネージ URL（tv_devices.signage_url）。盤面プレビュー直下に「実物のサイネージを開く」
+   * リンクを出し、プレビュー→実物確認の動線を直結する（本物一致レンズ・2026-07-06）。未設置クラスは
+   * undefined＝リンクを出さない（死リンク防止・ゾーン3の同リンクと同じ規律）。
+   */
+  liveSignageUrl?: string;
 }) {
   // ライブプレビュー用の下書き集約。各エディタの onItemsChange で更新され、盤面再描画のみに使う（保存は各エディタ）。
   const [schedules, setSchedules] = useState<ScheduleItem[]>(initialSchedules);
@@ -354,6 +370,9 @@ export function WysiwygBoardEditor({
       <div ref={dayBarRef} className={styles.dayBar}>
         {dayHeader}
       </div>
+      {/* フォールバック（盤面プレビュー無し）でも計画操作を失わない: 編集セクションの上に全幅で出す。
+          プレビューあり時は previewCol（盤面直下）が担うのでここには出さない（二重表示防止）。 */}
+      {!hasPreview && planActions ? <div className={styles.planRow}>{planActions}</div> : null}
       <div className={hasPreview ? styles.layout : undefined}>
         {/* 生条件（showBoard && previewPayload）で分岐＝この中で previewPayload が非 null に絞り込まれる
             （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
@@ -382,6 +401,19 @@ export function WysiwygBoardEditor({
                 <div className={styles.skeleton} aria-hidden="true" />
               )}
             </div>
+            {/* プレビュー→実物確認の直結導線（本物一致）。編集を失わないよう別タブで開く。 */}
+            {liveSignageUrl ? (
+              <a
+                className={styles.liveLink}
+                href={liveSignageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                実物のサイネージを開く ↗
+              </a>
+            ) : null}
+            {/* 計画系の即応操作（前日/前週コピー・基本時間割）。sticky な盤面の直下＝スクロールゼロで届く。 */}
+            {planActions ? <div className={styles.planRow}>{planActions}</div> : null}
           </div>
         ) : null}
 
