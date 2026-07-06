@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "a74053c" # 2026-07-05: 教員エディタ taste 改修（#1241・視覚階層の整流=面グループ化/削除ゴースト赤/空行後退/○○を追加=塗り/型スケール3段/選択色オレンジ→ブランド青の役割分離）を prod 反映。2f26680→a74053c（純粋加算・#1239 の後）。schema・secret 無変更=migrate 不要。rev kimiterrace-web-00141-mpv 100%/health200/login private,no-cache/login console error 0/digest 0bfe0ff 突合。
+  web_image_tag = "4bb6323" # 2026-07-06: 教員エディタ AI反映⇄フォーム双方向同期のP1修正（#1245・?applied=再マウント+会話開始時の下書き基底再シード=実証済みデータ消失の根治）を prod 反映。a74053c→4bb6323。schema・secret 無変更=migrate 不要。health200/login private,no-cache。
 }
 
 module "network" {
