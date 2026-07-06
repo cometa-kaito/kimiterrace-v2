@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "4bb6323" # 2026-07-06: 教員エディタ AI反映⇄フォーム双方向同期のP1修正（#1245・?applied=再マウント+会話開始時の下書き基底再シード=実証済みデータ消失の根治）を staging 反映。a74053c→4bb6323。schema・secret 無変更=migrate 不要。health200/login private,no-cache。
+  web_image_tag = "878f9cb" # 2026-07-07: 教員エディタ配置/文言/忠実度 4PR（#1248 FHD配置1400px+計画操作盤面下+カレンダースクロール修復 / #1252 スマホ日付バーsticky+盤面トグル / #1250 AI対象日つき文言+カード詳細 / #1251 持ち越し合成+seed確定ボタン）を staging 反映。4bb6323→878f9cb。schema・secret 無変更=migrate 不要。health200/login private,no-cache。
 }
 
 module "network" {
