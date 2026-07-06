@@ -36,6 +36,20 @@ export type EditorBoardDraft = {
 };
 
 /**
+ * 他日入力の「持ち越し」項目（対象日に活性な 非 pinned 連絡=表示日数>1・提出物=期限+猶予）。実 TV は
+ * 窓マージ（effective-daily-data）で表示しているため、これをプレビューにも合成しないと「実機には出ている
+ * 提出物がプレビューでは消えている」過少表示になる（2026-07-06 実画面監査で実証: 7/7 入力の〆切 7/10 が
+ * 7/8 のプレビューで不可視）。抽出は activeCarryoverItemsOutsideDate（単一ソース）が担う。
+ */
+export type EditorBoardCarryover = {
+  notices: readonly NoticeItem[];
+  assignments: readonly AssignmentItem[];
+};
+
+/** 持ち越し無し（既定・後方互換）。 */
+const EMPTY_CARRYOVER: EditorBoardCarryover = { notices: [], assignments: [] };
+
+/**
  * 盤面プレビューの「基底スナップショット」。サーバ（RLS 文脈内）で取得した確定データをそのまま渡す。
  * `SignagePayload` のうち、エディタが上書きする `daily` / `scheduleDays` 以外の表示用フィールドを内包する。
  */
@@ -77,14 +91,24 @@ export function buildEditorPreviewPayload(
   base: EditorBoardBase,
   draft: EditorBoardDraft,
   pinnedNotices: readonly NoticeItem[] = [],
+  carryover: EditorBoardCarryover = EMPTY_CARRYOVER,
 ): SignagePayload {
+  // 提出物は「他日入力の持ち越し（期限+猶予まで活性）＋対象日の編集中 items」を実盤面と同じ**期限昇順**に
+  // 揃える（mergeWindowedSection と同型・2026-07-06 忠実度）。編集中の未確定行（deadline 空）は末尾側に寄る
+  // （空文字は辞書順で先頭になるため明示的に末尾へ）。
+  const assignments = [...carryover.assignments, ...draft.assignments].sort((a, b) => {
+    const da = typeof a.deadline === "string" && a.deadline !== "" ? a.deadline : "9999-99-99";
+    const db = typeof b.deadline === "string" && b.deadline !== "" ? b.deadline : "9999-99-99";
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
   const daily: EffectiveDailyData = {
     ...base.daily,
     // 編集中の当日セクションで上書き（クラス由来＝source: "class"。継承バッジは出さない）。
-    // notices は「他日入力の活性 pinned（入力日昇順）→ 対象日の編集中 items」の順で実盤面のマージ順に揃える。
+    // notices は「他日入力の活性 pinned → 他日入力の活性持ち越し（表示日数>1・入力日昇順）→ 対象日の編集中
+    // items」の順で実盤面のマージ順（入力日昇順・対象日が末尾）に揃える。
     schedules: { items: draft.schedules, source: "class" },
-    notices: { items: [...pinnedNotices, ...draft.notices], source: "class" },
-    assignments: { items: draft.assignments, source: "class" },
+    notices: { items: [...pinnedNotices, ...carryover.notices, ...draft.notices], source: "class" },
+    assignments: { items: assignments, source: "class" },
   };
 
   const scheduleDays: ScheduleDay[] = base.scheduleDays.map((day) =>

@@ -1,5 +1,6 @@
 import {
   ASSIGNMENT_GRACE_DAYS,
+  type AssignmentItem,
   type NoticeItem,
   type PinnedNoticeRow,
 } from "@/lib/editor/notice-assignment-core";
@@ -196,6 +197,50 @@ export function activePinnedNoticeItemsOutsideDate(
     .filter((r) => r.date !== date)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
     .flatMap((r) => r.items.filter((i) => i.pinned === true && isNoticeActive(i, r.date, date)));
+}
+
+/**
+ * 過去日入力の 1 行（クラス直・入力日つき）。エディタ WYSIWYG プレビューの「持ち越し」合成用
+ * （{@link activeCarryoverItemsOutsideDate}）。
+ */
+export type CarryoverDailyRow = {
+  date: string;
+  notices: NoticeItem[];
+  assignments: AssignmentItem[];
+};
+
+/**
+ * クラス直の過去日行から、**対象日以外の日に入力された・対象日に活性な** 連絡（非 pinned・表示日数>1 の
+ * 持ち越し）と提出物（期限 + 猶予まで持続）を、実盤面のマージ順（入力日昇順・提出物は期限昇順）で平坦化する
+ * （2026-07-06 実画面監査: 7/7 入力の〆切 7/10 の提出物が、実 TV には出るのに 7/8 のプレビューでは
+ * 「提出物はありません」＝過少表示。教員が消えたと誤認して二重入力・無駄な前日コピーをする動線だった）。
+ *
+ * activePinnedNoticeItemsOutsideDate（pinned 専用・MEDIUM-2）と対の**非 pinned 版**。pinned はそちらが
+ * 担うためここでは除外する（二重表示防止）。活性判定は単一ソース {@link isNoticeActive} /
+ * {@link isAssignmentActive}（第 3 の合成実装を作らない）。**純関数**。
+ *
+ * 制約: クラス scope の行のみを対象とする（クラスエディタのプレビューは編集セクションをクラス視点で
+ * 全置換するため。scope 継承の細部＝mergeWindowedSection の最具体勝ちまでは再現しない・fail-soft）。
+ */
+export function activeCarryoverItemsOutsideDate(
+  rows: readonly CarryoverDailyRow[],
+  date: string,
+): { notices: NoticeItem[]; assignments: AssignmentItem[] } {
+  const sorted = [...rows]
+    .filter((r) => r.date !== date)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const notices = sorted.flatMap((r) =>
+    r.notices.filter((i) => i.pinned !== true && isNoticeActive(i, r.date, date)),
+  );
+  const assignments = sorted
+    .flatMap((r) => r.assignments.filter((i) => isAssignmentActive(i, date)))
+    .sort((a, b) => {
+      // 実盤面（mergeWindowedSection）と同じ期限昇順の安定ソート。
+      const da = typeof a.deadline === "string" ? a.deadline : "";
+      const db = typeof b.deadline === "string" ? b.deadline : "";
+      return da < db ? -1 : da > db ? 1 : 0;
+    });
+  return { notices, assignments };
 }
 
 /** 提出物が today に表示中か。期限 + ASSIGNMENT_GRACE_DAYS 日まで表示し、以後は消える。 */

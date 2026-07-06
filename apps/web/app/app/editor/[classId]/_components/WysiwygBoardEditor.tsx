@@ -3,7 +3,11 @@
 import type { EditRegion } from "@/app/(signage)/signage/[classToken]/_components/BoardRegionEditButton";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
 import { useEditorDraftSyncRef } from "@/app/app/editor/_components/EditorDraftSyncContext";
-import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
+import {
+  type EditorBoardBase,
+  type EditorBoardCarryover,
+  buildEditorPreviewPayload,
+} from "@/lib/editor/editor-board-preview";
 import type {
   AssignmentItem,
   NoticeItem,
@@ -71,6 +75,7 @@ export function WysiwygBoardEditor({
   initialAssignments,
   pinnedNotices,
   previewPinnedNotices,
+  previewCarryover,
   showBoard = true,
   showVisitors = false,
   showCallouts = false,
@@ -104,6 +109,13 @@ export function WysiwygBoardEditor({
    * （実機に出ている校訓がプレビューで消える不一致の解消）。編集中は不変（固定行の増減は保存→再取得で反映）。
    */
   previewPinnedNotices?: NoticeItem[];
+  /**
+   * 他日入力の「持ち越し」項目（対象日に活性な 非 pinned 連絡・提出物。サーバで
+   * `activeCarryoverItemsOutsideDate` が単一ソースの活性判定で抽出）。実 TV の窓マージ結果と一致させる
+   * （2026-07-06 忠実度: 実機には出ている〆切持ち越しの提出物がプレビューで消える過少表示の是正）。
+   * 編集中は不変（持ち越しの増減は保存→再取得で反映・previewPinnedNotices と同じ規律）。
+   */
+  previewCarryover?: EditorBoardCarryover;
   /**
    * 盤面ライブプレビューを描くか。既定 true（今日の編集＝WYSIWYG）。false にすると盤面を出さず編集セクション
    * （予定/連絡/提出物）だけを出す＝「選択した日（未来）の編集」をフォームのみで軽く見せる用（要望 2026-06-23）。
@@ -328,9 +340,10 @@ export function WysiwygBoardEditor({
             base,
             { schedules, notices, assignments },
             previewPinnedNotices ?? [],
+            previewCarryover,
           )
         : null,
-    [base, schedules, notices, assignments, previewPinnedNotices],
+    [base, schedules, notices, assignments, previewPinnedNotices, previewCarryover],
   );
   // 盤面プレビューでも実機と同じく広告を**ローテーション表示**する（要望 2026-06-23: エディタ画面でも広告が
   // 回るように）。回転 index の算出は実機（SignageClient）と同じ共有フック {@link useAdRotation} に寄せる。

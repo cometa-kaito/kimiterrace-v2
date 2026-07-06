@@ -11,6 +11,7 @@ import {
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import {
   getClassAssignments,
+  getClassCarryoverDailyRows,
   getClassNotices,
   getClassPinnedNoticeRows,
 } from "@/lib/editor/notice-assignment-queries";
@@ -21,7 +22,12 @@ import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
-import { activePinnedNoticeItemsOutsideDate } from "@/lib/signage/effective-daily-data";
+import {
+  EFFECTIVE_LOOKBACK_DAYS,
+  activeCarryoverItemsOutsideDate,
+  activePinnedNoticeItemsOutsideDate,
+  addDays,
+} from "@/lib/signage/effective-daily-data";
 import {
   blockLabel,
   editableBlocksForPattern,
@@ -43,6 +49,7 @@ import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { RememberLastClass } from "./_components/RememberLastClass";
+import { SeedConfirmButton } from "./_components/SeedConfirmButton";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
 
 /**
@@ -126,6 +133,14 @@ export default async function ClassEditorPage({
     // 固定中のお知らせ（pinned・F-C §5.4）: 対象日以外の日に入力された固定行は連絡エディタに出てこない
     // （幽霊化）ため、クラス直の固定行を全期間で引いて「固定中のお知らせ」一覧（削除導線）に渡す。
     const pinnedNotices = await getClassPinnedNoticeRows(tx, classId);
+    // 持ち越し合成（忠実度 2026-07-06）: 対象日より前の遡及窓（実盤面と同じ EFFECTIVE_LOOKBACK_DAYS）の
+    // クラス直行を読む。対象日に活性な非 pinned 連絡・提出物をプレビューへ合成するため（抽出は下の純関数）。
+    const carryoverRows = await getClassCarryoverDailyRows(
+      tx,
+      classId,
+      date,
+      addDays(date, -(EFFECTIVE_LOOKBACK_DAYS - 1)),
+    );
     // 週次ベース時間割（F5・コピーオンライト）: 対象日の予定が空のとき、その曜日の基本時間割をエディタの初期値に
     // seed するために引く（自校 RLS・同一 tx）。テンプレ未登録は空。盤面の表示時マージはしない（seed は編集初期値のみ）。
     const weeklyTimetable = (await getClassWeeklyTimetable(tx, classId))?.timetable ?? {};
@@ -169,6 +184,7 @@ export default async function ClassEditorPage({
       liveSignageUrl,
       contentDates,
       weeklyTimetable,
+      carryoverRows,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -188,6 +204,7 @@ export default async function ClassEditorPage({
     liveSignageUrl,
     contentDates,
     weeklyTimetable,
+    carryoverRows,
   } = data;
 
   // 対象日セグメント（§3.1）: 今日を常に先頭に、翌授業日からの授業日を時系列で並べる（サーバ決定＝
@@ -214,6 +231,11 @@ export default async function ClassEditorPage({
   // 他日入力の・対象日に活性な固定行（pinned・Reviewer MEDIUM-2）。実 TV は窓マージで表示しているため、
   // ライブプレビューにも draft の前置きで合成して実機と一致させる（活性判定は単一ソース isNoticeActive）。
   const previewPinnedNotices = activePinnedNoticeItemsOutsideDate(pinnedNotices, date);
+
+  // 他日入力の・対象日に活性な**持ち越し**（非 pinned 連絡=表示日数>1・提出物=期限+猶予・忠実度 2026-07-06）。
+  // 実 TV は窓マージで表示しているため、プレビューにも合成して「実機には出ているのにプレビューでは消えている」
+  // 過少表示（→教員の二重入力・無駄な前日コピー）を防ぐ。活性判定は単一ソース（is*Active）。
+  const previewCarryover = activeCarryoverItemsOutsideDate(carryoverRows, date);
 
   return (
     // EditorDraftSyncProvider: フォーム（WysiwygBoardEditor）の「今この瞬間」の状態を会話 AI（EditorChat）と
@@ -262,6 +284,7 @@ export default async function ClassEditorPage({
           initialAssignments={assignments.items}
           pinnedNotices={pinnedNotices}
           previewPinnedNotices={previewPinnedNotices}
+          previewCarryover={previewCarryover}
           showVisitors={showVisitors}
           showCallouts={showCallouts}
           visitors={board?.visitors ?? null}
@@ -315,9 +338,15 @@ export default async function ClassEditorPage({
                 編集中: {jpDate(date)}
                 {date === today ? "（今日）" : ""}
               </p>
-              {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ小さく出す（保存して初めて確定）。 */}
-              {seed.seeded ? (
-                <p style={seedNoteStyle}>基本時間割から反映（保存すると確定）</p>
+              {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ出す。プレビューには出るが保存する
+                  まで実サイネージには出ないため、状態を明文化し**ワンクリック確定**（SeedConfirmButton＝既存の
+                  保存経路 + ?applied= 再マウント）を添える（忠実度 2026-07-06: 「もう実機にも出ている」誤認と
+                  「確定手段がどこかを1ヶ所編集するだけ」の分かりにくさの是正）。 */}
+              {seed.seeded && seed.items.length > 0 ? (
+                <p style={seedNoteStyle}>
+                  基本時間割から下書き表示中（まだ実際の盤面には出ていません）{" "}
+                  <SeedConfirmButton classId={classId} date={date} items={seed.items} />
+                </p>
               ) : null}
             </>
           }

@@ -1,5 +1,5 @@
 import { type TenantTx, classes, dailyData } from "@kimiterrace/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import {
   type AssignmentItem,
   type NoticeItem,
@@ -106,6 +106,50 @@ export async function getClassPinnedNoticeRows(
     const validated = validateNoticeItems(row.notices);
     if (validated.ok && validated.value.some((i) => i.pinned === true)) {
       out.push({ date: row.date, items: validated.value });
+    }
+  }
+  return out;
+}
+
+/**
+ * エディタ WYSIWYG プレビューの「持ち越し」合成用に、**対象日より前**のクラス直の行（連絡 / 提出物つき・
+ * 入力日つき）を遡及窓ぶん読む（実盤面の {@link "@/lib/signage/effective-daily-data".EFFECTIVE_LOOKBACK_DAYS}
+ * と同じ窓・呼び出し側が渡す）。活性判定・平坦化は純関数
+ * {@link "@/lib/signage/effective-daily-data".activeCarryoverItemsOutsideDate} が担う（ここは読むだけ）。
+ *
+ * **RLS (ルール2)**: withSession の自校 tx 内で呼ぶ（他クエリと同じ）。保存済みデータも検証を通して
+ * typed items に正規化（壊れた行は空扱い・防御的）。両セクションとも空の行は落とす（無駄な転送をしない）。
+ */
+export async function getClassCarryoverDailyRows(
+  tx: TenantTx,
+  classId: string,
+  date: string,
+  windowStart: string,
+): Promise<{ date: string; notices: NoticeItem[]; assignments: AssignmentItem[] }[]> {
+  const rows = await tx
+    .select({
+      date: dailyData.date,
+      notices: dailyData.notices,
+      assignments: dailyData.assignments,
+    })
+    .from(dailyData)
+    .where(
+      and(
+        eq(dailyData.scope, "class"),
+        eq(dailyData.classId, classId),
+        gte(dailyData.date, windowStart),
+        lt(dailyData.date, date),
+      ),
+    )
+    .orderBy(asc(dailyData.date));
+  const out: { date: string; notices: NoticeItem[]; assignments: AssignmentItem[] }[] = [];
+  for (const row of rows) {
+    const notices = row.notices != null ? validateNoticeItems(row.notices) : null;
+    const assignments = row.assignments != null ? validateAssignmentItems(row.assignments) : null;
+    const noticeItems = notices?.ok ? notices.value : [];
+    const assignmentItems = assignments?.ok ? assignments.value : [];
+    if (noticeItems.length > 0 || assignmentItems.length > 0) {
+      out.push({ date: row.date, notices: noticeItems, assignments: assignmentItems });
     }
   }
   return out;
