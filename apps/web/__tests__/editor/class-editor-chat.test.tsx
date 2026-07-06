@@ -90,7 +90,8 @@ describe("ClassEditorChat 反映成功 → ?applied= 再ナビゲート", () => 
     fireEvent.change(input, { target: { value: "明日避難訓練があります" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    fireEvent.click(await screen.findByRole("button", { name: "反映する" }));
+    // 単一日の反映ボタンは反映先日付つき（2026-07-06 監査 P2-2）。
+    fireEvent.click(await screen.findByRole("button", { name: "6/20（土）に反映" }));
     await screen.findByText("盤面に反映しました。");
 
     expect(replaceMock).toHaveBeenCalledTimes(1);
