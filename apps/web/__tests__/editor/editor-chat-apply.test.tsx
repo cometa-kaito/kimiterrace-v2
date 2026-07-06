@@ -39,9 +39,23 @@ vi.mock("../../lib/editor/schedule-actions", () => ({
 vi.mock("../../lib/editor/assistant-actions", () => ({ assistDraftAllFromFileAction: vi.fn() }));
 
 import { EditorChat } from "../../app/app/editor/_components/EditorChat";
+import {
+  type EditorCurrentDraft,
+  EditorDraftSyncProvider,
+  useEditorDraftSyncRef,
+} from "../../app/app/editor/_components/EditorDraftSyncContext";
 import type { AssistantDraft } from "../../lib/editor/assistant-chat-core";
 import { setAssignmentsAction, setNoticesAction } from "../../lib/editor/notice-assignment-actions";
 import { setScheduleAction } from "../../lib/editor/schedule-actions";
+
+/** テスト用: Provider の共有 ref に「フォームの現在値」を書き込む（WysiwygBoardEditor の代役）。 */
+function Feeder({ value }: { value: EditorCurrentDraft }) {
+  const ref = useEditorDraftSyncRef();
+  if (ref) {
+    ref.current = value;
+  }
+  return null;
+}
 
 /** synthetic SSE Response（meta → draft → done）を 1 ターン分返す fetch stub を張る。 */
 function stubSse(finalDraft: AssistantDraft, allowed = ["schedules", "notices", "assignments"]) {
@@ -437,5 +451,129 @@ describe("EditorChat 反映（編集 / 削除対応）", () => {
     // done に達しても、反映するものが無いので確認カードは出ない。
     await waitFor(() => expect(screen.getByText("承知しました。")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "反映する" })).toBeNull();
+  });
+});
+
+describe("EditorChat 反映後の onApplied 通知（P1: フォーム再マウントのトリガ）", () => {
+  it("全件成功で onApplied が 1 回呼ばれる（クラスエディタはこれで ?applied= 再ナビ→フォーム再マウント）", async () => {
+    stubSse({ schedules: [], notices: [{ text: "明日は避難訓練です。" }], assignments: [] });
+    const onApplied = vi.fn();
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={undefined}
+        onApplied={onApplied}
+      />,
+    );
+
+    send("避難訓練の連絡");
+    fireEvent.click(await screen.findByRole("button", { name: "反映する" }));
+
+    await screen.findByText("盤面に反映しました。");
+    expect(onApplied).toHaveBeenCalledTimes(1);
+  });
+
+  it("一部失敗では onApplied を呼ばない（半端な反映を「完了」に見せず再試行してもらう）", async () => {
+    vi.mocked(setNoticesAction).mockResolvedValueOnce({
+      ok: false,
+      error: { message: "保存に失敗しました" },
+    } as never);
+    stubSse({ schedules: [], notices: [{ text: "明日は避難訓練です。" }], assignments: [] });
+    const onApplied = vi.fn();
+    render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-06-20"
+        initialDraft={undefined}
+        onApplied={onApplied}
+      />,
+    );
+
+    send("避難訓練の連絡");
+    fireEvent.click(await screen.findByRole("button", { name: "反映する" }));
+
+    await screen.findByText("一部の反映に失敗しました。もう一度お試しください。");
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+});
+
+describe("会話開始時の下書き基底の再シード（EditorDraftSyncContext・P1: ロード後の手入力を消さない）", () => {
+  it("最初の送信でフォーム現在値が draft 基底として API へ渡る（initialDraft のスナップショットではなく）", async () => {
+    const fetchMock = stubSse({
+      schedules: [{ subject: "数学", period: 1 }],
+      notices: [],
+      assignments: [],
+    });
+    render(
+      <EditorDraftSyncProvider>
+        {/* ロード後の手入力を模す: initialDraft は空だが、フォームの現在値には「1限 数学」がある。 */}
+        <Feeder
+          value={{ schedules: [{ subject: "数学", period: 1 }], notices: [], assignments: [] }}
+        />
+        <EditorChat
+          scope="class"
+          targetId="c1"
+          date="2026-06-20"
+          initialDraft={{ schedules: [], notices: [], assignments: [] }}
+        />
+      </EditorDraftSyncProvider>,
+    );
+
+    send("2限は理科");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as { body: string };
+    const body = JSON.parse(init.body) as { draft: AssistantDraft };
+    expect(body.draft.schedules).toEqual([{ subject: "数学", period: 1 }]);
+  });
+
+  it("pinned 行は基底から剥がして渡す（反映時に preservePinnedNotices が合流＝二重にしない）", async () => {
+    const fetchMock = stubSse({ schedules: [], notices: [], assignments: [] });
+    render(
+      <EditorDraftSyncProvider>
+        <Feeder
+          value={{
+            schedules: [],
+            notices: [{ text: "校訓: 誠実", pinned: true }, { text: "通常の連絡" }],
+            assignments: [],
+          }}
+        />
+        <EditorChat
+          scope="class"
+          targetId="c1"
+          date="2026-06-20"
+          initialDraft={{ schedules: [], notices: [], assignments: [] }}
+        />
+      </EditorDraftSyncProvider>,
+    );
+
+    send("連絡を整理して");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as { body: string };
+    const body = JSON.parse(init.body) as { draft: AssistantDraft };
+    expect(body.draft.notices).toEqual([{ text: "通常の連絡" }]);
+  });
+
+  it("Provider 外（scope エディタ等）は従来どおり initialDraft を基底にする（fail-soft）", async () => {
+    const fetchMock = stubSse({ schedules: [], notices: [], assignments: [] });
+    render(
+      <EditorChat
+        scope="school"
+        targetId="s1"
+        date="2026-06-20"
+        initialDraft={{ schedules: [], notices: [{ text: "既存の連絡" }], assignments: [] }}
+      />,
+    );
+
+    send("整理して");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as { body: string };
+    const body = JSON.parse(init.body) as { draft: AssistantDraft };
+    expect(body.draft.notices).toEqual([{ text: "既存の連絡" }]);
   });
 });

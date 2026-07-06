@@ -10,7 +10,9 @@ import {
   initialChatState,
   isRetryableError,
   parseSseFrames,
+  rebaseDraftBeforeFirstTurn,
 } from "@/lib/editor/assistant-chat-client";
+import { useEditorDraftSyncRef } from "./EditorDraftSyncContext";
 import {
   type AssistantChatRequestBody,
   type AssistantDayDraft,
@@ -96,6 +98,7 @@ export function EditorChat({
   pinnedNotices,
   pattern = DEFAULT_SIGNAGE_DESIGN_PATTERN,
   variant = "page",
+  onApplied,
 }: {
   scope: string;
   targetId: string;
@@ -125,6 +128,14 @@ export function EditorChat({
    * 高さの取り方だけを切り替える**（パネルが内部スクロールを担うため）。
    */
   variant?: "page" | "floating";
+  /**
+   * 反映（onApply）が**全件成功**した直後に呼ぶ通知（任意）。クラスエディタは
+   * {@link "../[classId]/_components/ClassEditorChat"} がこれで `?applied=<nonce>` 再ナビゲートを注入し、
+   * フォーム側（WysiwygBoardEditor 配下）を反映後データで再マウントする（2026-07-06 P1: 反映後もフォームが
+   * 古いままで、次の自動保存が AI 反映分を上書き消去する実証バグの是正）。未指定（scope エディタ・テスト）は
+   * 何もしない（従来挙動）。
+   */
+  onApplied?: () => void;
 }) {
   // 入力欄の操作ヒント（Enter=送信 / Shift+Enter=改行）を aria-describedby で textarea に紐付けるための安定 id。
   // title だけだと SR/タッチ/キーボード利用者に確実に露出しないため、常時表示の控えめなヒント行も併設する（uo8 補完）。
@@ -159,6 +170,9 @@ export function EditorChat({
   const composingRef = useRef(false);
   const [fileBusy, setFileBusy] = useState(false);
   const stt = useSpeechToText();
+  // フォームの「今この瞬間」の状態への共有 ref（EditorDraftSyncContext）。会話開始時に下書きの基底を
+  // これで再シードする（P1: ロード後の手入力を AI が知らず反映で消す穴の是正）。Provider 外は null。
+  const syncRef = useEditorDraftSyncRef();
 
   /**
    * 入力欄を内容に応じて自動で縦に伸ばす（LINE 風）。`height=auto` で一旦縮めてから `scrollHeight` を測り、
@@ -264,10 +278,25 @@ export function EditorChat({
     streamingRef.current = true;
     setSaveMsg(null);
     setConfirmHidden(false);
-    const base = beginUserTurn(state, content);
+    // 会話開始（最初の送信）なら、下書きの基底をフォームの現在値へ再シードする（P1 是正）。initialDraft は
+    // ページロード時のスナップショットで、ロード後の手入力（自動保存済み）を含まない＝そのまま基底にすると
+    // AI の「完全な目標状態」から手入力が抜け、反映（置換保存）が手入力を消す。pinned はシードと同じ土俵で
+    // 剥がす（stripPinnedFromDraft・反映時に preservePinnedNotices が合流）。差分基準（board）も同時に揃える。
+    const current = syncRef?.current
+      ? stripPinnedFromDraft({
+          schedules: [...syncRef.current.schedules],
+          notices: [...syncRef.current.notices],
+          assignments: [...syncRef.current.assignments],
+        })
+      : undefined;
+    const rebased = rebaseDraftBeforeFirstTurn(state, current ?? null);
+    if (rebased !== state) {
+      setBoard(rebased.draft);
+    }
+    const base = beginUserTurn(rebased, content);
     setInput("");
     void stream(base, false);
-  }, [input, state, stream]);
+  }, [input, state, stream, syncRef]);
 
   /** PII 警告の「承知して送信」: 直近の messages をそのまま acknowledgePii=true で再送（user ターンは積まない）。 */
   const onAcknowledge = useCallback(() => {
@@ -375,13 +404,27 @@ export function EditorChat({
           assignments: d.assignments,
         });
         setConfirmHidden(true);
+        // 全件成功したときだけ親へ通知する（クラスエディタはこれで ?applied= 再ナビ→フォーム再マウント。
+        // 一部失敗時は再マウントしない＝どのセクションが古いか不定のまま「反映済みに見える」誤認を避け、
+        // ユーザーに再試行してもらう）。
+        onApplied?.();
       }
     } catch {
       setSaveMsg("反映に失敗しました。もう一度お試しください。");
     } finally {
       setSaving(false);
     }
-  }, [saving, state.draft, state.allowedSections, board, scope, targetId, date, pinnedNotices]);
+  }, [
+    saving,
+    state.draft,
+    state.allowedSections,
+    board,
+    scope,
+    targetId,
+    date,
+    pinnedNotices,
+    onApplied,
+  ]);
 
   /** ファイル取り込み: PDF/Word/Excel/画像を既存 action で全セクション下書きに（非ストリーミング・保存しない）。 */
   const onFile = useCallback(
