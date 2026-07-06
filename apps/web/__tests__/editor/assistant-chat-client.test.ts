@@ -9,6 +9,7 @@ import {
   initialChatState,
   isRetryableError,
   parseSseFrames,
+  rebaseDraftBeforeFirstTurn,
 } from "../../lib/editor/assistant-chat-client";
 
 /**
@@ -205,5 +206,39 @@ describe("finalizeUnterminatedTurn", () => {
       error: { reason: "pii_warning" },
     };
     expect(finalizeUnterminatedTurn(errored)).toBe(errored);
+  });
+});
+
+describe("rebaseDraftBeforeFirstTurn", () => {
+  const current = {
+    schedules: [{ subject: "数学", period: 1 }],
+    notices: [{ text: "体操服を忘れずに" }],
+    assignments: [],
+  };
+
+  it("未送信（messages 空・idle）なら下書きの基底をフォーム現在値へ差し替える（P1: 手入力消失の是正）", () => {
+    const base = initialChatState({ schedules: [], notices: [], assignments: [] });
+    const s = rebaseDraftBeforeFirstTurn(base, current);
+    expect(s.draft).toEqual(current);
+    expect(s).not.toBe(base);
+  });
+
+  it("送信済み（messages あり）は会話の作業下書きを保つ（上書きしない）", () => {
+    const talked = beginUserTurn(initialChatState(), "1限は英語");
+    expect(rebaseDraftBeforeFirstTurn(talked, current)).toBe(talked);
+  });
+
+  it("ファイル取り込み後（messages 空でも status=done）は取り込み結果を保つ", () => {
+    const imported: ChatState = {
+      ...initialChatState({ schedules: [], notices: [{ text: "取込結果" }], assignments: [] }),
+      status: "done",
+    };
+    expect(rebaseDraftBeforeFirstTurn(imported, current)).toBe(imported);
+  });
+
+  it("current が null/undefined（Provider 外）は従来挙動のまま（fail-soft）", () => {
+    const base = initialChatState();
+    expect(rebaseDraftBeforeFirstTurn(base, null)).toBe(base);
+    expect(rebaseDraftBeforeFirstTurn(base, undefined)).toBe(base);
   });
 });

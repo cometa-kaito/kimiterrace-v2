@@ -1,4 +1,4 @@
-import { EditorChat } from "@/app/app/editor/_components/EditorChat";
+import { EditorDraftSyncProvider } from "@/app/app/editor/_components/EditorDraftSyncContext";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
@@ -35,6 +35,7 @@ import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
+import { ClassEditorChat } from "./_components/ClassEditorChat";
 import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
 import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
@@ -64,21 +65,27 @@ import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
  * 反映の取りこぼし防止: 会話の下書きを**現在の盤面でシード**する（per-section save は置換のため、AI が
  * 触れなかったセクションも全体像として保持してから反映する）。`key={date}:{copied}`（対象日変更・コピーで
  * 各エディタ・AI を再マウントし新データで初期化）は**絶対に維持**する（無いと旧日付の入力が新日付へ保存
- * される混線バグが再発する・2026-06-16 実バグ）。
+ * される混線バグが再発する・2026-06-16 実バグ）。フォーム側の key はさらに `:{applied}`（AI 反映の nonce）を
+ * 持ち、反映後データで再マウントする（AI チャットの key には含めない＝会話を保つ・2026-07-06 P1）。
  */
 export default async function ClassEditorPage({
   params,
   searchParams,
 }: {
   params: Promise<{ classId: string }>;
-  searchParams: Promise<{ date?: string; plan?: string; copied?: string }>;
+  searchParams: Promise<{ date?: string; plan?: string; copied?: string; applied?: string }>;
 }) {
   const user = await requireRole(EDITOR_ROLES);
   const { classId } = await params;
   // 広告管理 / 静粛時間は school_admin / system_admin 専任。teacher には出さない（死リンク防止）。
   const canManageAds = isRoleAllowed(user.role, ADS_ROLES);
   const canManageQuietHours = isRoleAllowed(user.role, QUIET_HOURS_ROLES);
-  const { date: dateParam, plan: planParam, copied: copiedParam } = await searchParams;
+  const {
+    date: dateParam,
+    plan: planParam,
+    copied: copiedParam,
+    applied: appliedParam,
+  } = await searchParams;
   // 旧 `?plan=X`（2 スタック時代の下スタック URL）は `?date=X` へ後方互換 redirect（§3.3）。恒久 URL では
   // ないので Next 既定の 307 で十分。不正な plan 値は無視して既定挙動に fail-soft。
   const planRedirect = planRedirectPath(classId, planParam);
@@ -90,6 +97,11 @@ export default async function ClassEditorPage({
   // 確実に再初期化する（key={date} だけでは同じ日への操作で再マウントされない）。値は key 用の不透明文字列
   // なので形式検証は長さ制限のみ（fail-soft）。
   const copied = typeof copiedParam === "string" ? copiedParam.slice(0, 24) : "";
+  // AI 反映成功時の再マウント nonce（ClassEditorChat が ?applied=<ts> を付けて再ナビゲート）。copied と同じ
+  // 確立済み手法で、**フォーム側（WysiwygBoardEditor）の key にだけ**含める＝反映後データで各セクション
+  // 編集器を再初期化しつつ、AI チャット（key は date:copied のまま）の会話・パネル状態は保つ（2026-07-06 P1:
+  // 反映後もフォームが古いまま→次の自動保存が AI 反映分を上書き消去する実証バグの是正）。
+  const applied = typeof appliedParam === "string" ? appliedParam.slice(0, 24) : "";
   const now = new Date();
   const today = jstDateString(now);
   // `?date=` 明示は常に優先（deep link 安定）。無指定の既定は school_configs の cutover を読んでから
@@ -203,7 +215,10 @@ export default async function ClassEditorPage({
   const previewPinnedNotices = activePinnedNoticeItemsOutsideDate(pinnedNotices, date);
 
   return (
-    <>
+    // EditorDraftSyncProvider: フォーム（WysiwygBoardEditor）の「今この瞬間」の状態を会話 AI（EditorChat）と
+    // 共有する ref ブリッジ（DOM は生やさない）。AI の下書き基底をロード時スナップショットでなく会話開始時の
+    // フォーム現在値にする（P1: ロード後の手入力を AI が知らず反映で消す穴の是正・EditorDraftSyncContext 参照）。
+    <EditorDraftSyncProvider>
       {/* 画面付随物（戻る + クラス名）は小さく薄いパンくず＝主役（盤面エディタ）に視線が向くようにする。
           クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ控えめにする。
           ?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
@@ -220,9 +235,10 @@ export default async function ClassEditorPage({
       {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
           編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。 */}
       <section aria-labelledby="zone-daily-heading">
-        {/* key={date}:{copied}: 対象日変更・コピー時に再マウントして新データで初期化する。これが無いと配下エディタの
-            useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が変更先の日付に移る」
-            混線バグになる（ユーザー報告 2026-06-16・設計書 §11-1）。 */}
+        {/* key={date}:{copied}:{applied}: 対象日変更・コピー・AI 反映時に再マウントして新データで初期化する。これが
+            無いと配下エディタの useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が
+            変更先の日付に移る」混線バグ（ユーザー報告 2026-06-16・設計書 §11-1）や、AI 反映後の古いフォームの
+            自動保存が反映分を上書き消去するデータ消失（2026-07-06 実証 P1）になる。 */}
         {/* 単一の盤面エディタが「盤面プレビュー（左・sticky）＋ 編集セクション（右・独立スクロール）」の 2 カラム
             （配置最適化 2026-07-05・user-observed）を担う。来校者 / 呼び出し（pattern2/3・`patternIncludesBlock`
             駆動）も編集カラムに同居させ、盤面プレビューを見失わずに編集できる。含むパターンのときだけ出す（死
@@ -233,7 +249,7 @@ export default async function ClassEditorPage({
             ため node で渡す（ちらつき解消 2026-07-05・user #1: 日付タブが static でスクロール消失し盤面だけ残る差分が
             ちらつきの原因だった）。 */}
         <WysiwygBoardEditor
-          key={`${date}:${copied}`}
+          key={`${date}:${copied}:${applied}`}
           classId={classId}
           date={date}
           base={boardBase}
@@ -375,12 +391,13 @@ export default async function ClassEditorPage({
       {/* AI は右下に浮く支援チャット。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。対象日に追随する。
           key: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。
           copied（前日/前週コピーの nonce）も含める＝コピー直後に AI の下書きシードがコピー前の盤面のまま残り、
-          AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（各エディタ key と同じ理由・設計書 §11-1）。 */}
+          AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（各エディタ key と同じ理由・設計書 §11-1）。
+          **applied はここには含めない**（反映後も会話・パネル状態を保つ。チャット自身の差分基準は onApply 内で
+          更新済み・フォーム側の key にだけ含めて再マウントする）。 */}
       <FloatingAiChat>
-        <EditorChat
+        <ClassEditorChat
           key={`${date}:${copied}`}
-          scope="class"
-          targetId={classId}
+          classId={classId}
           date={date}
           // 歓迎文をこのクラスの実効パターンの実セクションで合成する（§6.4・v2-ed47-5 の根治）。許可セクション
           // 自体はサーバ（chat route）が別途解決＝この prop は表示文言のみ。
@@ -395,10 +412,9 @@ export default async function ClassEditorPage({
           // 固定行（pinned）の保全（MEDIUM-3）: AI の per-date 置換保存が保存先日付の「ずっと」を消さない
           // よう、クラス直の固定行を渡す（EditorChat が反映時に preservePinnedNotices で前置き合流させる）。
           pinnedNotices={pinnedNotices}
-          variant="floating"
         />
       </FloatingAiChat>
-    </>
+    </EditorDraftSyncProvider>
   );
 }
 

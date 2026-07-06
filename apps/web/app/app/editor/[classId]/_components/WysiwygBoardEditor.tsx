@@ -2,6 +2,7 @@
 
 import type { EditRegion } from "@/app/(signage)/signage/[classToken]/_components/BoardRegionEditButton";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
+import { useEditorDraftSyncRef } from "@/app/app/editor/_components/EditorDraftSyncContext";
 import { type EditorBoardBase, buildEditorPreviewPayload } from "@/lib/editor/editor-board-preview";
 import type {
   AssignmentItem,
@@ -137,6 +138,17 @@ export function WysiwygBoardEditor({
   const onSchedules = useCallback((items: ScheduleItem[]) => setSchedules(items), []);
   const onNotices = useCallback((items: NoticeItem[]) => setNotices(items), []);
   const onAssignments = useCallback((items: AssignmentItem[]) => setAssignments(items), []);
+
+  // フォームの「今この瞬間」の状態を共有 ref（EditorDraftSyncContext）へ push する。会話 AI（EditorChat）が
+  // 会話開始時に下書きの基底として読む（P1: ロード後の手入力を AI が知らず反映で消す穴の是正）。ref 更新のみ
+  //（再レンダー非伝播）。Provider 外（テスト等）は null で no-op。プレビュー集約 state と同一値＝盤面に
+  // 見えているものがそのまま基底になる（WYSIWYG の原則と一致）。
+  const syncRef = useEditorDraftSyncRef();
+  useEffect(() => {
+    if (syncRef) {
+      syncRef.current = { schedules, notices, assignments };
+    }
+  }, [syncRef, schedules, notices, assignments]);
 
   // 編集器カードへの参照（領域クリックでスクロール + 内部の最初の入力へフォーカス）。ref は安定参照。
   const scheduleRef = useRef<HTMLDivElement>(null);

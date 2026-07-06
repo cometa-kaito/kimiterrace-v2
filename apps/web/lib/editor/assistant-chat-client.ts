@@ -219,3 +219,27 @@ export function finalizeUnterminatedTurn(state: ChatState): ChatState {
   }
   return { ...state, status: "error", error: { reason: "stream_failed" } };
 }
+
+/**
+ * 会話開始（最初の送信）直前に、下書きの基底を「**今この瞬間のフォーム状態**」へ再シードする
+ * （2026-07-06 P1: AI 反映⇄手入力の非同期データ消失の是正・EditorDraftSyncContext と対）。
+ *
+ * `initialDraft`（ページロード時スナップショット）だけを基底にすると、ロード後の手入力（自動保存済み）を
+ * AI が知らず、反映（per-section 置換保存）が手入力を無警告で消す。会話が始まる前なら下書きは基底そのもの
+ * なので、フォームの現在値で安全に差し替えられる。
+ *
+ * 再シードするのは **未送信（messages 空）かつ status が idle** のときだけ:
+ * - 送信済み（messages あり）: 下書きは会話の作業状態＝AI とユーザーの合意形成中。上書きすると会話が壊れる。
+ * - status !== "idle": ファイル取り込み（onFile）は messages を積まずに draft を作る（status="done"）。
+ *   これを上書きすると取り込み結果が消えるため対象外。
+ * `current` が null/undefined（Provider 外・フォーム未初期化）は従来挙動のまま（fail-soft）。
+ */
+export function rebaseDraftBeforeFirstTurn(
+  state: ChatState,
+  current: AssistantDraft | null | undefined,
+): ChatState {
+  if (!current || state.messages.length > 0 || state.status !== "idle") {
+    return state;
+  }
+  return { ...state, draft: current };
+}
