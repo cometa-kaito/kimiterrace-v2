@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "a74053c" # 2026-07-05: 教員エディタ taste 改修（#1241・面グループ化/削除ゴースト赤/空行後退/追加=塗り/型3段/選択色=ブランド青）を staging 反映。2f26680→a74053c。schema・secret 無変更=migrate 不要。rev 00051-mq9/health200/login private,no-cache/login console error 0。
+  web_image_tag = "4bb6323" # 2026-07-06: 教員エディタ AI反映⇄フォーム双方向同期のP1修正（#1245・?applied=再マウント+会話開始時の下書き基底再シード=実証済みデータ消失の根治）を staging 反映。a74053c→4bb6323。schema・secret 無変更=migrate 不要。health200/login private,no-cache。
 }
 
 module "network" {
