@@ -4,7 +4,7 @@ import {
   blockLabel,
   editableBlocksForPattern,
 } from "@/lib/signage/pattern-blocks";
-import type { DraftSectionKind } from "./assistant-chat-core";
+import type { AssistantDraft, DraftSectionKind } from "./assistant-chat-core";
 
 /**
  * 会話型 AI アシスタントの**パターン準拠セクション解決**（finding①）。其他レーンの **単一ソース
@@ -75,11 +75,17 @@ export function resolveDraftSectionLabels(pattern: SignageDesignPattern): string
  * - pattern2/3 → 「…予定にまとめて下書きします。生徒呼び出し・来校者一覧は氏名を含むため下のフォームから
  *   入力してください。」
  * - pattern5 → 「…お知らせ・今日の予定にまとめて下書きします。」
+ *
+ * `dateLabel`（例「7/15（水）」）を渡すと冒頭を**編集対象日つき**にする（2026-07-06 実画面監査 P2-1:
+ * 16 時カットオーバー後の編集対象は翌授業日で、固定の「今日の連絡」が嘘になる＋反映先日付がどこにも
+ * 出ない、の是正）。省略時は従来文言のまま（既存呼び出し・テストの回帰なし）。
  */
-export function assistantGreeting(pattern: SignageDesignPattern): string {
+export function assistantGreeting(pattern: SignageDesignPattern, dateLabel?: string): string {
   const drafted = resolveDraftSectionLabels(pattern);
   const manual = resolveManualSectionLabels(pattern);
-  const head = "今日の連絡、話しかけてください。話す・書く・ファイルでOK。";
+  const head = dateLabel
+    ? `${dateLabel}の盤面を作ります。話しかけてください。話す・書く・ファイルでOK。`
+    : "今日の連絡、話しかけてください。話す・書く・ファイルでOK。";
   const draftPart = drafted.length > 0 ? `${drafted.join("・")}にまとめて下書きします。` : "";
   // ADR-034（氏名を AI に送らない・AI 自動生成しない）の規律を文言でも保つ（設計書 §6.4）。
   const manualPart =
@@ -87,4 +93,59 @@ export function assistantGreeting(pattern: SignageDesignPattern): string {
       ? `${manual.join("・")}は氏名を含むため下のフォームから入力してください。`
       : "";
   return `${head}${draftPart}${manualPart}`;
+}
+
+/**
+ * 確認カードの下書き 1 行に**小さく併記する詳細**（2026-07-06 実画面監査 P2-4: AI が正しく抽出した
+ * 場所・対象者・重要★等がカードに出ず、反映前に確認できない、の是正）。本文（{@link
+ * "@/lib/signage/section-format".formatSignageItem} — 補足 note は本文の括弧で表示済み）に対する
+ * **追加メタのみ**を返す。盤面の整形（section-format）は変えない（表示層はカード側で足す）。
+ *
+ * - 予定: 場所（＠〜）・対象者（対象: 〜）・重要（★）
+ * - 連絡: 表示日数>1（N日間表示）・重要（★）。**固定（pinned）は出さない**: AI 経由の保存は
+ *   preservePinnedNotices が pinned を意図的に demote するため、カードで「固定」を約束すると保存結果と
+ *   乖離する（#1250 Reviewer LOW の吸収・固定は手入力の「ずっと」＋固定中一覧が正規経路）
+ * - 提出物: 重要（★）のみ（期限は本文「（〆M/D）」が既に表示）
+ *
+ * 要素型は検証済み単一ソース（{@link AssistantDraft} = schedule-core / notice-assignment-core・ルール3）
+ * から導出し、手書きの item 型を二重定義しない。区切り線（divider）行は validate が詳細フィールドを
+ * 剥がすため自然に null になる。併記なしは null（呼び出し側は何も描かない）。
+ */
+export type DraftSectionItem = { [K in DraftSectionKind]: AssistantDraft[K][number] };
+
+const DRAFT_ITEM_META: { [K in DraftSectionKind]: (item: DraftSectionItem[K]) => string[] } = {
+  schedules: (item) => {
+    const parts: string[] = [];
+    if (item.location) {
+      parts.push(`＠${item.location}`);
+    }
+    if (item.targetAudience) {
+      parts.push(`対象: ${item.targetAudience}`);
+    }
+    if (item.isHighlight === true) {
+      parts.push("★");
+    }
+    return parts;
+  },
+  notices: (item) => {
+    const parts: string[] = [];
+    if (typeof item.displayDays === "number" && item.displayDays > 1) {
+      parts.push(`${item.displayDays}日間表示`);
+    }
+    // pinned は表示しない（AI 反映は preservePinnedNotices が pinned を demote する＝「固定」を
+    // カードで約束すると保存結果と乖離する。docstring 参照）。
+    if (item.isHighlight === true) {
+      parts.push("★");
+    }
+    return parts;
+  },
+  assignments: (item) => (item.isHighlight === true ? ["★"] : []),
+};
+
+export function draftItemMeta<K extends DraftSectionKind>(
+  kind: K,
+  item: DraftSectionItem[K],
+): string | null {
+  const parts = DRAFT_ITEM_META[kind](item);
+  return parts.length > 0 ? parts.join(" ") : null;
 }

@@ -25,7 +25,11 @@ import {
   stripPinnedFromDraft,
 } from "@/lib/editor/assistant-chat-core";
 import { assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
-import { assistantGreeting } from "@/lib/editor/assistant-sections";
+import {
+  type DraftSectionItem,
+  assistantGreeting,
+  draftItemMeta,
+} from "@/lib/editor/assistant-sections";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { PinnedNoticeRow } from "@/lib/editor/notice-assignment-core";
 import {
@@ -151,6 +155,9 @@ export function EditorChat({
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   // 会話インラインの確認カードを閉じたか（「直す」or 反映成功で閉じ、次の送信/取込で再表示）。
   const [confirmHidden, setConfirmHidden] = useState(false);
+  // 「直す」押下直後の誘導ヒント（2026-07-06 監査 P2-3: カードが黙って消えるだけで次の一手が無い）。
+  // 表示専用（messages には積まない）。次の送信 / ファイル取込で消す。
+  const [fixHint, setFixHint] = useState(false);
   // 盤面の現状スナップショット（= 反映の差分判定の基準）。初期はサーバ由来の initialDraft（盤面の現状・
   // pinned 除外＝下書きと同じ土俵で比較する）で、反映成功でこのセッションが盤面を上書きするたび反映後の
   // 下書きへ更新する。「下書きは空だが盤面には項目があった」= 削除指示、を判定して(1)空セクションの置換保存
@@ -278,6 +285,7 @@ export function EditorChat({
     streamingRef.current = true;
     setSaveMsg(null);
     setConfirmHidden(false);
+    setFixHint(false);
     // 会話開始（最初の送信）なら、下書きの基底をフォームの現在値へ再シードする（P1 是正）。initialDraft は
     // ページロード時のスナップショットで、ロード後の手入力（自動保存済み）を含まない＝そのまま基底にすると
     // AI の「完全な目標状態」から手入力が抜け、反映（置換保存）が手入力を消す。pinned はシードと同じ土俵で
@@ -433,6 +441,7 @@ export function EditorChat({
       setFileBusy(true);
       setSaveMsg(null);
       setConfirmHidden(false);
+      setFixHint(false);
       try {
         const fd = new FormData();
         fd.append("file", file);
@@ -501,6 +510,9 @@ export function EditorChat({
   // そのうち**全消去**になるセクション（書くが下書きは空＝削除）。削除時は下書きカードに並べる項目が無いので、
   // 何が消えるかを明示して空カードに見えないようにする。
   const clearedSections = pendingWrites.filter((k) => state.draft[k].length === 0);
+  // 編集対象日の表示ラベル（例「7/15（水）」）。挨拶と確認カード / 反映ボタンで反映先日付を明示する
+  //（2026-07-06 監査 P2-1/2: 16 時カットオーバー後は対象日が翌授業日で「今日」が嘘になる・反映先が出ない）。
+  const dayLabel = formatDayLabel(date);
 
   return (
     <section
@@ -508,7 +520,7 @@ export function EditorChat({
       className={variant === "floating" ? `${styles.chat} ${styles.floating}` : styles.chat}
     >
       <div className={styles.thread}>
-        <Bubble from="assistant">{assistantGreeting(pattern)}</Bubble>
+        <Bubble from="assistant">{assistantGreeting(pattern, dayLabel)}</Bubble>
         {state.messages.map((m, i) => (
           // 会話は追記のみで並び替えしないため index key で十分。
           // biome-ignore lint/suspicious/noArrayIndexKey: 追記専用の会話ログ
@@ -524,9 +536,20 @@ export function EditorChat({
         {/* 下書きの確認は会話の中で（並行表示しない）。AI が「この内容で反映してよいか」を尋ね、押すと反映。 */}
         {showConfirm ? (
           <div className={styles.itemIn} style={confirmCardStyle}>
+            {/* 反映先日付を冒頭で明示する（P2-2: 日付の取り違え防止）。複数日下書き（days）は日付ごとに
+                反映するため単一日付を掲げず、従来の「N日分」表記（daysHeadStyle の見出し）に委ねる。 */}
             <div style={{ fontSize: fontSize.sm, marginBottom: "0.5rem" }}>
-              下書きにまとめました。
-              <span style={{ fontWeight: 700 }}>この内容で反映してよいですか？</span>
+              {dayWrites.length > 0 ? (
+                <>
+                  下書きにまとめました。
+                  <span style={{ fontWeight: 700 }}>この内容で反映してよいですか？</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontWeight: 700 }}>{dayLabel}の盤面</span>
+                  に反映します。この内容でよいですか？
+                </>
+              )}
             </div>
             <DraftSection title="予定" kind="schedules" items={state.draft.schedules} />
             <DraftSection title="連絡" kind="notices" items={state.draft.notices} />
@@ -553,18 +576,28 @@ export function EditorChat({
                 onClick={onApply}
                 disabled={saving}
               >
-                {saving ? "反映中…" : "反映する"}
+                {/* 複数日（days）は日付ごとに反映するため単一日付を付けない（付けると嘘になる）。 */}
+                {saving ? "反映中…" : dayWrites.length > 0 ? "反映する" : `${dayLabel}に反映`}
               </button>
               <button
                 type="button"
                 className={`${styles.btn} ${styles.ghost}`}
-                onClick={() => setConfirmHidden(true)}
+                onClick={() => {
+                  setConfirmHidden(true);
+                  setFixHint(true);
+                }}
                 disabled={saving}
               >
                 直す
               </button>
             </div>
           </div>
+        ) : null}
+
+        {/* 「直す」直後の誘導（P2-3: カードが黙って消えるだけで次の一手が無い）。表示専用の淡い 1 行で、
+            会話ログ（messages）には積まない。次の送信 / ファイル取込で消える。 */}
+        {fixHint && !showConfirm ? (
+          <p style={hintStyle}>どこを直しますか？（例:「数学は3限に」「体育を消して」）</p>
         ) : null}
 
         {saveMsg ? <p style={savedNoteStyle}>{saveMsg}</p> : null}
@@ -766,14 +799,14 @@ function DayDraftSummary({ day }: { day: AssistantDayDraft }) {
   );
 }
 
-function DraftSection({
+function DraftSection<K extends DraftSectionKind>({
   title,
   kind,
   items,
 }: {
   title: string;
-  kind: "schedules" | "notices" | "assignments";
-  items: readonly unknown[];
+  kind: K;
+  items: readonly DraftSectionItem[K][];
 }) {
   if (items.length === 0) {
     return null;
@@ -784,11 +817,15 @@ function DraftSection({
       <ul style={{ margin: "0.2rem 0 0", paddingLeft: "1.1rem", display: "grid", gap: "0.15rem" }}>
         {items.map((item, i) => {
           const line = formatSignageItem(kind, item);
+          // 反映前に確認できるよう、本文に出ない詳細（場所/対象者/表示日数/固定/★）を小さく併記する
+          //（P2-4・draftItemMeta）。区切り線行は併記なし（validate が詳細フィールドを剥がす）。
+          const meta = line.divider ? null : draftItemMeta(kind, item);
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: 静的下書きの描画
             <li key={i} style={{ fontSize: fontSize.sm }}>
               {/* 区切り線（PR-B §5.3）は下書き一覧でも「── ラベル ──」として可視化（空テキスト行にしない）。 */}
               {line.divider ? `── ${line.text || "区切り線"} ──` : line.text}
+              {meta ? <span style={draftMetaStyle}> {meta}</span> : null}
             </li>
           );
         })}
@@ -889,6 +926,11 @@ const dayLabelStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   fontWeight: 700,
   color: color.ink,
+};
+// 下書き行の詳細併記（場所/対象者/表示日数/固定/★・P2-4）。本文より一段小さい muted（トークンのみ）。
+const draftMetaStyle: React.CSSProperties = {
+  fontSize: fontSize.xs,
+  color: color.muted,
 };
 // 削除予告（盤面の項目を全消去するときの注意文）。danger 配色で確認カード内に出す。
 const clearNoteStyle: React.CSSProperties = {
