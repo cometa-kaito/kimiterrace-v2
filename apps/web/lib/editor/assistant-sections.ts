@@ -102,7 +102,9 @@ export function assistantGreeting(pattern: SignageDesignPattern, dateLabel?: str
  * **追加メタのみ**を返す。盤面の整形（section-format）は変えない（表示層はカード側で足す）。
  *
  * - 予定: 場所（＠〜）・対象者（対象: 〜）・重要（★）
- * - 連絡: 表示日数>1（N日間表示）・固定（pinned）・重要（★）
+ * - 連絡: 表示日数>1（N日間表示）・重要（★）。**固定（pinned）は出さない**: AI 経由の保存は
+ *   preservePinnedNotices が pinned を意図的に demote するため、カードで「固定」を約束すると保存結果と
+ *   乖離する（#1250 Reviewer LOW の吸収・固定は手入力の「ずっと」＋固定中一覧が正規経路）
  * - 提出物: 重要（★）のみ（期限は本文「（〆M/D）」が既に表示）
  *
  * 要素型は検証済み単一ソース（{@link AssistantDraft} = schedule-core / notice-assignment-core・ルール3）
@@ -130,9 +132,8 @@ const DRAFT_ITEM_META: { [K in DraftSectionKind]: (item: DraftSectionItem[K]) =>
     if (typeof item.displayDays === "number" && item.displayDays > 1) {
       parts.push(`${item.displayDays}日間表示`);
     }
-    if (item.pinned === true) {
-      parts.push("固定");
-    }
+    // pinned は表示しない（AI 反映は preservePinnedNotices が pinned を demote する＝「固定」を
+    // カードで約束すると保存結果と乖離する。docstring 参照）。
     if (item.isHighlight === true) {
       parts.push("★");
     }

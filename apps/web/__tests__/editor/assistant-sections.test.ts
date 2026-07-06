@@ -115,11 +115,12 @@ describe("draftItemMeta（確認カードの詳細併記・2026-07-06 監査 P2-
     expect(draftItemMeta("schedules", { kind: "divider", subject: "午後の部" })).toBeNull();
   });
 
-  it("連絡: 表示日数>1（N日間表示）・固定（pinned）・重要★", () => {
+  it("連絡: 表示日数>1（N日間表示）・重要★。pinned は出さない（保存時 demote と乖離させない・#1250 LOW）", () => {
     expect(draftItemMeta("notices", { text: "持久走大会があります", displayDays: 3 })).toBe(
       "3日間表示",
     );
-    expect(draftItemMeta("notices", { text: "校訓", pinned: true })).toBe("固定");
+    // pinned は AI 反映時に preservePinnedNotices が demote するため、カードで「固定」を約束しない。
+    expect(draftItemMeta("notices", { text: "校訓", pinned: true })).toBeNull();
     expect(draftItemMeta("notices", { text: "重要な連絡", isHighlight: true })).toBe("★");
     expect(draftItemMeta("notices", { text: "ふつうの連絡" })).toBeNull();
     // 表示日数 1（既定＝入力日のみ）は併記しない（ノイズにしない）。
