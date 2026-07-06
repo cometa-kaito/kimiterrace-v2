@@ -134,3 +134,44 @@ describe("buildEditorPreviewPayload", () => {
     expect(base.scheduleDays[0]?.schedule.items).toEqual([{ period: 1, subject: "旧・国語" }]);
   });
 });
+
+describe("carryover（他日入力の持ち越し）の合成（忠実度 2026-07-06）", () => {
+  it("持ち越し提出物は draft と合わせて期限昇順・持ち越し連絡は pinned の後 draft の前に並ぶ", () => {
+    const draft: EditorBoardDraft = {
+      schedules: [],
+      notices: [{ text: "当日の連絡" }],
+      assignments: [{ deadline: "2026-06-16", subject: "当日", task: "早い期限" }],
+    };
+    const payload = buildEditorPreviewPayload(
+      baseFixture(),
+      draft,
+      [{ text: "校訓", pinned: true }],
+      {
+        notices: [{ text: "持ち越し連絡", displayDays: 3 }],
+        assignments: [{ deadline: "2026-06-20", subject: "持ち越し", task: "遅い期限" }],
+      },
+    );
+    expect(payload.daily.notices.items.map((n) => (n as { text: string }).text)).toEqual([
+      "校訓",
+      "持ち越し連絡",
+      "当日の連絡",
+    ]);
+    expect(payload.daily.assignments.items.map((a) => (a as { subject: string }).subject)).toEqual([
+      "当日",
+      "持ち越し",
+    ]);
+  });
+
+  it("carryover 省略時は従来どおり（後方互換・回帰なし）", () => {
+    const draft: EditorBoardDraft = {
+      schedules: [],
+      notices: [{ text: "当日の連絡" }],
+      assignments: [{ deadline: "2026-06-16", subject: "当日", task: "x" }],
+    };
+    const payload = buildEditorPreviewPayload(baseFixture(), draft);
+    expect(payload.daily.notices.items).toEqual([{ text: "当日の連絡" }]);
+    expect(payload.daily.assignments.items).toEqual([
+      { deadline: "2026-06-16", subject: "当日", task: "x" },
+    ]);
+  });
+});

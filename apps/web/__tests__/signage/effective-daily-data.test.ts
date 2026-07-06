@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DailyScopeRow,
+  activeCarryoverItemsOutsideDate,
   activePinnedNoticeItemsOutsideDate,
   addDays,
   daysBetween,
@@ -408,5 +409,61 @@ describe("activePinnedNoticeItemsOutsideDate (WYSIWYG プレビューの pinned 
 
   it("固定行が無ければ空 (プレビューは従来どおり draft のみ)", () => {
     expect(activePinnedNoticeItemsOutsideDate([], "2026-07-04")).toEqual([]);
+  });
+});
+
+describe("activeCarryoverItemsOutsideDate (エディタプレビューの持ち越し合成・忠実度 2026-07-06)", () => {
+  it("期限が未来の提出物は過去日入力でも活性（実盤面と同じ・期限+猶予まで）。期限切れ+猶予超過は落ちる", () => {
+    const rows = [
+      {
+        date: "2026-07-07",
+        notices: [],
+        assignments: [
+          { deadline: "2026-07-10", subject: "数学", task: "ワークp.30" },
+          { deadline: "2026-07-01", subject: "英語", task: "音読（期限+猶予超過）" },
+        ],
+      },
+    ];
+    const out = activeCarryoverItemsOutsideDate(rows, "2026-07-08");
+    expect(out.assignments.map((a) => a.subject)).toEqual(["数学"]);
+  });
+
+  it("連絡は表示日数の窓内だけ活性。pinned は除外（activePinnedNoticeItemsOutsideDate が担う・二重表示防止）", () => {
+    const rows = [
+      {
+        date: "2026-07-07",
+        notices: [
+          { text: "3日間表示", displayDays: 3 },
+          { text: "当日のみ" },
+          { text: "校訓", pinned: true },
+        ],
+        assignments: [],
+      },
+    ];
+    const out = activeCarryoverItemsOutsideDate(rows, "2026-07-08");
+    expect(out.notices.map((n) => n.text)).toEqual(["3日間表示"]);
+  });
+
+  it("対象日の行は除外（当日分は編集中 draft が担う）。提出物は期限昇順に整える", () => {
+    const rows = [
+      {
+        date: "2026-07-08",
+        notices: [{ text: "当日行（除外）", displayDays: 7 }],
+        assignments: [{ deadline: "2026-07-09", subject: "当日行", task: "除外" }],
+      },
+      {
+        date: "2026-07-06",
+        notices: [],
+        assignments: [{ deadline: "2026-07-12", subject: "理科", task: "レポート" }],
+      },
+      {
+        date: "2026-07-07",
+        notices: [],
+        assignments: [{ deadline: "2026-07-10", subject: "数学", task: "ワーク" }],
+      },
+    ];
+    const out = activeCarryoverItemsOutsideDate(rows, "2026-07-08");
+    expect(out.notices).toEqual([]);
+    expect(out.assignments.map((a) => a.subject)).toEqual(["数学", "理科"]);
   });
 });
