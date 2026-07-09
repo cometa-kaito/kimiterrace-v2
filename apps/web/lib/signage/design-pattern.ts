@@ -22,6 +22,7 @@ export const SIGNAGE_DESIGN_PATTERNS = [
   "pattern3",
   "pattern4",
   "pattern5",
+  "pattern6",
 ] as const;
 
 export type SignageDesignPattern = (typeof SIGNAGE_DESIGN_PATTERNS)[number];
@@ -36,6 +37,7 @@ export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string>
   pattern3: "パターン3（廊下設置・pattern2 から時事ニュースを除く）",
   pattern4: "パターン4（教員入力最小・天気/ニュース主役・連絡のみ編集）",
   pattern5: "パターン5（掲示板型・お知らせ主役）",
+  pattern6: "パターン6（標準・枠なし罫線区切り・pattern1と同一内容）",
 };
 
 /**
@@ -53,6 +55,8 @@ export const SIGNAGE_DESIGN_PATTERN_LABELS: Record<SignageDesignPattern, string>
  *  - `pattern3`（廊下版）: 遠目最適化で「平日 5 日」（2026-06-22 ユーザー確定）。
  *  - `pattern4`（教員入力最小）: 予定セクションを描画しないため `0`（= 取得もしない）。
  *  - `pattern5`（掲示板型）: 「今日の予定」1 列のみ（多日グリッドを出さない・editor-restructure-bulletin §6.1）。
+ *  - `pattern6`（枠なし罫線区切り）: pattern1 と同一構成なので **3**（表示内容は pattern1 と同じで、囲み枠を
+ *    罫線に置換したデザイン差のみ）。
  *
  * 土日はスキップして「平日 n 日」を出す（`signageScheduleDates`）。値を増やすと列が細くなるので、
  * 盤面の可読性（特に廊下版の遠目）とコマのはみ出しを実機で確認すること。
@@ -63,6 +67,8 @@ export const SIGNAGE_SCHEDULE_DAY_COUNT: Record<SignageDesignPattern, number> = 
   pattern3: 5,
   pattern4: 0,
   pattern5: 1,
+  // pattern6 は pattern1 と同一内容（囲み枠→罫線のデザイン差のみ）なので日数も pattern1 と同じ 3。
+  pattern6: 3,
 };
 
 /** パターンの予定表示日数（= 予定グリッドの列数）。未知値は既定 pattern1 の日数に倒す（fail-soft）。 */
