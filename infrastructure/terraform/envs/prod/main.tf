@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "878f9cb" # 2026-07-07: 教員エディタ配置/文言/忠実度 4PR（#1248 FHD配置1400px+計画操作盤面下+カレンダースクロール修復 / #1252 スマホ日付バーsticky+盤面トグル / #1250 AI対象日つき文言+カード詳細 / #1251 持ち越し合成+seed確定ボタン）を prod 反映。4bb6323→878f9cb。schema・secret 無変更=migrate 不要。health200/login private,no-cache。
+  web_image_tag = "007fa22" # 2026-07-09: サイネージ パターン6（枠なし罫線区切り・pattern1 と同一内容/囲み枠→罫線）追加(#1254)。schema/secret 無変更=migration 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
