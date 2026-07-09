@@ -185,6 +185,9 @@ const PATTERN_BOARDS: Record<
   pattern4: Pattern4Board,
   // pattern5 = 掲示板型（お知らせ主役 + 今日の予定[時刻表示] + ニュース/天気/広告・editor-restructure §6）。
   pattern5: Pattern5Board,
+  // pattern6 = pattern1 と同一構成（予定/連絡/提出物 + 天気/広告）を「囲み枠なし・罫線区切り」で描く版。
+  // レイアウト部品は pattern1 と共有し（Pattern1LikeBoard）、差分は .p6Root スコープの CSS（箱→罫線）だけ。
+  pattern6: Pattern6Board,
 };
 
 /**
@@ -293,11 +296,16 @@ function AdAside({
 }
 
 /**
- * パターン1: 旧キミテラス v1 レイアウト盤面（既定）。
+ * パターン1 系レイアウト盤面（旧キミテラス v1 レイアウト）の共通実装。**表示ブロック・データ・region・広告は
+ * pattern1 と完全に同一**で、`rootClassName` にデザイン差分クラス（例 `p6Root`）を足すことで見た目だけ切り替える。
  *   上段（横幅いっぱい）= 予定（今後3平日の3列5行）/ 左下 = 連絡 / 右下 = 提出物（表）/ 右 = 広告（70:30）/
- *   天気は予定列の日付横。`pattern1`（既定）選択時に描画される。
+ *   天気は予定列の日付横。
+ *
+ * `rootClassName` **未指定 = pattern1**（既定）で、root の class は `styles.signageRoot` **そのもの**＝出力は完全に
+ * 不変（live TV / モニタの壁を 1px も変えない）。`rootClassName` を渡すと `${signageRoot} ${rootClassName}` になり、
+ * その追加クラス配下の CSS 上書きだけがデザインを差し替える（pattern6 = `p6Root` で囲み枠を罫線に置換）。
  */
-function Pattern1Board({
+function Pattern1LikeBoard({
   data,
   ad,
   adLink,
@@ -306,9 +314,12 @@ function Pattern1Board({
   now,
   onAdTap,
   editRegions,
-}: SignageBoardProps) {
+  rootClassName,
+}: SignageBoardProps & { rootClassName?: string }) {
+  // rootClassName 未指定（pattern1）は signageRoot 単独＝従来と完全に同じ className 文字列（" undefined" を足さない）。
+  const rootClass = rootClassName ? `${styles.signageRoot} ${rootClassName}` : styles.signageRoot;
   return (
-    <div className={styles.signageRoot}>
+    <div className={rootClass}>
       <BoardHeader data={data} now={now} />
       <div className={styles.container}>
         <main className={styles.infoArea}>
@@ -346,6 +357,26 @@ function Pattern1Board({
       </div>
     </div>
   );
+}
+
+/**
+ * パターン1: 旧キミテラス v1 レイアウト盤面（既定）。`Pattern1LikeBoard` を `rootClassName` 無しで描く＝
+ * 従来出力と完全に不変（既存の教室端末・モニタの壁は 1px も変わらない）。`pattern1`（既定）選択時に描画される。
+ */
+function Pattern1Board(props: SignageBoardProps) {
+  return <Pattern1LikeBoard {...props} />;
+}
+
+/**
+ * パターン6: **pattern1 と同一構成を「囲み枠なし・罫線区切り」で描く版**（2026-07-09 ユーザー要望）。表示ブロック・
+ * データ・region・広告・編集配線はすべて pattern1 と共有（`Pattern1LikeBoard`）し、差分は root に足す `p6Root`
+ * クラス配下の CSS だけ＝予定/連絡/提出物の囲み枠（`.card` の白箱・角丸・枠）と予定列の箱（`.scheduleDayColumn`）を
+ * やめ、セクション間を細い「罫線」で区切る。囲み枠の内側余白・箱間 gap・角丸チローム分の「無駄な領域」を削って
+ * 情報密度を上げる（pattern3 の「箱をやめ縦線/横線」と同じ線基調）。pattern1〜5 のコンポーネント/CSS は無改修
+ * （既存端末は不変）。
+ */
+function Pattern6Board(props: SignageBoardProps) {
+  return <Pattern1LikeBoard {...props} rootClassName={styles.p6Root} />;
 }
 
 /**

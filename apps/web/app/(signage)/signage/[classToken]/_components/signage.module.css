@@ -2094,6 +2094,63 @@
   }
 }
 
+/* ===================== 11f. パターン6 盤面（pattern1 同一構成・囲み枠なし罫線区切り） =====================
+   pattern1 と表示ブロック・データ・region・広告・編集配線がすべて同一（Pattern1LikeBoard を共有）で、囲み枠
+   （.card の白箱・角丸・枠、.scheduleDayColumn の箱）をやめ、セクション間を細い「罫線」で区切るデザイン層だけを
+   .p6Root 配下で上書きする（2026-07-09 ユーザー要望「四角で囲むと無駄な領域ができるので線だけで区切りたい」）。
+   囲み枠の内側余白・箱間 gap・角丸チローム分の「無駄な領域」を削って情報密度を上げる（pattern3 の「箱をやめ
+   縦線/横線」と同じ線基調）。罫線色は既存 --border-color（pattern1 の cardTitle / 日付ヘッダーの罫線と同トークン
+   ＝新規 hex を作らない）。pattern1〜5 のクラスには一切触れない（.p6Root スコープ限定＝既存端末は不変）。 */
+
+/* 予定/連絡/提出物の囲み枠を撤去: 透明背景・枠なし・角丸なし・内側余白ゼロで箱チロームを消す。
+   （見出し .cardTitle の下罫線は残す＝線基調と一貫。schedule には見出しが無いので区切りは下辺罫線で担う。） */
+.p6Root .card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+/* コンテンツグリッド: 箱が無くなったぶん行間/列間の gap は罫線に添える最小限の余白に絞る。 */
+.p6Root .contentGrid {
+  gap: 0.7vmin 1.3vmin;
+}
+/* 上段（予定）と下段（連絡/提出物）を横罫線で分ける（予定セクション下辺に 1 本）。 */
+.p6Root .scheduleSection {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.7vmin;
+}
+/* 下段の連絡と提出物を縦罫線で分ける（提出物＝contentGrid 最終子の左辺に 1 本）。 */
+.p6Root .contentGrid > .card:last-child {
+  border-left: 1px solid var(--border-color);
+  padding-left: 1.3vmin;
+}
+/* 予定の日別列: 囲み枠（surface-muted 地・枠・角丸）をやめ、日ごとは縦罫線で区切る（pattern3 と同じ線基調）。 */
+.p6Root .scheduleGridContainer {
+  gap: 0;
+}
+.p6Root .scheduleDayColumn {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0 0.7vmin;
+}
+.p6Root .scheduleGridContainer > .scheduleDayColumn:first-child {
+  padding-left: 0;
+}
+.p6Root .scheduleGridContainer > .scheduleDayColumn:not(:first-child) {
+  border-left: 1px solid var(--border-color);
+}
+
+/* パターン6 のモバイル（≤899px・縦積み）: 連絡/提出物は縦に積むため、提出物左辺の縦罫線は意味を失うので消す
+   （横積み間は予定下辺の横罫線と各見出しの下罫線が区切りを担う）。予定列の縦罫線はモバイルでも 3 列並びのまま
+   なので残す。 */
+@media (max-width: 899px) {
+  .p6Root .contentGrid > .card:last-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
 /* ===================== 防災・安全帯（pattern1 / pattern4・条件付き・ADR-044） ===================== */
 /* 予定の直上（infoArea 先頭）に出る安全情報帯。アクティブな警報/熱中症がある時だけ描画されるため、
    既定（無アラート）では DOM に存在せず予定以下のレイアウトは不変。flex 子として高さを取り過ぎないよう

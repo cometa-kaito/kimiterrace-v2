@@ -92,6 +92,23 @@ describe("編集対象ブロックの出し分け", () => {
     expect(patternIncludesBlock("pattern5", "safety_alert")).toBe(false);
   });
 
+  it("pattern6（枠なし罫線区切り）は pattern1 と同一内容（ブロック集合・編集対象・容量・ラベル・時限入力が一致）", () => {
+    // pattern6 は「囲み枠→罫線」のデザイン差のみで、表示ブロック・データ・region は pattern1 と完全に同一
+    // （Pattern1LikeBoard を共有・2026-07-09 ユーザー要望）。ここで pattern1 と同値を機械的に固定し、片方だけ
+    // いじって内容がドリフトするのを防ぐ。
+    expect(PATTERN_BLOCKS.pattern6).toEqual(PATTERN_BLOCKS.pattern1);
+    expect(editableBlocksForPattern("pattern6")).toEqual(["schedule", "notice", "assignment"]);
+    expect(blockRowCapacity("pattern6", "schedule")).toBe(5);
+    expect(blockRowCapacity("pattern6", "notice")).toBe(5);
+    expect(blockRowCapacity("pattern6", "assignment")).toBe(5);
+    expect(patternIncludesBlock("pattern6", "safety_alert")).toBe(true);
+    // ラベル上書きは無い（pattern1 と同じ共通ラベル）＝region 名も pattern1 と同一。
+    expect(blockLabel("pattern6", "notice")).toBe(SIGNAGE_BLOCK_META.notice.label);
+    expect(blockLabel("pattern6", "schedule")).toBe(SIGNAGE_BLOCK_META.schedule.label);
+    // 予定エディタの時限入力形態も pattern1 と同じ既定（period・時刻テキストの pattern5 とは違う）。
+    expect(scheduleInputVariant("pattern6")).toBe("period");
+  });
+
   it("編集対象には自動ブロック（天気 / 広告 / センサ / 鉄道）を含めない", () => {
     for (const pattern of SIGNAGE_DESIGN_PATTERNS) {
       for (const kind of editableBlocksForPattern(pattern)) {

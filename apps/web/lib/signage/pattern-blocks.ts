@@ -132,6 +132,12 @@ export const PATTERN_BLOCKS: Record<SignageDesignPattern, readonly SignageBlockK
   // ヘッダー内包＋広告は共通 aside。ラベルは PATTERN_BLOCK_LABEL_OVERRIDES で notice=「お知らせ」/
   // schedule=「今日の予定」に上書きする（§6.2）。
   pattern5: ["notice", "schedule", "news", "weather", "ad"],
+  // pattern6（枠なし罫線区切り）: 表示ブロック・順序・データは **pattern1 と完全に同一**（防災・安全（条件付き）／
+  // 予定／連絡／提出物 ＋ 天気（予定内包）／広告）。違いは盤面デザイン層（囲み枠 .card / 予定列の箱をやめ「罫線」で
+  // 区切る）だけで、`Pattern6Board` が pattern1 のレイアウト部品をそのまま再利用しつつ .p6Root で箱を罫線に置換する
+  // （2026-07-09 ユーザー要望「四角で囲むと無駄な領域ができるので線だけで区切りたい」）。ブロック集合が pattern1 と
+  // 一致するので編集対象・取得ゲート・行数容量も pattern1 と同値になる。
+  pattern6: ["safety_alert", "schedule", "notice", "assignment", "weather", "ad"],
 };
 
 /**
@@ -201,6 +207,8 @@ export const PATTERN_BLOCK_ROW_CAPACITY: Record<
   // pattern5（掲示板型）: お知らせ主役 5 行＋今日の予定 5 行（§6.1 の初期値。実機文字サイズで調整・盤面
   // ページング boardPageSize もこれに追従）。CSS の可視行数（--p5-notice-visible / --p5-sch-visible）と対で変える。
   pattern5: { notice: 5, schedule: 5 },
+  // pattern6 は pattern1 と同一（予定/連絡/提出物=各 5 行）。囲み枠→罫線のデザイン差だけなので容量も pattern1 と同値。
+  pattern6: { schedule: 5, notice: 5, assignment: 5 },
 };
 
 /**
