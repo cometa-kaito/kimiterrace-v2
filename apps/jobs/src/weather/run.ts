@@ -11,6 +11,7 @@ import {
   listEnabledCalendarSources,
   listSchools,
   resolveJmaAreaCode,
+  sanitizeIcalEventUid,
   updateCalendarSourceStatus,
   upsertAirQuality,
   upsertCalendarEvent,
@@ -725,9 +726,13 @@ export async function fetchIcs(
  * ADR-045: iCal UID が無いイベントの **安定キー**を生成する純関数。`(source.id, startDate, summary)` の
  * SHA-256 から決定論的に作るので、再取得しても同じ UID になり upsert が冪等になる（毎回新 UUID だと行が増殖する）。
  * `summary` 等に PII が無い運用前提（schema コメント）だが、ハッシュ化するので原文はキーに露出しない。
+ *
+ * ★ ADR-049 決定 2（uid 名前空間の iCal 側強制）: 外部フィードが `UID: file:...` を吐いてもファイル取込
+ * 名前空間を侵食できないよう、`sanitizeIcalEventUid` で `ical:` を前置してリライトする。本関数がカレンダー
+ * フェーズの uid 導出**単一点**なので、upsert と keepUids（掃除）は自動的に同じリライト後の値で整合する。
  */
 export function stableEventUid(sourceId: string, ev: ParsedCalendarEvent): string {
-  if (ev.uid) return ev.uid;
+  if (ev.uid) return sanitizeIcalEventUid(ev.uid);
   const basis = `${sourceId}|${ev.startDate}|${ev.summary ?? ""}|${ev.startAt?.toISOString() ?? ""}`;
   return `gen-${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
 }
@@ -931,9 +936,11 @@ async function saveAirRow(tx: TenantTx, air: FetchedAir): Promise<void> {
 /**
  * ADR-045: 1 校ぶんのパース済みイベントを upsert（school_id 明示）+ 掃除し、upsert 行数を返す（system context）。
  *
- * - 各イベントに `(school_id, uid)` 一意のため安定 UID を付与（`stableEventUid`、欠落 UID も冪等化）。
+ * - 各イベントに `(school_id, uid)` 一意のため安定 UID を付与（`stableEventUid`、欠落 UID も冪等化・
+ *   `file:` 名前空間へのリライト強制つき、ADR-049 決定 2）。
  * - upsert 後、**iCal に残っている UID 群**を keepUids として `deleteStaleCalendarEvents` に渡し、消えた行事を掃除する
- *   （keepUids 空 = 取得 0 件は誤爆防止で掃除しない＝last-known-good を残す。query 層の安全弁）。
+ *   （keepUids 空 = 取得 0 件は誤爆防止で掃除しない＝last-known-good を残す。query 層の安全弁）。掃除スコープは
+ *   **同期中の source 単位**（`sourceId` を明示）。`sourceId = null` のファイル取込行事は掃除対象外（ADR-049 決定 2）。
  * - 取得 Job の書込みなので created_by/updated_by = null（システム）。
  */
 async function saveCalendarRows(tx: TenantTx, fetched: FetchedCalendar): Promise<number> {
@@ -960,7 +967,8 @@ async function saveCalendarRows(tx: TenantTx, fetched: FetchedCalendar): Promise
     keepUids.push(uid);
     rows += 1;
   }
-  // 消えた行事の掃除（keepUids 空なら query 層が no-op で last-known-good を残す）。
-  await deleteStaleCalendarEvents(tx, source.schoolId, keepUids);
+  // 消えた行事の掃除（keepUids 空なら query 層が no-op で last-known-good を残す）。source 単位スコープで
+  // sourceId = null のファイル取込行事（ADR-049）を巻き込まない。
+  await deleteStaleCalendarEvents(tx, source.schoolId, source.id, keepUids);
   return rows;
 }

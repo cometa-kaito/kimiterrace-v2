@@ -35,7 +35,12 @@ import { schools } from "./schools.js";
  * ## 一意性 / upsert
  * `(school_id, uid)` で一意。`uid` は iCal の VEVENT UID（無ければ取得 Job がソース安定キーから生成）。再取得は
  * 競合キーでの UPDATE（last-known-good 更新）。iCal から消えた行事の掃除は `deleteStaleCalendarEvents`
- * （keepUids に無いものを削除）で行う。
+ * （**同期中の source_id スコープ内**で keepUids に無いものを削除。ADR-049 決定 2）で行う。
+ *
+ * ## ファイル取込由来イベント（ADR-049、migration 不要）
+ * 年間行事ファイル取込（AI 構造化）由来の行事は `source_id = null`・`uid = 'file:<batchId>:<n>'` の名前空間で
+ * 本テーブルに同居する。境界は `source_id IS NULL AND uid LIKE 'file:%'` の二重条件（書き込み口は
+ * `replaceFileImportedEvents` に単一化・iCal 側は `sanitizeIcalEventUid` がリライトで侵食を防ぐ）。
  *
  * ## ★ PII 非格納 / サイネージ露出（ルール4 / ADR-045）
  * 接続するのは「学校公開行事カレンダー」専用の運用前提（school_calendar_sources のコメント参照）。`summary` /
