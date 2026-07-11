@@ -3,7 +3,7 @@ import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { resolveClassBoardForDate, resolveEditorTargetDate } from "@/lib/editor/board-context";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
-import { getEditorDayEvents } from "@/lib/editor/day-events";
+import { getEditorDayEvents } from "@/lib/editor/day-events-queries";
 import {
   editorDateSegments,
   editorPreviewPath,

@@ -1,16 +1,21 @@
-import { addDays } from "@/lib/signage/effective-daily-data";
-import { type SchoolCalendarEvent, type TenantTx, getCalendarEvents } from "@kimiterrace/db";
+import type { SchoolCalendarEvent } from "@kimiterrace/db";
 import { NOTICE_TEXT_MAX, type NoticeItem } from "./notice-assignment-core";
 import { CUSTOM_PERIOD_MAX, LOCATION_MAX, SUBJECT_MAX, type ScheduleItem } from "./schedule-core";
 
 /**
- * エディタ「この日の行事」（ADR-049 決定 7・PR-D）の純コア + 読み取り。
+ * エディタ「この日の行事」（ADR-049 決定 7・PR-D）の**純コア**（DB 非依存・schedule-core と同方針）。
  *
  * `school_calendar_events`（iCal 取込 = ADR-045 / ファイル取込 = ADR-049 の両由来）から**編集中日付に
  * 該当する行事**を組み立て、教員がワンクリックで盤面の予定 / 連絡へ**確定挿入**できる形
  * （{@link ScheduleItem} / {@link NoticeItem}）へ写像する。保存経路は既存の per-section Server Action
  * （setScheduleAction / setNoticesAction）＝新しい書き込み経路は作らない（SeedConfirmButton と同型）。
  * 行事データを LLM / embedding に載せない方針（ADR-045 決定 4）はここでは何も変えない（表示と挿入のみ）。
+ *
+ * ★ **`@kimiterrace/db` からは型（`import type`）だけを取る**こと。本モジュールは client component
+ * （DayEventsPanel）からも import されるため、値 import（`getCalendarEvents` 等）を置くとクライアント
+ * バンドルが barrel 経由で `postgres`（`fs`/`net`/`tls`）へ到達し **Next build が落ちる**（#1269 CI 実証・
+ * vitest / tsc では検出できない）。DB 読み取りはサーバ専用の `day-events-queries.ts`
+ * （schedule-queries 等と同じ `*-queries` 分離規約）へ置く。
  */
 
 /**
@@ -21,7 +26,7 @@ export const CALENDAR_IMPORT_PAGE_PATH = "/app/editor/calendar-import";
 
 /**
  * 複数日行事（startDate ≤ 対象日 ≤ endDate）を対象日に含めるための startDate 遡及窓（日数）。
- * {@link getCalendarEvents} は **startDate のレンジ**でしか絞れない（packages/db は不変・PR-D 制約）ため、
+ * `getCalendarEvents` は **startDate のレンジ**でしか絞れない（packages/db は不変・PR-D 制約）ため、
  * 対象日から 366 日前まで startDate を遡って読み、対象日を跨ぐ行事をアプリ側 {@link eventsForEditorDate}
  * で判定する。年間行事表 / iCal の行事は年度（≤366 日）を超えて跨がない想定（ADR-049 決定 3 の年度窓と同水準）。
  */
@@ -89,20 +94,6 @@ export function eventsForEditorDate(
     });
   }
   return out;
-}
-
-/**
- * 編集中日付の行事を RLS tx 内で読む（エディタ page.tsx から呼ぶ・ルール2 は呼び出し側の `withSession` が確立）。
- * {@link getCalendarEvents}（RLS 委譲・startDate レンジ）を対象日 − {@link DAY_EVENT_LOOKBACK_DAYS} 〜 対象日で
- * 呼び、複数日行事の当日包含を {@link eventsForEditorDate} で判定する。
- */
-export async function getEditorDayEvents(
-  tx: TenantTx,
-  schoolId: string,
-  date: string,
-): Promise<EditorDayEvent[]> {
-  const rows = await getCalendarEvents(tx, schoolId, addDays(date, -DAY_EVENT_LOOKBACK_DAYS), date);
-  return eventsForEditorDate(rows, date);
 }
 
 /** "YYYY-MM-DD" → "M/D"（パネルの期間表示用・ゼロ埋めなし）。 */
