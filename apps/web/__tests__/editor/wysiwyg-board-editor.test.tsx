@@ -61,6 +61,7 @@ function base(): EditorBoardBase {
   return {
     date: TODAY,
     designPattern: "pattern1",
+    assignmentDeadlineFormat: "daysLeft",
     daily: {
       date: TODAY,
       schedules: { items: [], source: null },

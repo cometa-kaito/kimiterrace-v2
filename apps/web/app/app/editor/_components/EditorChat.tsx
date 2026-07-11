@@ -33,6 +33,10 @@ import {
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { PinnedNoticeRow } from "@/lib/editor/notice-assignment-core";
 import {
+  type AssignmentDeadlineFormat,
+  DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
+} from "@/lib/signage/assignment-deadline-format";
+import {
   DEFAULT_SIGNAGE_DESIGN_PATTERN,
   type SignageDesignPattern,
 } from "@/lib/signage/design-pattern";
@@ -101,6 +105,7 @@ export function EditorChat({
   initialDraft,
   pinnedNotices,
   pattern = DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  assignmentDeadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
   variant = "page",
   onApplied,
 }: {
@@ -125,6 +130,11 @@ export function EditorChat({
    * （クライアントを信用しない構図は不変）。
    */
   pattern?: SignageDesignPattern;
+  /**
+   * 提出物の期日表示形式（学校別設定・#1258）。下書き確認カードの 1 行プレビュー（`formatSignageItem`）を
+   * 実機盤面の表記（`（〆M/D）` / `（M/Dまで）`）と一致させるために使う。未指定は既定 `daysLeft`（従来表記）。
+   */
+  assignmentDeadlineFormat?: AssignmentDeadlineFormat;
   /**
    * レイアウト形態。`"page"`（既定）は従来どおりビューポート高を占める全画面チャット。`"floating"` は
    * {@link "../[classId]/_components/FloatingAiChat"} の浮遊パネル内に収まるよう、親（パネル本体）の高さを
@@ -553,14 +563,23 @@ export function EditorChat({
             </div>
             <DraftSection title="予定" kind="schedules" items={state.draft.schedules} />
             <DraftSection title="連絡" kind="notices" items={state.draft.notices} />
-            <DraftSection title="提出物" kind="assignments" items={state.draft.assignments} />
+            <DraftSection
+              title="提出物"
+              kind="assignments"
+              items={state.draft.assignments}
+              deadlineFormat={assignmentDeadlineFormat}
+            />
             {dayWrites.length > 0 ? (
               <div style={{ marginTop: "0.35rem" }}>
                 <p style={daysHeadStyle}>
                   {dayWrites.length}日分の下書きです（日付ごとに反映します）。
                 </p>
                 {dayWrites.map((day) => (
-                  <DayDraftSummary key={day.date} day={day} />
+                  <DayDraftSummary
+                    key={day.date}
+                    day={day}
+                    deadlineFormat={assignmentDeadlineFormat}
+                  />
                 ))}
               </div>
             ) : null}
@@ -788,13 +807,24 @@ function formatDayLabel(date: string): string {
 }
 
 /** 複数日まとめ（days）の 1 日分サマリ。日付見出し + その日の予定/連絡/提出物（空セクションは出さない）。 */
-function DayDraftSummary({ day }: { day: AssistantDayDraft }) {
+function DayDraftSummary({
+  day,
+  deadlineFormat,
+}: {
+  day: AssistantDayDraft;
+  deadlineFormat: AssignmentDeadlineFormat;
+}) {
   return (
     <div style={dayCardStyle}>
       <div style={dayLabelStyle}>{formatDayLabel(day.date)}</div>
       <DraftSection title="予定" kind="schedules" items={day.schedules} />
       <DraftSection title="連絡" kind="notices" items={day.notices} />
-      <DraftSection title="提出物" kind="assignments" items={day.assignments} />
+      <DraftSection
+        title="提出物"
+        kind="assignments"
+        items={day.assignments}
+        deadlineFormat={deadlineFormat}
+      />
     </div>
   );
 }
@@ -803,10 +833,13 @@ function DraftSection<K extends DraftSectionKind>({
   title,
   kind,
   items,
+  deadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
 }: {
   title: string;
   kind: K;
   items: readonly DraftSectionItem[K][];
+  /** 提出物（kind='assignments'）のみ影響する期日表示形式（#1258）。他セクションは無視される。 */
+  deadlineFormat?: AssignmentDeadlineFormat;
 }) {
   if (items.length === 0) {
     return null;
@@ -816,7 +849,7 @@ function DraftSection<K extends DraftSectionKind>({
       <div style={{ fontSize: fontSize.xs, color: color.muted }}>{title}</div>
       <ul style={{ margin: "0.2rem 0 0", paddingLeft: "1.1rem", display: "grid", gap: "0.15rem" }}>
         {items.map((item, i) => {
-          const line = formatSignageItem(kind, item);
+          const line = formatSignageItem(kind, item, deadlineFormat);
           // 反映前に確認できるよう、本文に出ない詳細（場所/対象者/表示日数/固定/★）を小さく併記する
           //（P2-4・draftItemMeta）。区切り線行は併記なし（validate が詳細フィールドを剥がす）。
           const meta = line.divider ? null : draftItemMeta(kind, item);

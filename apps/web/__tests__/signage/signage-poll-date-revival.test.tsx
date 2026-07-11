@@ -32,6 +32,7 @@ function newsBearingPayload(): SignagePayload {
   return {
     date: "2026-06-20",
     designPattern: "pattern2",
+    assignmentDeadlineFormat: "daysLeft",
     daily: {
       date: "2026-06-20",
       schedules: emptySection,

@@ -382,3 +382,93 @@ describe("parseScheduleRow / parseAssignmentRow: divider / emphasis（PR-B）", 
     expect(normal?.emphasis).toBeUndefined();
   });
 });
+
+// ===================== #1258 提出物の期日表示形式（学校別設定 'until'） =====================
+
+describe("formatSignageItem: assignments の期日表示形式（#1258）", () => {
+  const item = { deadline: "2026-06-05", subject: "数学", task: "ワーク P.12" };
+
+  it("'until' は期限部を「（M/Dまで）」で出す", () => {
+    expect(formatSignageItem("assignments", item, "until")).toEqual({
+      text: "数学：ワーク P.12（6/5まで）",
+    });
+  });
+
+  it("省略時・'daysLeft' は従来の「（〆M/D）」（完全互換）", () => {
+    expect(formatSignageItem("assignments", item)).toEqual({
+      text: "数学：ワーク P.12（〆6/5）",
+    });
+    expect(formatSignageItem("assignments", item, "daysLeft")).toEqual({
+      text: "数学：ワーク P.12（〆6/5）",
+    });
+  });
+
+  it("'until' でも期限なしは本文のみ・isHighlight は emphasis（既存挙動不変）", () => {
+    expect(formatSignageItem("assignments", { subject: "英語", task: "音読" }, "until")).toEqual({
+      text: "英語：音読",
+    });
+    expect(formatSignageItem("assignments", { ...item, isHighlight: true }, "until")).toEqual({
+      text: "数学：ワーク P.12（6/5まで）",
+      emphasis: true,
+    });
+  });
+
+  it("'until' は assignments 以外のセクションに影響しない", () => {
+    expect(formatSignageItem("schedules", { period: 1, subject: "数学" }, "until")).toEqual({
+      text: "1限 数学",
+    });
+    expect(formatSignageItem("notices", { text: "連絡" }, "until")).toEqual({ text: "連絡" });
+  });
+});
+
+describe("parseAssignmentRow: 'until' 形式の期限セル（#1258）", () => {
+  const TODAY = "2026-06-06";
+
+  it("将来日は「M/Dまで」（残日数ラベルの代わり）", () => {
+    expect(
+      parseAssignmentRow(
+        { deadline: "2026-06-13", subject: "数学", task: "ワーク" },
+        TODAY,
+        "until",
+      ),
+    ).toEqual({
+      subject: "数学",
+      task: "ワーク",
+      deadlineShort: "6/13",
+      daysLeft: "6/13まで",
+      isOverdue: false,
+      isUrgent: false,
+    });
+  });
+
+  it("当日は「今日まで」・翌日以降 3 日以内も「M/Dまで」で緊急色は不変", () => {
+    expect(
+      parseAssignmentRow({ deadline: TODAY, subject: "国語", task: "音読" }, TODAY, "until"),
+    ).toMatchObject({ daysLeft: "今日まで", isUrgent: true, isOverdue: false });
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-07", subject: "英語", task: "単語" }, TODAY, "until"),
+    ).toMatchObject({ daysLeft: "6/7まで", isUrgent: true, isOverdue: false });
+  });
+
+  it("超過は既定形式と同じ「N日超過」（緊急性の伝達を落とさない）", () => {
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-04", subject: "理科", task: "レポ" }, TODAY, "until"),
+    ).toMatchObject({ daysLeft: "2日超過", isOverdue: true, isUrgent: false });
+  });
+
+  it("期限欠損/不正はラベル空（deadlineShort フォールバック・既定形式と同じ fail-soft）", () => {
+    expect(parseAssignmentRow({ subject: "数学", task: "ワーク" }, TODAY, "until")).toMatchObject({
+      daysLeft: "",
+      deadlineShort: "",
+    });
+    expect(
+      parseAssignmentRow({ deadline: "6月13日", subject: "数学", task: "ワーク" }, TODAY, "until"),
+    ).toMatchObject({ daysLeft: "", deadlineShort: "6月13日" });
+  });
+
+  it("省略時は従来の残日数ラベル（完全互換）", () => {
+    expect(
+      parseAssignmentRow({ deadline: "2026-06-13", subject: "数学", task: "ワーク" }, TODAY),
+    ).toMatchObject({ daysLeft: "あと7日" });
+  });
+});

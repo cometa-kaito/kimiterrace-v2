@@ -81,6 +81,7 @@ describe("ClassEditorChat 反映成功 → ?applied= 再ナビゲート", () => 
         classId="c1"
         date="2026-06-20"
         pattern="pattern1"
+        assignmentDeadlineFormat="daysLeft"
         initialDraft={{ schedules: [], notices: [], assignments: [] }}
         pinnedNotices={[]}
       />,

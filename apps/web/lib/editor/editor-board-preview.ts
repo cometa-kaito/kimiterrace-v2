@@ -57,6 +57,7 @@ export type EditorBoardBase = Pick<
   SignagePayload,
   | "date"
   | "designPattern"
+  | "assignmentDeadlineFormat"
   | "daily"
   | "scheduleDays"
   | "ads"
@@ -120,6 +121,7 @@ export function buildEditorPreviewPayload(
   return {
     date: base.date,
     designPattern: base.designPattern,
+    assignmentDeadlineFormat: base.assignmentDeadlineFormat,
     daily,
     scheduleDays,
     ads: base.ads,

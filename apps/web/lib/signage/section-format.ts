@@ -38,6 +38,10 @@ import {
   scheduleSlotLabel,
 } from "@/lib/editor/schedule-core";
 import type { QuietRange } from "@/lib/school-admin/quiet-hours-core";
+import {
+  type AssignmentDeadlineFormat,
+  DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
+} from "@/lib/signage/assignment-deadline-format";
 import type { EffectiveDailyData } from "@/lib/signage/effective-daily-data";
 
 /**
@@ -133,8 +137,14 @@ function formatNotice(rec: Record<string, unknown>): SignageLine | null {
   return field<NoticeItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
-/** 提出物: "科目：内容（〆 M/D）"。期限と内容を捨てずに表示する。isHighlight=true は emphasis。 */
-function formatAssignment(rec: Record<string, unknown>): SignageLine | null {
+/**
+ * 提出物: "科目：内容（〆 M/D）"。期限と内容を捨てずに表示する。isHighlight=true は emphasis。
+ * 期日表示形式（#1258 学校別設定）が `until` のときは期限部を「（M/Dまで）」で表す。
+ */
+function formatAssignment(
+  rec: Record<string, unknown>,
+  deadlineFormat: AssignmentDeadlineFormat,
+): SignageLine | null {
   const subject = str(field<AssignmentItem>(rec, "subject"));
   const task = str(field<AssignmentItem>(rec, "task"));
   if (!subject || !task) {
@@ -142,7 +152,11 @@ function formatAssignment(rec: Record<string, unknown>): SignageLine | null {
   }
   const deadline = str(field<AssignmentItem>(rec, "deadline"));
   const body = `${subject}：${task}`;
-  const text = deadline ? `${body}（〆${shortDate(deadline)}）` : body;
+  const text = deadline
+    ? deadlineFormat === "until"
+      ? `${body}（${shortDate(deadline)}まで）`
+      : `${body}（〆${shortDate(deadline)}）`
+    : body;
   return field<AssignmentItem>(rec, "isHighlight") === true ? { text, emphasis: true } : { text };
 }
 
@@ -156,13 +170,15 @@ function formatQuietHours(rec: Record<string, unknown>): SignageLine | null {
   return { text: `${start}–${end}` };
 }
 
-const FORMATTERS: Record<SignageSectionKind, (rec: Record<string, unknown>) => SignageLine | null> =
-  {
-    schedules: formatSchedule,
-    notices: formatNotice,
-    assignments: formatAssignment,
-    quietHours: formatQuietHours,
-  };
+const FORMATTERS: Record<
+  SignageSectionKind,
+  (rec: Record<string, unknown>, deadlineFormat: AssignmentDeadlineFormat) => SignageLine | null
+> = {
+  schedules: formatSchedule,
+  notices: formatNotice,
+  assignments: formatAssignment,
+  quietHours: formatQuietHours,
+};
 
 /**
  * 想定スキーマに合致しない opaque 要素の最終フォールバック (旧 `itemLabel` 互換)。
@@ -187,10 +203,17 @@ function genericLabel(item: unknown): string {
 /**
  * 日次セクション要素 1 件を表示用テキストに整形する。`kind` で確定スキーマに沿って rich 化し、
  * 形が合わなければ汎用ラベルにフォールバックする (fail-soft、表示を壊さない)。
+ *
+ * @param deadlineFormat 提出物の期日表示形式（学校別設定・#1258）。`assignments` のみ影響し、省略時は
+ *                       既定 `daysLeft`（従来の「（〆M/D）」表記＝完全互換）。
  */
-export function formatSignageItem(kind: SignageSectionKind, item: unknown): SignageLine {
+export function formatSignageItem(
+  kind: SignageSectionKind,
+  item: unknown,
+  deadlineFormat: AssignmentDeadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
+): SignageLine {
   if (item && typeof item === "object" && !Array.isArray(item)) {
-    const line = FORMATTERS[kind](item as Record<string, unknown>);
+    const line = FORMATTERS[kind](item as Record<string, unknown>, deadlineFormat);
     if (line) {
       return line;
     }
@@ -251,11 +274,16 @@ export function parseScheduleRow(item: unknown): SignageScheduleRow {
   return { periodLabel: "", content: genericLabel(item), location: null, targetAudience: null };
 }
 
-/** 提出物 1 行: 科目・提出物・期限 (短縮日付) + 締切までの残日数ラベルと緊急度。 */
+/** 提出物 1 行: 科目・提出物・期限 (短縮日付) + 期限セルのラベルと緊急度。 */
 export type SignageAssignmentRow = {
   subject: string;
   task: string;
   deadlineShort: string;
+  /**
+   * 期限セルの表示ラベル。既定形式 `daysLeft` では残り日数（あとN日 / 今日 / 明日 / N日超過）、
+   * `until` 形式（#1258 学校別設定）では日付ベース（M/Dまで / 今日まで / N日超過）。期限欠損・不正は空
+   * （表示側が `deadlineShort` にフォールバックする）。
+   */
   daysLeft: string;
   isOverdue: boolean;
   isUrgent: boolean;
@@ -266,8 +294,16 @@ export type SignageAssignmentRow = {
 /**
  * 提出物要素を表の各列へ分ける。`today` (YYYY-MM-DD, JST) との差で残日数を出す。subject/task が
  * 揃わない要素は null (表に出さない)。期限が不正/欠損なら残日数は空・非緊急 (表示は壊さない)。
+ *
+ * @param deadlineFormat 期限セルの表示形式（学校別設定・#1258）。省略時は既定 `daysLeft`（従来の残り日数
+ *                       ラベル＝完全互換）。`until` は日付ベース（{@link untilDateLabel}）。緊急色の判定
+ *                       （isUrgent / isOverdue）は形式に関わらず不変。
  */
-export function parseAssignmentRow(item: unknown, today: string): SignageAssignmentRow | null {
+export function parseAssignmentRow(
+  item: unknown,
+  today: string,
+  deadlineFormat: AssignmentDeadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
+): SignageAssignmentRow | null {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
     return null;
   }
@@ -283,7 +319,8 @@ export function parseAssignmentRow(item: unknown, today: string): SignageAssignm
     subject,
     task,
     deadlineShort: deadline ? shortDate(deadline) : "",
-    daysLeft: daysLeftLabel(days),
+    daysLeft:
+      deadlineFormat === "until" && deadline ? untilDateLabel(days, deadline) : daysLeftLabel(days),
     isOverdue: days !== null && days < 0,
     // 締切まで3日以内 (当日含む) は緊急 (赤)。v1 calculateDaysLeft の days-urgent (diffDays<=3) に一致。
     isUrgent: days !== null && days >= 0 && days <= 3,
@@ -315,6 +352,24 @@ function ymdToUtc(s: string): number | null {
     return null;
   }
   return dt.getTime();
+}
+
+/**
+ * `until` 形式（#1258）の期限セルラベル。将来日は「M/Dまで」、当日は「今日まで」、超過は既定形式と同じ
+ * 「N日超過」（緊急性の伝達を落とさない）。`days` が null（期限不正）は空＝表示側が `deadlineShort` に
+ * フォールバック（既定形式と同じ fail-soft）。
+ */
+function untilDateLabel(days: number | null, deadline: string): string {
+  if (days === null) {
+    return "";
+  }
+  if (days < 0) {
+    return `${-days}日超過`;
+  }
+  if (days === 0) {
+    return "今日まで";
+  }
+  return `${shortDate(deadline)}まで`;
 }
 
 /** 残日数 → 表示ラベル。超過/今日/明日/あとN日。null は空。 */

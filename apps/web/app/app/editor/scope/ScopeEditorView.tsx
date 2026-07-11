@@ -10,6 +10,8 @@ import { getEditorTargetData } from "@/lib/editor/daily-data-read";
 import { EDITOR_ROLES, type EditorTarget, isValidDate } from "@/lib/editor/schedule-core";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
+import { parseAssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
+import { getSchoolDisplaySettings } from "@/lib/signage/signage-design";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -60,11 +62,20 @@ export async function ScopeEditorView({
       ? dateParam
       : new Date().toLocaleDateString("en-CA", { timeZone: JST });
 
-  const data = await withSession((tx) => getEditorTargetData(tx, target, date));
+  const result = await withSession(async (tx) => {
+    const data = await getEditorTargetData(tx, target, date);
+    if (!data) {
+      return null;
+    }
+    // 提出物の期日表示形式（#1258 学校別設定）。AI チャットの下書きプレビュー表記を実機盤面と一致させる。
+    const deadlineFormat = parseAssignmentDeadlineFormat(await getSchoolDisplaySettings(tx));
+    return { data, deadlineFormat };
+  });
   // 対象が自校で不可視 (別テナント / 存在しない) なら null → 404。
-  if (!data) {
+  if (!result) {
     notFound();
   }
+  const { data, deadlineFormat } = result;
 
   const assistantTargetId =
     target.scope === "department"
@@ -147,6 +158,7 @@ export async function ScopeEditorView({
           scope={target.scope}
           targetId={assistantTargetId}
           date={data.date}
+          assignmentDeadlineFormat={deadlineFormat}
           initialDraft={{
             schedules: data.schedule,
             notices: data.notices,

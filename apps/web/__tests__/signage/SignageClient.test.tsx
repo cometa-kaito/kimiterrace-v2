@@ -72,6 +72,7 @@ function payload(ads: SignagePayload["ads"]): SignagePayload {
   return {
     date: "2026-05-31",
     designPattern: "pattern1",
+    assignmentDeadlineFormat: "daysLeft",
     daily,
     scheduleDays: [],
     ads,
