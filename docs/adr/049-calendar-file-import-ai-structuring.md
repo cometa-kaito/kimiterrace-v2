@@ -41,9 +41,12 @@
 
 **保存先 = `school_calendar_events` 再利用、盤面反映 = 第 1 段（エディタ確定のみ）、権限 = 教員 + 学校管理者**（いずれも 2026-07-11 ユーザー判断）。
 
-1. **ファイル取込由来イベントの表現（migration 不要）**。`school_calendar_events` に `sourceId = null`・`uid = "file:<importBatchId>:<n>"`（`file:` プレフィクスで名前空間分離）で格納する。`raw` に `{ origin: "file-import", batchId, fileName, importedBy }` を保全する。取込単位（バッチ）での置き換え・削除は `uid LIKE 'file:%'` 相当の名前空間で行う。
+1. **ファイル取込由来イベントの表現（migration 不要）**。`school_calendar_events` に `sourceId = null`・`uid = "file:<importBatchId>:<n>"`（`file:` プレフィクスで名前空間分離）で格納する。`raw` に `{ origin: "file-import", batchId, fileName, importedBy }` を保全する。**再取込は「`file:` 名前空間全体の置き換え」**（`source_id IS NULL AND uid LIKE 'file:%'` を削除して新バッチを挿入）を既定とする — 学校の年間行事表は 1 校 1 枚が通常形であり、バッチ単位の部分共存は複数ファイル運用が要件化してから（再検討トリガ）。
 
-2. **★ iCal 掃除との衝突回避（必須の前提修正）**。`deleteStaleCalendarEvents`（`packages/db/src/queries/school-calendar.ts`）は現状 **school 単位で `keepUids` 外を全削除**するため、iCal ソース併用校では次回同期がファイル取込行事を誤削除する。削除条件に **`sourceId = <同期中のソース>` を追加**して掃除スコープをソース単位に絞る（`sourceId = null` のファイル取込行事は iCal 同期の掃除対象外になる）。この修正は取込機能より**先に** land する（スライス 1）。
+2. **★ iCal 掃除との衝突回避（必須の前提修正）**。`deleteStaleCalendarEvents`（`packages/db/src/queries/school-calendar.ts`）は現状 **school 単位で `keepUids` 外を全削除**するため、iCal ソース併用校では次回同期がファイル取込行事を誤削除する。削除条件に **`sourceId = <同期中のソース>` を追加**して掃除スコープをソース単位に絞る（`sourceId = null` のファイル取込行事は iCal 同期の掃除対象外になる）。この修正は取込機能より**先に** land する（スライス 1）。あわせて名前空間境界を両側からコードで強制する:
+   - **iCal 取込側**: 外部フィードが `UID: file:...` を吐いても名前空間を侵食できないよう、iCal 由来 upsert は `file:` プレフィクスの UID を**リライト**（例 `ical:` を前置）または拒否する。
+   - **ファイル削除側**: 置き換え削除の条件は uid プレフィクスだけに依存せず **`source_id IS NULL AND uid LIKE 'file:%'`** の二重条件とする（万一 `file:` uid が iCal 側に紛れても sourceId 非 null で保護される）。
+   - ソース行削除で `onDelete: set null` になった **orphan iCal 行**（sourceId=null・非 `file:`）は上記いずれの掃除にも入らない。ソース削除時に配下イベントを同時削除するか orphan 掃除を追加するかは PR-A で決める（放置すると永久残留）。
 
 3. **AI 構造化の専用経路（既存の 1 日分類とは別モード）**。既存の抽出レイヤ（exceljs / CSV / PDF / Gemini OCR）→ 既存のマスク済みパイプライン（PII soft-gate・監査、`runSectionDraft` の流儀）→ Gemini 構造化出力（Zod: `events[] { summary, startDate, endDate?, allDay, location? }`）。年間表は**年度文脈が必須**（「4/8」が何年か）なので、複数日下書きで実績のある「実在日付テーブルの system 注入」（`jstUpcomingDateTable`）の**年度版**（年度開始日〜翌 3 月の月/日↔曜日対応表）を注入し、モデルに暦算術をさせない。出力上限は `MAX_EVENTS_PER_SOURCE`（ADR-045 の 2000）と同水準でクランプし、切り捨ては件数を明示する（沈黙の切り捨て禁止）。
 
@@ -60,7 +63,8 @@
 - ① **AI 誤読（日付ズレ・行事名の取り違え）**: 確認 UI（決定 4）で保存前に人間が見る。年度テーブル注入（決定 3）で暦算術ミスを構造的に減らす。
 - ② **アップロードファイル内の PII**: 年間行事表に個人名（担当者等）が含まれうる。既存パイプラインの PII soft-gate / マスキングを通す（決定 5）。保存対象は行事名・日付・場所のみで、フリーテキスト全文は保存しない。
 - ③ **教員による学校単位データの上書き**: 権限 A の代償。バッチ単位の置き換えに限定し、監査カラム + 取込履歴（`raw.batchId` / `importedBy`）で追跡可能にする。
-- ④ **`file:` 名前空間の規約依存**: `origin` を専用カラムでなく uid プレフィクス + `raw` で表現するため、規約破りの uid が混ざると掃除・置き換えの境界が崩れる。書き込み口をクエリ層のヘルパ（`upsertFileImportedEvents` 等）に単一化して規約をコードで強制する。カラム化が必要になったら migration を追加（再検討トリガ）。
+- ④ **`file:` 名前空間の規約依存**: `origin` を専用カラムでなく uid プレフィクス + `raw` で表現するため、規約破りの uid が混ざると掃除・置き換えの境界が崩れる。決定 2 の二重条件（`source_id IS NULL` AND uid プレフィクス）と iCal 側リライトで両側から強制し、書き込み口をクエリ層のヘルパ（`upsertFileImportedEvents` 等）に単一化する。カラム化が必要になったら migration を追加（再検討トリガ）。
+- ⑤ **「iCal 由来はエディタ/取込 UI から削除・上書きさせない」（決定 6）はアプリ層規約であり RLS では強制されない**（tenant_isolation はロール非依存の school_id 一致のみ）。PR-A の RLS テストは「教員セッションでも iCal 行を物理的には削除できてしまう」ことを前提に、アプリ層ヘルパの絞り込み（`source_id IS NULL` 限定の DELETE）をテスト期待値として固定する。
 
 ## 再検討トリガ
 
