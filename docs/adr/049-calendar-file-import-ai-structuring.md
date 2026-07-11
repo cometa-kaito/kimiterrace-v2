@@ -1,6 +1,6 @@
-# ADR-049: 年間行事予定表ファイル（Excel/CSV 等）の AI 構造化取込（school_calendar_events 再利用・エディタ確定）
+﻿# ADR-049: 年間行事予定表ファイル（Excel/CSV 等）の AI 構造化取込（school_calendar_events 再利用・エディタ確定）
 
-- 状態: Proposed（2026-07-11、方針はユーザー判断済み）
+- 状態: Accepted（2026-07-12。Proposed 2026-07-11、レビュー #1261 通過・実コード整合検証済み）
 - 日付: 2026-07-11
 - 関連: [ADR-045 学校行事カレンダーの公開 iCal/ICS 取込（保存先テーブルの出自）](045-signage-school-calendar-ical-ingestion.md), [ADR-038 Gemini マルチモーダル OCR], [ADR-040 生徒 Q&A 知識源], [CLAUDE.md ルール1（監査）/ ルール2（RLS）/ ルール3（型単一ソース）/ ルール4（PII マスキング）], issue #1259
 
