@@ -913,6 +913,16 @@ describe("stableEventUid", () => {
     expect(stableEventUid("src-b", ev)).not.toBe(a);
     expect(stableEventUid("src-a", { ...ev, startDate: "2026-04-09" })).not.toBe(a);
   });
+
+  it("★ ADR-049 決定 2: 外部フィードの UID が file: で始まる場合は ical: を前置してリライト（名前空間侵食防止）", () => {
+    const ev: ParsedCalendarEvent = { ...fakeCalEvent("2026-04-08"), uid: "file:evil:1" };
+    const rewritten = stableEventUid("src-a", ev);
+    expect(rewritten).toBe("ical:file:evil:1");
+    // 決定的（再取得でも同一 uid → upsert 冪等・keepUids も同じ値で整合する。uid 導出は本関数の単一点）。
+    expect(stableEventUid("src-a", { ...ev })).toBe(rewritten);
+    // file: 以外の通常 uid はリライトされない。
+    expect(stableEventUid("src-a", fakeCalEvent("2026-04-08"))).toBe("uid-2026-04-08");
+  });
 });
 
 describe("fetchIcs", () => {

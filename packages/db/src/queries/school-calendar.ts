@@ -1,4 +1,15 @@
-import { type InferSelectModel, and, asc, eq, gte, lte, notInArray } from "drizzle-orm";
+import {
+  type InferInsertModel,
+  type InferSelectModel,
+  and,
+  asc,
+  eq,
+  gte,
+  isNull,
+  like,
+  lte,
+  notInArray,
+} from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { TenantTx } from "../client.js";
 import { schoolCalendarEvents } from "../schema/school-calendar-events.js";
@@ -39,6 +50,36 @@ export type SchoolCalendarEvent = CalendarEventRow;
 
 /** 取得 Job の per-school フェーズが列挙する「有効なソース」1 件（取得に要る最小射影）。 */
 export type EnabledCalendarSource = Pick<CalendarSourceRow, "id" | "schoolId" | "icsUrl">;
+
+/**
+ * ADR-049 決定 1/2: ファイル取込由来イベントの uid 名前空間プレフィクス。
+ * `sourceId = null` + `uid LIKE 'file:%'` の**二重条件**がファイル取込行事の境界（uid 規約単独に依存しない）。
+ * iCal 側は `sanitizeIcalEventUid` でこの名前空間へ侵食できない（両側強制）。
+ */
+export const FILE_IMPORT_UID_PREFIX = "file:";
+
+/** ADR-049 決定 2: iCal 由来 uid のリライトで前置するプレフィクス（`file:` 名前空間の侵食防止）。 */
+export const ICAL_UID_REWRITE_PREFIX = "ical:";
+
+/** uid カラム（varchar）の最大長。リライトで前置した結果の桁あふれを防ぐクランプに使う。 */
+const UID_MAX_LENGTH = 512;
+
+/**
+ * ADR-049 決定 2（iCal 取込側の名前空間強制）: 外部 iCal フィードの VEVENT UID が `file:` で始まる場合、
+ * `ical:` を前置してリライトする。ファイル取込の置き換え削除（`replaceFileImportedEvents`）は
+ * `source_id IS NULL AND uid LIKE 'file:%'` の二重条件だが、外部フィードが `UID: file:...` を吐いても
+ * ファイル取込名前空間を侵食できないよう、書き込まれる uid 自体を両側から強制する。
+ *
+ * 呼び出し側（取得 Job の uid 導出単一点）は keepUids にも**リライト後の値**を渡すこと（upsert と掃除の整合）。
+ * リライトは決定的（同じ入力 → 同じ出力）なので再取得の upsert 冪等性を壊さない。varchar(512) を超える場合は
+ * 先頭 512 文字にクランプする（決定的なので冪等性は保たれる）。
+ */
+export function sanitizeIcalEventUid(uid: string): string {
+  if (!uid.startsWith(FILE_IMPORT_UID_PREFIX)) {
+    return uid;
+  }
+  return `${ICAL_UID_REWRITE_PREFIX}${uid}`.slice(0, UID_MAX_LENGTH);
+}
 
 /**
  * ソース設定を upsert する入力（school_admin の設定 UI / ops 初期投入用）。`(school_id)` 競合で UPDATE。
@@ -196,8 +237,14 @@ export async function upsertCalendarEvent(
 }
 
 /**
- * iCal から消えた行事を掃除する（取得 Job 用、system context）。指定校の行事のうち `keepUids` に **含まれない**
- * 行を削除し、削除件数を返す。再取得した iCal に残っている UID 群を `keepUids` に渡す想定（差分削除）。
+ * iCal から消えた行事を掃除する（取得 Job 用、system context）。**同期中のソース由来**（`source_id = sourceId`）
+ * の行事のうち `keepUids` に **含まれない**行を削除し、削除件数を返す。再取得した iCal に残っている UID 群を
+ * `keepUids` に渡す想定（差分削除）。
+ *
+ * ★ ADR-049 決定 2（掃除スコープのソース単位化）: 旧実装は school 単位で `keepUids` 外を全削除していたため、
+ * iCal ソース併用校では `sourceId = null` のファイル取込行事（`file:` 名前空間）が次回同期で誤削除された。
+ * `source_id = sourceId` を削除条件に加えてスコープをソース単位に絞る（`sourceId = null` の行 = ファイル取込 /
+ * orphan は SQL の `=` 比較が false になるため構造的に掃除対象外）。
  *
  * `keepUids` が空（全行事が消えた / 取得 0 件）の場合は、誤爆で全削除しないよう **何もしない**（0 を返す）。
  * 取得失敗で空集合になったケースと「本当に全行事が消えた」ケースを取得 Job 側で区別できないため、空集合掃除は
@@ -207,12 +254,14 @@ export async function upsertCalendarEvent(
  *
  * @param tx       system_admin コンテキストを張ったトランザクション。
  * @param schoolId 対象校。
+ * @param sourceId 同期中のソース設定 id（この source 由来の行だけを掃除する）。
  * @param keepUids 残す UID 群（再取得した iCal に存在する UID）。
  * @returns 削除した行数。
  */
 export async function deleteStaleCalendarEvents(
   tx: Pick<PostgresJsDatabase, "delete">,
   schoolId: string,
+  sourceId: string,
   keepUids: readonly string[],
 ): Promise<number> {
   // 空集合掃除は安全側に倒す（取得失敗と全消去の区別がつかないため last-known-good を残す）。
@@ -224,6 +273,8 @@ export async function deleteStaleCalendarEvents(
     .where(
       and(
         eq(schoolCalendarEvents.schoolId, schoolId),
+        // ソース単位スコープ（ADR-049 決定 2）。sourceId = null（ファイル取込 / orphan）は掃除しない。
+        eq(schoolCalendarEvents.sourceId, sourceId),
         notInArray(schoolCalendarEvents.uid, [...keepUids]),
       ),
     )
@@ -288,6 +339,108 @@ export async function getCalendarEvents(
     .from(schoolCalendarEvents)
     .where(and(...conditions))
     .orderBy(asc(schoolCalendarEvents.startDate), asc(schoolCalendarEvents.id));
+}
+
+/** ファイル取込イベント 1 件の入力（AI 構造化出力の確定形。uid / raw / 監査はヘルパが導出する）。 */
+export type FileImportedEventInput = Pick<
+  InferInsertModel<typeof schoolCalendarEvents>,
+  "summary" | "startDate" | "endDate" | "startAt" | "endAt" | "allDay" | "location"
+>;
+
+/** `replaceFileImportedEvents` の入力。 */
+export type ReplaceFileImportedEventsParams = {
+  /** 対象校（RLS と二重で絞る。越権は tenant_isolation が弾く）。 */
+  schoolId: string;
+  /** 取込バッチ id（uid = `file:<batchId>:<n>` と `raw.batchId` に使う）。呼び出し側が採番（UUID 想定）。 */
+  batchId: string;
+  /** 取込元ファイル名（`raw.fileName` に保全。パス等は含めない）。 */
+  fileName: string;
+  /**
+   * 実行者 uid（`createdBy` / `updatedBy` / `raw.importedBy`）。system_admin 代行は null
+   * （users 行でないため。auditColumns の「システム作成は null」規約 + 別トラッキング）。
+   */
+  actorUserId: string | null;
+  /** 保存するイベント（確認 UI で教員が確定した後の一覧。ADR-049 決定 4）。 */
+  events: readonly FileImportedEventInput[];
+};
+
+/** `replaceFileImportedEvents` の結果（削除 / 挿入件数。取込履歴・監査ログ用）。 */
+export type ReplaceFileImportedEventsResult = {
+  deleted: number;
+  inserted: number;
+};
+
+/**
+ * ADR-049 決定 1/2/6: ファイル取込由来の行事を **`file:` 名前空間全体の置き換え**で保存する
+ * （テナント RLS セッション = 教員 / school_admin から呼ぶ前提）。
+ *
+ * 1. 既存のファイル取込行事（**`source_id IS NULL AND uid LIKE 'file:%'` の二重条件**）を削除。
+ *    - `sourceId` 非 null（iCal 由来）の行は、万一 `file:` uid が紛れても `source_id IS NULL` で保護される
+ *      （名前空間の両側強制。iCal 側のリライトは `sanitizeIcalEventUid`）。
+ *    - ソース行削除で `onDelete: set null` になった **orphan iCal 行**（sourceId = null・非 `file:` uid）は
+ *      uid 条件で除外され誤削除しない。orphan の本格的な掃除は未実装（ADR-049 決定 2 の残存リスク・放置すると
+ *      永久残留。ソース削除 UI の実装時に再検討）。
+ * 2. 新バッチを一括 INSERT。uid = `file:<batchId>:<n>`（n は 1 始まりの連番）、`sourceId = null`、
+ *    `raw = { origin: "file-import", batchId, fileName, importedBy }` を保全（残存リスク③の追跡子）。
+ *
+ * `events` が空の場合も削除は行う（= 取込の全消し）。iCal 掃除の「空は no-op」安全弁と異なり、本ヘルパは
+ * 確認 UI（ADR-049 決定 4）で教員が明示確定した置き換え操作なので、空バッチは意図的なクリアとして扱う。
+ *
+ * RLS: 呼び出し接続の tenant_isolation（school_id 一致）が越権を弾く。`WHERE school_id` は対象特定 + 多層防御
+ * （ルール2、手書き境界に依存しない）。監査（ルール1）: `createdBy` / `updatedBy` = 実行者 uid。
+ *
+ * @param tx     テナントコンテキスト（教員 / school_admin）を張ったトランザクション。削除と挿入を原子化するため
+ *               必ず同一 tx で呼ぶ。
+ * @param params 置き換え入力。
+ * @returns 削除件数と挿入件数。
+ */
+export async function replaceFileImportedEvents(
+  tx: Pick<PostgresJsDatabase, "delete" | "insert">,
+  params: ReplaceFileImportedEventsParams,
+): Promise<ReplaceFileImportedEventsResult> {
+  const actor = params.actorUserId;
+  // 1) 既存ファイル取込バッチの削除（source_id IS NULL AND uid LIKE 'file:%' の二重条件、ADR-049 決定 2）。
+  const deletedRows = await tx
+    .delete(schoolCalendarEvents)
+    .where(
+      and(
+        eq(schoolCalendarEvents.schoolId, params.schoolId),
+        isNull(schoolCalendarEvents.sourceId),
+        like(schoolCalendarEvents.uid, `${FILE_IMPORT_UID_PREFIX}%`),
+      ),
+    )
+    .returning({ id: schoolCalendarEvents.id });
+
+  // 2) 新バッチの一括 INSERT（空バッチは削除のみ = 意図的なクリア）。
+  if (params.events.length === 0) {
+    return { deleted: deletedRows.length, inserted: 0 };
+  }
+  const values = params.events.map((ev, i) => ({
+    schoolId: params.schoolId,
+    uid: `${FILE_IMPORT_UID_PREFIX}${params.batchId}:${i + 1}`,
+    summary: ev.summary ?? null,
+    startDate: ev.startDate,
+    endDate: ev.endDate ?? null,
+    startAt: ev.startAt ?? null,
+    endAt: ev.endAt ?? null,
+    allDay: ev.allDay ?? false,
+    location: ev.location ?? null,
+    sourceId: null,
+    // 取込履歴の保全（ADR-049 残存リスク③: 教員による置き換えを batchId / importedBy で追跡可能にする）。
+    raw: {
+      origin: "file-import",
+      batchId: params.batchId,
+      fileName: params.fileName,
+      importedBy: actor,
+    },
+    createdBy: actor,
+    updatedBy: actor,
+  }));
+  const insertedRows = await tx
+    .insert(schoolCalendarEvents)
+    .values(values)
+    .returning({ id: schoolCalendarEvents.id });
+  return { deleted: deletedRows.length, inserted: insertedRows.length };
 }
 
 /** 取得 Job が write 系で使う tx 型エイリアス（system context、insert/update/delete を含む）。 */

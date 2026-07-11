@@ -6,6 +6,8 @@ import {
   deleteStaleCalendarEvents,
   getCalendarEvents,
   listEnabledCalendarSources,
+  replaceFileImportedEvents,
+  sanitizeIcalEventUid,
   upsertCalendarEvent,
   upsertCalendarSource,
 } from "../../src/queries/school-calendar.js";
@@ -60,16 +62,17 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
     return row.id;
   }
 
-  // owner（BYPASSRLS）でイベント行をシードするヘルパ。
+  // owner（BYPASSRLS）でイベント行をシードするヘルパ。sourceId 省略時は null（ファイル取込 / orphan 相当）。
   async function seedEvent(
     schoolId: string,
     uid: string,
     startDate: string,
     summary = "行事",
+    sourceId: string | null = null,
   ): Promise<void> {
     await sql`
-      INSERT INTO school_calendar_events (school_id, uid, start_date, summary)
-      VALUES (${schoolId}, ${uid}, ${startDate}, ${summary})
+      INSERT INTO school_calendar_events (school_id, uid, start_date, summary, source_id)
+      VALUES (${schoolId}, ${uid}, ${startDate}, ${summary}, ${sourceId})
     `;
   }
 
@@ -244,16 +247,17 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
     }
   });
 
-  it("deleteStaleCalendarEvents: keepUids に無い行を掃除 / keepUids 空は no-op（last-known-good）", async () => {
-    await seedEvent(fx.schoolA, "keep-1", "2026-04-08");
-    await seedEvent(fx.schoolA, "stale-1", "2026-04-09");
+  it("deleteStaleCalendarEvents: 同期中ソースの keepUids に無い行のみ掃除 / keepUids 空は no-op（last-known-good）", async () => {
+    const srcA = await seedSource(fx.schoolA, "https://a.test/cal.ics");
+    await seedEvent(fx.schoolA, "keep-1", "2026-04-08", "行事", srcA);
+    await seedEvent(fx.schoolA, "stale-1", "2026-04-09", "行事", srcA);
     await seedEvent(fx.schoolB, "other-1", "2026-04-10");
 
-    // keepUids=["keep-1"] → stale-1 のみ削除（自校）。他校 other-1 は触らない（system でも school_id 明示で絞る）。
+    // keepUids=["keep-1"] → 同一ソースの stale-1 のみ削除。他校 other-1 は触らない（school_id 明示で絞る）。
     const deleted = await withTenantContext(
       db,
       { role: "system_admin" },
-      (tx) => deleteStaleCalendarEvents(tx, fx.schoolA, ["keep-1"]),
+      (tx) => deleteStaleCalendarEvents(tx, fx.schoolA, srcA, ["keep-1"]),
       APP,
     );
     expect(deleted).toBe(1);
@@ -272,7 +276,7 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
     const deleted2 = await withTenantContext(
       db,
       { role: "system_admin" },
-      (tx) => deleteStaleCalendarEvents(tx, fx.schoolA, []),
+      (tx) => deleteStaleCalendarEvents(tx, fx.schoolA, srcA, []),
       APP,
     );
     expect(deleted2).toBe(0);
@@ -281,6 +285,42 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
       SELECT count(*)::text AS n FROM school_calendar_events WHERE school_id = ${fx.schoolA}
     `;
     expect(stillThere[0].n).toBe("1");
+  });
+
+  it("★ deleteStaleCalendarEvents: 別ソース由来 / sourceId=null（ファイル取込・orphan）の行を巻き込まない（ADR-049 決定 2）", async () => {
+    // 同一校に 2 つの iCal ソース + sourceId=null のファイル取込 / orphan 行を混在させる。
+    const srcA = await seedSource(fx.schoolA, "https://a.test/cal.ics");
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO school_calendar_sources (school_id, ics_url, enabled)
+      VALUES (${fx.schoolB}, 'https://b.test/cal.ics', true)
+      RETURNING id
+    `;
+    const srcB = row.id; // 別ソース（校が別でも sourceId 条件の検証には十分）
+    await seedEvent(fx.schoolA, "a-keep", "2026-04-08", "行事", srcA);
+    await seedEvent(fx.schoolA, "a-stale", "2026-04-09", "行事", srcA);
+    await seedEvent(fx.schoolA, "file:batch-1:1", "2026-04-10", "ファイル取込", null);
+    await seedEvent(fx.schoolA, "orphan-ical", "2026-04-11", "orphan", null);
+    await seedEvent(fx.schoolB, "b-1", "2026-04-12", "行事", srcB);
+
+    // srcA の同期掃除: keepUids に無い a-stale だけが消え、sourceId=null 行（file: / orphan）と別ソース行は残る。
+    // 旧実装（school 単位の全削除）ではファイル取込行事が誤削除されていた回帰を固定する。
+    const deleted = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => deleteStaleCalendarEvents(tx, fx.schoolA, srcA, ["a-keep"]),
+      APP,
+    );
+    expect(deleted).toBe(1);
+
+    await sql`RESET ROLE`;
+    const aRows = await sql<{ uid: string }[]>`
+      SELECT uid FROM school_calendar_events WHERE school_id = ${fx.schoolA} ORDER BY uid
+    `;
+    expect(aRows.map((r) => r.uid)).toEqual(["a-keep", "file:batch-1:1", "orphan-ical"]);
+    const bRows = await sql<{ uid: string }[]>`
+      SELECT uid FROM school_calendar_events WHERE school_id = ${fx.schoolB}
+    `;
+    expect(bRows.map((r) => r.uid)).toEqual(["b-1"]);
   });
 
   it("upsertCalendarSource: school_admin が自校設定を upsert（tenant_isolation・冪等）", async () => {
@@ -338,5 +378,180 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
       APP,
     );
     expect(events.map((e) => e.uid)).toEqual(["a-1", "a-2"]); // 範囲内・昇順・他校なし
+  });
+
+  // ---- ADR-049: ファイル取込（file: 名前空間の置き換え）----
+
+  it("★ replaceFileImportedEvents: 教員セッションで自校の file: バッチを置き換え（旧バッチ削除 + 新バッチ挿入・監査・raw 保全）", async () => {
+    const srcA = await seedSource(fx.schoolA, "https://a.test/cal.ics");
+    // 置き換え対象: 旧ファイル取込バッチ（sourceId=null・file: uid）。
+    await seedEvent(fx.schoolA, "file:old-batch:1", "2026-04-08", "旧取込1", null);
+    await seedEvent(fx.schoolA, "file:old-batch:2", "2026-04-09", "旧取込2", null);
+    // 保護対象: iCal 由来（sourceId 非 null。file: uid が紛れても source_id IS NULL 条件で守られる）
+    // + ical: リライト行 + orphan（sourceId=null・非 file:）。
+    await seedEvent(fx.schoolA, "ical-evt", "2026-04-10", "iCal行事", srcA);
+    await seedEvent(fx.schoolA, "file:invaded", "2026-04-11", "iCal侵食試行", srcA);
+    await seedEvent(
+      fx.schoolA,
+      sanitizeIcalEventUid("file:rewritten"),
+      "2026-04-12",
+      "リライト済",
+      srcA,
+    );
+    await seedEvent(fx.schoolA, "orphan-ical", "2026-04-13", "orphan", null);
+
+    const result = await withTenantContext(
+      db,
+      { schoolId: fx.schoolA, role: "teacher", userId: fx.userA },
+      (tx) =>
+        replaceFileImportedEvents(tx, {
+          schoolId: fx.schoolA,
+          batchId: "batch-2",
+          fileName: "年間行事予定表.xlsx",
+          actorUserId: fx.userA,
+          events: [
+            { summary: "始業式", startDate: "2026-04-08", allDay: true },
+            {
+              summary: "体育祭",
+              startDate: "2026-09-10",
+              endDate: "2026-09-11",
+              location: "グラウンド",
+            },
+          ],
+        }),
+      APP,
+    );
+    expect(result.deleted).toBe(2); // file:old-batch のみ（iCal 由来 / ical: / orphan は残る）
+    expect(result.inserted).toBe(2);
+
+    await sql`RESET ROLE`;
+    const rows = await sql<
+      {
+        uid: string;
+        summary: string;
+        source_id: string | null;
+        created_by: string | null;
+        raw: unknown;
+      }[]
+    >`
+      SELECT uid, summary, source_id, created_by, raw FROM school_calendar_events
+      WHERE school_id = ${fx.schoolA} ORDER BY uid
+    `;
+    expect(rows.map((r) => r.uid)).toEqual([
+      "file:batch-2:1",
+      "file:batch-2:2",
+      "file:invaded",
+      "ical-evt",
+      "ical:file:rewritten",
+      "orphan-ical",
+    ]);
+    const inserted = rows.filter((r) => r.uid.startsWith("file:batch-2:"));
+    for (const r of inserted) {
+      expect(r.source_id).toBeNull(); // ファイル取込は sourceId=null（ADR-049 決定 1）
+      expect(r.created_by).toBe(fx.userA); // 実行者を記録（ルール1）
+      expect(r.raw).toEqual({
+        origin: "file-import",
+        batchId: "batch-2",
+        fileName: "年間行事予定表.xlsx",
+        importedBy: fx.userA,
+      });
+    }
+    // 置き換え後に自校 context で読める（getCalendarEvents 再利用、PR-D の読み口）。
+    const readBack = await withTenantContext(
+      db,
+      { schoolId: fx.schoolA, role: "teacher", userId: fx.userA },
+      (tx) => getCalendarEvents(tx, fx.schoolA, "2026-09-01", "2026-09-30"),
+      APP,
+    );
+    expect(readBack.map((e) => e.summary)).toEqual(["体育祭"]);
+  });
+
+  it("★ replaceFileImportedEvents: 空バッチは意図的なクリア（file: のみ全削除・挿入 0）", async () => {
+    const srcA = await seedSource(fx.schoolA, "https://a.test/cal.ics");
+    await seedEvent(fx.schoolA, "file:old:1", "2026-04-08", "旧取込", null);
+    await seedEvent(fx.schoolA, "ical-evt", "2026-04-10", "iCal行事", srcA);
+
+    const result = await withTenantContext(
+      db,
+      { schoolId: fx.schoolA, role: "school_admin", userId: fx.userA },
+      (tx) =>
+        replaceFileImportedEvents(tx, {
+          schoolId: fx.schoolA,
+          batchId: "batch-empty",
+          fileName: "empty.csv",
+          actorUserId: fx.userA,
+          events: [],
+        }),
+      APP,
+    );
+    expect(result).toEqual({ deleted: 1, inserted: 0 });
+
+    await sql`RESET ROLE`;
+    const rows = await sql<{ uid: string }[]>`
+      SELECT uid FROM school_calendar_events WHERE school_id = ${fx.schoolA}
+    `;
+    expect(rows.map((r) => r.uid)).toEqual(["ical-evt"]);
+  });
+
+  it("★ replaceFileImportedEvents: 他校スコープでは書けない（WITH CHECK 拒否）・他校の file: 行は消せない（USING 不可視）", async () => {
+    await seedEvent(fx.schoolB, "file:b-batch:1", "2026-04-08", "他校の取込", null);
+
+    // school A の教員 context から school B への置き換え: INSERT は WITH CHECK で拒否。
+    await expect(
+      withTenantContext(
+        db,
+        { schoolId: fx.schoolA, role: "teacher", userId: fx.userA },
+        (tx) =>
+          replaceFileImportedEvents(tx, {
+            schoolId: fx.schoolB,
+            batchId: "evil-batch",
+            fileName: "evil.xlsx",
+            actorUserId: fx.userA,
+            events: [{ summary: "侵入", startDate: "2026-04-08" }],
+          }),
+        APP,
+      ),
+    ).rejects.toThrow(/row-level security|new row violates/i);
+
+    // 他校行は USING で不可視のため削除もされていない（挿入 0 のクリア試行でも消せない）。
+    const result = await withTenantContext(
+      db,
+      { schoolId: fx.schoolA, role: "teacher", userId: fx.userA },
+      (tx) =>
+        replaceFileImportedEvents(tx, {
+          schoolId: fx.schoolB,
+          batchId: "evil-batch",
+          fileName: "evil.xlsx",
+          actorUserId: fx.userA,
+          events: [],
+        }),
+      APP,
+    );
+    expect(result).toEqual({ deleted: 0, inserted: 0 });
+
+    await sql`RESET ROLE`;
+    const bRows = await sql<{ uid: string }[]>`
+      SELECT uid FROM school_calendar_events WHERE school_id = ${fx.schoolB}
+    `;
+    expect(bRows.map((r) => r.uid)).toEqual(["file:b-batch:1"]); // 他校は無傷
+  });
+});
+
+describe("sanitizeIcalEventUid（ADR-049 決定 2: iCal 側の file: 名前空間強制）", () => {
+  it("file: で始まる uid は ical: を前置してリライトする", () => {
+    expect(sanitizeIcalEventUid("file:evil:1")).toBe("ical:file:evil:1");
+  });
+
+  it("file: 以外はそのまま（既存 iCal uid の冪等性を壊さない）", () => {
+    expect(sanitizeIcalEventUid("evt-1")).toBe("evt-1");
+    expect(sanitizeIcalEventUid("ical:file:x")).toBe("ical:file:x"); // 再適用も不変（決定的）
+  });
+
+  it("リライトで varchar(512) を超える場合は 512 文字にクランプ（決定的）", () => {
+    const long = `file:${"x".repeat(510)}`; // 515 文字
+    const out = sanitizeIcalEventUid(long);
+    expect(out.length).toBe(512);
+    expect(out.startsWith("ical:file:")).toBe(true);
+    expect(sanitizeIcalEventUid(long)).toBe(out); // 冪等入力 → 同一出力
   });
 });
