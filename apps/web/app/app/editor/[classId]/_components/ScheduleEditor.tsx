@@ -396,9 +396,13 @@ export function ScheduleEditor({
   const reorderable = filledRows.length > 1;
 
   // --- Tab 縦移動（スプレッドシート風の連続入力・共有フック {@link useGridTabNavigation}） ---
-  // col: 0=時限 / 1=科目（いずれもコア＝常時表示）のみ。Tab=同 col の次行 / Shift+Tab=同 col の前行 /
-  // 最終行 Tab で行追加。補足 / 場所 / 対象者は「詳細」パネルに畳んだ任意項目なので登録せず通常 Tab に委ねる
-  // （開いている時だけ存在）。連絡・提出物・来校者・呼び出しと同じ共有フックに寄せた（要望 2026-06-23・重複排除）。
+  // col: 0=時限 / 1=科目（コア＝常時表示）。Tab=同 col の次行 / Shift+Tab=同 col の前行 / 最終行 Tab で行追加。
+  // これに加え、条件付きで出る欄も登録する（#1256: 詳細を開いて場所・対象者を入力する使い方でも Tab で下の行へ）:
+  // 2=時限「その他」の自由入力 / 3=補足 / 4=場所 / 5=対象者（詳細パネル内・開いている行にだけ存在）。
+  // 次 / 前の行に同じ欄が出ていない（パネルが閉じている等）ときはフックが介入せずブラウザ既定の Tab に委ねる。
+  // 条件付き列は最終行でも行追加しない（`addRowOnLastRow: false`・新規行のパネルは閉じておりフォーカス先が無い）。
+  // 重要チェックボックスは対象外（テキスト連続入力の動線ではない）。連絡・提出物・来校者・呼び出しと同じ共有フック
+  // に寄せた（要望 2026-06-23・重複排除）。
   const { registerCell, onCellKeyDown } = useGridTabNavigation(rows.length, addRow);
 
   async function changeDate(next: string) {
@@ -553,8 +557,12 @@ export function ScheduleEditor({
                           </select>
                           {isCustomPeriod(r.period) ? (
                             <input
+                              // 「その他」を選んだ行にだけ出る欄（col2）。次の行が「その他」でなければフックは
+                              // 介入せず既定 Tab のまま。新規行は未選択で始まりこの欄を持たないため行追加もしない。
+                              ref={(el) => registerCell(i, 2, el)}
                               value={r.period.custom}
                               onChange={(e) => update(i, { period: { custom: e.target.value } })}
+                              onKeyDown={(e) => onCellKeyDown(e, i, 2, { addRowOnLastRow: false })}
                               placeholder="例: 補習"
                               maxLength={CUSTOM_PERIOD_MAX}
                               style={{ ...inputStyle, width: "6rem", marginTop: "0.25rem" }}
@@ -627,10 +635,15 @@ export function ScheduleEditor({
                             />
                             重要
                           </label>
+                          {/* 補足 / 場所 / 対象者も Tab 縦移動に登録（col3/4/5・#1256）。次の行のパネルが
+                              閉じていればフックは介入せず既定 Tab のまま。最終行では行追加しない（新規行の
+                              パネルは閉じておりフォーカス先が無いため addRowOnLastRow: false）。 */}
                           <DetailField label="補足">
                             <input
+                              ref={(el) => registerCell(i, 3, el)}
                               value={r.note}
                               onChange={(e) => update(i, { note: e.target.value })}
+                              onKeyDown={(e) => onCellKeyDown(e, i, 3, { addRowOnLastRow: false })}
                               placeholder="(任意)"
                               style={{ ...inputStyle, width: "100%" }}
                               aria-label={`${i + 1} 行目の補足`}
@@ -638,8 +651,10 @@ export function ScheduleEditor({
                           </DetailField>
                           <DetailField label="場所">
                             <input
+                              ref={(el) => registerCell(i, 4, el)}
                               value={r.location}
                               onChange={(e) => update(i, { location: e.target.value })}
+                              onKeyDown={(e) => onCellKeyDown(e, i, 4, { addRowOnLastRow: false })}
                               placeholder="(任意) 体育館 等"
                               style={{ ...inputStyle, width: "100%" }}
                               aria-label={`${i + 1} 行目の場所`}
@@ -647,8 +662,10 @@ export function ScheduleEditor({
                           </DetailField>
                           <DetailField label="対象者">
                             <input
+                              ref={(el) => registerCell(i, 5, el)}
                               value={r.targetAudience}
                               onChange={(e) => update(i, { targetAudience: e.target.value })}
+                              onKeyDown={(e) => onCellKeyDown(e, i, 5, { addRowOnLastRow: false })}
                               placeholder="(任意) 3年生 等"
                               style={{ ...inputStyle, width: "100%" }}
                               aria-label={`${i + 1} 行目の対象者`}
