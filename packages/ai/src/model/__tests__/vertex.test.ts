@@ -126,6 +126,24 @@ describe("createVertexModelClient（Vertex アダプタ契約）", () => {
     });
   });
 
+  it("maxOutputTokens 指定時は doGenerate の call params へ透過する（ADR-049）", async () => {
+    const client = createVertexModelClient(DUMMY_CONFIG);
+
+    await client.generate({ system: "sys", user: "usr", maxOutputTokens: 32_768 });
+
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.maxOutputTokens).toBe(32_768);
+  });
+
+  it("maxOutputTokens 未指定時はキーを生やさない（ADR-017 の no-truncation 方針を不変に保つ）", async () => {
+    const client = createVertexModelClient(DUMMY_CONFIG);
+
+    await client.generate({ system: "sys", user: "usr" });
+
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.maxOutputTokens).toBeUndefined();
+  });
+
   it("text と modelVersion を返す（既定 modelId / 明示 modelId 双方）", async () => {
     nextFakeConfig = { text: '{"ok":true}', usage: FULL_USAGE, modelId: "" };
     const defaultRes = await createVertexModelClient(DUMMY_CONFIG).generate({

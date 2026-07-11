@@ -20,6 +20,13 @@ export interface ModelUsage {
 export interface ModelRequest {
   system: string;
   user: string;
+  /**
+   * 応答トークン上限（任意）。未指定は SDK 既定（上限を設けず必要分だけ生成 = ADR-017 の
+   * truncation 回避方針。既存経路は挙動不変）。年間行事取込（ADR-049）のような長大な構造化出力で、
+   * 想定件数が途切れない値を呼び出し側が明示しつつ暴走時のコスト CAP として使う。
+   * Gemini 2.5 系は思考トークンもこの枠を消費するため、指定する場合は余裕を持たせること。
+   */
+  maxOutputTokens?: number;
 }
 
 export interface ModelResponse {
