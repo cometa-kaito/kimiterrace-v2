@@ -582,7 +582,7 @@ describe("WysiwygBoardEditor", () => {
     expect(screen.getByText("PLAN_ACTIONS_MARK")).toBeTruthy();
   });
 
-  it("liveSignageUrl があれば盤面直下に「実物のサイネージを開く」リンクを別タブで出す。無ければ出さない（死リンク防止）", () => {
+  it("盤面直下に実寸プレビューへの主導線を別タブで出し、liveSignageUrl があれば副次の「実機の画面を開く」も出す（#1257）", () => {
     const withUrl = render(
       <WysiwygBoardEditor
         classId={CLASS_ID}
@@ -594,10 +594,15 @@ describe("WysiwygBoardEditor", () => {
         liveSignageUrl="https://example.com/signage/token"
       />,
     );
-    const link = screen.getByRole("link", { name: /実物のサイネージを開く/ }) as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("https://example.com/signage/token");
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toContain("noopener");
+    // 主導線: アプリ内の実寸プレビュー（現在編集中の日付を ?date= で引き継ぐ・編集を失わないよう別タブ）。
+    const preview = screen.getByRole("link", { name: /実寸プレビューを開く/ }) as HTMLAnchorElement;
+    expect(preview.getAttribute("href")).toBe(`/app/editor/${CLASS_ID}/preview?date=${TODAY}`);
+    expect(preview.getAttribute("target")).toBe("_blank");
+    expect(preview.getAttribute("rel")).toContain("noopener");
+    // 副次導線: 実機の生 URL（#1257 で主導線から降格して残す・別タブ）。
+    const live = screen.getByRole("link", { name: /実機の画面を開く/ }) as HTMLAnchorElement;
+    expect(live.getAttribute("href")).toBe("https://example.com/signage/token");
+    expect(live.getAttribute("target")).toBe("_blank");
     withUrl.unmount();
     render(
       <WysiwygBoardEditor
@@ -609,7 +614,9 @@ describe("WysiwygBoardEditor", () => {
         initialAssignments={[]}
       />,
     );
-    expect(screen.queryByRole("link", { name: /実物のサイネージを開く/ })).toBeNull();
+    // 実機未設置クラス: 副次リンクは出さない（死リンク防止）が、実寸プレビューは端末なしでも成立するので出す。
+    expect(screen.queryByRole("link", { name: /実機の画面を開く/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /実寸プレビューを開く/ })).toBeTruthy();
   });
 
   it("スマホ用の盤面開閉トグル「盤面を確認」を出し、押すと開閉が切り替わる（≤899px 用・≥900px は CSS 非表示）", () => {

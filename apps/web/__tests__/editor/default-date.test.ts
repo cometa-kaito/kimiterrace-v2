@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EDITOR_DAY_CUTOVER,
   editorDateSegments,
+  editorPreviewPath,
   isSchoolDay,
+  jpDateLabel,
   nextSchoolDay,
   parseEditorDayCutover,
   planRedirectPath,
@@ -124,5 +126,16 @@ describe("planRedirectPath（旧 ?plan= の後方互換・§3.3）", () => {
     expect(planRedirectPath("c1", "")).toBe(null);
     expect(planRedirectPath("c1", "2026-02-30")).toBe(null);
     expect(planRedirectPath("c1", "not-a-date")).toBe(null);
+  });
+});
+
+describe("editorPreviewPath / jpDateLabel（実寸プレビュー・#1257）", () => {
+  it("editorPreviewPath は ?date= 付きのプレビュー URL を組む", () => {
+    expect(editorPreviewPath("c1", "2026-07-08")).toBe("/app/editor/c1/preview?date=2026-07-08");
+  });
+  it("jpDateLabel は「Y年M月D日（曜）」（today 非依存）・形不正はそのまま返す（fail-soft）", () => {
+    expect(jpDateLabel("2026-07-08")).toBe("2026年7月8日（水）");
+    expect(jpDateLabel("2026-07-04")).toBe("2026年7月4日（土）");
+    expect(jpDateLabel("bogus")).toBe("bogus");
   });
 });
