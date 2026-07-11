@@ -78,7 +78,8 @@ export const NOTICE_MAX_DISPLAY_DAYS = 14;
 export const ASSIGNMENT_GRACE_DAYS = 2;
 
 const MAX_NOTICES = 20;
-const NOTICE_TEXT_MAX = 500;
+/** 連絡本文の最大長。検証（{@link validateNoticeItems}）と外部データ由来の挿入（day-events）の単一ソース。 */
+export const NOTICE_TEXT_MAX = 500;
 
 const MAX_ASSIGNMENTS = 30;
 const SUBJECT_MAX = 32;

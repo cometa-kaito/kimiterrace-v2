@@ -422,10 +422,11 @@ const MAX_ITEMS = 12;
  * 特殊スロットの重複（例: 放課後に部活と三者面談）を許容するため、数値上限とは独立に余裕を持たせる。
  */
 const MAX_ROWS = 20;
-const SUBJECT_MAX = 32;
+/** 科目名の最大長。検証（{@link validateScheduleItems}）と外部データ由来の挿入（day-events）の単一ソース。 */
+export const SUBJECT_MAX = 32;
 const NOTE_MAX = 200;
-/** 場所 / 対象者 の最大長（任意フィールド。暴走入力抑止）。 */
-const LOCATION_MAX = 50;
+/** 場所 / 対象者 の最大長（任意フィールド。暴走入力抑止）。場所は day-events の挿入丸めでも参照する。 */
+export const LOCATION_MAX = 50;
 const TARGET_MAX = 50;
 
 /** 検証結果。`ok` なら正規化済 value、そうでなければ表示用 message。エディタ各 core で共有。 */

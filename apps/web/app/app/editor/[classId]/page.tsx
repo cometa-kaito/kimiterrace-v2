@@ -3,6 +3,7 @@ import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { resolveClassBoardForDate, resolveEditorTargetDate } from "@/lib/editor/board-context";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
+import { getEditorDayEvents } from "@/lib/editor/day-events";
 import {
   editorDateSegments,
   editorPreviewPath,
@@ -44,6 +45,7 @@ import { ClassEditorChat } from "./_components/ClassEditorChat";
 import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
 import { EDITOR_STACK_ANCHOR_ID } from "./_components/editor-anchors";
 import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
+import { DayEventsPanel } from "./_components/DayEventsPanel";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
@@ -163,6 +165,10 @@ export default async function ClassEditorPage({
     // カレンダー（内容ドット）用: 対象日の月±1 か月を自校 RLS 内で引く。
     const calWindow = monthWindow(date);
     const contentDates = await getClassContentDates(tx, classId, calWindow.start, calWindow.end);
+    // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付に該当する学校行事（school_calendar_events・
+    // iCal / ファイル取込の両由来）を同じ RLS tx 内で読む（getCalendarEvents 委譲・複数日行事の当日包含は
+    // day-events が判定）。schoolId 不明（想定外）は空＝パネル非表示に fail-soft。
+    const dayEvents = user.schoolId ? await getEditorDayEvents(tx, user.schoolId, date) : [];
     return {
       date,
       schedule,
@@ -178,6 +184,7 @@ export default async function ClassEditorPage({
       contentDates,
       weeklyTimetable,
       carryoverRows,
+      dayEvents,
     };
   });
   // クラスが自校で不可視 (別テナント / 存在しない) なら schedule が null → 404。
@@ -199,6 +206,7 @@ export default async function ClassEditorPage({
     contentDates,
     weeklyTimetable,
     carryoverRows,
+    dayEvents,
   } = data;
 
   // 対象日セグメント（§3.1）: 今日を常に先頭に、翌授業日からの授業日を時系列で並べる（サーバ決定＝
@@ -312,6 +320,24 @@ export default async function ClassEditorPage({
                 </Link>
               ) : null}
             </>
+          }
+          // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付の学校行事をワンクリックで予定 / 連絡へ確定
+          // 挿入するパネル（盤面直下）。行事 0 件の日は渡さない（非表示）。挿入基底の fail-soft（共有 ref
+          // 未確立時）はフォームの初期値（seed 済み予定 / 連絡）と同一値＝盤面に見えているものが基底になる。
+          // 「予定へ追加 / 連絡へ追加」は実効パターンが該当ブロックを持つときだけ出す（死ボタン防止・
+          // patternIncludesBlock 単一ソース駆動）。
+          dayEventsPanel={
+            dayEvents.length > 0 ? (
+              <DayEventsPanel
+                classId={classId}
+                date={date}
+                events={dayEvents}
+                canAddSchedule={patternIncludesBlock(pattern, "schedule")}
+                canAddNotice={patternIncludesBlock(pattern, "notice")}
+                fallbackSchedules={seed.items}
+                fallbackNotices={notices.items}
+              />
+            ) : null
           }
           dayHeader={
             <>
