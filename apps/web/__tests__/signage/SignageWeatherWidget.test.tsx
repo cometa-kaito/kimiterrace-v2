@@ -89,6 +89,7 @@ function payload(
   return {
     date: "2026-06-02",
     designPattern: "pattern1",
+    assignmentDeadlineFormat: "daysLeft",
     daily,
     scheduleDays,
     ads: [],

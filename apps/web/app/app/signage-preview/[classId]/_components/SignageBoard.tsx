@@ -1,4 +1,8 @@
 import { AdThumbnail } from "@/app/_components/AdThumbnail";
+import {
+  type AssignmentDeadlineFormat,
+  DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
+} from "@/lib/signage/assignment-deadline-format";
 import type { EffectiveDailyData, MergedSection } from "@/lib/signage/effective-daily-data";
 import { type SignageSectionKind, formatSignageItem } from "@/lib/signage/section-format";
 import type { EffectiveAd } from "@kimiterrace/db";
@@ -18,10 +22,13 @@ export function SignageBoard({
   date,
   daily,
   ads,
+  assignmentDeadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
 }: {
   date: string;
   daily: EffectiveDailyData;
   ads: EffectiveAd[];
+  /** 提出物の期日表示形式（#1258 学校別設定）。実機盤面と同じ値を渡して表記を一致させる。省略時は既定。 */
+  assignmentDeadlineFormat?: AssignmentDeadlineFormat;
 }) {
   return (
     <div style={rootStyle}>
@@ -30,7 +37,12 @@ export function SignageBoard({
       <div style={gridStyle}>
         <Section title="予定" kind="schedules" section={daily.schedules} />
         <Section title="連絡" kind="notices" section={daily.notices} />
-        <Section title="提出物" kind="assignments" section={daily.assignments} />
+        <Section
+          title="提出物"
+          kind="assignments"
+          section={daily.assignments}
+          deadlineFormat={assignmentDeadlineFormat}
+        />
         {/* 静粛時間は盤面に出さない (2026-06-06 ユーザー確定。実機 SignageClient も非表示)。プレビューを
             実機に一致させるため、ここでも描かない (#48-E1 SignageBoard はプレビュー専用)。 */}
       </div>
@@ -66,10 +78,13 @@ function Section({
   title,
   kind,
   section,
+  deadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
 }: {
   title: string;
   kind: SignageSectionKind;
   section: MergedSection;
+  /** 提出物（kind='assignments'）のみ影響する期日表示形式。他セクションは無視される。 */
+  deadlineFormat?: AssignmentDeadlineFormat;
 }) {
   return (
     <section aria-label={title} style={sectionStyle}>
@@ -84,7 +99,7 @@ function Section({
       ) : (
         <ol style={itemsStyle}>
           {section.items.map((item, i) => {
-            const line = formatSignageItem(kind, item);
+            const line = formatSignageItem(kind, item, deadlineFormat);
             // 区切り線（kind:"divider"・PR-B §5.3）: プレビューでも罫線（ラベル任意）として描く（実機と整合）。
             // role="separator" は付けない（interactive role の a11y 制約回避・SignageBoardView と同判断）。
             if (line.divider) {

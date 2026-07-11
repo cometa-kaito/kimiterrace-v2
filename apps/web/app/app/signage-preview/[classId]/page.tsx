@@ -1,8 +1,10 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { ADMIN_ROLES } from "@/lib/nav";
+import { parseAssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
 import { getEffectiveDailyData } from "@/lib/signage/effective-daily-data";
 import { parseSignageDate } from "@/lib/signage/rotation";
+import { getSchoolDisplaySettings } from "@/lib/signage/signage-design";
 import { getEffectiveAdsForClass } from "@kimiterrace/db";
 import { notFound } from "next/navigation";
 import { SignageBoard } from "./_components/SignageBoard";
@@ -39,12 +41,22 @@ export default async function SignagePreviewPage({
       return null;
     }
     const ads = await getEffectiveAdsForClass(tx, classId);
-    return { daily, ads };
+    // 提出物の期日表示形式（#1258 学校別設定）。実機盤面（buildSignagePayloadForClass）と同じ
+    // display_settings 行から defensive にパースし、プレビューを実機表記に一致させる。
+    const deadlineFormat = parseAssignmentDeadlineFormat(await getSchoolDisplaySettings(tx));
+    return { daily, ads, deadlineFormat };
   });
 
   if (!result) {
     notFound();
   }
 
-  return <SignageBoard date={date} daily={result.daily} ads={result.ads} />;
+  return (
+    <SignageBoard
+      date={date}
+      daily={result.daily}
+      ads={result.ads}
+      assignmentDeadlineFormat={result.deadlineFormat}
+    />
+  );
 }

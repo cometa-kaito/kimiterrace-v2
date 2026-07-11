@@ -23,6 +23,7 @@ function baseFixture(): EditorBoardBase {
   return {
     date: TODAY,
     designPattern: "pattern1",
+    assignmentDeadlineFormat: "daysLeft",
     daily: {
       date: TODAY,
       schedules: { items: [{ period: 1, subject: "旧・国語" }], source: "school" },

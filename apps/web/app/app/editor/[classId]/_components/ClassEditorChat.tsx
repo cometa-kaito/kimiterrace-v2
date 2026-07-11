@@ -3,6 +3,7 @@
 import { EditorChat } from "@/app/app/editor/_components/EditorChat";
 import type { PinnedNoticeRow } from "@/lib/editor/notice-assignment-core";
 import type { AssistantDraft } from "@/lib/editor/assistant-chat-core";
+import type { AssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
 import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
@@ -32,12 +33,15 @@ export function ClassEditorChat({
   classId,
   date,
   pattern,
+  assignmentDeadlineFormat,
   initialDraft,
   pinnedNotices,
 }: {
   classId: string;
   date: string;
   pattern: SignageDesignPattern;
+  /** 提出物の期日表示形式（#1258 学校別設定）。下書きプレビューの表記を実機盤面と一致させる。 */
+  assignmentDeadlineFormat: AssignmentDeadlineFormat;
   initialDraft: AssistantDraft;
   pinnedNotices: PinnedNoticeRow[];
 }) {
@@ -61,6 +65,7 @@ export function ClassEditorChat({
       targetId={classId}
       date={date}
       pattern={pattern}
+      assignmentDeadlineFormat={assignmentDeadlineFormat}
       initialDraft={initialDraft}
       pinnedNotices={pinnedNotices}
       variant="floating"

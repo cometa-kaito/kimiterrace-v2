@@ -340,6 +340,7 @@ function Pattern1LikeBoard({
             <AssignmentTable
               section={data.daily.assignments}
               today={data.date}
+              deadlineFormat={data.assignmentDeadlineFormat}
               editRegions={editRegions}
             />
           </div>
@@ -2159,18 +2160,24 @@ function NoticeList({
   );
 }
 
-/** 提出物（右下・表・5行）。期限/科目/提出物の3列。期限切れは赤行、当日/翌日締切は赤文字。空きは行プレースホルダー。 */
+/**
+ * 提出物（右下・表・5行）。期限/科目/提出物の3列。期限切れは赤行、当日/翌日締切は赤文字。空きは行プレースホルダー。
+ * 期限セルのラベルは学校別設定 `deadlineFormat`（#1258）に従う（`daysLeft`=残り日数 / `until`=「M/Dまで」。
+ * 緊急色 isUrgent / isOverdue は形式に関わらず不変）。
+ */
 function AssignmentTable({
   section,
   today,
+  deadlineFormat,
   editRegions,
 }: {
   section: MergedSection;
   today: string;
+  deadlineFormat: SignagePayload["assignmentDeadlineFormat"];
   editRegions?: EditRegionsProps;
 }) {
   const rows = section.items
-    .map((item) => parseAssignmentRow(item, today))
+    .map((item) => parseAssignmentRow(item, today, deadlineFormat))
     .filter((r): r is NonNullable<typeof r> => r !== null);
   // 提出物は `<table>` ＋ sticky thead のため track を動かす縦スクロールは破綻するが、**F1 ページングなら各ページが
   // 完全な `<table>`（thead 込み）** になるため相性問題が無い。旧 CSS の `.taskTable tbody>tr:nth-of-type(n+6)

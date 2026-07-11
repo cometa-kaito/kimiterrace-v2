@@ -41,6 +41,7 @@ function samplePayload(overrides: Partial<SignagePayload> = {}): SignagePayload 
   return {
     date: "2026-05-31",
     designPattern: "pattern1",
+    assignmentDeadlineFormat: "daysLeft",
     daily: {
       date: "2026-05-31",
       schedules: emptySection,

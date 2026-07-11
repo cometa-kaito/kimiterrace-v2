@@ -28,11 +28,16 @@ import { type SignageHeatAlert, getSignageHeatAlerts } from "./heat-alerts";
 import { type SignageNews, getSignageNews, getSignagePattern3News } from "./news";
 import { patternIncludesBlock } from "./pattern-blocks";
 import { type SignageRailwayStatus, getSignageRailwayStatus } from "./railway-status";
+import {
+  type AssignmentDeadlineFormat,
+  parseAssignmentDeadlineFormat,
+} from "./assignment-deadline-format";
 import { signageScheduleDates } from "./rotation";
 import {
   type SignageDesignPattern,
-  getSignageDesignPattern,
+  getSchoolDisplaySettings,
   isSignageDesignPattern,
+  parseSignageDesignPattern,
   signageScheduleDayCount,
 } from "./signage-design";
 import { type SignageWeather, getSignageWeather } from "./weather";
@@ -85,6 +90,13 @@ export type SignagePayload = {
    * コンポーネントを dispatch する。未設定の学校は既定 `pattern1`（今回作成した v1 レイアウト）。
    */
   designPattern: SignageDesignPattern;
+  /**
+   * 提出物の期日表示形式（学校別設定・#1258 教員フィードバック対応③）。`school_configs`（scope='school',
+   * kind='display_settings'）の `value.assignmentDeadlineFormat` を defensive にパースした値。盤面
+   * （`AssignmentTable` の期限セル）が `until` のとき残り日数ラベルの代わりに「M/Dまで」を描く。未設定・
+   * 不正値は既定 `daysLeft`（従来表示＝完全互換・fail-soft）。
+   */
+  assignmentDeadlineFormat: AssignmentDeadlineFormat;
   daily: EffectiveDailyData;
   /**
    * サイネージの「予定」列グリッド用（列数はパターン別 `SIGNAGE_SCHEDULE_DAY_COUNT` 単一ソース＝pattern1/2=3,
@@ -240,18 +252,23 @@ export async function buildSignagePayloadForClass(
     // クラスが (別テナント等で) 不可視 → null。呼び出し側が無効扱い / 表示スキップにする。
     return null;
   }
+  // 学校スコープ display_settings（opaque JSONB）は **1 回だけ**読み、学校レベル既定デザイン
+  // （signageDesign）と提出物の期日表示形式（assignmentDeadlineFormat・#1258）の両方をここから defensive に
+  // パースする（新規 round-trip を増やさない）。同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は
+  // 各 parse が既定に倒す（盤面を壊さない）。
+  const displaySettings = await getSchoolDisplaySettings(tx);
+  const assignmentDeadlineFormat = parseAssignmentDeadlineFormat(displaySettings);
   // デザインパターン解決（端末別 > 学校レベル既定 > pattern1、いずれも fail-soft）。
   // 端末別: `signage_url` の `?design=patternN` を TV がそのまま開き、本データ層に `designParam` として
   // 渡る（`tv_devices` スキーマ非変更で端末ごとに切替可能。design-pattern.ts 参照）。未指定/未知は
   // school_configs display_settings.signageDesign（学校レベル既定）へ、それも無ければ pattern1 に倒す。
-  // 同一 tx 内・RLS 自校限定（ルール2）。読み取り失敗・不正値は parse 側で既定に倒れる（盤面を壊さない）。
   //
   // **パターンを先に解決する**理由: 盤面に出すブロックは `PATTERN_BLOCKS`（単一ソース）が決めるので、
   // パターン別ブロック（来校者/呼び出し/センサ/鉄道）の取得を `patternIncludesBlock` で出し分け、含まない
   // パターン（例 pattern1）では引かない＝無駄クエリを省く（単一ソースがデータ取得まで駆動・finding①）。
   const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
     ? designParam
-    : await getSignageDesignPattern(tx);
+    : parseSignageDesignPattern(displaySettings);
   // 広告: monitorId 指定時はクラス継承 ∪ モニタ直指定（追加モード）、未指定はクラス継承のみ（従来）。
   const ads = monitorId
     ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
@@ -320,6 +337,7 @@ export async function buildSignagePayloadForClass(
   return {
     date,
     designPattern,
+    assignmentDeadlineFormat,
     daily,
     scheduleDays,
     ads,
@@ -394,9 +412,11 @@ async function buildSignagePayloadForMonitorOnly(
   date: string,
   designParam?: unknown,
 ): Promise<SignagePayload> {
+  // display_settings は 1 回読んで学校既定デザインと期日表示形式の両方をパースする（classToken 版と同規約）。
+  const displaySettings = await getSchoolDisplaySettings(tx);
   const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
     ? designParam
-    : await getSignageDesignPattern(tx);
+    : parseSignageDesignPattern(displaySettings);
   const ads = await getEffectiveAdsForMonitor(tx, null, monitorId);
   // 天気は学校地域単位（クラス非依存）。fail-soft（取得失敗は null で枠だけ落とす）。
   const weather = await getSignageWeather(tx, schoolId, date).catch(() => null);
@@ -421,6 +441,7 @@ async function buildSignagePayloadForMonitorOnly(
   return {
     date,
     designPattern,
+    assignmentDeadlineFormat: parseAssignmentDeadlineFormat(displaySettings),
     // クラスが無いので日次は空（mergeDailySections([]) が全セクション空の EffectiveDailyData を返す）。
     daily: mergeDailySections(date, []),
     scheduleDays: [],

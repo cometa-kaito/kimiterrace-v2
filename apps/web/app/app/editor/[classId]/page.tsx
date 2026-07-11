@@ -21,6 +21,7 @@ import { seedSchedulesForDate } from "@/lib/editor/weekly-timetable-core";
 import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
+import { parseAssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
 import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
 import {
   EFFECTIVE_LOOKBACK_DAYS,
@@ -154,6 +155,9 @@ export default async function ClassEditorPage({
       liveSignageUrl,
       parseSignageDesignPattern(displaySettings),
     );
+    // 提出物の期日表示形式（#1258 学校別設定）。同じ display_settings 読み取りから相乗りでパースし、
+    // AI チャットの下書きプレビュー表記を実機盤面（board 経由の WYSIWYG プレビュー）と一致させる。
+    const deadlineFormat = parseAssignmentDeadlineFormat(displaySettings);
     // WYSIWYG（盤面を編集タブ）のライブプレビュー基底は、**実機サイネージと完全に同一の payload builder**
     // （`buildSignagePayloadForClass`）から組む。これにより自動コンテンツ系ブロック（時事ニュース / 鉄道 /
     // 人感センサ / 防災・安全帯）も実機と同じ取得ゲート（`PATTERN_BLOCKS`）・同じ fail-soft で取得・描画され、
@@ -178,6 +182,7 @@ export default async function ClassEditorPage({
       assignments,
       pinnedNotices,
       pattern,
+      deadlineFormat,
       showVisitors,
       showCallouts,
       board,
@@ -198,6 +203,7 @@ export default async function ClassEditorPage({
     assignments,
     pinnedNotices,
     pattern,
+    deadlineFormat,
     showVisitors,
     showCallouts,
     board,
@@ -430,6 +436,7 @@ export default async function ClassEditorPage({
           key={`${date}:${copied}`}
           classId={classId}
           date={date}
+          assignmentDeadlineFormat={deadlineFormat}
           // 歓迎文をこのクラスの実効パターンの実セクションで合成する（§6.4・v2-ed47-5 の根治）。許可セクション
           // 自体はサーバ（chat route）が別途解決＝この prop は表示文言のみ。
           pattern={pattern}
