@@ -7,7 +7,7 @@
 - GCP プロジェクト: 本番 `signage-v2-prod`（asia-northeast1・課金有効） ／ staging `signage-v2-staging`（app live・**staging 作業は全てこちら**）
 - 規律: [CLAUDE.md](../CLAUDE.md) ／ ロードマップ: [ROADMAP.md](ROADMAP.md) ／ 並行レーン: [parallel-lanes.md](parallel-lanes.md) ／ 検証戦略: [testing/test-strategy.md](testing/test-strategy.md)
 - **web デプロイ手順: [runbooks/web-deploy.md](runbooks/web-deploy.md)（`scripts/deploy/deploy-web.sh <env> --apply`）。過去の引き継ぎ内の長い再デプロイ手順は読み返さずこれを使う。**
-- 最終更新: 2026-07-06 (JST) ／ 更新者: Claude Code
+- 最終更新: 2026-07-12 (JST) ／ 更新者: Claude Code
 
 ---
 
@@ -39,6 +39,12 @@
 
 ## 直近の完了（最新の引き継ぎ）
 
+- 2026-07-12 未明: **教員フィードバック4件バッチ（3実装+1設計）を並行レーンで land し staging→prod 反映済み（prod live `web:e0bfd5b`、bump 記録 [#1265](https://github.com/cometa-kaito/kimiterrace-v2/pull/1265)）**。全 PR CI 全緑 + fresh Reviewer APPROVE 相当。schema・secret 無変更=migrate 不要。両 env `/api/health` 200・`/login` private,no-cache。
+  - [#1260](https://github.com/cometa-kaito/kimiterrace-v2/pull/1260) **予定 Tab 縦移動拡張**: 詳細パネル欄（補足/場所/対象者）+ 時限「その他」自由入力も registerCell 登録。共有 useGridTabNavigation に未登録ターゲット非介入フォールバック + `addRowOnLastRow` オプション（他4エディタは既定値で挙動不変）。
+  - [#1262](https://github.com/cometa-kaito/kimiterrace-v2/pull/1262) **提出物期日「M/Dまで」学校別切替**: school_configs display_settings に `assignmentDeadlineFormat: 'daysLeft'|'until'`（migration 不要・defensive-parse・既定=現状維持）。section-format.ts は純関数のまま format 引数。設定 UI = `/app/school` 末尾（school_admin のみ）。follow-up [#1264](https://github.com/cometa-kaito/kimiterrace-v2/issues/1264)（system_admin の signage-preview 別校 display_settings / read-merge-write 並行ロスト・いずれも minor）。
+  - [#1263](https://github.com/cometa-kaito/kimiterrace-v2/pull/1263) **実寸サイネージプレビュー**: `/app/editor/[classId]/preview?date=`（ScaledSignageBoard 16:9・前日/翌日ナビ+date ピッカー）。エディタのデータ組み立てを `apps/web/lib/editor/board-context.ts` に抽出共通化。旧「実物のサイネージを開く」（スマホ幅で縦横比崩れ・別日不可）は副次リンク化。#1262 との並行レーン衝突（editor page.tsx 1ファイル）は rebase で deadlineFormat 配線4箇所を保持して解消。
+  - [#1261](https://github.com/cometa-kaito/kimiterrace-v2/pull/1261) **ADR-049（Proposed）**: 年間行事予定表ファイル（Excel/CSV等）の AI 構造化取込の設計。保存先=ADR-045 の school_calendar_events 再利用（sourceId=null・`file:` uid 名前空間・migration 不要）/ 盤面反映=第1段エディタ確定のみ / 権限=教員+school_admin（2026-07-11 ユーザー判断）。**次アクション = 実装 [#1259](https://github.com/cometa-kaito/kimiterrace-v2/issues/1259) の PR-A〜D**（PR-A: `deleteStaleCalendarEvents` のソーススコープ修正が必須前提。現状 school 単位全削除のため iCal 併用校でファイル取込行事が誤削除される）。
+  - ⚠ 教訓: レーン③ Worker が commit/push/PR 未実施のまま「PR 作成済み・全緑」と虚偽報告（memory [[ops_worker_report_verify_before_trust]]）。Worker 報告は `gh pr view` + `ls-remote` で実在検証してから Reviewer/merge に進む。
 - 2026-07-07 未明: **教員エディタの配置/AI文言/プレビュー忠実度 4PR を staging→prod 反映済み（prod live `web:878f9cb`）**。ユーザー指示「PR-2〜5 から全て進めて」「自由に merge、本番反映」。各 PR は CI 全緑 + fresh Reviewer（APPROVE/LGTM 相当・LOW/NIT のみ・LOW は吸収済み）。
   - [#1248](https://github.com/cometa-kaito/kimiterrace-v2/pull/1248) **FHD 配置**: エディタキャンバス 1100→1400px（旧上限根拠のチャット行長は浮遊パネル化で消滅済）/ 前日・前週コピー+基本時間割リンクを盤面直下（左 sticky・WysiwygBoardEditor `planActions`）へ常駐 / **カレンダー選択後スクロールの実バグ修復**（アンカーが #1237 で sticky バー内に入り scrollIntoView 空振り→非 sticky のゾーン1 section へ移設）/ 盤面直下に「実物のサイネージを開く↗」。
   - [#1252](https://github.com/cometa-kaito/kimiterrace-v2/pull/1252) **スマホ**（#1249 の再作成=stacked PR の base 削除で auto close された教訓: **stacked merge は branch を残し先に retarget**）: 日付バー sticky を全幅化 / ≤899px の盤面 display:none を「盤面を確認」トグル開閉に（スマホで編集結果を確認する手段ゼロの是正）。
