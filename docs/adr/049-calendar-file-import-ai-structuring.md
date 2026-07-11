@@ -48,7 +48,7 @@
    - **ファイル削除側**: 置き換え削除の条件は uid プレフィクスだけに依存せず **`source_id IS NULL AND uid LIKE 'file:%'`** の二重条件とする（万一 `file:` uid が iCal 側に紛れても sourceId 非 null で保護される）。
    - ソース行削除で `onDelete: set null` になった **orphan iCal 行**（sourceId=null・非 `file:`）は上記いずれの掃除にも入らない。ソース削除時に配下イベントを同時削除するか orphan 掃除を追加するかは PR-A で決める（放置すると永久残留）。
 
-3. **AI 構造化の専用経路（既存の 1 日分類とは別モード）**。既存の抽出レイヤ（exceljs / CSV / PDF / Gemini OCR）→ 既存のマスク済みパイプライン（PII soft-gate・監査、`runSectionDraft` の流儀）→ Gemini 構造化出力（Zod: `events[] { summary, startDate, endDate?, allDay, location? }`）。年間表は**年度文脈が必須**（「4/8」が何年か）なので、複数日下書きで実績のある「実在日付テーブルの system 注入」（`jstUpcomingDateTable`）の**年度版**（年度開始日〜翌 3 月の月/日↔曜日対応表）を注入し、モデルに暦算術をさせない。出力上限は `MAX_EVENTS_PER_SOURCE`（ADR-045 の 2000）と同水準でクランプし、切り捨ては件数を明示する（沈黙の切り捨て禁止）。
+3. **AI 構造化の専用経路（既存の 1 日分類とは別モード）**。既存の抽出レイヤ（exceljs / CSV / PDF / Gemini OCR）→ 既存のマスク済みパイプライン（PII soft-gate・監査、`runSectionDraft` の流儀）→ Gemini 構造化出力（Zod: `events[] { summary, startDate, endDate?, allDay, location? }`）。年間表は**年度文脈が必須**（「4/8」が何年か）なので、複数日下書き（`jstUpcomingDateTable`）と同じ「暦算術をモデルにさせない」思想で、**年度窓（YYYY-04-01〜YYYY+1-03-31）と年推定規則（月日のみは 4〜12 月→年 N、1〜3 月→年 N+1）を system 注入**し、sanitize 側でも年度窓外の日付を drop する二重防御とする（365 行の日付表は注入しない＝行事構造化に曜日は不要。PR-B 実装・#1268 レビューで確定）。出力上限は `MAX_EVENTS_PER_SOURCE`（ADR-045 の 2000）と同水準でクランプし、切り捨ては件数を明示する（沈黙の切り捨て禁止）。
 
 4. **保存前の確認 UI（必須）**。フォーマットが学校ごとに異なる以上 AI 誤読は残る。取込プレビュー（イベント一覧テーブル・行の修正/削除・年度の明示表示）で教員が確認してから保存する。**確認なしの自動保存はしない**。
 
