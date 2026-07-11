@@ -4,23 +4,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * サイネージ表示設定（提出物の期日表示形式・#1258）Server Action の配線テスト。
  *
  * next/cache・guard・db を mock。`@kimiterrace/db` は importOriginal で実体を保ちつつ
- * `getSchoolConfigValue` / `upsertSchoolConfig` を差し替える（blackout-actions.test と同作法）。
+ * `upsertSchoolConfig` を差し替える（blackout-actions.test と同作法）。既存値の読み取りは
+ * fake tx の select チェーンで模し、**FOR UPDATE の行ロック**（#1264・read-merge-write の並行ロスト防止）
+ * が掛かることをチェーン記録で固定する。
  *
  * 重点: 入力検証で DB に到達しないこと、school_admin 専任の認可、**相乗りキー（signageDesign /
- * editorDayCutover）を消さないマージ upsert**、制約違反（Drizzle wrap・cause.code）の conflict 写像。
+ * editorDayCutover）を消さないマージ upsert（読み取りは FOR UPDATE）**、制約違反（Drizzle wrap・
+ * cause.code）の conflict 写像。
  */
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("../../lib/auth/guard", () => ({ requireRole: vi.fn() }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
 
-const getSchoolConfigValueMock = vi.fn();
 const upsertSchoolConfigMock = vi.fn();
 vi.mock("@kimiterrace/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kimiterrace/db")>();
   return {
     ...actual,
-    getSchoolConfigValue: (...a: unknown[]) => getSchoolConfigValueMock(...a),
     upsertSchoolConfig: (...a: unknown[]) => upsertSchoolConfigMock(...a),
   };
 });
@@ -38,18 +39,44 @@ const CONFIG_ID = "44444444-4444-4444-8444-444444444444";
 
 const admin = { uid: USER_ID, role: "school_admin" as const, schoolId: SCHOOL_ID };
 
-/** audit_log の .insert(...).values(...) を満たす fake tx。 */
-function fakeTx() {
-  return { insert: () => ({ values: () => Promise.resolve(undefined) }) };
+/** select チェーン（FOR UPDATE 読取）の呼び出し記録。 */
+const lockCalls: { forModes: string[] } = { forModes: [] };
+
+/**
+ * fake tx。audit_log の .insert(...).values(...) と、既存値読取の
+ * .select(...).from(...).where(...).limit(...).for("update") チェーンを満たす。
+ * `prevValue` が display_settings 既存行の value（null = 未設定行なし）。
+ */
+function fakeTx(prevValue: unknown | null = null) {
+  return {
+    insert: () => ({ values: () => Promise.resolve(undefined) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => ({
+            for: (mode: string) => {
+              lockCalls.forModes.push(mode);
+              return Promise.resolve(prevValue === null ? [] : [{ value: prevValue }]);
+            },
+          }),
+        }),
+      }),
+    }),
+  };
+}
+
+/** withSession が `prevValue` 入りの fake tx で callback を実行するよう束ねる。 */
+function stubSession(prevValue: unknown | null = null) {
+  withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
+    Promise.resolve(fn(fakeTx(prevValue), admin))) as typeof withSession);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  lockCalls.forModes = [];
   requireRoleMock.mockResolvedValue(admin);
-  getSchoolConfigValueMock.mockResolvedValue(null); // 未設定 → insert 分岐
   upsertSchoolConfigMock.mockResolvedValue(CONFIG_ID);
-  withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
-    Promise.resolve(fn(fakeTx(), admin))) as typeof withSession);
+  stubSession(null); // 未設定 → insert 分岐
 });
 
 describe("saveAssignmentDeadlineFormatAction", () => {
@@ -73,14 +100,20 @@ describe("saveAssignmentDeadlineFormatAction", () => {
     });
   });
 
-  it("既存の相乗りキー（signageDesign / editorDayCutover）を消さずにマージ upsert する", async () => {
-    getSchoolConfigValueMock.mockResolvedValue({
+  it("既存値の読み取りは FOR UPDATE で行ロックする（並行 read-merge-write のロスト防止・#1264）", async () => {
+    await saveAssignmentDeadlineFormatAction("until");
+    expect(lockCalls.forModes).toEqual(["update"]);
+  });
+
+  it("既存の相乗りキー（signageDesign / editorDayCutover）をロック読取の値からマージし消さない", async () => {
+    stubSession({
       signageDesign: "pattern2",
       editorDayCutover: "15:30",
       assignmentDeadlineFormat: "daysLeft",
     });
     const res = await saveAssignmentDeadlineFormatAction("until");
     expect(res).toEqual({ ok: true, data: { format: "until" } });
+    expect(lockCalls.forModes).toEqual(["update"]); // マージ基底はロック済みの読取値
     expect(upsertSchoolConfigMock.mock.calls[0]?.[1]).toMatchObject({
       value: {
         signageDesign: "pattern2",

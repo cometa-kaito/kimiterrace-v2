@@ -1,6 +1,7 @@
 "use server";
 
-import { type TenantTx, auditLog, getSchoolConfigValue, upsertSchoolConfig } from "@kimiterrace/db";
+import { type TenantTx, auditLog, schoolConfigs, upsertSchoolConfig } from "@kimiterrace/db";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
@@ -33,6 +34,8 @@ import {
  * **既存キーの保全（マージ upsert）**: 同じ scope='school' の display_settings 行には `signageDesign`
  * （学校既定デザイン）/ `editorDayCutover`（エディタ既定対象日の切替時刻）が相乗りしている。upsert は
  * value 全置換のため、**既存 value を読んでスプレッドした上で本キーだけ差し替える**（他キーを消さない）。
+ * 読み取りは同一 tx 内の `SELECT ... FOR UPDATE`（{@link lockDisplaySettingsValue}）で**行ロック**し、
+ * 並行更新（/ops の生 JSON 編集等）との read-merge-write レースによるキー更新ロストを防ぐ（#1264）。
  *
  * **school_admin 専任**: 学校レベルの表示設定は自校の school_admin が変える運用。system_admin は
  * `toHubActor` が対象校未指定で null → forbidden（全校横断の生 JSON 編集は /ops/school-configs が既存導線）。
@@ -44,6 +47,26 @@ class SaveFailedError extends Error {}
 /** PostgreSQL の unique / check 制約違反（SQLSTATE 23505 / 23514）。並行 upsert など。 */
 function isConstraintViolation(error: unknown): boolean {
   return isPgErrorCode(error, "23505", "23514");
+}
+
+/**
+ * 自校の display_settings 行の `value` を **FOR UPDATE で行ロック**して読む
+ * （`getSchoolConfigValue` の locked 版・lockAndCountActiveSchoolAdmins と同作法）。
+ *
+ * read-merge-write（SELECT → スプレッドマージ → UPSERT）は行ロックなしだと並行更新と重なったとき
+ * last-writer-wins で相乗りキーの更新がロストする。tx 終了までロックを保持し、後続 tx はロック解放後に
+ * 最新値を読む（READ COMMITTED）ため直列化される。行が無ければ null（ロック対象なし。同時 INSERT は
+ * `ux_school_configs_target` + `onConflictDoUpdate` が一意性を保証する）。school_id は RLS
+ * （app.current_school_id）で自校に限定（ルール2・手書き WHERE school_id は書かない）。
+ */
+async function lockDisplaySettingsValue(tx: TenantTx): Promise<unknown | null> {
+  const [row] = await tx
+    .select({ value: schoolConfigs.value })
+    .from(schoolConfigs)
+    .where(and(eq(schoolConfigs.scope, "school"), eq(schoolConfigs.kind, "display_settings")))
+    .limit(1)
+    .for("update");
+  return row ? row.value : null;
 }
 
 /** audit_log に 1 行追記（ルール1 / NFR04）。値は表示形式の識別子のみで PII を含まない。 */
@@ -100,9 +123,10 @@ export async function saveAssignmentDeadlineFormatAction(
   try {
     const saved = await withSession(
       async (tx) => {
-        // upsert 前に既存値を読み、(1) insert/update の別と before スナップショット、(2) 相乗りキー
-        // （signageDesign / editorDayCutover 等）を保全するマージ基底、を確定する。
-        const prev = await getSchoolConfigValue(tx, "display_settings");
+        // upsert 前に既存値を **FOR UPDATE で行ロック**して読み、(1) insert/update の別と before
+        // スナップショット、(2) 相乗りキー（signageDesign / editorDayCutover 等）を保全するマージ基底、
+        // を確定する。ロックで並行 read-merge-write との更新ロストを防ぐ（#1264）。
+        const prev = await lockDisplaySettingsValue(tx);
         const operation: "insert" | "update" = prev === null ? "insert" : "update";
         const before = parseAssignmentDeadlineFormat(prev);
         const base =
