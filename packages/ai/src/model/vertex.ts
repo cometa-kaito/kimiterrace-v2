@@ -61,6 +61,9 @@ export function createVertexModelClient(config: VertexModelConfig): ModelClient 
         }),
         system: req.system,
         prompt: req.user,
+        // 応答トークン上限（任意・ADR-049）。未指定ならキー自体を生やさず SDK 既定を尊重する
+        // （ADR-017 の「maxOutputTokens を設定しない = truncation なし」方針を既存経路で不変に保つ）。
+        ...(req.maxOutputTokens !== undefined ? { maxOutputTokens: req.maxOutputTokens } : {}),
       });
       const usage = result.usage;
       return {

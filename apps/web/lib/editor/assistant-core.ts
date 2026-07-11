@@ -388,8 +388,8 @@ export function parseAllProposal(text: string): AllDraft | null {
   return { schedules, notices, assignments };
 }
 
-/** モデルが稀に付ける ```json ... ``` コードフェンスを剥がす。 */
-function stripCodeFence(s: string): string {
+/** モデルが稀に付ける ```json ... ``` コードフェンスを剥がす（calendar-import-core からも再利用）。 */
+export function stripCodeFence(s: string): string {
   const t = s.trim();
   const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
   return m?.[1] ?? t;
