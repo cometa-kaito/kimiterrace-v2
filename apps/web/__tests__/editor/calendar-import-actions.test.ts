@@ -226,24 +226,31 @@ describe("draftCalendarImportAction", () => {
 
 describe("saveCalendarImportAction", () => {
   const VALID_EVENTS = [{ summary: "体育祭", startDate: "2026-05-20", allDay: true }];
-  const NOW = { nowMs: NOW_MS };
+
+  // #1270 M1: 保存 action は時刻注入を公開シグネチャに持たない（クライアントから年度窓をずらせないため）。
+  // テストの時刻固定は Date.now の spy で行う（afterEach の vi.restoreAllMocks で解除）。
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW_MS);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("学校に属さない user は forbidden（保存しない）", async () => {
     h.requireRole.mockResolvedValue({ uid: "u1", schoolId: null, role: "teacher" });
-    const r = await saveCalendarImportAction(VALID_EVENTS, {}, NOW);
+    const r = await saveCalendarImportAction(VALID_EVENTS, {});
     expect(r).toEqual({ ok: false, reason: "forbidden" });
     expect(h.replaceFileImportedEvents).not.toHaveBeenCalled();
   });
 
   it("不正な形（配列以外 / 空 / 年度外）は invalid で行番号付き issues を返し保存しない", async () => {
-    const notArray = await saveCalendarImportAction({ evil: true }, {}, NOW);
+    const notArray = await saveCalendarImportAction({ evil: true }, {});
     expect(notArray).toMatchObject({ ok: false, reason: "invalid" });
-    const empty = await saveCalendarImportAction([], {}, NOW);
+    const empty = await saveCalendarImportAction([], {});
     expect(empty).toMatchObject({ ok: false, reason: "invalid" });
     const outOfWindow = await saveCalendarImportAction(
       [{ summary: "旧年度", startDate: "2026-03-01", allDay: true }],
       {},
-      NOW,
     );
     expect(outOfWindow).toMatchObject({
       ok: false,
@@ -260,7 +267,6 @@ describe("saveCalendarImportAction", () => {
       VALID_EVENTS,
       // dropped の未知キー（bogus）は監査に載せない（allowlist）。
       { fileName: "annual.xlsx", dropped: { invalidDate: 1, bogus: 5 }, suspectedNameCount: 2 },
-      NOW,
     );
     expect(r).toEqual({ ok: true, deleted: 3, inserted: 1 });
 
@@ -308,7 +314,7 @@ describe("saveCalendarImportAction", () => {
   });
 
   it("メタ未申告でも保存できる（fileName は既定値・監査は 0 埋め）", async () => {
-    const r = await saveCalendarImportAction(VALID_EVENTS, {}, NOW);
+    const r = await saveCalendarImportAction(VALID_EVENTS, {});
     expect(r).toEqual({ ok: true, deleted: 0, inserted: 1 });
     const params = h.replaceFileImportedEvents.mock.calls[0]?.[1] as { fileName: string };
     expect(params.fileName).toBe("(不明なファイル)");
@@ -316,7 +322,7 @@ describe("saveCalendarImportAction", () => {
 
   it("DB 障害は error に畳む（throw しない）", async () => {
     h.replaceFileImportedEvents.mockRejectedValue(new Error("db down"));
-    const r = await saveCalendarImportAction(VALID_EVENTS, {}, NOW);
+    const r = await saveCalendarImportAction(VALID_EVENTS, {});
     expect(r).toEqual({ ok: false, reason: "error" });
     expect(h.revalidatePath).not.toHaveBeenCalled();
   });

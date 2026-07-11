@@ -80,6 +80,12 @@ export function CalendarImportClient({
   existingFileName: string | null;
 }) {
   const [pending, startTransition] = useTransition();
+  // 「前回の取込」概況。初期値はサーバ props、同一セッションで保存に成功したら保存結果で更新する
+  // （2 回目の置き換え確認ダイアログ・ヒントが古い件数を出さないため・#1270 L1）。
+  const [existing, setExisting] = useState<{ count: number; fileName: string | null }>({
+    count: existingCount,
+    fileName: existingFileName,
+  });
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [piiSurfaces, setPiiSurfaces] = useState<string[] | null>(null);
@@ -175,6 +181,8 @@ export function CalendarImportClient({
       setConfirmOpen(false);
       if (r.ok) {
         setSavedMsg(`保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`);
+        // 今回の保存分が次の置き換え対象になる（#1270 L1: 2 回目の確認文言を最新化）。
+        setExisting({ count: r.inserted, fileName: draft.fileName });
         setDraft(null);
         setFile(null);
         return;
@@ -202,10 +210,10 @@ export function CalendarImportClient({
           Excel (.xlsx) / CSV / PDF / 画像 (PNG・JPEG) の年間行事予定表に対応しています（上限
           10MB）。書式は学校ごとに違って構いません（AI が読み取ります）。
         </p>
-        {existingCount > 0 ? (
+        {existing.count > 0 ? (
           <p style={hintStyle}>
-            取込済み: 今年度の行事 {existingCount} 件
-            {existingFileName ? `（${existingFileName}）` : ""}
+            取込済み: 今年度の行事 {existing.count} 件
+            {existing.fileName ? `（${existing.fileName}）` : ""}
             。保存すると前回のファイル取込は丸ごと置き換わります。
           </p>
         ) : null}
@@ -391,12 +399,12 @@ export function CalendarImportClient({
         open={confirmOpen}
         title="ファイル取込を置き換えて保存しますか？"
         description={
-          existingCount > 0
-            ? `前回のファイル取込（今年度 ${existingCount} 件）を削除し、今回の ${draft?.rows.length ?? 0} 件で置き換えます。iCal 連携の行事には影響しません。`
+          existing.count > 0
+            ? `前回のファイル取込（今年度 ${existing.count} 件）を削除し、今回の ${draft?.rows.length ?? 0} 件で置き換えます。iCal 連携の行事には影響しません。`
             : `${draft?.rows.length ?? 0} 件の行事を保存します。`
         }
         confirmLabel="置き換えて保存"
-        tone={existingCount > 0 ? "danger" : "primary"}
+        tone={existing.count > 0 ? "danger" : "primary"}
         pending={pending}
         onConfirm={save}
         onCancel={() => setConfirmOpen(false)}

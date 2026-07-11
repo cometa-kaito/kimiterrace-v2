@@ -386,11 +386,17 @@ function sanitizeSaveMeta(raw: unknown): {
  * 再検証（`validateCalendarImportSave`・クライアントの編集済み配列を信用しない）→ テナント RLS tx 内で
  * `replaceFileImportedEvents`（前回の `file:` 名前空間を丸ごと削除して新バッチ INSERT）+ `audit_log` 追記。
  * 検証エラーは切り詰め・自動修正せず行番号付きで返す（教員が直してから保存し直す）。
+ *
+ * ★ 年度窓の基準時刻は**サーバの `Date.now()` 固定**で、公開シグネチャに時刻注入（`deps.nowMs`）を
+ * 置かない（#1270 M1）。Server Action の引数は serializable なクライアント入力なので、時刻を受けると
+ * 認証済み教員が action 直叩きで `fiscalYearWindow` を任意年度にずらし、本 action 自身が建てた年度窓
+ * 再検証をすり抜けて窓外イベントを保存できてしまう（自校スコープ内でも宣言不変条件の自壊）。テストの
+ * 時刻固定は `Date.now` の spy で行う（draft action の `deps` は model / rate limiter という
+ * 非 serializable な関数依存が必須のため wire 越しに実質構築できず、同リスクは負わない）。
  */
 export async function saveCalendarImportAction(
   rawEvents: unknown,
   rawMeta: CalendarImportSaveMeta = {},
-  deps: { nowMs?: number } = {},
 ): Promise<CalendarImportSaveResult> {
   const user = await requireRole(EDITOR_ROLES);
   const actor = toEditorActor(user);
@@ -398,7 +404,7 @@ export async function saveCalendarImportAction(
     return { ok: false, reason: "forbidden" };
   }
 
-  const window = fiscalYearWindow(deps.nowMs ?? Date.now());
+  const window = fiscalYearWindow(Date.now());
   const validated = validateCalendarImportSave(rawEvents, window);
   if (!validated.ok) {
     return { ok: false, reason: "invalid", issues: validated.issues };

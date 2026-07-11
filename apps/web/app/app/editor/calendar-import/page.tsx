@@ -21,27 +21,30 @@ const { color, fontSize, space } = tokens;
  */
 export default async function CalendarImportPage() {
   const user = await requireRole(EDITOR_ROLES);
-  // EDITOR_ROLES はテナント claim を持つので schoolId は実運用では非 null。万一 null（claim 欠落）でも
-  // 読みは空になるだけで RLS が越境を止める（fail-soft・エディタ着地ページと同じ扱い）。
-  const schoolId = user.schoolId ?? "";
+  // EDITOR_ROLES はテナント claim を持つので schoolId は実運用では非 null。万一 null（claim 欠落）の
+  // 場合は概況の読み自体をスキップする（#1270 L2: 空文字を getCalendarEvents の uuid 比較に渡すと
+  // 22P02 で 500 になるため。取込フロー本体は Server Action 側の toEditorActor が forbidden で弾く）。
+  const schoolId = user.schoolId;
   const window = fiscalYearWindow(Date.now());
-  const existing = await withSession(async (tx) => {
-    // 置き換え対象の可視化（ADR-049 決定 4 の確認 UI 補助）。読みは今年度窓に限るため、過年度に取り込んだ
-    // 行事は数に入らない**概算**（置き換え削除自体は `file:` 名前空間全体・replaceFileImportedEvents）。
-    const rows = await getCalendarEvents(tx, schoolId, window.start, window.end);
-    const fileRows = rows.filter(
-      (r) => r.sourceId === null && r.uid.startsWith(FILE_IMPORT_UID_PREFIX),
-    );
-    const raw = fileRows[0]?.raw;
-    const fileName =
-      raw !== null &&
-      typeof raw === "object" &&
-      "fileName" in raw &&
-      typeof (raw as { fileName?: unknown }).fileName === "string"
-        ? (raw as { fileName: string }).fileName
-        : null;
-    return { count: fileRows.length, fileName };
-  });
+  const existing = schoolId
+    ? await withSession(async (tx) => {
+        // 置き換え対象の可視化（ADR-049 決定 4 の確認 UI 補助）。読みは今年度窓に限るため、過年度に取り込んだ
+        // 行事は数に入らない**概算**（置き換え削除自体は `file:` 名前空間全体・replaceFileImportedEvents）。
+        const rows = await getCalendarEvents(tx, schoolId, window.start, window.end);
+        const fileRows = rows.filter(
+          (r) => r.sourceId === null && r.uid.startsWith(FILE_IMPORT_UID_PREFIX),
+        );
+        const raw = fileRows[0]?.raw;
+        const fileName =
+          raw !== null &&
+          typeof raw === "object" &&
+          "fileName" in raw &&
+          typeof (raw as { fileName?: unknown }).fileName === "string"
+            ? (raw as { fileName: string }).fileName
+            : null;
+        return { count: fileRows.length, fileName };
+      })
+    : { count: 0, fileName: null };
 
   return (
     <div style={{ display: "grid", gap: space.md, padding: `${space.md} 0` }}>
