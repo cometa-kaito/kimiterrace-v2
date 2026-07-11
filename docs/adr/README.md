@@ -68,6 +68,7 @@
 | 039 | [運営アカウントの portal↔v2 SSO は共通 IdP（Google Workspace）への federation](039-ops-sso-portal-v2-federation.md)（暫定=ディープリンク+ハンドオフ、ADR-003 を supersede せず拡張） | Accepted |
 | 040 | [生徒/保護者向け Q&A の知識源を編集(daily_data)に再ソース化](040-rag-knowledge-source-daily-data.md)（**ADR-038 D1/D2 を supersede**。知識源=生徒クラスの今日表示中 daily_data 連絡/提出物を直接注入（埋め込み非経由）。`getEffectiveDailyData` の鮮度窓+クラス階層+RLS を再利用、embedding Job は未 apply 据置・curated contents 経路は温存、PII は既存 fail-closed 踏襲で露出面拡大は残存リスク。item4 後続） | Accepted |
 | 041 | [system_admin に school_admin 相当の「特定校スコープ操作」を開放](041-system-admin-school-scoped-operations.md)（運営代行。正準パターン=targetSchoolId+tenantScoped 降格+三系統 actor / 対象から学校導出+full_access。階層/広告/静粛時間/magic-link/エディタ daily_data を開放済〜進行中、**センサーの school_admin 限定を覆して開放**、休眠群(コンテンツ/教員入力)は ADR-040 休眠中ゆえ据え置き。監査三系統で代行を可視化、自校経路は不変） | Accepted |
+| 049 | [年間行事予定表ファイル（Excel/CSV 等）の AI 構造化取込](049-calendar-file-import-ai-structuring.md)（保存先=ADR-045 の school_calendar_events 再利用（sourceId=null・`file:` uid 名前空間・migration 不要）、iCal 掃除のソーススコープ修正が前提、AI は既存マスク済みパイプライン+年度日付テーブル注入+保存前確認 UI 必須、盤面反映は第 1 段エディタ確定のみ、権限=教員+school_admin。daily_data 複数日直書き/7 日上限緩和を不採用） | Proposed |
 
 ## ルール
 
