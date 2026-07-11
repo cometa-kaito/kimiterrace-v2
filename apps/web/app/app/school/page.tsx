@@ -9,6 +9,7 @@ import {
 import { parseAssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
 import { getSchoolDisplaySettings } from "@/lib/signage/signage-design";
 import { tokens } from "@kimiterrace/ui";
+import Link from "next/link";
 import { AssignmentDeadlineFormatSetting } from "./_components/AssignmentDeadlineFormatSetting";
 import { HierarchyManager } from "./_components/HierarchyManager";
 
@@ -46,6 +47,23 @@ export default async function SchoolAdminHubPage() {
           <AssignmentDeadlineFormatSetting initialFormat={deadlineFormat} />
         </section>
       ) : null}
+      {/* 年間行事予定表のファイル取込（ADR-049 PR-C）への導線。取込ページは school 単位・教員 +
+          school_admin 認可のため、テナント文脈を持たない system_admin にはカードごと出さない
+          （教員はエディタ側の導線 = PR-D から到達する）。 */}
+      {user.role === "school_admin" ? (
+        <section aria-labelledby="calendar-import-link-heading" style={settingsSectionStyle}>
+          <h2 id="calendar-import-link-heading" style={settingsHeadingStyle}>
+            年間行事予定表の取込
+          </h2>
+          <p style={calendarImportHintStyle}>
+            Excel / CSV / PDF / 画像の年間行事予定表を AI
+            で読み取り、学校の行事カレンダーとして取り込みます（保存前に内容を確認・修正できます）。
+          </p>
+          <Link href="/app/editor/calendar-import" style={calendarImportLinkStyle}>
+            取込ページを開く →
+          </Link>
+        </section>
+      ) : null}
     </>
   );
 }
@@ -61,4 +79,22 @@ const settingsHeadingStyle: React.CSSProperties = {
   fontWeight: 600,
   color: tokens.color.ink,
   margin: "0 0 0.6rem",
+};
+const calendarImportHintStyle: React.CSSProperties = {
+  margin: "0 0 0.6rem",
+  fontSize: tokens.fontSize.sm,
+  color: tokens.color.muted,
+};
+// 「この学科にまとめて出す」チップ（エディタ着地）と同じ視覚言語の青チップリンク（タップ 36px）。
+const calendarImportLinkStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "36px",
+  padding: "0.35rem 0.8rem",
+  borderRadius: tokens.radius.md,
+  background: tokens.color.infoBg,
+  color: tokens.color.blueStrong,
+  fontSize: tokens.fontSize.sm,
+  fontWeight: 600,
+  textDecoration: "none",
 };

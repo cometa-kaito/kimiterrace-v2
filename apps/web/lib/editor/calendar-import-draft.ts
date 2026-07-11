@@ -38,12 +38,14 @@ import {
 export const CALENDAR_IMPORT_INPUT_MAX = 40_000;
 
 /**
- * 応答トークン上限。年間分（数百〜上限 2000 行事 × 1 行 ≈ 30〜40 トークン）が途切れない値。
- * 会話 AI の 4096（≤7 日分・assistant-chat-stream.ts）に対し年間表は 1 桁大きく、さらに Gemini 2.5 系は
- * 思考トークンもこの枠を消費しうるため余裕を取る（2048 で思考が出力を食い潰した本番事象の教訓）。
- * gemini-2.5-flash の出力上限（65,535）内。未指定（＝上限なし）にしない理由: 暴走時のコスト CAP。
+ * 応答トークン上限 = gemini-2.5-flash のモデル出力上限（65,535）。旧値 32,768 は「上限 2000 行事が
+ * 途切れない」と注記していたが、2000 行事 × 1 行 ≈ 30〜40 トークン ≈ 60k〜80k と矛盾し、実際は
+ * 約 900 行事で JSON が途切れる（#1268 レビュー指摘）。モデル上限まで広げても 2000 行事 + 思考トークン
+ * （Gemini 2.5 系はこの枠を消費しうる・2048 で思考が出力を食い潰した本番事象の教訓）は収まらない可能性が
+ * 残るが、典型的な年間表（数百行事）には十分で、途切れた JSON はパース失敗 → no_result に fail-closed
+ * する（沈黙の切り捨てはしない）。明示指定を続ける理由: 暴走時のコスト CAP（未指定＝上限なしにしない）。
  */
-export const CALENDAR_IMPORT_MAX_OUTPUT_TOKENS = 32_768;
+export const CALENDAR_IMPORT_MAX_OUTPUT_TOKENS = 65_535;
 
 /** テスト差し替え用の依存（PR-C が実 Vertex model を注入する。既定なし＝本層は env に触れない）。 */
 export interface CalendarImportDraftDeps {
