@@ -3,6 +3,7 @@
 import type { EditRegion } from "@/app/(signage)/signage/[classToken]/_components/BoardRegionEditButton";
 import { ScaledSignageBoard } from "@/app/(signage)/signage/[classToken]/_components/ScaledSignageBoard";
 import { useEditorDraftSyncRef } from "@/app/app/editor/_components/EditorDraftSyncContext";
+import { editorPreviewPath } from "@/lib/editor/default-date";
 import {
   type EditorBoardBase,
   type EditorBoardCarryover,
@@ -23,6 +24,7 @@ import {
   scheduleInputVariant,
 } from "@/lib/signage/pattern-blocks";
 import { useAdRotation } from "@/lib/signage/useAdRotation";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssignmentEditor } from "./AssignmentEditor";
 import { NoticeEditor } from "./NoticeEditor";
@@ -149,9 +151,9 @@ export function WysiwygBoardEditor({
    */
   planActions?: React.ReactNode;
   /**
-   * このクラスの実機サイネージ URL（tv_devices.signage_url）。盤面プレビュー直下に「実物のサイネージを開く」
-   * リンクを出し、プレビュー→実物確認の動線を直結する（本物一致レンズ・2026-07-06）。未設置クラスは
-   * undefined＝リンクを出さない（死リンク防止・ゾーン3の同リンクと同じ規律）。
+   * このクラスの実機サイネージ URL（tv_devices.signage_url）。盤面プレビュー直下の副次リンク
+   * 「実機の画面を開く」に使う（主導線はアプリ内の実寸プレビュー `/app/editor/[classId]/preview`・#1257）。
+   * 未設置クラスは undefined＝副次リンクを出さない（死リンク防止・ゾーン3の同リンクと同じ規律）。
    */
   liveSignageUrl?: string;
 }) {
@@ -432,17 +434,29 @@ export function WysiwygBoardEditor({
                 <div className={styles.skeleton} aria-hidden="true" />
               )}
             </div>
-            {/* プレビュー→実物確認の直結導線（本物一致）。編集を失わないよう別タブで開く。 */}
-            {liveSignageUrl ? (
-              <a
+            {/* 盤面→実寸確認の直結導線（#1257）: 主導線はアプリ内の実寸プレビュー（スマホでも 16:9 実寸比・
+                任意日ナビ可・編集中の日付を引き継ぐ）。実機の生 URL はスマホで縦積みに崩れるため副次リンクへ
+                降格して残す（未設置クラスは出さない＝死リンク防止）。どちらも編集を失わないよう別タブ。 */}
+            <div className={styles.liveLinkRow}>
+              <Link
                 className={styles.liveLink}
-                href={liveSignageUrl}
+                href={editorPreviewPath(classId, date)}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                実物のサイネージを開く ↗
-              </a>
-            ) : null}
+                実寸プレビューを開く ↗
+              </Link>
+              {liveSignageUrl ? (
+                <a
+                  className={styles.subLink}
+                  href={liveSignageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  実機の画面を開く ↗
+                </a>
+              ) : null}
+            </div>
             {/* 計画系の即応操作（前日/前週コピー・基本時間割）。sticky な盤面の直下＝スクロールゼロで届く。 */}
             {planActions ? <div className={styles.planRow}>{planActions}</div> : null}
           </div>

@@ -1,12 +1,13 @@
 import { EditorDraftSyncProvider } from "@/app/app/editor/_components/EditorDraftSyncContext";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
+import { resolveClassBoardForDate, resolveEditorTargetDate } from "@/lib/editor/board-context";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
 import {
   editorDateSegments,
-  parseEditorDayCutover,
+  editorPreviewPath,
+  jpDateLabel,
   planRedirectPath,
-  resolveDefaultEditorDate,
 } from "@/lib/editor/default-date";
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
 import {
@@ -15,14 +16,13 @@ import {
   getClassNotices,
   getClassPinnedNoticeRows,
 } from "@/lib/editor/notice-assignment-queries";
-import { EDITOR_ROLES, isValidDate } from "@/lib/editor/schedule-core";
+import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import { getClassSchedule } from "@/lib/editor/schedule-queries";
 import { seedSchedulesForDate } from "@/lib/editor/weekly-timetable-core";
 import { getClassWeeklyTimetable } from "@/lib/editor/weekly-timetable-queries";
 import { ADS_ROLES } from "@/lib/school-admin/ads-core";
 import { QUIET_HOURS_ROLES } from "@/lib/school-admin/quiet-hours-core";
 import { parseAssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline-format";
-import { parseSignageDesignPattern, resolveDesignPattern } from "@/lib/signage/design-pattern";
 import {
   EFFECTIVE_LOOKBACK_DAYS,
   activeCarryoverItemsOutsideDate,
@@ -36,8 +36,6 @@ import {
   scheduleInputVariant,
 } from "@/lib/signage/pattern-blocks";
 import { jstDateString } from "@/lib/signage/rotation";
-import { buildSignagePayloadForClass } from "@/lib/signage/signage-display";
-import { getClassSignageUrl, getSchoolConfigValue } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -113,16 +111,12 @@ export default async function ClassEditorPage({
   const applied = typeof appliedParam === "string" ? appliedParam.slice(0, 24) : "";
   const now = new Date();
   const today = jstDateString(now);
-  // `?date=` 明示は常に優先（deep link 安定）。無指定の既定は school_configs の cutover を読んでから
-  // tx 内で決める（下記）。
-  const requestedDate = dateParam && isValidDate(dateParam) ? dateParam : null;
 
   const data = await withSession(async (tx) => {
-    // display_settings（opaque JSONB）は 1 回だけ読み、既定対象日の cutover（editorDayCutover・§3.2）と
-    // 学校レベル既定デザイン（signageDesign）の両方をここから defensive にパースする。
-    const displaySettings = await getSchoolConfigValue(tx, "display_settings");
-    const date =
-      requestedDate ?? resolveDefaultEditorDate(now, parseEditorDayCutover(displaySettings));
+    // 対象日の解決（`?date=` 明示は常に優先＝deep link 安定。無指定・不正値は school_configs の cutover から
+    // 既定対象日を決める）。display_settings は 1 回だけ読み、後段のデザインパターン解決でも使う。
+    // 実寸プレビューページ（`…/preview`）と共有の単一ソース（board-context.ts・#1257）。
+    const { date, displaySettings } = await resolveEditorTargetDate(tx, dateParam, now);
     const schedule = await getClassSchedule(tx, classId, date);
     if (!schedule) {
       return null;
@@ -145,28 +139,22 @@ export default async function ClassEditorPage({
     // 週次ベース時間割（F5・コピーオンライト）: 対象日の予定が空のとき、その曜日の基本時間割をエディタの初期値に
     // seed するために引く（自校 RLS・同一 tx）。テンプレ未登録は空。盤面の表示時マージはしない（seed は編集初期値のみ）。
     const weeklyTimetable = (await getClassWeeklyTimetable(tx, classId))?.timetable ?? {};
-    // 「このクラスのサイネージを開く」導線兼**端末別デザインパターン解決**用に、当該クラスの TV デバイスの公開
-    // サイネージ URL を引く（同一 tx・RLS 自校限定）。未設置クラスは undefined → リンクを出さない（死リンク防止）。
-    const liveSignageUrl = await getClassSignageUrl(tx, classId);
-    // サイネージデザインパターンを解決（**端末別 `?design` > 学校レベル既定 > pattern1**）。実機 TV / モニタの壁と
-    // 同じ優先順位（`resolveDesignPattern` 単一ソース）で、このクラスの実機が実際に出すパターンでプレビュー・編集
-    // セクションを出し分ける（学校既定が pattern1 でも端末が pattern2/3/4 なら追従＝旧「学校既定のみ参照」を是正）。
-    const pattern = resolveDesignPattern(
-      liveSignageUrl,
-      parseSignageDesignPattern(displaySettings),
+    // 実機 URL（「実機の画面を開く」導線）→ 端末別デザインパターン解決 → 実機と完全同一の payload builder
+    // （`buildSignagePayloadForClass`）による盤面基底、をエディタ/実寸プレビュー共有の単一ソース
+    // （`resolveClassBoardForDate`・board-context.ts・#1257）で組む。自動コンテンツ系ブロックも実機と同じ
+    // 取得ゲート・同じ fail-soft で取得・描画される。schoolId 不明時は board=null（盤面を出さず
+    // WysiwygBoardEditor が従来の縦積みフォームへ fail-soft フォールバック）。
+    const { liveSignageUrl, pattern, board } = await resolveClassBoardForDate(
+      tx,
+      classId,
+      user.schoolId,
+      date,
+      displaySettings,
     );
-    // 提出物の期日表示形式（#1258 学校別設定）。同じ display_settings 読み取りから相乗りでパースし、
-    // AI チャットの下書きプレビュー表記を実機盤面（board 経由の WYSIWYG プレビュー）と一致させる。
+    // 提出物の期日表示形式（#1258 学校別設定）。resolveEditorTargetDate が読んだ同じ display_settings から
+    // 相乗りでパースし（1 回読み設計を維持）、AI チャットの下書きプレビュー表記を実機盤面（board 経由の
+    // WYSIWYG プレビュー）と一致させる。
     const deadlineFormat = parseAssignmentDeadlineFormat(displaySettings);
-    // WYSIWYG（盤面を編集タブ）のライブプレビュー基底は、**実機サイネージと完全に同一の payload builder**
-    // （`buildSignagePayloadForClass`）から組む。これにより自動コンテンツ系ブロック（時事ニュース / 鉄道 /
-    // 人感センサ / 防災・安全帯）も実機と同じ取得ゲート（`PATTERN_BLOCKS`）・同じ fail-soft で取得・描画され、
-    // エディタの盤面と実機 TV の見た目が一致する。`pattern` を designParam として渡すので builder 内の二重パターン
-    // 解決は起きない。schoolId 不明時は null（盤面を出さず WysiwygBoardEditor が従来の縦積みフォームへ fail-soft
-    // フォールバック）。
-    const board = user.schoolId
-      ? await buildSignagePayloadForClass(tx, user.schoolId, classId, date, pattern)
-      : null;
     // 来校者一覧 / 生徒呼び出しは `PATTERN_BLOCKS` 上 pattern2/3 専用の**編集対象**ブロック。盤面下の編集欄を
     // 出すかの判定に使う（実機と同じ取得結果は `board.visitors` / `board.callouts` に載る）。`patternIncludesBlock`
     // 単一ソース駆動で `=== "pattern2"` のハードコード分岐を作らない（将来パターン追加に自動追従）。
@@ -341,7 +329,7 @@ export default async function ClassEditorPage({
               />
               {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
               <p style={editingHeadingStyle}>
-                編集中: {jpDate(date)}
+                編集中: {jpDateLabel(date)}
                 {date === today ? "（今日）" : ""}
               </p>
               {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ出す。プレビューには出るが保存する
@@ -381,22 +369,30 @@ export default async function ClassEditorPage({
         <h2 id="zone-monitor-heading" style={zoneLabelStyle}>
           このモニタ
         </h2>
-        {/* TV が実際に表示している**公開サイネージサイト**（tv_devices.signage_url = /signage/{token}）を開く。
-            Next アプリ内ルートだが別 host/別 origin になりうる絶対 URL なので素の <a> で開く（client-side
-            prefetch を避ける）。編集を失わないよう別タブで開く（rel=noopener）。設置 TV が無いクラスは
-            liveSignageUrl が undefined → リンク自体を出さない（死リンク防止）。 */}
-        {liveSignageUrl ? (
-          <p style={{ margin: "0 0 0.75rem" }}>
+        {/* 主導線は実寸サイネージプレビュー（アプリ内・#1257）: スマホでも 16:9 実寸比・任意日も見られる。
+            現在編集中の日付を引き継ぎ、編集を失わないよう別タブで開く。 */}
+        <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
+          <Link
+            href={editorPreviewPath(classId, date)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+          >
+            サイネージのプレビューを開く →
+          </Link>
+          {/* 副次導線: TV が実際に開いている公開サイネージサイト（tv_devices.signage_url）。別 host/別 origin に
+              なりうる絶対 URL なので素の <a>（prefetch 回避）。未設置クラスは出さない（死リンク防止）。 */}
+          {liveSignageUrl ? (
             <a
               href={liveSignageUrl}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
+              style={{ fontSize: "0.85rem", color: tokens.color.muted }}
             >
-              このクラスのサイネージを開く →
+              実機の画面を開く ↗
             </a>
-          </p>
-        ) : null}
+          ) : null}
+        </p>
         {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線（端末系＝このモニタへ集約・§3.1）。
             teacher には出さない（死リンク防止）。 */}
         {canManageAds || canManageQuietHours ? (
@@ -539,14 +535,3 @@ const seedNoteStyle: React.CSSProperties = {
   color: tokens.color.muted,
   margin: "0 0 0.5rem",
 };
-
-// 編集中の日付の和暦風ラベル（"2026年6月23日（火）"）。曜日は日付から決まり today 非依存＝SSR/CSR 一致。
-const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
-function jpDate(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  if (!y || !m || !d) {
-    return date;
-  }
-  const weekday = WEEKDAY_JP[new Date(y, m - 1, d).getDay()] ?? "";
-  return `${y}年${m}月${d}日（${weekday}）`;
-}

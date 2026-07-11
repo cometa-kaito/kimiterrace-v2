@@ -77,17 +77,34 @@
   }
 }
 
-/* 実物サイネージへの直結リンク（盤面プレビュー直下・右寄せ）。「プレビュー＝実物の写像」の確認動線。
+/* 実寸プレビュー / 実機画面への直結リンク行（盤面プレビュー直下・右寄せ・#1257）。 */
+.liveLinkRow {
+  align-self: flex-end;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+}
+
+/* 主導線: アプリ内の実寸サイネージプレビュー。「プレビュー＝実物の写像」の確認動線。
    ナビゲーション（見る）なので選択・ナビ系のブランド青（#1241 の役割分離: 選択/ナビ=青・アクション=橙）。 */
 .liveLink {
-  align-self: flex-end;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--brand-blue-strong, #2b4acb);
   text-decoration: none;
 }
+
+/* 副次導線: 実機の生 URL（tv_devices.signage_url）。主導線より一段控えめ（小さめ・muted・非太字）。 */
+.subLink {
+  font-size: 0.8rem;
+  color: var(--brand-muted, #6b7280);
+  text-decoration: none;
+}
 .liveLink:hover,
-.liveLink:focus-visible {
+.liveLink:focus-visible,
+.subLink:hover,
+.subLink:focus-visible {
   text-decoration: underline;
 }
 

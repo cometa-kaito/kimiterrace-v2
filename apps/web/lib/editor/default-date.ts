@@ -141,3 +141,26 @@ export function planRedirectPath(classId: string, planParam: unknown): string | 
   }
   return `/app/editor/${classId}?date=${planParam}`;
 }
+
+/**
+ * 実寸サイネージプレビュー（`/app/editor/[classId]/preview`・#1257）への URL（`?date=` 引き継ぎ）。
+ * エディタ（server）・盤面エディタ（client）・プレビューの日付ナビが同じ形を張るので単一ソース化。
+ */
+export function editorPreviewPath(classId: string, date: string): string {
+  return `/app/editor/${classId}/preview?date=${date}`;
+}
+
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"];
+
+/**
+ * 対象日の和文ラベル（"2026年6月23日（火）"）。曜日は日付から決まり today 非依存＝SSR/CSR 一致。形不正は
+ * そのまま返す（fail-soft）。エディタ「編集中: ◯月◯日」とプレビューの見出しで共有（旧 page.tsx ローカル関数）。
+ */
+export function jpDateLabel(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) {
+    return date;
+  }
+  const weekday = WEEKDAY_JP[new Date(y, m - 1, d).getDay()] ?? "";
+  return `${y}年${m}月${d}日（${weekday}）`;
+}
