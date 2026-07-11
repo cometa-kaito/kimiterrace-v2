@@ -497,6 +497,9 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
     await seedEvent(fx.schoolB, "file:b-batch:1", "2026-04-08", "他校の取込", null);
 
     // school A の教員 context から school B への置き換え: INSERT は WITH CHECK で拒否。
+    // ★ drizzle ヘルパ経由のエラーは "Failed query: ..." にラップされ RLS メッセージは error.cause 側に移る
+    //   （[[ref_drizzle_wraps_pg_error_cause_sqlstate]]）ため、message regex ではなく bare toThrow + 下の
+    //   「他校行が無傷」の否定アサーションで拒否を担保する（ai-extractions.test.ts の precedent と同じ）。
     await expect(
       withTenantContext(
         db,
@@ -511,7 +514,7 @@ describeOrSkip("RLS: ADR-045 school_calendar (tenant_isolation)", () => {
           }),
         APP,
       ),
-    ).rejects.toThrow(/row-level security|new row violates/i);
+    ).rejects.toThrow();
 
     // 他校行は USING で不可視のため削除もされていない（挿入 0 のクリア試行でも消せない）。
     const result = await withTenantContext(
