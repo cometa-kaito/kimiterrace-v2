@@ -1,4 +1,8 @@
-import { eventDateRangeLabel, groupEventsByMonth } from "@/lib/editor/calendar-import-view";
+import {
+  eventDateRangeLabel,
+  groupEventsByMonth,
+  jpDateLabel,
+} from "@/lib/editor/calendar-import-view";
 import type { FiscalYearWindow } from "@/lib/editor/calendar-import-core";
 import { tokens } from "@kimiterrace/ui";
 
@@ -38,7 +42,8 @@ export function RegisteredEventsSection({
         登録済みの行事
       </h2>
       <p style={hintStyle}>
-        {window.fiscalYear} 年度（{window.start}〜{window.end}）に登録されている行事カレンダーです。
+        {window.fiscalYear} 年度（{jpDateLabel(window.start)}〜{jpDateLabel(window.end)}
+        ）に登録されている行事カレンダーです。
       </p>
       {events.length === 0 ? (
         <p style={hintStyle}>まだ行事が登録されていません。下のファイル取込から始められます。</p>

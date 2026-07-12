@@ -3,6 +3,7 @@ import {
   INVALID_MONTH_KEY,
   eventDateRangeLabel,
   groupEventsByMonth,
+  jpDateLabel,
 } from "../../lib/editor/calendar-import-view";
 
 /**
@@ -88,5 +89,21 @@ describe("eventDateRangeLabel", () => {
   it("不正な日付形は表示で落とさずそのまま返す", () => {
     expect(eventDateRangeLabel("")).toBe("");
     expect(eventDateRangeLabel("2026-04-08", "来週")).toBe("4/8(水)〜来週");
+  });
+});
+
+describe("jpDateLabel", () => {
+  it("年度窓の ISO 生値をゼロ埋めなしの和文表記にする（2026-04-01→2026年4月1日）", () => {
+    expect(jpDateLabel("2026-04-01")).toBe("2026年4月1日");
+    expect(jpDateLabel("2027-03-31")).toBe("2027年3月31日");
+  });
+
+  it("2 桁の月日もゼロ埋めを外す", () => {
+    expect(jpDateLabel("2026-12-25")).toBe("2026年12月25日");
+  });
+
+  it("不正な日付形は表示で落とさずそのまま返す", () => {
+    expect(jpDateLabel("")).toBe("");
+    expect(jpDateLabel("2026/04/01")).toBe("2026/04/01");
   });
 });
