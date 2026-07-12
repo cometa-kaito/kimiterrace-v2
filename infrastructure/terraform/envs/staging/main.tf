@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "5c4b3f0" # 2026-07-12: 年間行事の保存モード選択=完全置き換え/マージ(#1280 ユーザー決定・DBクエリ層 mergeFileImportedEvents 追加・schema/migration 不変)。secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
+  web_image_tag = "f6d3f2e" # 2026-07-12: 年間行事の取込フローをフローティングモーダル化(#1284 教員FB「ぽんっと浮いた感じ」・閉時フォーカス返却/Escネスト対応)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
 }
 
 module "network" {

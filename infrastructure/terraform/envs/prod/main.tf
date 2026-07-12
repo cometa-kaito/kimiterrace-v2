@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=20d9d2b / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "5c4b3f0" # 2026-07-12: 年間行事の保存モード選択=完全置き換え/マージ(#1280 ユーザー決定・DBクエリ層 mergeFileImportedEvents 追加・schema/migration 不変)。secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
+  web_image_tag = "f6d3f2e" # 2026-07-12: 年間行事の取込フローをフローティングモーダル化(#1284 教員FB「ぽんっと浮いた感じ」・閉時フォーカス返却/Escネスト対応)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
