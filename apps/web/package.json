@@ -22,7 +22,7 @@
     "@kimiterrace/ui": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "firebase": "^12.14.0",
-    "firebase-admin": "^13.10.0",
+    "firebase-admin": "^14.1.0",
     "next": "^16.0.0",
     "pdfjs-dist": "^6.0.227",
     "qrcode.react": "^4.2.0",
