@@ -9,8 +9,17 @@ import type {
   CalendarImportSanitizeDropped,
   FiscalYearWindow,
 } from "@/lib/editor/calendar-import-core";
+import {
+  type CalendarImportReplaceDiff,
+  type FileImportedEventSummary,
+  diffCalendarImportReplace,
+} from "@/lib/editor/calendar-import-diff";
 import type { CalendarImportSaveIssue } from "@/lib/editor/calendar-import-save-core";
-import { groupEventsByMonth, jpDateLabel } from "@/lib/editor/calendar-import-view";
+import {
+  eventDateRangeLabel,
+  groupEventsByMonth,
+  jpDateLabel,
+} from "@/lib/editor/calendar-import-view";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -73,13 +82,18 @@ const DROPPED_LABELS: Record<string, string> = {
 };
 
 export function CalendarImportClient({
-  existingCount,
+  existingFileEvents,
   existingFileName,
   onDirtyChange,
   onSaved,
 }: {
-  /** 今年度窓内の取込済み（`file:` 名前空間）行事の概数。置き換え確認の文言に使う。 */
-  existingCount: number;
+  /**
+   * 今年度窓内の取込済み（`file:` 名前空間）行事。置き換え確認の文言と、確認ダイアログの
+   * 差分表示（追加/継続/**削除される行事**の一覧・#1259 教員 FB）の existing 側に使う。
+   * 今年度窓の読みなので過年度に取り込んだ行事は含まない**概算**（置き換え削除自体は
+   * `file:` 名前空間全体・page.tsx のコメント参照）。
+   */
+  existingFileEvents: FileImportedEventSummary[];
   /** 前回取込のファイル名（取込済みが無ければ null）。 */
   existingFileName: string | null;
   /**
@@ -93,9 +107,12 @@ export function CalendarImportClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   // 「前回の取込」概況。初期値はサーバ props、同一セッションで保存に成功したら保存結果で更新する
-  // （2 回目の置き換え確認ダイアログ・ヒントが古い件数を出さないため・#1270 L1）。
-  const [existing, setExisting] = useState<{ count: number; fileName: string | null }>({
-    count: existingCount,
+  // （2 回目の置き換え確認ダイアログ・ヒント・差分表示が古い内容を出さないため・#1270 L1）。
+  const [existing, setExisting] = useState<{
+    events: FileImportedEventSummary[];
+    fileName: string | null;
+  }>({
+    events: existingFileEvents,
     fileName: existingFileName,
   });
   const [file, setFile] = useState<File | null>(null);
@@ -211,8 +228,16 @@ export function CalendarImportClient({
       if (r.ok) {
         const message = `保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`;
         setSavedMsg(message);
-        // 今回の保存分が次の置き換え対象になる（#1270 L1: 2 回目の確認文言を最新化）。
-        setExisting({ count: r.inserted, fileName: draft.fileName });
+        // 今回の保存分が次の置き換え対象になる（#1270 L1: 2 回目の確認文言・差分表示を最新化）。
+        setExisting({
+          events: events.map((ev) => ({
+            summary: ev.summary,
+            startDate: ev.startDate,
+            endDate: ev.endDate ?? null,
+            location: ev.location ?? null,
+          })),
+          fileName: draft.fileName,
+        });
         setDraft(null);
         setFile(null);
         // 同ページ先頭の「登録済みの行事」（server component）を保存結果で最新化する。
@@ -241,6 +266,10 @@ export function CalendarImportClient({
   const previewGroups = draft ? groupEventsByMonth(draft.rows, groupingStartDate) : [];
   const rowOrdinal = new Map(previewGroups.flatMap((g) => g.items).map((row, i) => [row.key, i]));
 
+  // 置き換え保存の差分（確認ダイアログの表示専用・保存ペイロードには関与しない）。「部分ファイルを
+  // 取り込むと既存行事が気づかず消える」弱点への対策として、削除される行事を保存前に明示する（#1259）。
+  const replaceDiff = draft ? diffCalendarImportReplace(existing.events, draft.rows) : null;
+
   return (
     <div style={{ display: "grid", gap: space.lg }}>
       {/* 1) ファイル選択 → 読み取り */}
@@ -252,9 +281,9 @@ export function CalendarImportClient({
           Excel (.xlsx) / CSV / PDF / 画像 (PNG・JPEG) の年間行事予定表に対応しています（上限
           10MB）。書式は学校ごとに違って構いません（AI が読み取ります）。
         </p>
-        {existing.count > 0 ? (
+        {existing.events.length > 0 ? (
           <p style={hintStyle}>
-            取込済み: 今年度の行事 {existing.count} 件
+            取込済み: 今年度の行事 {existing.events.length} 件
             {existing.fileName ? `（${existing.fileName}）` : ""}
             。保存すると前回のファイル取込は丸ごと置き換わります。
           </p>
@@ -462,17 +491,66 @@ export function CalendarImportClient({
         open={confirmOpen}
         title="ファイル取込を置き換えて保存しますか？"
         description={
-          existing.count > 0
-            ? `前回のファイル取込（今年度 ${existing.count} 件）を削除し、今回の ${draft?.rows.length ?? 0} 件で置き換えます。iCal 連携の行事には影響しません。`
-            : `${draft?.rows.length ?? 0} 件の行事を保存します。`
+          // 初回取込（既存 0 件）は消えるものが無いので従来どおりのシンプルな確認。
+          existing.events.length > 0 && replaceDiff !== null ? (
+            <>
+              前回のファイル取込（今年度 {existing.events.length} 件）を削除し、今回の{" "}
+              {draft?.rows.length ?? 0} 件で置き換えます。iCal 連携の行事には影響しません。
+              <ReplaceDiffSummary diff={replaceDiff} />
+            </>
+          ) : (
+            `${draft?.rows.length ?? 0} 件の行事を保存します。`
+          )
         }
         confirmLabel="置き換えて保存"
-        tone={existing.count > 0 ? "danger" : "primary"}
+        tone={existing.events.length > 0 ? "danger" : "primary"}
         pending={pending}
         onConfirm={save}
         onCancel={() => setConfirmOpen(false)}
       />
     </div>
+  );
+}
+
+/** 削除される行事一覧の表示上限。超過分は件数（「他 N 件」）で必ず明示する（沈黙の切り捨て禁止）。 */
+const REMOVED_LIST_MAX = 20;
+
+/**
+ * 置き換え保存の差分サマリ（確認ダイアログの description 内・表示専用）。
+ * 「追加 / 継続 / 削除される行事」の件数と、**削除される行事の一覧**（日付 + 行事名）を出す。
+ * 削除 0 件でも「削除される行事はありません」を明示して安心を与える。
+ * ConfirmDialog の description は `<p>` に包まれるため、ブロック要素（div/ul）を使わず
+ * `display:block` の span のみで組む（invalid DOM nesting を作らない）。
+ */
+function ReplaceDiffSummary({
+  diff,
+}: {
+  diff: CalendarImportReplaceDiff<FileImportedEventSummary, { summary: string; startDate: string }>;
+}) {
+  const removedShown = diff.removed.slice(0, REMOVED_LIST_MAX);
+  const removedRest = diff.removed.length - removedShown.length;
+  return (
+    <>
+      <span style={diffCountsStyle}>
+        追加 {diff.added.length} 件 / 継続 {diff.kept} 件 /{" "}
+        <strong style={diff.removed.length > 0 ? { color: color.dangerFg } : undefined}>
+          削除される行事 {diff.removed.length} 件
+        </strong>
+      </span>
+      {diff.removed.length > 0 ? (
+        <span style={removedListStyle}>
+          {/* 既存イベントは保存時に (summary, startDate) で dedupe 済み = このキーで一意。 */}
+          {removedShown.map((ev) => (
+            <span key={`${ev.startDate}|${ev.summary ?? ""}`} style={removedItemStyle}>
+              {eventDateRangeLabel(ev.startDate, ev.endDate)} {ev.summary ?? "（名称なし）"}
+            </span>
+          ))}
+          {removedRest > 0 ? <span style={removedItemStyle}>他 {removedRest} 件</span> : null}
+        </span>
+      ) : (
+        <span style={diffSafeStyle}>削除される行事はありません。</span>
+      )}
+    </>
   );
 }
 
@@ -564,6 +642,33 @@ const inputStyle: React.CSSProperties = {
   padding: "0.35rem 0.5rem",
   width: "100%",
   boxSizing: "border-box",
+};
+/** 差分サマリの件数行（ダイアログ本文より一段強く・追加/継続/削除を 1 行で）。 */
+const diffCountsStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: space.md,
+  color: color.ink,
+};
+/** 削除される行事の一覧（警告トーン = 既存 danger トークン踏襲・長い場合はスクロール）。 */
+const removedListStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: space.xs,
+  maxHeight: "10rem",
+  overflowY: "auto",
+  color: color.dangerFg,
+  background: color.dangerBg,
+  border: `1px solid ${color.dangerBorder}`,
+  borderRadius: radius.md,
+  padding: "0.5rem 0.7rem",
+};
+const removedItemStyle: React.CSSProperties = {
+  display: "block",
+  lineHeight: 1.7,
+};
+/** 削除 0 件の明示（安心の一言・muted のまま）。 */
+const diffSafeStyle: React.CSSProperties = {
+  display: "block",
+  marginTop: space.xs,
 };
 // 視覚的に隠しつつ支援技術には読ませる（.admin-main 配下は position:relative 済で幽霊スクロールしない）。
 const srOnlyStyle: React.CSSProperties = {

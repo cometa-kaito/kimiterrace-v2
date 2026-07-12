@@ -1,5 +1,6 @@
 "use client";
 
+import type { FileImportedEventSummary } from "@/lib/editor/calendar-import-diff";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { CalendarImportClient } from "./CalendarImportClient";
@@ -21,12 +22,15 @@ const { color, fontSize, space } = tokens;
  * 一覧本体（server component）は children で受けて client 境界越しに挟む（サーバ描画のまま温存）。
  */
 export function CalendarImportManager({
-  existingCount,
+  existingFileEvents,
   existingFileName,
   children,
 }: {
-  /** 今年度窓内の取込済み（`file:` 名前空間）行事の概数（{@link CalendarImportClient} へ透過）。 */
-  existingCount: number;
+  /**
+   * 今年度窓内の取込済み（`file:` 名前空間）行事（{@link CalendarImportClient} へ透過。
+   * 置き換え保存の確認ダイアログの差分表示 = 削除される行事一覧の existing 側になる）。
+   */
+  existingFileEvents: FileImportedEventSummary[];
   /** 前回取込のファイル名（取込済みが無ければ null・{@link CalendarImportClient} へ透過）。 */
   existingFileName: string | null;
   /** サーバ描画の「登録済みの行事」一覧セクション。 */
@@ -109,7 +113,7 @@ export function CalendarImportManager({
             </Button>
           </div>
           <CalendarImportClient
-            existingCount={existingCount}
+            existingFileEvents={existingFileEvents}
             existingFileName={existingFileName}
             onDirtyChange={setDirty}
             onSaved={(message) => {
