@@ -10,7 +10,7 @@ import type {
   FiscalYearWindow,
 } from "@/lib/editor/calendar-import-core";
 import type { CalendarImportSaveIssue } from "@/lib/editor/calendar-import-save-core";
-import { groupEventsByMonth } from "@/lib/editor/calendar-import-view";
+import { groupEventsByMonth, jpDateLabel } from "@/lib/editor/calendar-import-view";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
@@ -96,6 +96,11 @@ export function CalendarImportClient({
   const [issues, setIssues] = useState<CalendarImportSaveIssue[] | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 開始日を編集中の行だけは「編集開始時点の月」でグループ位置を凍結する（key + その時の startDate を保持）。
+  // 月グループは startDate から毎描画で再計算されるため、凍結しないと 1 押下ごとに別月グループ（別 tbody）へ
+  // 行が飛んで tr が remount し、date input のフォーカスが失われる（矢印キーでの月修正が事実上不能・#1274 FB）。
+  // 確定（blur / Enter）で null に戻し、最新値で再グループ化する。
+  const [freezeStart, setFreezeStart] = useState<{ key: number; date: string } | null>(null);
   const nextKey = useRef(0);
 
   function resetResults() {
@@ -104,6 +109,7 @@ export function CalendarImportClient({
     setDraft(null);
     setIssues(null);
     setSavedMsg(null);
+    setFreezeStart(null);
   }
 
   function applyDraftResult(r: CalendarImportDraftActionResult) {
@@ -210,7 +216,10 @@ export function CalendarImportClient({
 
   // 月グループ化した表示順（教員 FB「月順で線で区切って分かり易く」・登録済み一覧と同じ単一ソース）。
   // 保存ペイロードも同順で送る（save() 参照）ので、エラーの「行 N」は見た目の行番号と一致する。
-  const previewGroups = draft ? groupEventsByMonth(draft.rows, (row) => row.startDate) : [];
+  // 開始日を編集中の行だけは凍結した月キーで位置を固定し、確定まで tbody を跨がせない（remount＝フォーカス喪失防止）。
+  const groupingStartDate = (row: PreviewRow): string =>
+    freezeStart !== null && freezeStart.key === row.key ? freezeStart.date : row.startDate;
+  const previewGroups = draft ? groupEventsByMonth(draft.rows, groupingStartDate) : [];
   const rowOrdinal = new Map(previewGroups.flatMap((g) => g.items).map((row, i) => [row.key, i]));
 
   return (
@@ -281,8 +290,9 @@ export function CalendarImportClient({
             2. 内容を確認して保存する
           </h2>
           <p style={hintStyle}>
-            対象年度: <strong>{draft.window.fiscalYear} 年度</strong>（{draft.window.start}〜
-            {draft.window.end}）。年度外の日付は取り込みません。
+            対象年度: <strong>{draft.window.fiscalYear} 年度</strong>（
+            {jpDateLabel(draft.window.start)}〜{jpDateLabel(draft.window.end)}
+            ）。年度外の日付は取り込みません。
           </p>
           {droppedEntries.length > 0 ? (
             <p style={hintStyle}>
@@ -356,6 +366,15 @@ export function CalendarImportClient({
                             type="date"
                             value={row.startDate}
                             onChange={(e) => updateRow(row.key, { startDate: e.target.value })}
+                            // 編集開始時点の月へ位置を凍結（矢印キー等で 1 押下ごとに別 tbody へ飛ぶのを止める）。
+                            onFocus={() => setFreezeStart({ key: row.key, date: row.startDate })}
+                            // 確定で凍結解除 → 最新値で再グループ化（行が正しい月へ移動）。
+                            onBlur={() => setFreezeStart(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.currentTarget.blur();
+                              }
+                            }}
                             disabled={pending}
                             style={inputStyle}
                             aria-label={`行 ${i + 1} の開始日`}

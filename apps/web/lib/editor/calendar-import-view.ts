@@ -84,6 +84,20 @@ export function eventDateRangeLabel(startDate: string, endDate?: string | null):
   return `${start}〜${end}`;
 }
 
+/**
+ * "2026-04-01" → 「2026年4月1日」（ゼロ埋めを外した和文表記）。年度窓（4/1〜翌3/31）の見出しに使う。
+ * eventDateRangeLabel の M/D(曜) 短縮形と違い、年を含む正式表記（ISO 生値を教員に見せないため）。
+ * 形が不正な場合はそのまま返す（表示で落とさない）。
+ */
+export function jpDateLabel(date: string): string {
+  const m = DATE_SHAPE_RE.exec(date);
+  if (m === null) {
+    return date;
+  }
+  const [, y, mo, d] = m;
+  return `${Number(y)}年${Number(mo)}月${Number(d)}日`;
+}
+
 /** "2026-04-08" → 「4/8(水)」。形が不正なら入力をそのまま返す。 */
 function singleDateLabel(date: string): string {
   const m = DATE_SHAPE_RE.exec(date);
