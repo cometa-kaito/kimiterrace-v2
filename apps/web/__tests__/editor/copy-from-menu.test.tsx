@@ -18,7 +18,11 @@ const h = vi.hoisted(() => ({
     ): Promise<
       | {
           ok: true;
-          data: { fromDate: string; sections: { block: string; label: string; count: number }[] };
+          data: {
+            fromDate: string;
+            sections: { block: string; label: string; count: number }[];
+            undo: { date: string; [k: string]: unknown };
+          };
         }
       | { ok: false; error: { code: string; message: string } }
     > => ({
@@ -29,12 +33,22 @@ const h = vi.hoisted(() => ({
           { block: "schedule", label: "予定", count: 4 },
           { block: "notice", label: "連絡", count: 2 },
         ],
+        undo: { date: "2026-07-06", schedule: [], notice: [] },
       },
     }),
   ),
   copyWeek: vi.fn(async (..._a: unknown[]) => ({
     ok: true as const,
-    data: { fromWeekStart: "2026-06-29", toWeekStart: "2026-07-06", daysCopied: 3 },
+    data: {
+      fromWeekStart: "2026-06-29",
+      toWeekStart: "2026-07-06",
+      daysCopied: 3,
+      undo: [{ date: "2026-07-06", schedule: [] }],
+    },
+  })),
+  restore: vi.fn(async (..._a: unknown[]) => ({
+    ok: true as const,
+    data: { daysRestored: 1 },
   })),
   previewDay: vi.fn(async (..._a: unknown[]) => ({
     ok: true as const,
@@ -65,13 +79,24 @@ vi.mock("@/lib/editor/copy-day-actions", () => ({
   copyPreviousWeekAction: (...a: unknown[]) => h.copyWeek(...a),
   previewCopyDayAction: (...a: unknown[]) => h.previewDay(...a),
   previewCopyWeekAction: (...a: unknown[]) => h.previewWeek(...a),
+  restoreCopySnapshotAction: (...a: unknown[]) => h.restore(...a),
 }));
 
 import { CopyFromMenu } from "../../app/app/editor/[classId]/_components/CopyFromMenu";
+import { CopyUndoProvider } from "../../app/app/editor/[classId]/_components/CopyUndoContext";
 
 const CLASS_ID = "11111111-1111-1111-1111-111111111111";
 // 2026-07-06 は月曜。前営業日 = 2026-07-03（金）。この週 = 07-06〜07-10。先週 = 06-29〜07-03。
 const DATE = "2026-07-06";
+
+/** CopyFromMenu は useCopyUndo を使うので Provider で包む（page.tsx と同じ構造）。 */
+function renderMenu(hasExistingData: boolean) {
+  return render(
+    <CopyUndoProvider>
+      <CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={hasExistingData} />
+    </CopyUndoProvider>,
+  );
+}
 
 function openMenu() {
   fireEvent.click(screen.getByRole("button", { name: "ほかの日からコピー" }));
@@ -86,7 +111,7 @@ afterEach(() => {
 describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => {
   it("開くと既定=前営業日でプレビューを取得し、既存入力なしなら確認なしでコピー→?copied+date 付き replace（refresh は使わない）", async () => {
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={false} />);
+      renderMenu(false);
     });
     await act(async () => {
       openMenu();
@@ -110,7 +135,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
 
   it("対象日に既存入力があると ConfirmDialog を挟み、確認するまで action を呼ばない", async () => {
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={true} />);
+      renderMenu(true);
     });
     await act(async () => {
       openMenu();
@@ -131,7 +156,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
 
   it("確認をキャンセルすると action を呼ばない（誤上書き防止）", async () => {
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={true} />);
+      renderMenu(true);
     });
     await act(async () => {
       openMenu();
@@ -149,7 +174,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
 
   it("先週まるごと=編集中日付の週の anchor で週プレビュー→常に確認→前週コピー（旧『今日固定』の是正）", async () => {
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={false} />);
+      renderMenu(false);
     });
     await act(async () => {
       openMenu();
@@ -175,7 +200,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
 
   it("任意の日を選ぶと、その日を fromDate にコピーする", async () => {
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={false} />);
+      renderMenu(false);
     });
     await act(async () => {
       openMenu();
@@ -203,7 +228,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
       },
     });
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={false} />);
+      renderMenu(false);
     });
     await act(async () => {
       openMenu();
@@ -218,7 +243,7 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
       error: { code: "invalid", message: "コピー元（2026-07-03）に複製できる予定がありません。" },
     });
     await act(async () => {
-      render(<CopyFromMenu classId={CLASS_ID} date={DATE} hasExistingData={false} />);
+      renderMenu(false);
     });
     await act(async () => {
       openMenu();
@@ -229,5 +254,42 @@ describe("CopyFromMenu（ほかの日からコピー 統合ツール）", () => 
     });
     expect(await screen.findByText(/複製できる予定がありません/)).toBeInTheDocument();
     expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("コピー成功後に『元に戻す』が出て、確認後にコピー前スナップショットで復元し再ナビゲートする", async () => {
+    await act(async () => {
+      renderMenu(false);
+    });
+    await act(async () => {
+      openMenu();
+    });
+    await screen.findByText(/コピー元の内容/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "コピーする" }));
+    });
+    // コピー成功で undo が保持され、同じ日を表示中なので「元に戻す」チップが出る（aria-label で confirm と区別）。
+    const undoChip = await screen.findByRole("button", { name: /コピーを元に戻す/ });
+    await act(async () => {
+      fireEvent.click(undoChip);
+    });
+    // チップは確認を挟む（コピー後の手直しを黙って巻き戻さない）。押しただけでは復元しない。
+    expect(h.restore).not.toHaveBeenCalled();
+    expect(screen.getByText("コピー前の状態に戻しますか？")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "元に戻す" }));
+    });
+    // 復元はコピー action が返した undo スナップショット（days）をそのまま渡す。
+    expect(h.restore).toHaveBeenCalledWith(CLASS_ID, [
+      { date: "2026-07-06", schedule: [], notice: [] },
+    ]);
+    // コピー(1) + 復元(1) で 2 回再ナビゲート。
+    expect(h.replace).toHaveBeenCalledTimes(2);
+  });
+
+  it("コピー前は『元に戻す』を出さない", async () => {
+    await act(async () => {
+      renderMenu(false);
+    });
+    expect(screen.queryByRole("button", { name: /元に戻す/ })).not.toBeInTheDocument();
   });
 });

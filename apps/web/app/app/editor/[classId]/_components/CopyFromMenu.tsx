@@ -5,12 +5,14 @@ import {
   copyPreviousWeekAction,
   previewCopyDayAction,
   previewCopyWeekAction,
+  restoreCopySnapshotAction,
 } from "@/lib/editor/copy-day-actions";
 import { addDaysUtc, businessWeek, mondayOfWeek } from "@/lib/editor/week-math";
 import { previousBusinessDay } from "@/lib/signage/rotation";
 import { ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
+import { useCopyUndo } from "./CopyUndoContext";
 import { errorTextStyle, savedTextStyle, secondaryBtnStyle } from "./editor-styles";
 
 /**
@@ -82,6 +84,8 @@ export function CopyFromMenu({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  // コピー「元に戻す」スナップショットの保持（key 付きエディタの上位・?copied 再ナビを跨いで残る）。
+  const { undo, setUndo } = useCopyUndo();
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<SourceKind>("prevBusiness");
@@ -97,6 +101,7 @@ export function CopyFromMenu({
   const [weekPreview, setWeekPreview] = useState<WeekPreview | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [undoConfirmOpen, setUndoConfirmOpen] = useState(false);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -227,6 +232,13 @@ export function CopyFromMenu({
       if (selected === "lastWeekWhole") {
         const res = await copyPreviousWeekAction(classId, date);
         if (res.ok) {
+          // 上書き前スナップショットを保持 → 「元に戻す」で復元できる（この週の月曜キー）。
+          setUndo({
+            classId,
+            forKey: `week:${toMonday}`,
+            label: "この週へのコピー",
+            days: res.data.undo,
+          });
           setMsg({
             ok: true,
             text: `先週の内容をこの週へコピーしました（${res.data.daysCopied} 日分）。`,
@@ -251,6 +263,8 @@ export function CopyFromMenu({
           .filter((s) => s.count > 0)
           .map((s) => `${s.label} ${s.count}`)
           .join(" / ");
+        // 上書き前スナップショットを保持 → 「元に戻す」で復元できる（この日キー）。
+        setUndo({ classId, forKey: date, label: `${mdw(date)}へのコピー`, days: [res.data.undo] });
         setMsg({
           ok: true,
           text: `${mdw(res.data.fromDate)}を${mdw(date)}にコピーしました${summary ? `（${summary}）` : ""}。`,
@@ -265,6 +279,35 @@ export function CopyFromMenu({
     });
   }
 
+  /**
+   * 直前のコピーを「元に戻す」（コピー前スナップショットを書き戻し・?copied 再ナビで反映）。復元も**全置換**な
+   * ので、コピーの後にその日/週へ加えた手入力があれば一緒に消える。黙って巻き戻さないよう必ず確認を挟む
+   * （Reviewer MEDIUM: コピー→手直し→元に戻す で手直しが無警告で消える footgun の是正）。
+   */
+  function runUndo() {
+    if (!undo) {
+      return;
+    }
+    startTransition(async () => {
+      const res = await restoreCopySnapshotAction(classId, undo.days);
+      if (res.ok) {
+        setUndo(null);
+        setUndoConfirmOpen(false);
+        setMsg({ ok: true, text: "コピー前の状態に戻しました。" });
+        reNavigate();
+      } else {
+        setUndoConfirmOpen(false);
+        setMsg({ ok: false, text: res.error.message });
+      }
+    });
+  }
+
+  // 「元に戻す」を出す条件: undo があり、対象キー（この日 / この週）が今の表示と一致する時だけ。
+  const showUndo =
+    undo !== null &&
+    undo.classId === classId &&
+    (undo.forKey === date || undo.forKey === `week:${toMonday}`);
+
   function requestApply() {
     if (!canCopy) {
       return;
@@ -278,20 +321,34 @@ export function CopyFromMenu({
 
   return (
     <div ref={wrapRef} style={wrapStyle}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => {
-          setMsg(null);
-          setOpen((v) => !v);
-        }}
-        disabled={pending}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        style={secondaryBtnStyle}
-      >
-        ほかの日からコピー <span aria-hidden="true">▾</span>
-      </button>
+      <div style={triggerRowStyle}>
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => {
+            setMsg(null);
+            setOpen((v) => !v);
+          }}
+          disabled={pending}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          style={secondaryBtnStyle}
+        >
+          ほかの日からコピー <span aria-hidden="true">▾</span>
+        </button>
+        {/* 直前コピーの「元に戻す」（コピー成功後・同じ日/週を表示中のときだけ出す）。 */}
+        {showUndo ? (
+          <button
+            type="button"
+            onClick={() => setUndoConfirmOpen(true)}
+            disabled={pending}
+            style={undoBtnStyle}
+            aria-label={`${undo?.label ?? "コピー"}を元に戻す`}
+          >
+            <span aria-hidden="true">↩</span> {pending ? "戻しています…" : "元に戻す"}
+          </button>
+        ) : null}
+      </div>
 
       {open ? (
         <div
@@ -420,6 +477,16 @@ export function CopyFromMenu({
         onConfirm={doApply}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      <ConfirmDialog
+        open={undoConfirmOpen}
+        title="コピー前の状態に戻しますか？"
+        description={`${undo?.label ?? "コピー"}をなかったことにして、コピー直前の内容に戻します。コピーの後にこの${undo?.forKey.startsWith("week:") ? "週" : "日"}へ加えた変更も一緒に消えます。`}
+        confirmLabel="元に戻す"
+        pending={pending}
+        onConfirm={runUndo}
+        onCancel={() => setUndoConfirmOpen(false)}
+      />
     </div>
   );
 }
@@ -511,6 +578,25 @@ const wrapStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: "0.35rem",
   alignItems: "flex-start",
+};
+const triggerRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "0.5rem",
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+// 「元に戻す」チップ（コピー直後のみ）。控えめな枠 + ブランド hover 色で「安全に戻せる」を示す。
+const undoBtnStyle: React.CSSProperties = {
+  minHeight: "44px",
+  padding: "0.4rem 0.8rem",
+  background: "transparent",
+  color: color.primaryHover,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.sm,
+  cursor: "pointer",
+  fontSize: fontSize.sm,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
 };
 const panelStyle: React.CSSProperties = {
   position: "absolute",
