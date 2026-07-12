@@ -3,6 +3,7 @@ import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { resolveClassBoardForDate, resolveEditorTargetDate } from "@/lib/editor/board-context";
 import { getClassContentDates, monthWindow } from "@/lib/editor/content-dates";
+import { CALENDAR_IMPORT_PAGE_PATH } from "@/lib/editor/day-events";
 import { getEditorDayEvents } from "@/lib/editor/day-events-queries";
 import {
   editorDateSegments,
@@ -297,6 +298,9 @@ export default async function ClassEditorPage({
           // sticky カラム）へ常駐させる。「昨日と同じ＋1ヶ所変更」の最頻ワークフローがスクロールゼロで完結する
           // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。実体（上書き確認・
           // ?copied= 再ナビ・パターン別ラベル・対象日追随）は各ボタンが従来どおり担う＝配置のみの変更。
+          // 「年間予定表を取り込む →」も年 1 回の設定操作（基本時間割設定と同型）＝ここに常設し、行事が 1 件も
+          // 無い教員にも初回導線を保証する（DayEventsPanel は行事 0 件で非表示＝そこ頼みだと鶏と卵になる・
+          // #1269 follow-up）。取込ページと同じ EDITOR_ROLES ゲートなので死/forbidden リンクにならない。
           planActions={
             <>
               <CopyPreviousDayButton
@@ -319,6 +323,9 @@ export default async function ClassEditorPage({
                   基本時間割を設定 →
                 </Link>
               ) : null}
+              <Link href={CALENDAR_IMPORT_PAGE_PATH} style={{ fontSize: "0.9rem" }}>
+                年間予定表を取り込む →
+              </Link>
             </>
           }
           // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付の学校行事をワンクリックで予定 / 連絡へ確定
