@@ -5,7 +5,7 @@ import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import { FILE_IMPORT_UID_PREFIX, getCalendarEvents } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
-import { CalendarImportClient } from "./_components/CalendarImportClient";
+import { CalendarImportManager } from "./_components/CalendarImportManager";
 import {
   type RegisteredEventRow,
   RegisteredEventsSection,
@@ -15,8 +15,9 @@ const { color, fontSize, space } = tokens;
 
 /**
  * 年間行事予定表ページ（ADR-049 PR-C 起点・**school 単位**・classId なし）。教員 FB（2026-07 実運用）を
- * 受けて「取込専用ページ」から**管理画面**へ再構成: 先頭に今年度の登録済み行事を月ごとに一覧表示し、
- * その下に既存のファイル取込フロー（アップロード → AI → プレビュー → 置き換え保存）を置く。
+ * 受けて「取込専用ページ」から**管理画面**へ再構成: 主役は今年度の登録済み行事の月ごと一覧で、
+ * ファイル取込フロー（アップロード → AI → プレビュー → 置き換え保存）はタイトル行の
+ * 「＋ ファイルから取り込む」ボタンから必要なときだけ開く（開閉は CalendarImportManager）。
  *
  * 認可 = 教員 + school_admin（`EDITOR_ROLES`・ADR-049 決定「権限 = 教員 + 学校管理者」。エディタと同じ
  * ロールゲート）。system_admin はテナント文脈が無く対象外（`/forbidden`。代行が要件化したら ADR-041 の
@@ -71,44 +72,18 @@ export default async function CalendarImportPage() {
           ← エディタへ戻る
         </Link>
       </div>
-      <header style={{ display: "grid", gap: space.xs }}>
-        <h1 style={titleStyle}>年間行事予定表</h1>
-        <p style={leadStyle}>
-          学校の年間行事カレンダーを確認・取込できます。年間行事予定表ファイルを AI
-          で読み取って登録でき、読み取り結果は保存前に必ず確認・修正できます。
-        </p>
-      </header>
-      <RegisteredEventsSection events={events} window={window} />
-      <section
-        style={{ display: "grid", gap: space.sm }}
-        aria-labelledby="calendar-import-flow-heading"
-      >
-        <h2 id="calendar-import-flow-heading" style={importHeadingStyle}>
-          ファイルから取り込む
-        </h2>
-        <CalendarImportClient existingCount={fileRows.length} existingFileName={existingFileName} />
-      </section>
+      {/*
+       * タイトル行（＋「＋ ファイルから取り込む」ボタン）と取込フローの開閉は client の
+       * CalendarImportManager が持つ（教員 FB: 主役は登録済み一覧・取込は必要なときに開く）。
+       * 一覧はサーバ描画のまま children で挟む。
+       */}
+      <CalendarImportManager existingCount={fileRows.length} existingFileName={existingFileName}>
+        <RegisteredEventsSection events={events} window={window} />
+      </CalendarImportManager>
     </div>
   );
 }
 
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: fontSize.xl,
-  fontWeight: 700,
-  color: color.ink,
-};
-const leadStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: fontSize.sm,
-  color: color.muted,
-};
-const importHeadingStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: fontSize.lg,
-  fontWeight: 700,
-  color: color.ink,
-};
 const backLinkStyle: React.CSSProperties = {
   fontSize: fontSize.sm,
   color: color.blueStrong,
