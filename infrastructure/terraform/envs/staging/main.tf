@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "20d9d2b" # 2026-07-12: ADR-049 年間行事ファイル取込 全4スライス（#1266/#1268/#1270/#1269）+ #1267。e0bfd5b→20d9d2b。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
+  web_image_tag = "57d0a51" # 2026-07-12: #1272 年間予定表取込リンクを計画操作エリアへ常設（#1269 follow-up）。20d9d2b→57d0a51。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
 }
 
 module "network" {
