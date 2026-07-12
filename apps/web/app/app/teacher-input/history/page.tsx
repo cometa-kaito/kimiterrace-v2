@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { TEACHER_INPUT_STAFF_ROLES } from "@/lib/teacher-input/roles";
 import { listTeacherInputs } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { TeacherInputHistory } from "./_components/TeacherInputHistory";
 
@@ -41,15 +42,15 @@ export default async function TeacherInputHistoryPage() {
     <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem" }}>
         <h1 style={{ fontSize: "1.4rem", margin: "0 0 0.25rem" }}>入力履歴</h1>
-        <span style={{ color: "#6b7280", fontSize: "0.9rem" }}>{rows.length} 件</span>
+        <span style={{ color: tokens.color.muted, fontSize: "0.9rem" }}>{rows.length} 件</span>
         <Link
           href="/app/teacher-input"
-          style={{ marginLeft: "auto", fontSize: "0.9rem", color: "#2563eb" }}
+          style={{ marginLeft: "auto", fontSize: "0.9rem", color: tokens.color.blueStrong }}
         >
           ＋新規入力
         </Link>
       </div>
-      <p style={{ color: "#6b7280", margin: "0 0 1rem", fontSize: "0.9rem" }}>
+      <p style={{ color: tokens.color.muted, margin: "0 0 1rem", fontSize: "0.9rem" }}>
         これまでに入力した連絡の一覧です（自校分のみ）。AI 整理の進捗状況を確認できます。
       </p>
       <TeacherInputHistory rows={rows} />

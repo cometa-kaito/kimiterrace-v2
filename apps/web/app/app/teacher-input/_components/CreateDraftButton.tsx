@@ -1,6 +1,7 @@
 "use client";
 
 import { createDraftFromInputAction } from "@/lib/teacher-input/draft-actions";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -37,16 +38,17 @@ export function CreateDraftButton({ inputId }: { inputId: string }) {
           fontSize: "0.8rem",
           padding: "0.2rem 0.6rem",
           borderRadius: "0.25rem",
-          border: "1px solid #2563eb",
-          background: pending ? "#93c5fd" : "#2563eb",
+          border: `1px solid ${tokens.color.primary}`,
+          background: tokens.color.primary,
           color: "#fff",
+          opacity: pending ? 0.55 : 1,
           cursor: pending ? "default" : "pointer",
         }}
       >
         {pending ? "作成中…" : "編集して公開"}
       </button>
       {error && (
-        <span role="alert" style={{ color: "#b91c1c", fontSize: "0.8rem" }}>
+        <span role="alert" style={{ color: tokens.color.dangerFg, fontSize: "0.8rem" }}>
           {error}
         </span>
       )}

@@ -5,6 +5,7 @@ import {
   MAX_UPLOAD_BYTES,
   uploadErrorMessage,
 } from "@/lib/teacher-input/upload-validation";
+import { tokens } from "@kimiterrace/ui";
 import { useRef, useState, useTransition } from "react";
 import { CreateDraftButton } from "./CreateDraftButton";
 
@@ -73,7 +74,11 @@ export function FileUploadForm() {
   return (
     <form
       onSubmit={onSubmit}
-      style={{ border: "1px solid #e5e7eb", borderRadius: "0.5rem", padding: "1rem" }}
+      style={{
+        border: `1px solid ${tokens.color.border}`,
+        borderRadius: "0.5rem",
+        padding: "1rem",
+      }}
     >
       <label
         htmlFor="teacher-upload-file"
@@ -96,9 +101,10 @@ export function FileUploadForm() {
             fontSize: "0.9rem",
             padding: "0.35rem 0.9rem",
             borderRadius: "0.25rem",
-            border: "1px solid #2563eb",
-            background: pending ? "#93c5fd" : "#2563eb",
+            border: `1px solid ${tokens.color.primary}`,
+            background: tokens.color.primary,
             color: "#fff",
+            opacity: pending ? 0.55 : 1,
             cursor: pending ? "default" : "pointer",
           }}
         >
@@ -112,13 +118,16 @@ export function FileUploadForm() {
         </p>
       ) : null}
       {error && (
-        <p role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0.5rem 0 0" }}>
+        <p
+          role="alert"
+          style={{ color: tokens.color.dangerFg, fontSize: "0.85rem", margin: "0.5rem 0 0" }}
+        >
           {error}
         </p>
       )}
       {done && (
         <div style={{ marginTop: "0.6rem", fontSize: "0.85rem" }}>
-          <p style={{ margin: "0 0 0.4rem", color: "#15803d" }}>
+          <p style={{ margin: "0 0 0.4rem", color: tokens.color.successFg }}>
             アップロードしました。
             {done.pendingOcr
               ? "（画像の文字起こしは準備中です。文章ファイルはそのまま下書きにできます）"

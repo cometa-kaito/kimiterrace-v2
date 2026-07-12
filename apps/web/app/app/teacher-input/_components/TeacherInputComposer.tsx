@@ -1,6 +1,7 @@
 "use client";
 
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -84,6 +85,8 @@ export function TeacherInputComposer() {
     }
   };
 
+  const busy = !text.trim() || submit.kind === "submitting";
+
   return (
     <form onSubmit={onSubmit}>
       <textarea
@@ -96,18 +99,21 @@ export function TeacherInputComposer() {
           width: "100%",
           padding: "0.6rem",
           fontSize: "1rem",
-          border: "1px solid #d1d5db",
+          border: `1px solid ${tokens.color.border}`,
           borderRadius: "0.4rem",
           resize: "vertical",
         }}
       />
       {listening && interim ? (
-        <p style={{ color: "#6b7280", fontSize: "0.85rem", margin: "0.25rem 0" }}>
+        <p style={{ color: tokens.color.muted, fontSize: "0.85rem", margin: "0.25rem 0" }}>
           認識中: {interim}
         </p>
       ) : null}
       {error ? (
-        <p role="alert" style={{ color: "#b91c1c", fontSize: "0.85rem", margin: "0.25rem 0" }}>
+        <p
+          role="alert"
+          style={{ color: tokens.color.dangerFg, fontSize: "0.85rem", margin: "0.25rem 0" }}
+        >
           {error === "not-allowed"
             ? "マイクの使用が許可されていません。ブラウザの権限を確認してください。"
             : `音声入力エラー: ${error}`}
@@ -123,28 +129,29 @@ export function TeacherInputComposer() {
             style={{
               padding: "0.5rem 0.9rem",
               borderRadius: "0.4rem",
-              border: "1px solid #d1d5db",
-              background: listening ? "#fee2e2" : "#f9fafb",
+              border: `1px solid ${tokens.color.border}`,
+              background: listening ? tokens.color.dangerBg : tokens.color.bgSoft,
               cursor: "pointer",
             }}
           >
             {listening ? "■ 停止" : "🎤 音声入力"}
           </button>
         ) : (
-          <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
+          <span style={{ color: tokens.color.muted, fontSize: "0.8rem" }}>
             このブラウザは音声入力に未対応です（チャット入力は利用できます）。
           </span>
         )}
         <button
           type="submit"
-          disabled={!text.trim() || submit.kind === "submitting"}
+          disabled={busy}
           style={{
             padding: "0.5rem 1.1rem",
             borderRadius: "0.4rem",
             border: "none",
-            background: !text.trim() || submit.kind === "submitting" ? "#93c5fd" : "#2563eb",
+            background: tokens.color.primary,
             color: "#fff",
-            cursor: !text.trim() || submit.kind === "submitting" ? "default" : "pointer",
+            opacity: busy ? 0.55 : 1,
+            cursor: busy ? "default" : "pointer",
           }}
         >
           {submit.kind === "submitting" ? "送信中…" : "送信"}
@@ -160,13 +167,18 @@ export function TeacherInputComposer() {
 
       {submit.kind === "done" ? (
         <output
-          style={{ display: "block", color: "#15803d", fontSize: "0.9rem", marginTop: "0.6rem" }}
+          style={{
+            display: "block",
+            color: tokens.color.successFg,
+            fontSize: "0.9rem",
+            marginTop: "0.6rem",
+          }}
         >
           入力を受け付けました。{" "}
           {/* 送信後の受け皿。履歴の各入力から「編集して公開」で掲示の草稿を作成し、エディタで仕上げる。 */}
           <Link
             href="/app/teacher-input/history"
-            style={{ color: "#2563eb", textDecoration: "underline" }}
+            style={{ color: tokens.color.blueStrong, textDecoration: "underline" }}
           >
             入力履歴から編集して草稿を作成できます
           </Link>
@@ -174,7 +186,10 @@ export function TeacherInputComposer() {
         </output>
       ) : null}
       {submit.kind === "error" ? (
-        <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: "0.6rem" }}>
+        <p
+          role="alert"
+          style={{ color: tokens.color.dangerFg, fontSize: "0.9rem", marginTop: "0.6rem" }}
+        >
           {submit.message}
         </p>
       ) : null}

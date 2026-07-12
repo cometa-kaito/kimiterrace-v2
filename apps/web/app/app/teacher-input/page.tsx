@@ -49,7 +49,22 @@ export default async function TeacherInputPage() {
           fontSize: "0.9rem",
         }}
       >
-        💡 教室のサイネージに出す<strong>予定・連絡・提出物</strong>は、
+        <svg
+          viewBox="0 0 24 24"
+          width="1.05em"
+          height="1.05em"
+          fill="none"
+          stroke={tokens.color.infoFg}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          style={{ verticalAlign: "-0.2em", marginRight: "0.35rem" }}
+        >
+          <path d="M9 18h6M10 21h4" />
+          <path d="M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .9 1.6h5.2c.1-.6.4-1.2.9-1.6A6 6 0 0 0 12 3z" />
+        </svg>
+        教室のサイネージに出す<strong>予定・連絡・提出物</strong>は、
         <Link href="/app/editor" style={{ color: tokens.color.blueStrong, fontWeight: 600 }}>
           エディタの「AI におまかせ」
         </Link>

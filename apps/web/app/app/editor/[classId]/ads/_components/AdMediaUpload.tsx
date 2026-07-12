@@ -7,6 +7,7 @@ import {
   adUploadErrorMessage,
 } from "@/lib/ads/media-upload-validation";
 import { MAX_UPLOAD_BYTES } from "@/lib/teacher-input/upload-validation";
+import { tokens } from "@kimiterrace/ui";
 import { useId, useRef, useState, useTransition } from "react";
 
 /**
@@ -143,13 +144,13 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "0.4rem",
 };
 const hintStyle: React.CSSProperties = {
-  color: "#6b7280",
+  color: tokens.color.muted,
   fontSize: "0.78rem",
   margin: "0.4rem 0 0",
 };
 const uploadBtnStyle: React.CSSProperties = {
   padding: "0.35rem 0.8rem",
-  background: "#2563eb",
+  background: tokens.color.primary,
   color: "#fff",
   border: "none",
   borderRadius: "6px",

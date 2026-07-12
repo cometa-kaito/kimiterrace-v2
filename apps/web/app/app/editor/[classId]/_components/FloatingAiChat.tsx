@@ -13,6 +13,27 @@ import {
 } from "react";
 import styles from "./FloatingAiChat.module.css";
 
+/** 依存ゼロのインライン SVG 吹き出しアイコン（currentColor 継承・`.fabIcon` の 1.2rem に追従）。 */
+function ChatIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <path d="M4 5h16v11H8l-4 4z" />
+      <path d="M9 10h6M9 13h4" />
+    </svg>
+  );
+}
+
 /** リサイズの下限（px）。ヘッダ＋入力欄が潰れない最小。 */
 const MIN_W = 300;
 const MIN_H = 360;
@@ -244,7 +265,7 @@ export function FloatingAiChat({
           onClick={() => setOpen(true)}
         >
           <span aria-hidden="true" className={styles.fabIcon}>
-            💬
+            <ChatIcon />
           </span>
           {label}
         </button>
@@ -263,7 +284,7 @@ export function FloatingAiChat({
         <div className={styles.panelHeader}>
           <h2 className={styles.panelTitle}>
             <span aria-hidden="true" className={styles.fabIcon}>
-              💬
+              <ChatIcon />
             </span>
             {title}
           </h2>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/tv/config-edit-core";
 import type { TvSchedule } from "@kimiterrace/db/schema";
 import { MAX_SCHEDULE_WINDOWS } from "@kimiterrace/db/tv-schedule";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
@@ -398,7 +399,7 @@ export function TvConfigEditForm({
 }
 
 const formStyle: React.CSSProperties = { display: "grid", gap: "1rem", maxWidth: "560px" };
-const previewLinkStyle: React.CSSProperties = { color: "#2563eb", fontWeight: 600 };
+const previewLinkStyle: React.CSSProperties = { color: tokens.color.blueStrong, fontWeight: 600 };
 const inlineBtnStyle: React.CSSProperties = {
   border: "1px solid #d1d5db",
   borderRadius: "0.3rem",
@@ -454,10 +455,10 @@ const removeWindowBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 const addWindowBtnStyle: React.CSSProperties = {
-  border: "1px dashed #93c5fd",
+  border: `1px dashed ${tokens.color.infoBorder}`,
   borderRadius: "0.4rem",
   background: "#f8fafc",
-  color: "#1d4ed8",
+  color: tokens.color.infoFg,
   padding: "0.35rem 0.7rem",
   fontSize: "0.85rem",
   fontWeight: 600,

@@ -3,6 +3,7 @@ import { PUBLISHER_ROLES, type PublishScopeValue } from "@/lib/contents/publish-
 import { scopeLabel } from "@/lib/contents/publish-view";
 import { withSession } from "@/lib/db";
 import { getContentConfidence, getContentDetail } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfidenceBadge } from "../_components/ConfidenceBadge";
@@ -76,7 +77,7 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
 
 const backLinkStyle: React.CSSProperties = {
   fontSize: "0.85rem",
-  color: "#2563eb",
+  color: tokens.color.blueStrong,
   textDecoration: "none",
 };
 const headerStyle: React.CSSProperties = {
