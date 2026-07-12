@@ -2495,15 +2495,17 @@
    で下端が見切れる**。ここでステージ内は **720p 基底プロファイル**（`--scale-factor:1` / `--content-gap:8px` /
    `--header-height:36px`＝各カスタムプロパティの既定値）を固定し、大型モニタで開いても 1280×720 に忠実に収まる縮小
    コピーにする。§14 の fitStage が 1920×1080 ステージへ 1080p プロファイル（1.35）を固定するのと**同型・こちらは 720p**。
-   ステージのマーカークラス `.scaledStage` は {@link ScaledSignageBoard} が `.stage` に付与する。pattern3/4 は専用
-   ヘッダー高（64/58px・クラス直指定でメディアクエリより優先）を持つので header-height の固定対象から外す。
+   ステージのマーカークラス `.scaledStage` は {@link ScaledSignageBoard} が `.stage` に付与する。pattern3/4/5 は
+   専用ヘッダー高（p3=64 / p4=58 / p5=64px・クラス直指定でメディアクエリより優先）を持つので header-height の固定
+   対象から外す（`:not(.p3Root):not(.p4Root):not(.p5Root)`。外さないと p5 の 64px ヘッダーが 36px へ潰れて忠実性が
+   崩れる）。
    （≤899px のモバイル縦積み中和は別軸＝§12 のモバイル経路一式の復元が要るため本ブロックには含めない。実寸プレビューは
    主に職員室 PC からの導線。スマホ実機での見切れが確認されたら別途対応する。） */
 .scaledStage .signageRoot {
   --scale-factor: 1;
   --content-gap: 8px;
 }
-.scaledStage .signageRoot:not(.p3Root):not(.p4Root) {
+.scaledStage .signageRoot:not(.p3Root):not(.p4Root):not(.p5Root) {
   --header-height: 36px;
 }
 
