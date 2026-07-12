@@ -25,12 +25,14 @@ import {
 import { fileImportEventDiffKey } from "@kimiterrace/db/calendar-import-key";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useRef, useState, useTransition } from "react";
+import styles from "./calendar-import-dropzone.module.css";
 
 const { color, radius, fontSize, space } = tokens;
 
 /**
- * 年間行事予定表ファイル取込のクライアント UI（ADR-049 PR-C）。ファイル選択 → AI 構造化（Server Action）→
+ * 年間行事予定表ファイル取込のクライアント UI（ADR-049 PR-C）。ファイル選択（ドロップゾーン =
+ * クリック選択が主経路・D&D はエンハンス。教員 FB #1259 follow-up）→ AI 構造化（Server Action）→
  * プレビュー（行の修正・削除 / 年度窓・drop 内訳・氏名 soft-gate の明示）→ 教員の明示確定で置き換え保存。
  * **確認なしの自動保存はしない**（ADR-049 決定 4）。検証・認可・監査・RLS は Server Action 側が担保する。
  */
@@ -56,6 +58,46 @@ type Draft = {
 
 /** 想定外 reason のフォールバック文言。 */
 const GENERIC_ERROR_MESSAGE = "エラーが発生しました。時間をおいて再試行してください。";
+
+/**
+ * クライアント側の即時検証で受理する拡張子（input の accept 属性と単一ソース）。
+ * サーバ（calendar-import-actions.ts の MIME allowlist + CALENDAR_IMPORT_FILE_MAX_BYTES）が
+ * 最終防衛で、ここは D&D / 全ファイル選択時の「親切な早期エラー」用（"use server" モジュールは
+ * 定数を export できないため同値をローカルに持つ。万一ズレてもサーバの
+ * unsupported_format / too_large が拾う）。
+ */
+const ACCEPTED_EXTS = new Set(["xlsx", "csv", "pdf", "png", "jpg", "jpeg"]);
+const ACCEPT_ATTR = [...ACCEPTED_EXTS].map((ext) => `.${ext}`).join(",");
+/** ファイルサイズ上限（10MB・サーバの CALENDAR_IMPORT_FILE_MAX_BYTES と同値）。 */
+const FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+/** ドロップゾーンに出す対応形式・上限のチップ（aria-describedby でゾーンにも紐づく）。 */
+const FORMAT_CHIPS = ["Excel (.xlsx)", "CSV", "PDF", "画像 (PNG・JPEG)", "上限 10MB"];
+
+/** 選択済みカードに出す種類ラベル（拡張子 → 教員向け表記）。 */
+const FILE_KIND_LABELS: Record<string, string> = {
+  xlsx: "Excel",
+  csv: "CSV",
+  pdf: "PDF",
+  png: "画像 (PNG)",
+  jpg: "画像 (JPEG)",
+  jpeg: "画像 (JPEG)",
+};
+
+/** ファイル名の拡張子（小文字・無ければ ""）。 */
+function fileExt(name: string): string {
+  const i = name.lastIndexOf(".");
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
+}
+
+/** バイト数の教員向け表記（1MB 未満は KB・以上は小数 1 桁 MB）。 */
+function formatFileSize(bytes: number): string {
+  const mb = 1024 * 1024;
+  if (bytes >= mb) {
+    return `${(bytes / mb).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+}
 
 /** draft action のエラー reason → 教員向け文言。 */
 const DRAFT_ERROR_MESSAGES: Record<string, string> = {
@@ -119,6 +161,12 @@ export function CalendarImportClient({
     fileName: existingFileName,
   });
   const [file, setFile] = useState<File | null>(null);
+  // 複数ファイル投下時などの補足（エラーではないので role=status で控えめに出す）。
+  const [fileNote, setFileNote] = useState<string | null>(null);
+  // ドロップゾーンの drag-over ハイライト。子要素を跨ぐ dragenter/dragleave の揺れは深さカウンタで吸収。
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [piiSurfaces, setPiiSurfaces] = useState<string[] | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -144,12 +192,59 @@ export function CalendarImportClient({
 
   function resetResults() {
     setError(null);
+    setFileNote(null);
     setPiiSurfaces(null);
     setDraft(null);
     setIssues(null);
     setSavedMsg(null);
     setFreezeStart(null);
     setSaveMode("replace");
+  }
+
+  /**
+   * ファイル選択の単一入口（クリック選択 = input change / D&D = drop の両経路）。
+   * 拡張子・サイズをその場で検証して親切なエラーを即時に出す（サーバ側検証が最終防衛）。
+   * 複数ファイルは先頭 1 件だけ採用し、その旨を明示する（沈黙の切り捨て禁止）。
+   */
+  function handleFiles(list: ArrayLike<File> | null | undefined) {
+    const files = list ? Array.from(list) : [];
+    const first = files[0];
+    if (!first) {
+      // 選択ダイアログのキャンセル等。既存の選択・プレビューを壊さない。
+      return;
+    }
+    resetResults();
+    if (!ACCEPTED_EXTS.has(fileExt(first.name))) {
+      setFile(null);
+      setError(
+        `「${first.name}」は対応していない形式です（Excel(.xlsx) / CSV / PDF / PNG / JPEG のみ）。`,
+      );
+      return;
+    }
+    if (first.size > FILE_MAX_BYTES) {
+      setFile(null);
+      setError(
+        `「${first.name}」は大きすぎます（上限 10MB・このファイルは ${formatFileSize(first.size)}）。`,
+      );
+      return;
+    }
+    setFile(first);
+    if (files.length > 1) {
+      setFileNote(
+        `複数のファイルは一度に読み取れないため、先頭の「${first.name}」だけを選択しました。`,
+      );
+    }
+  }
+
+  /** ファイル選択ダイアログを開く（ドロップゾーン / 選択済みカードの「変更」から）。 */
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
+  /** 選択の取り消し（×）。ドロップゾーンに戻す。 */
+  function clearFile() {
+    setFile(null);
+    resetResults();
   }
 
   function applyDraftResult(r: CalendarImportDraftActionResult) {
@@ -300,34 +395,132 @@ export function CalendarImportClient({
     <div style={{ display: "grid", gap: space.lg }}>
       {/* 1) ファイル選択 → 読み取り */}
       <section style={cardStyle} aria-labelledby="calendar-import-file-heading">
-        <h2 id="calendar-import-file-heading" style={sectionHeadingStyle}>
-          1. ファイルを選ぶ
-        </h2>
+        <StepHeading id="calendar-import-file-heading" num={1}>
+          ファイルを選ぶ
+        </StepHeading>
         <p style={hintStyle}>
-          Excel (.xlsx) / CSV / PDF / 画像 (PNG・JPEG) の年間行事予定表に対応しています（上限
-          10MB）。書式は学校ごとに違って構いません（AI が読み取ります）。
+          年間行事予定表の書式は学校ごとに違って構いません（AI が読み取ります）。
         </p>
         {existing.events.length > 0 ? (
-          <p style={hintStyle}>
-            取込済み: 今年度の行事 {existing.events.length} 件
-            {existing.fileName ? `（${existing.fileName}）` : ""}
-            。保存時に「完全に置き換える」か「既存に追加・更新する」かを選べます。
+          <div style={infoBannerStyle}>
+            <span style={bannerIconStyle}>
+              <InfoIcon />
+            </span>
+            <p style={{ margin: 0 }}>
+              取込済み: 今年度の行事 {existing.events.length} 件
+              {existing.fileName ? `（${existing.fileName}）` : ""}
+              。保存時に「完全に置き換える」か「既存に追加・更新する」かを選べます。
+            </p>
+          </div>
+        ) : null}
+        {/* ネイティブ input は機能だけ残して視覚的に隠す（「選択されていません」を見せない）。
+            クリック選択が主経路（ゾーン = 実 button）・D&D はエンハンス。 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ACCEPT_ATTR}
+          disabled={pending}
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            // 同じファイルの選び直しでも change が発火するように毎回クリアする。
+            e.target.value = "";
+          }}
+          aria-label="年間行事予定表ファイル"
+          tabIndex={-1}
+          style={srOnlyStyle}
+        />
+        {file === null ? (
+          <button
+            type="button"
+            className={dragOver ? `${styles.zone} ${styles.zoneActive}` : styles.zone}
+            aria-label="年間行事予定表ファイルを選ぶ（クリックで選択・ドラッグ＆ドロップ対応）"
+            aria-describedby="calendar-import-file-formats"
+            disabled={pending}
+            onClick={openFilePicker}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              dragDepth.current += 1;
+              setDragOver(true);
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={() => {
+              dragDepth.current = Math.max(0, dragDepth.current - 1);
+              if (dragDepth.current === 0) {
+                setDragOver(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              dragDepth.current = 0;
+              setDragOver(false);
+              if (!pending) {
+                handleFiles(e.dataTransfer?.files);
+              }
+            }}
+          >
+            <span style={zoneIconStyle}>
+              <UploadIcon />
+            </span>
+            <span style={zoneMainStyle}>
+              {dragOver ? "ここにドロップして読み込む" : "ファイルをドラッグ＆ドロップ"}
+            </span>
+            <span style={zoneSubStyle}>または クリックして選択</span>
+            <span id="calendar-import-file-formats" style={chipsRowStyle}>
+              {FORMAT_CHIPS.map((chip) => (
+                <span key={chip} style={chipStyle}>
+                  {chip}
+                </span>
+              ))}
+            </span>
+          </button>
+        ) : (
+          <div style={selectedCardStyle}>
+            <span style={fileIconStyle}>
+              <FileIcon />
+            </span>
+            <span style={{ display: "grid", gap: "0.1rem", minWidth: 0, flex: 1 }}>
+              <span style={fileNameStyle}>{file.name}</span>
+              <span style={fileMetaStyle}>
+                {FILE_KIND_LABELS[fileExt(file.name)] ?? "ファイル"}・{formatFileSize(file.size)}
+              </span>
+            </span>
+            <Button
+              variant="secondary"
+              onClick={openFilePicker}
+              disabled={pending}
+              style={smallButtonStyle}
+            >
+              変更
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={clearFile}
+              disabled={pending}
+              aria-label="ファイルの選択を取り消す"
+              style={{ ...smallButtonStyle, color: color.muted }}
+            >
+              ×
+            </Button>
+          </div>
+        )}
+        {fileNote ? (
+          <p role="status" style={hintStyle}>
+            {fileNote}
           </p>
         ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: space.md, alignItems: "center" }}>
-          <input
-            type="file"
-            accept=".xlsx,.csv,.pdf,.png,.jpg,.jpeg"
-            disabled={pending}
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              resetResults();
-            }}
-            aria-label="年間行事予定表ファイル"
-          />
-          <Button onClick={() => runDraft(false)} disabled={!file || pending}>
-            {pending ? "読み取り中…" : "AI で読み取る"}
+          <Button
+            onClick={() => runDraft(false)}
+            disabled={!file || pending}
+            aria-describedby={file === null ? "calendar-import-read-hint" : undefined}
+          >
+            {pending ? "読み取り中…" : "このファイルを AI で読み取る"}
           </Button>
+          {file === null ? (
+            <span id="calendar-import-read-hint" style={hintStyle}>
+              ファイルを選ぶと読み取りを開始できます。
+            </span>
+          ) : null}
         </div>
         {error ? (
           <p role="alert" style={errorStyle}>
@@ -360,9 +553,9 @@ export function CalendarImportClient({
       {/* 2) プレビュー（修正・削除）→ 置き換え保存 */}
       {draft ? (
         <section style={cardStyle} aria-labelledby="calendar-import-preview-heading">
-          <h2 id="calendar-import-preview-heading" style={sectionHeadingStyle}>
-            2. 内容を確認して保存する
-          </h2>
+          <StepHeading id="calendar-import-preview-heading" num={2}>
+            内容を確認して保存する
+          </StepHeading>
           <p style={hintStyle}>
             対象年度: <strong>{draft.window.fiscalYear} 年度</strong>（
             {jpDateLabel(draft.window.start)}〜{jpDateLabel(draft.window.end)}
@@ -591,6 +784,77 @@ export function CalendarImportClient({
   );
 }
 
+/** ステップ見出し（番号チップ + タイトル）。番号は視覚整理用のチップで、読み上げにもそのまま乗る。 */
+function StepHeading({ id, num, children }: { id: string; num: number; children: ReactNode }) {
+  return (
+    <h2 id={id} style={sectionHeadingStyle}>
+      <span style={stepNumStyle}>{num}</span>
+      {children}
+    </h2>
+  );
+}
+
+/** ドロップゾーンのファイルアップロードアイコン（currentColor・装飾なので aria-hidden）。 */
+function UploadIcon() {
+  return (
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 15V4" />
+      <path d="m7 8 5-4 5 4" />
+      <path d="M4 15v4a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-4" />
+    </svg>
+  );
+}
+
+/** 選択済みファイルカードの書類アイコン（currentColor・装飾なので aria-hidden）。 */
+function FileIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 2.5h8L19 7.5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1Z" />
+      <path d="M14 2.5v5h5" />
+    </svg>
+  );
+}
+
+/** 取込済みバナーの情報アイコン（currentColor・装飾なので aria-hidden）。 */
+function InfoIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
 /** 削除される行事一覧の表示上限。超過分は件数（「他 N 件」）で必ず明示する（沈黙の切り捨て禁止）。 */
 const REMOVED_LIST_MAX = 20;
 
@@ -663,10 +927,103 @@ const cardStyle: React.CSSProperties = {
   background: color.surface,
 };
 const sectionHeadingStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: space.sm,
   margin: 0,
   fontSize: fontSize.md,
   fontWeight: 600,
   color: color.ink,
+};
+/** ステップ番号チップ（白 on blueStrong は AA 充足・視覚整理のみで意味は見出しテキストが持つ）。 */
+const stepNumStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "1.5rem",
+  height: "1.5rem",
+  flex: "none",
+  borderRadius: radius.pill,
+  background: color.blueStrong,
+  color: color.surface,
+  fontSize: fontSize.xs,
+  fontWeight: 700,
+};
+/** 取込済みバナー（info トーン + アイコン。色だけに頼らず「取込済み:」の文言で意味を伝える）。 */
+const infoBannerStyle: React.CSSProperties = {
+  display: "flex",
+  gap: space.sm,
+  alignItems: "flex-start",
+  fontSize: fontSize.sm,
+  color: color.infoFg,
+  background: color.infoBg,
+  border: `1px solid ${color.infoBorder}`,
+  borderRadius: radius.md,
+  padding: "0.6rem 0.8rem",
+};
+const bannerIconStyle: React.CSSProperties = {
+  display: "inline-flex",
+  flex: "none",
+  marginTop: "0.1rem",
+};
+/** ドロップゾーン内部（枠・hover / focus / drag は module CSS 側）。 */
+const zoneIconStyle: React.CSSProperties = {
+  display: "inline-flex",
+  color: color.blueStrong,
+};
+const zoneMainStyle: React.CSSProperties = {
+  fontSize: fontSize.md,
+  fontWeight: 600,
+  color: color.ink,
+};
+const zoneSubStyle: React.CSSProperties = {
+  fontSize: fontSize.sm,
+  color: color.muted,
+};
+const chipsRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: space.xs,
+  justifyContent: "center",
+  marginTop: space.xs,
+};
+const chipStyle: React.CSSProperties = {
+  fontSize: fontSize.xs,
+  color: color.muted,
+  background: color.surface,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.pill,
+  padding: "0.1rem 0.6rem",
+  lineHeight: 1.6,
+};
+/** 選択済みファイルカード（種類アイコン + 名前 + サイズ + 変更 / 取り消し）。 */
+const selectedCardStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: space.md,
+  padding: "0.7rem 0.9rem",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.md,
+  background: color.bgSoft,
+};
+const fileIconStyle: React.CSSProperties = {
+  display: "inline-flex",
+  flex: "none",
+  color: color.blueStrong,
+};
+const fileNameStyle: React.CSSProperties = {
+  fontSize: fontSize.sm,
+  fontWeight: 600,
+  color: color.ink,
+  overflowWrap: "anywhere",
+};
+const fileMetaStyle: React.CSSProperties = {
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+const smallButtonStyle: React.CSSProperties = {
+  padding: "0.35rem 0.7rem",
+  fontSize: fontSize.sm,
 };
 const hintStyle: React.CSSProperties = {
   margin: 0,

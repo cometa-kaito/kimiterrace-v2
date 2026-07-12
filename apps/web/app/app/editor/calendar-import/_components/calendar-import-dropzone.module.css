@@ -1,0 +1,49 @@
+/*
+ * 年間行事予定表取込・ステップ1「ファイルを選ぶ」のドロップゾーン（教員 FB「このUIもこだわりましょう」
+ * #1259 follow-up）。実体は <button>（クリック/Enter/Space でファイル選択ダイアログ）で、
+ * ドラッグ＆ドロップはエンハンス（CalendarImportClient 側で sr-only の input[type=file] と連携）。
+ * :hover / :focus-visible / prefers-reduced-motion はインライン style で書けないため module 化
+ * （calendar-import-modal.module.css と同じ作法）。色は globals.css の --brand-* を参照し、
+ * CSS 変数の無いステータス色のみ tokens.ts と同値の生値（コメントで対応を明記）。
+ */
+.zone {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 2rem 1.25rem;
+  text-align: center;
+  font: inherit;
+  border: 2px dashed var(--brand-border);
+  border-radius: 1rem; /* tokens.radius.lg */
+  background: var(--brand-bg-soft);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.zone:hover {
+  border-color: var(--brand-blue);
+  background: #fff; /* tokens.color.surface */
+}
+.zone:focus-visible {
+  outline: 2px solid var(--brand-blue-strong);
+  outline-offset: 2px;
+}
+
+/*
+ * drag-over 中（クラスは React の dragOver state から付与）。色だけに頼らず、主文言も
+ * 「ここにドロップして読み込む」へ切り替えて伝える（NFR05）。
+ */
+.zoneActive,
+.zoneActive:hover {
+  border-color: var(--brand-blue-strong);
+  background: #eff6ff; /* tokens.color.infoBg */
+}
+
+/* 視覚過敏設定では色遷移アニメーションを止める。 */
+@media (prefers-reduced-motion: reduce) {
+  .zone {
+    transition: none;
+  }
+}
