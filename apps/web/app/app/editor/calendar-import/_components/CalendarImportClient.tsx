@@ -10,7 +10,9 @@ import type {
   FiscalYearWindow,
 } from "@/lib/editor/calendar-import-core";
 import type { CalendarImportSaveIssue } from "@/lib/editor/calendar-import-save-core";
+import { groupEventsByMonth } from "@/lib/editor/calendar-import-view";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
+import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
 const { color, radius, fontSize, space } = tokens;
@@ -79,6 +81,7 @@ export function CalendarImportClient({
   /** 前回取込のファイル名（取込済みが無ければ null）。 */
   existingFileName: string | null;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   // 「前回の取込」概況。初期値はサーバ props、同一セッションで保存に成功したら保存結果で更新する
   // （2 回目の置き換え確認ダイアログ・ヒントが古い件数を出さないため・#1270 L1）。
@@ -165,7 +168,11 @@ export function CalendarImportClient({
       return;
     }
     startTransition(async () => {
-      const events = draft.rows.map((row) => ({
+      // 表示（月グループ）と同じ順で送る: 保存エラーの「行 N」がプレビューの見た目の行番号と一致する。
+      const orderedRows = groupEventsByMonth(draft.rows, (row) => row.startDate).flatMap(
+        (g) => g.items,
+      );
+      const events = orderedRows.map((row) => ({
         summary: row.summary,
         startDate: row.startDate,
         // 空欄は「省略」（単日行事）。schema 側でも空文字は省略に正規化されるが、送る前に落として明示する。
@@ -185,6 +192,8 @@ export function CalendarImportClient({
         setExisting({ count: r.inserted, fileName: draft.fileName });
         setDraft(null);
         setFile(null);
+        // 同ページ先頭の「登録済みの行事」（server component）を保存結果で最新化する。
+        router.refresh();
         return;
       }
       if (r.reason === "invalid") {
@@ -198,6 +207,11 @@ export function CalendarImportClient({
   const droppedEntries = draft
     ? Object.entries(draft.dropped).filter(([, count]) => count > 0)
     : [];
+
+  // 月グループ化した表示順（教員 FB「月順で線で区切って分かり易く」・登録済み一覧と同じ単一ソース）。
+  // 保存ペイロードも同順で送る（save() 参照）ので、エラーの「行 N」は見た目の行番号と一致する。
+  const previewGroups = draft ? groupEventsByMonth(draft.rows, (row) => row.startDate) : [];
+  const rowOrdinal = new Map(previewGroups.flatMap((g) => g.items).map((row, i) => [row.key, i]));
 
   return (
     <div style={{ display: "grid", gap: space.lg }}>
@@ -314,65 +328,76 @@ export function CalendarImportClient({
                   </th>
                 </tr>
               </thead>
-              <tbody>
-                {draft.rows.map((row, i) => (
-                  <tr key={row.key}>
-                    <td style={tdStyle}>
-                      <input
-                        type="text"
-                        value={row.summary}
-                        maxLength={200}
-                        onChange={(e) => updateRow(row.key, { summary: e.target.value })}
-                        disabled={pending}
-                        style={{ ...inputStyle, minWidth: "12rem" }}
-                        aria-label={`行 ${i + 1} の行事名`}
-                      />
-                    </td>
-                    <td style={tdStyle}>
-                      <input
-                        type="date"
-                        value={row.startDate}
-                        onChange={(e) => updateRow(row.key, { startDate: e.target.value })}
-                        disabled={pending}
-                        style={inputStyle}
-                        aria-label={`行 ${i + 1} の開始日`}
-                      />
-                    </td>
-                    <td style={tdStyle}>
-                      <input
-                        type="date"
-                        value={row.endDate}
-                        onChange={(e) => updateRow(row.key, { endDate: e.target.value })}
-                        disabled={pending}
-                        style={inputStyle}
-                        aria-label={`行 ${i + 1} の終了日（単日は空欄）`}
-                      />
-                    </td>
-                    <td style={tdStyle}>
-                      <input
-                        type="text"
-                        value={row.location}
-                        maxLength={100}
-                        onChange={(e) => updateRow(row.key, { location: e.target.value })}
-                        disabled={pending}
-                        style={{ ...inputStyle, minWidth: "8rem" }}
-                        aria-label={`行 ${i + 1} の場所`}
-                      />
-                    </td>
-                    <td style={tdStyle}>
-                      <Button
-                        variant="ghost"
-                        onClick={() => removeRow(row.key)}
-                        disabled={pending}
-                        aria-label={`行 ${i + 1}（${row.summary}）を削除`}
-                        style={{ color: color.dangerFg, padding: "0.35rem 0.6rem" }}
-                      >
-                        削除
-                      </Button>
-                    </td>
+              {previewGroups.map((group) => (
+                <tbody key={group.monthKey}>
+                  {/* 月見出し行（薄地 + 上線 = 月の区切り線・登録済み一覧と同じ見せ方）。 */}
+                  <tr>
+                    <th colSpan={5} scope="colgroup" style={monthHeadingStyle}>
+                      {group.label}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
+                  {group.items.map((row) => {
+                    const i = rowOrdinal.get(row.key) ?? 0;
+                    return (
+                      <tr key={row.key}>
+                        <td style={tdStyle}>
+                          <input
+                            type="text"
+                            value={row.summary}
+                            maxLength={200}
+                            onChange={(e) => updateRow(row.key, { summary: e.target.value })}
+                            disabled={pending}
+                            style={{ ...inputStyle, minWidth: "12rem" }}
+                            aria-label={`行 ${i + 1} の行事名`}
+                          />
+                        </td>
+                        <td style={tdStyle}>
+                          <input
+                            type="date"
+                            value={row.startDate}
+                            onChange={(e) => updateRow(row.key, { startDate: e.target.value })}
+                            disabled={pending}
+                            style={inputStyle}
+                            aria-label={`行 ${i + 1} の開始日`}
+                          />
+                        </td>
+                        <td style={tdStyle}>
+                          <input
+                            type="date"
+                            value={row.endDate}
+                            onChange={(e) => updateRow(row.key, { endDate: e.target.value })}
+                            disabled={pending}
+                            style={inputStyle}
+                            aria-label={`行 ${i + 1} の終了日（単日は空欄）`}
+                          />
+                        </td>
+                        <td style={tdStyle}>
+                          <input
+                            type="text"
+                            value={row.location}
+                            maxLength={100}
+                            onChange={(e) => updateRow(row.key, { location: e.target.value })}
+                            disabled={pending}
+                            style={{ ...inputStyle, minWidth: "8rem" }}
+                            aria-label={`行 ${i + 1} の場所`}
+                          />
+                        </td>
+                        <td style={tdStyle}>
+                          <Button
+                            variant="ghost"
+                            onClick={() => removeRow(row.key)}
+                            disabled={pending}
+                            aria-label={`行 ${i + 1}（${row.summary}）を削除`}
+                            style={{ color: color.dangerFg, padding: "0.35rem 0.6rem" }}
+                          >
+                            削除
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              ))}
             </table>
           </div>
           {draft.rows.length === 0 ? (
@@ -467,6 +492,17 @@ const tableStyle: React.CSSProperties = {
   borderCollapse: "collapse",
   width: "100%",
   minWidth: "640px",
+};
+/** 月見出し行（教員 FB「月順で線で区切って」= 薄地 + 上線で月の境界を明示・登録済み一覧と同トーン）。 */
+const monthHeadingStyle: React.CSSProperties = {
+  textAlign: "left",
+  fontSize: fontSize.sm,
+  fontWeight: 700,
+  color: color.ink,
+  background: color.bgSoft,
+  padding: "0.45rem 0.5rem",
+  borderTop: `2px solid ${color.border}`,
+  borderBottom: `1px solid ${color.border}`,
 };
 const thStyle: React.CSSProperties = {
   textAlign: "left",
