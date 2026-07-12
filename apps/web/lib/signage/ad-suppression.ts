@@ -44,7 +44,10 @@ export type AdSuppressionConfig = {
   enabled: boolean;
   /** 広告を止める時間帯（各 `{ start, end }` は "HH:MM"・同日内）。空なら停止しない。 */
   ranges: AdSuppressionRange[];
-  /** 対象曜日（0=日..6=土）。空配列は「全曜日」を意味する。既定は月〜金。 */
+  /**
+   * 対象曜日（0=日..6=土）。**空配列は「対象曜日なし＝一切停止しない」**（`isSuppressedAtMinutes` は
+   * `weekdays.includes(weekday)` で判定するため／fail-soft の向き）。未設定時の既定は月〜金。
+   */
   weekdays: number[];
 };
 
