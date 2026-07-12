@@ -1,5 +1,6 @@
 "use client";
 
+import { MicIcon } from "@/app/_components/action-icons";
 import { useSpeechToText } from "@/lib/teacher-input/use-speech-to-text";
 import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
@@ -134,7 +135,13 @@ export function TeacherInputComposer() {
               cursor: "pointer",
             }}
           >
-            {listening ? "■ 停止" : "🎤 音声入力"}
+            {listening ? (
+              "■ 停止"
+            ) : (
+              <>
+                <MicIcon /> 音声入力
+              </>
+            )}
           </button>
         ) : (
           <span style={{ color: tokens.color.muted, fontSize: "0.8rem" }}>

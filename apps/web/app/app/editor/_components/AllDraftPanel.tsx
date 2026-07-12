@@ -1,5 +1,6 @@
 "use client";
 
+import { FileIcon, MicIcon } from "@/app/_components/action-icons";
 import { assistDraftAllAction, assistDraftAllFromFileAction } from "@/lib/editor/assistant-actions";
 import { setAssignmentsAction, setNoticesAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem, NoticeItem } from "@/lib/editor/notice-assignment-core";
@@ -255,7 +256,13 @@ export function AllDraftPanel({
             onClick={toggleMic}
             disabled={busy}
           >
-            {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
+            {speech.listening ? (
+              "● 録音中（停止）"
+            ) : (
+              <>
+                <MicIcon /> 音声入力
+              </>
+            )}
           </button>
         ) : null}
         <button
@@ -264,7 +271,7 @@ export function AllDraftPanel({
           disabled={busy}
           onClick={() => fileInputRef.current?.click()}
         >
-          📄 ファイルから
+          <FileIcon /> ファイルから
         </button>
         <button
           type="button"
