@@ -13,7 +13,7 @@ import type { CalendarImportSaveIssue } from "@/lib/editor/calendar-import-save-
 import { groupEventsByMonth, jpDateLabel } from "@/lib/editor/calendar-import-view";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 const { color, radius, fontSize, space } = tokens;
 
@@ -75,11 +75,20 @@ const DROPPED_LABELS: Record<string, string> = {
 export function CalendarImportClient({
   existingCount,
   existingFileName,
+  onDirtyChange,
+  onSaved,
 }: {
   /** 今年度窓内の取込済み（`file:` 名前空間）行事の概数。置き換え確認の文言に使う。 */
   existingCount: number;
   /** 前回取込のファイル名（取込済みが無ければ null）。 */
   existingFileName: string | null;
+  /**
+   * 「畳む（unmount）と失われる状態」（AI 読み取り中 / プレビュー表示中）の有無を親へ通知する
+   * （開閉マネージャが畳む操作に破棄確認を挟む判断に使う・#1274 follow-up）。
+   */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** 置き換え保存の成功通知（保存結果メッセージ付き）。親が取込セクションを自動で畳むのに使う。 */
+  onSaved?: (message: string) => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -102,6 +111,13 @@ export function CalendarImportClient({
   // 確定（blur / Enter）で null に戻し、最新値で再グループ化する。
   const [freezeStart, setFreezeStart] = useState<{ key: number; date: string } | null>(null);
   const nextKey = useRef(0);
+
+  // 読み取り中（pending）か未保存プレビュー（draft）がある間だけ dirty（親の破棄確認ゲート用）。
+  // エラー / PII 警告 / 選択済みファイルだけの状態は選び直しが容易なので dirty に含めない。
+  const dirty = pending || draft !== null;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   function resetResults() {
     setError(null);
@@ -193,13 +209,16 @@ export function CalendarImportClient({
       });
       setConfirmOpen(false);
       if (r.ok) {
-        setSavedMsg(`保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`);
+        const message = `保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`;
+        setSavedMsg(message);
         // 今回の保存分が次の置き換え対象になる（#1270 L1: 2 回目の確認文言を最新化）。
         setExisting({ count: r.inserted, fileName: draft.fileName });
         setDraft(null);
         setFile(null);
         // 同ページ先頭の「登録済みの行事」（server component）を保存結果で最新化する。
         router.refresh();
+        // 親（開閉マネージャ）が取込セクションを自動で畳み、メッセージを一覧の上に引き継ぐ。
+        onSaved?.(message);
         return;
       }
       if (r.reason === "invalid") {
