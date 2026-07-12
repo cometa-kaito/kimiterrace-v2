@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "ea93c5f" # 2026-06-20: news 取得 Job に経産省 METI(Atom)フィード追加＋`<summary>`抽出＋CC BY gating(meti/mext のみ summary 保存・jst は破棄)(#1087)。warnings/heat/calendar/大気 relay(ADR-044/045/046)+weather/railway/tv-liveness は同コードで image のみ更新。staging 実 Job image=ea93c5f
+  jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（他 Job は同コード=挙動不変のため次回デプロイ時に追従）。staging 実 Job image: weather=20d9d2b / 他=ea93c5f
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "e0bfd5b" # 2026-07-12: 教員FB3件（#1260 予定Tab詳細パネル縦移動 / #1262 提出物期日「M/Dまで」学校別切替 / #1263 実寸サイネージプレビュー+導線差替）878f9cb→e0bfd5b。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
+  web_image_tag = "20d9d2b" # 2026-07-12: ADR-049 年間行事ファイル取込 全4スライス（#1266/#1268/#1270/#1269）+ #1267。e0bfd5b→20d9d2b。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
 }
 
 module "network" {
