@@ -182,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "1a31ee1" # 2026-07-03: weather-fetch の upsert が JMA 夕方版の「本日気温落ち」で last-known-good を null 上書きしていたバグを COALESCE 保持で根治(#1212)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=1a31ee1 / 他=ea93c5f
+  jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=20d9d2b / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "e0bfd5b" # 2026-07-12: 教員FB3件（#1260 予定Tab詳細パネル縦移動 / #1262 提出物期日「M/Dまで」学校別切替 / #1263 実寸サイネージプレビュー+導線差替）。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
+  web_image_tag = "20d9d2b" # 2026-07-12: ADR-049 年間行事ファイル取込 全4スライス（#1266 DB / #1268 AIコア / #1270 取込UI / #1269 エディタ行事パネル）+ #1267 display_settings スコープ/ロック修正。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
