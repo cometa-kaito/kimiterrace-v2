@@ -15,9 +15,10 @@ import {
   createVertexModelClient,
   extractText,
 } from "@kimiterrace/ai";
-import { auditLog, replaceFileImportedEvents } from "@kimiterrace/db";
+import { auditLog, mergeFileImportedEvents, replaceFileImportedEvents } from "@kimiterrace/db";
 import { createLogger } from "@kimiterrace/observability";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
 import { hasValidImageMagicBytes, resolveUploadType } from "../teacher-input/upload-validation";
@@ -26,7 +27,7 @@ import type {
   CalendarImportSanitizeDropped,
   FiscalYearWindow,
 } from "./calendar-import-core";
-import { fiscalYearWindow } from "./calendar-import-core";
+import { MAX_FILE_IMPORT_EVENTS, fiscalYearWindow } from "./calendar-import-core";
 import {
   type CalendarImportDraftError,
   draftCalendarEventsFromText,
@@ -330,9 +331,29 @@ export type CalendarImportSaveMeta = {
   suspectedNameCount?: unknown;
 };
 
+/**
+ * 保存モード（2026-07-12 ユーザー判断・ADR-049 決定 1 追補）。
+ * - `replace`（既定）: 従来どおり `file:` 名前空間の全置換（年間予定表の改訂版を取り込むとき）。
+ * - `merge`: (trim(summary), startDate) キーで追加・更新し、新ファイルに無い既存取込行事は残す
+ *   （部分的な予定表を追加するとき）。iCal 由来はどちらのモードでも不変。
+ */
+export type CalendarImportSaveMode = "replace" | "merge";
+
+/** mode のクライアント入力検証（未知値を黙って replace = 破壊的既定に倒さない。未指定のみ replace）。 */
+const saveModeSchema = z.enum(["replace", "merge"]);
+
 /** 保存 action の結果。invalid は行番号付きの検証エラー（プレビューで直して再保存する）。 */
 export type CalendarImportSaveResult =
-  | { ok: true; deleted: number; inserted: number }
+  | {
+      ok: true;
+      mode: CalendarImportSaveMode;
+      /** replace: 旧 `file:` 名前空間の削除件数 / merge: キー一致で内容更新された既存件数。 */
+      deleted: number;
+      /** 挿入件数（= 保存したイベント数。merge では deleted 件が更新・残りが純増）。 */
+      inserted: number;
+      /** merge でそのまま残った既存取込行事の数（replace は常に 0）。 */
+      keptExisting: number;
+    }
   | { ok: false; reason: "invalid"; issues: CalendarImportSaveIssue[] }
   | { ok: false; reason: "forbidden" | "error" };
 
@@ -381,10 +402,13 @@ function sanitizeSaveMeta(raw: unknown): {
 }
 
 /**
- * プレビューで教員が確認・修正した行事一覧を**置き換え保存**する（ADR-049 決定 1/4/6）。
+ * プレビューで教員が確認・修正した行事一覧を保存する（ADR-049 決定 1/4/6 + 2026-07-12 マージ追補）。
  *
  * 再検証（`validateCalendarImportSave`・クライアントの編集済み配列を信用しない）→ テナント RLS tx 内で
- * `replaceFileImportedEvents`（前回の `file:` 名前空間を丸ごと削除して新バッチ INSERT）+ `audit_log` 追記。
+ * mode に応じて `replaceFileImportedEvents`（`file:` 名前空間の全置換・既定）または
+ * `mergeFileImportedEvents`（(summary, startDate) キーの追加・更新、既存は残す）+ `audit_log` 追記。
+ * merge はマージ後合計が {@link MAX_FILE_IMPORT_EVENTS} を超える場合、ヘルパが tx 内で無書き込み判定して
+ * 検証エラー（「完全に置き換える」への切替 or ファイル分割の案内）で拒否する。
  * 検証エラーは切り詰め・自動修正せず行番号付きで返す（教員が直してから保存し直す）。
  *
  * ★ 年度窓の基準時刻は**サーバの `Date.now()` 固定**で、公開シグネチャに時刻注入（`deps.nowMs`）を
@@ -397,12 +421,24 @@ function sanitizeSaveMeta(raw: unknown): {
 export async function saveCalendarImportAction(
   rawEvents: unknown,
   rawMeta: CalendarImportSaveMeta = {},
+  rawMode: unknown = "replace",
 ): Promise<CalendarImportSaveResult> {
   const user = await requireRole(EDITOR_ROLES);
   const actor = toEditorActor(user);
   if (!actor) {
     return { ok: false, reason: "forbidden" };
   }
+
+  // mode（クライアント入力）の検証。未知値は replace に倒さず明示エラー（既定の replace は破壊的なため）。
+  const parsedMode = saveModeSchema.safeParse(rawMode);
+  if (!parsedMode.success) {
+    return {
+      ok: false,
+      reason: "invalid",
+      issues: [{ index: -1, message: "保存方法の指定が不正です。選び直してください。" }],
+    };
+  }
+  const mode = parsedMode.data;
 
   const window = fiscalYearWindow(Date.now());
   const validated = validateCalendarImportSave(rawEvents, window);
@@ -414,9 +450,9 @@ export async function saveCalendarImportAction(
   const batchId = crypto.randomUUID();
   try {
     const saved = await withSession(async (tx) => {
-      // 置き換え + 監査を同一 tx で原子化（片方だけ残さない）。書き込み口は packages/db ヘルパに単一化
-      // （ADR-049 残存リスク④・`source_id IS NULL AND uid LIKE 'file:%'` の境界はヘルパが強制）。
-      const result = await replaceFileImportedEvents(tx, {
+      // 置き換え/マージ + 監査を同一 tx で原子化（片方だけ残さない）。書き込み口は packages/db ヘルパに
+      // 単一化（ADR-049 残存リスク④・`source_id IS NULL AND uid LIKE 'file:%'` の境界はヘルパが強制）。
+      const params = {
         schoolId: actor.schoolId,
         batchId,
         fileName: meta.fileName,
@@ -430,8 +466,22 @@ export async function saveCalendarImportAction(
           allDay: ev.allDay,
           location: ev.location ?? null,
         })),
-      });
-      // ルール1: 置き換え結果 + 取込時の drop 内訳 / soft-gate 検出数（クライアント申告・allowlist 済）を記録。
+      };
+      const result =
+        mode === "merge"
+          ? // マージ後合計の上限はヘルパが tx 内で判定（over_cap は無書き込みで返る）。
+            await mergeFileImportedEvents(tx, { ...params, maxTotalEvents: MAX_FILE_IMPORT_EVENTS })
+          : {
+              ok: true as const,
+              keptExisting: 0,
+              ...(await replaceFileImportedEvents(tx, params)),
+            };
+      if (!result.ok) {
+        // over_cap: 書き込みが発生していないので監査は残さない（保存不成立）。
+        return result;
+      }
+      // ルール1: 保存モード + 結果件数 + 取込時の drop 内訳 / soft-gate 検出数（クライアント申告・
+      // allowlist 済）を記録。
       await tx.insert(auditLog).values({
         actorUserId: actor.userId,
         schoolId: actor.schoolId,
@@ -442,8 +492,10 @@ export async function saveCalendarImportAction(
           calendarFileImport: true,
           batchId,
           fileName: meta.fileName,
+          mode,
           deleted: result.deleted,
           inserted: result.inserted,
+          keptExisting: result.keptExisting,
           dropped: meta.dropped,
           suspectedNameCount: meta.suspectedNameCount,
           fiscalYear: window.fiscalYear,
@@ -454,9 +506,31 @@ export async function saveCalendarImportAction(
       });
       return result;
     });
+    if (!saved.ok) {
+      // merge の上限超過（保存前 UI では既存件数が動きうるためサーバ判定が正）。
+      return {
+        ok: false,
+        reason: "invalid",
+        issues: [
+          {
+            index: -1,
+            message:
+              `取込済みの行事とあわせて上限 ${MAX_FILE_IMPORT_EVENTS} 件を超えるため保存できません` +
+              `（そのまま残る既存 ${saved.keptExisting} 件 + 今回 ${saved.incoming} 件）。` +
+              "「完全に置き換える」を選ぶか、ファイルを分割してください。",
+          },
+        ],
+      };
+    }
     // 取込ページの「前回の取込」概況を即時反映（エディタ側の消費 = PR-D は自前のデータ読みで追従する）。
     revalidatePath("/app/editor/calendar-import");
-    return { ok: true, deleted: saved.deleted, inserted: saved.inserted };
+    return {
+      ok: true,
+      mode,
+      deleted: saved.deleted,
+      inserted: saved.inserted,
+      keptExisting: saved.keptExisting,
+    };
   } catch (error) {
     // DB 障害等。本文/イベント内容はログに出さない（件数もエラー時は不確定なので残さない）。
     importLogger.error(

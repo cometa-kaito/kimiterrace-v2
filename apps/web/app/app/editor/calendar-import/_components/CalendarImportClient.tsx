@@ -2,6 +2,7 @@
 
 import {
   type CalendarImportDraftActionResult,
+  type CalendarImportSaveMode,
   draftCalendarImportAction,
   saveCalendarImportAction,
 } from "@/lib/editor/calendar-import-actions";
@@ -20,6 +21,8 @@ import {
   groupEventsByMonth,
   jpDateLabel,
 } from "@/lib/editor/calendar-import-view";
+// メインバレル @kimiterrace/db は client から import 不可（#1269）。キーは drizzle 非依存サブパスで読む。
+import { fileImportEventDiffKey } from "@kimiterrace/db/calendar-import-key";
 import { Button, ConfirmDialog, tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -122,6 +125,9 @@ export function CalendarImportClient({
   const [issues, setIssues] = useState<CalendarImportSaveIssue[] | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 保存モード（2026-07-12 ユーザー判断）。既定は従来どおりの完全置き換え。ファイルを選び直すと
+  // resetResults で replace に戻す（前のファイルで選んだマージが意図せず持ち越されない）。
+  const [saveMode, setSaveMode] = useState<CalendarImportSaveMode>("replace");
   // 開始日を編集中の行だけは「編集開始時点の月」でグループ位置を凍結する（key + その時の startDate を保持）。
   // 月グループは startDate から毎描画で再計算されるため、凍結しないと 1 押下ごとに別月グループ（別 tbody）へ
   // 行が飛んで tr が remount し、date input のフォーカスが失われる（矢印キーでの月修正が事実上不能・#1274 FB）。
@@ -143,6 +149,7 @@ export function CalendarImportClient({
     setIssues(null);
     setSavedMsg(null);
     setFreezeStart(null);
+    setSaveMode("replace");
   }
 
   function applyDraftResult(r: CalendarImportDraftActionResult) {
@@ -201,7 +208,7 @@ export function CalendarImportClient({
     setIssues(null);
   }
 
-  /** 置き換え保存（ConfirmDialog の確定時のみ・ADR-049 決定 4）。 */
+  /** 保存（ConfirmDialog の確定時のみ・ADR-049 決定 4）。モードは saveMode（置換 / マージ）。 */
   function save() {
     if (!draft || pending) {
       return;
@@ -219,23 +226,40 @@ export function CalendarImportClient({
         allDay: row.allDay,
         ...(row.location.trim() !== "" ? { location: row.location.trim() } : {}),
       }));
-      const r = await saveCalendarImportAction(events, {
-        fileName: draft.fileName,
-        dropped: draft.dropped,
-        suspectedNameCount: draft.suspectedNameCount,
-      });
+      const r = await saveCalendarImportAction(
+        events,
+        {
+          fileName: draft.fileName,
+          dropped: draft.dropped,
+          suspectedNameCount: draft.suspectedNameCount,
+        },
+        saveMode,
+      );
       setConfirmOpen(false);
       if (r.ok) {
-        const message = `保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`;
+        const message =
+          r.mode === "merge"
+            ? `保存しました（追加 ${r.inserted - r.deleted} 件・更新 ${r.deleted} 件・既存 ${r.keptExisting} 件はそのまま）。`
+            : `保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`;
         setSavedMsg(message);
-        // 今回の保存分が次の置き換え対象になる（#1270 L1: 2 回目の確認文言・差分表示を最新化）。
+        // 今回の保存結果が次の保存の「既存」になる（#1270 L1: 2 回目の確認文言・差分表示を最新化）。
+        const savedEvents: FileImportedEventSummary[] = events.map((ev) => ({
+          summary: ev.summary,
+          startDate: ev.startDate,
+          endDate: ev.endDate ?? null,
+          location: ev.location ?? null,
+        }));
+        // マージは「キー非一致の既存 + 今回保存分」（サーバの keptExisting と同じキー計算・単一ソース）。
+        const savedKeys = new Set(savedEvents.map((s) => fileImportEventDiffKey(s)));
+        const nextExistingEvents =
+          r.mode === "merge"
+            ? [
+                ...existing.events.filter((ev) => !savedKeys.has(fileImportEventDiffKey(ev))),
+                ...savedEvents,
+              ]
+            : savedEvents;
         setExisting({
-          events: events.map((ev) => ({
-            summary: ev.summary,
-            startDate: ev.startDate,
-            endDate: ev.endDate ?? null,
-            location: ev.location ?? null,
-          })),
+          events: nextExistingEvents,
           fileName: draft.fileName,
         });
         setDraft(null);
@@ -285,7 +309,7 @@ export function CalendarImportClient({
           <p style={hintStyle}>
             取込済み: 今年度の行事 {existing.events.length} 件
             {existing.fileName ? `（${existing.fileName}）` : ""}
-            。保存すると前回のファイル取込は丸ごと置き換わります。
+            。保存時に「完全に置き換える」か「既存に追加・更新する」かを選べます。
           </p>
         ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: space.md, alignItems: "center" }}>
@@ -473,12 +497,53 @@ export function CalendarImportClient({
             </p>
           ) : null}
 
+          {/* 保存モード選択（2026-07-12 ユーザー判断）。既定 = 完全置き換え（従来挙動）。 */}
+          <fieldset style={modeFieldsetStyle}>
+            <legend style={modeLegendStyle}>保存のしかた</legend>
+            <label style={modeLabelStyle}>
+              <input
+                type="radio"
+                name="calendar-import-save-mode"
+                checked={saveMode === "replace"}
+                onChange={() => setSaveMode("replace")}
+                disabled={pending}
+                style={modeRadioStyle}
+              />
+              <span>
+                <strong>完全に置き換える</strong>
+                <span style={modeRecommendStyle}>推奨: 年間予定表の改訂版を取り込むとき</span>
+                <span style={modeDescStyle}>
+                  前回のファイル取込をすべて削除し、今回の内容だけにします。
+                </span>
+              </span>
+            </label>
+            <label style={modeLabelStyle}>
+              <input
+                type="radio"
+                name="calendar-import-save-mode"
+                checked={saveMode === "merge"}
+                onChange={() => setSaveMode("merge")}
+                disabled={pending}
+                style={modeRadioStyle}
+              />
+              <span>
+                <strong>既存に追加・更新する</strong>
+                <span style={modeRecommendStyle}>部分的な予定表を追加するとき</span>
+                <span style={modeDescStyle}>
+                  同じ行事名・開始日の行事は今回の内容に更新し、それ以外の取込済み行事はそのまま残します。
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           <div style={{ display: "flex", gap: space.md, alignItems: "center", flexWrap: "wrap" }}>
             <Button
               onClick={() => setConfirmOpen(true)}
               disabled={pending || draft.rows.length === 0}
             >
-              保存（前回のファイル取込を置き換え）
+              {saveMode === "merge"
+                ? "保存（既存に追加・更新）"
+                : "保存（前回のファイル取込を置き換え）"}
             </Button>
             <span style={hintStyle}>
               {draft.rows.length} 件を保存します（{draft.fileName}）
@@ -489,9 +554,20 @@ export function CalendarImportClient({
 
       <ConfirmDialog
         open={confirmOpen}
-        title="ファイル取込を置き換えて保存しますか？"
+        title={
+          saveMode === "merge"
+            ? "既存に追加・更新して保存しますか？"
+            : "ファイル取込を置き換えて保存しますか？"
+        }
         description={
-          // 初回取込（既存 0 件）は消えるものが無いので従来どおりのシンプルな確認。
+          // マージ: 追加/更新/そのまま残る既存の内訳 + 「削除される行事はありません」を明示。
+          saveMode === "merge" && replaceDiff !== null ? (
+            <>
+              今回の {draft?.rows.length ?? 0} 件を取込済みの行事に追加・更新します。iCal
+              連携の行事には影響しません。
+              <MergeDiffSummary diff={replaceDiff} />
+            </>
+          ) : // 置換 & 初回取込（既存 0 件）は消えるものが無いので従来どおりのシンプルな確認。
           existing.events.length > 0 && replaceDiff !== null ? (
             <>
               前回のファイル取込（今年度 {existing.events.length} 件）を削除し、今回の{" "}
@@ -502,8 +578,9 @@ export function CalendarImportClient({
             `${draft?.rows.length ?? 0} 件の行事を保存します。`
           )
         }
-        confirmLabel="置き換えて保存"
-        tone={existing.events.length > 0 ? "danger" : "primary"}
+        confirmLabel={saveMode === "merge" ? "追加・更新して保存" : "置き換えて保存"}
+        // マージは既存を消さないので danger にしない。置換は既存があるときのみ danger（従来どおり）。
+        tone={saveMode === "replace" && existing.events.length > 0 ? "danger" : "primary"}
         pending={pending}
         onConfirm={save}
         onCancel={() => setConfirmOpen(false)}
@@ -550,6 +627,27 @@ function ReplaceDiffSummary({
       ) : (
         <span style={diffSafeStyle}>削除される行事はありません。</span>
       )}
+    </>
+  );
+}
+
+/**
+ * マージ保存の差分サマリ（確認ダイアログの description 内・表示専用）。同じ diff 計算を
+ * マージ意味論で読み替える: kept = キー一致（**更新**される）、removed = 既存のみ（削除されず
+ * **そのまま残る**）。マージは既存を消さないので「削除される行事はありません。」を常に明示する。
+ */
+function MergeDiffSummary({
+  diff,
+}: {
+  diff: CalendarImportReplaceDiff<FileImportedEventSummary, { summary: string; startDate: string }>;
+}) {
+  return (
+    <>
+      <span style={diffCountsStyle}>
+        追加 {diff.added.length} 件 / 更新 {diff.kept} 件 / そのまま残る既存 {diff.removed.length}{" "}
+        件
+      </span>
+      <span style={diffSafeStyle}>削除される行事はありません。</span>
     </>
   );
 }
@@ -633,6 +731,45 @@ const tdStyle: React.CSSProperties = {
   padding: "0.35rem 0.5rem",
   borderBottom: `1px solid ${color.border}`,
   verticalAlign: "middle",
+};
+/** 保存モード選択（fieldset のブラウザ既定枠を落として card 内の一区画として馴染ませる）。 */
+const modeFieldsetStyle: React.CSSProperties = {
+  display: "grid",
+  gap: space.sm,
+  margin: 0,
+  padding: "0.6rem 0.75rem",
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.md,
+  background: color.bgSoft,
+};
+const modeLegendStyle: React.CSSProperties = {
+  fontSize: fontSize.sm,
+  fontWeight: 600,
+  color: color.ink,
+  padding: "0 0.25rem",
+};
+const modeLabelStyle: React.CSSProperties = {
+  display: "flex",
+  gap: space.sm,
+  alignItems: "flex-start",
+  fontSize: fontSize.sm,
+  color: color.ink,
+  cursor: "pointer",
+};
+const modeRadioStyle: React.CSSProperties = {
+  marginTop: "0.2rem",
+  flexShrink: 0,
+};
+/** モード名の横に添える用途ラベル（推奨/部分取込の使い分けを一目で）。 */
+const modeRecommendStyle: React.CSSProperties = {
+  marginLeft: space.sm,
+  fontSize: fontSize.xs,
+  color: color.muted,
+};
+const modeDescStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: fontSize.xs,
+  color: color.muted,
 };
 const inputStyle: React.CSSProperties = {
   fontSize: fontSize.sm,

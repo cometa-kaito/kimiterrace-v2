@@ -19,6 +19,10 @@
       "types": "./src/schema/tv-schedule.ts",
       "default": "./dist/schema/tv-schedule.js"
     },
+    "./calendar-import-key": {
+      "types": "./src/calendar-import-key.ts",
+      "default": "./dist/calendar-import-key.js"
+    },
     "./migrate-files": {
       "types": "./src/migrate-files.ts",
       "default": "./dist/migrate-files.js"
