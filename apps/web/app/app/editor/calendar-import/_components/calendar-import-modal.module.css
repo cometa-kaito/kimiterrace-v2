@@ -1,0 +1,123 @@
+/*
+ * 年間行事予定表の取込フローを載せるフローティングモーダルの器（教員 FB「ぽんっと浮いた感じで
+ * 出てほしい」対応・#1259 follow-up）。開閉・フォーカス・Esc の挙動は CalendarImportManager 側。
+ *
+ * - デスクトップ: 画面中央のダイアログ（プレビュー表が読める幅 = max 980px）× max-height 90vh で
+ *   **ダイアログ内部スクロール**（.body が overflow-y: auto）。
+ * - モバイル(≤640px): ほぼ全画面（プレビュー表の編集はモーダル余白より面積優先）。
+ * - 「ぽんっ」= 軽い scale + fade の出現アニメーション（150ms 台・わずかなオーバーシュート）。
+ *   `prefers-reduced-motion: reduce` では止める（NFR05・出現の意味は配置/文言で伝わる）。
+ * - z-index はオーバーレイ 900 / 本体 901。入れ子で開く ConfirmDialog（packages/ui・z-index 1000 の
+ *   自前 fixed オーバーレイ）が必ず手前に来る序列を保つ（破棄確認 / 保存確認がモーダルの裏に隠れない）。
+ * インライン style では media query / keyframes / prefers-reduced-motion が書けないため module 化
+ * （FloatingAiChat.module.css と同じ作法）。色・角丸・影は tokens.ts / ConfirmDialog と同値
+ * （border #e5e7eb / ink #1f2937 / bgSoft #f7f8fa / radius.lg 1rem / 影 0 20px 50px rgba(0,0,0,0.25)）。
+ */
+
+/* 全面オーバーレイ（ConfirmDialog と同じ遮光色）。クリックでは閉じない（長い取込作業の誤爆防止）。 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(17, 24, 39, 0.45);
+}
+
+/* ダイアログ本体。ヘッダ固定 + .body 内部スクロールの縦 flex。 */
+.dialog {
+  position: relative;
+  z-index: 901;
+  display: flex;
+  flex-direction: column;
+  width: min(980px, 100%);
+  max-height: 90dvh;
+  background: #fff;
+  border-radius: 1rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  outline: none;
+  overflow: hidden;
+  animation: ktImportDialogIn 0.16s cubic-bezier(0.2, 0.85, 0.25, 1.05) both;
+}
+
+/* モバイル: ほぼ全画面（余白なし・角丸なし）。 */
+@media (max-width: 640px) {
+  .overlay {
+    padding: 0;
+  }
+  .dialog {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+}
+
+/* ヘッダ（タイトル + ×）。スクロールしても常に閉じる手段が見えるよう flex: none で固定。 */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: none;
+  padding: 0.8rem 0.6rem 0.8rem 1.25rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f7f8fa;
+}
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* ヘッダ右の × 閉じるボタン（FloatingAiChat の .close と同作法）。 */
+.close {
+  width: 40px;
+  min-height: 40px;
+  border: none;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: #6b7280;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+.close:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+.close:focus-visible {
+  outline: 2px solid #2b4acb;
+  outline-offset: 1px;
+}
+
+/* 取込フロー本体（CalendarImportClient）を包む内部スクロール領域。 */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+/* 「ぽんっ」。opacity + transform のみ（合成レイヤーで完結・低スペック端末でも軽い）。 */
+@keyframes ktImportDialogIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 視覚過敏設定では動きを止める。 */
+@media (prefers-reduced-motion: reduce) {
+  .dialog {
+    animation: none;
+  }
+}

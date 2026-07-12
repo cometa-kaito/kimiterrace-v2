@@ -239,7 +239,9 @@ export function CalendarImportClient({
       if (r.ok) {
         const message =
           r.mode === "merge"
-            ? `保存しました（追加 ${r.inserted - r.deleted} 件・更新 ${r.deleted} 件・既存 ${r.keptExisting} 件はそのまま）。`
+            ? // 追加 = inserted − deleted（更新は delete+insert の対）。サーバ応答が万一 deleted > inserted
+              // でも負数の件数を出さない（#1280 レビュー nit・表示のみのガード）。
+              `保存しました（追加 ${Math.max(0, r.inserted - r.deleted)} 件・更新 ${r.deleted} 件・既存 ${r.keptExisting} 件はそのまま）。`
             : `保存しました（前回の取込 ${r.deleted} 件を削除し、${r.inserted} 件を登録）。`;
         setSavedMsg(message);
         // 今回の保存結果が次の保存の「既存」になる（#1270 L1: 2 回目の確認文言・差分表示を最新化）。
