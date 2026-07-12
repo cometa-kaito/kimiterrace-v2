@@ -2499,14 +2499,206 @@
    専用ヘッダー高（p3=64 / p4=58 / p5=64px・クラス直指定でメディアクエリより優先）を持つので header-height の固定
    対象から外す（`:not(.p3Root):not(.p4Root):not(.p5Root)`。外さないと p5 の 64px ヘッダーが 36px へ潰れて忠実性が
    崩れる）。
-   （≤899px のモバイル縦積み中和は別軸＝§12 のモバイル経路一式の復元が要るため本ブロックには含めない。実寸プレビューは
-   主に職員室 PC からの導線。スマホ実機での見切れが確認されたら別途対応する。） */
+
+   ## ≤899px のモバイル縦積みも中和する（下の @media ブロック）
+   §12 と各パターン（§11b/11d/11e/11f）は `@media (max-width:899px)` で盤面を**1 列縦積みのスクロール**へ
+   作り替える（`.signageRoot` を内部スクロール化・`.container`/`.p2Grid`/`.p5Grid` 等を 1 カラム・固定行高やページャを
+   解除）。これは **実機端末（縦横比不明のビューポート直下）と真のスマホ**向けの経路だが、`.scaledStage` は**常に
+   1280×720 の横 16:9 ステージ**なので、この縦積みが混入すると実寸プレビューがスマホで崩れる（#1257 は「スマホでも
+   16:9 実寸比で見せる」のが目的）。そこで下の `@media (max-width:899px)` で、ステージ内に限り各モバイル上書きを
+   **§3/§6/§7/§8/§11/§11a/§10b/§11b/§11d/§11e/§11f の既定値へ復元**し、どのデバイスでも横 16:9 のデスクトップ骨格を
+   保つ。`.scaledStage <selector>`（+0,1,0）が各モバイル `<selector>` に必ず勝つ。フォント（`clamp(…vw…)`）は
+   据え置き＝スマホでは縮小されるが、それは 50 インチ盤面を縮小コピーした当然の見え方（レイアウトは崩れない）。
+   ライブ経路・公開 `/signage` にはこの復元は掛からない（`.scaledStage` が無いため回帰なし）。 */
 .scaledStage .signageRoot {
   --scale-factor: 1;
   --content-gap: 8px;
 }
 .scaledStage .signageRoot:not(.p3Root):not(.p4Root):not(.p5Root) {
   --header-height: 36px;
+}
+
+/* ステージ内 ≤899px: §12/各パターンのモバイル縦積みを打ち消し、720p デスクトップ骨格（横 16:9）を保つ。
+   値の権威は各セクションの既定ルール（ここは復元専用・新デザインを作らない）。 */
+@media (max-width: 899px) {
+  /* --- 共通 / pattern1・6（§12 の ≤899px ＝ .container 縦積み・内部スクロール化） --- */
+  .scaledStage .signageRoot {
+    overflow: hidden;
+  }
+  .scaledStage .adHeader {
+    position: absolute;
+  }
+  .scaledStage .headerBranding {
+    display: revert;
+  }
+  .scaledStage .container {
+    grid-template-columns: 70% 30%;
+    grid-template-areas: "info ad";
+    height: 100%;
+    padding-top: var(--header-height);
+  }
+  .scaledStage .adArea {
+    height: 100%;
+    min-height: 0;
+  }
+  .scaledStage .adContainer {
+    aspect-ratio: 9 / 16;
+    flex: none;
+  }
+  .scaledStage .adDots {
+    display: none;
+  }
+  .scaledStage .contentGrid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .scaledStage .card {
+    overflow: hidden;
+  }
+  .scaledStage .scheduleSection {
+    grid-column: 1 / -1;
+  }
+  .scaledStage .autoScroll {
+    container-type: size;
+    overflow: hidden;
+  }
+  .scaledStage .autoScrollItem {
+    height: calc(100cqh / var(--visible-rows));
+  }
+  .scaledStage .pagerViewport {
+    position: relative;
+    overflow: hidden;
+  }
+  .scaledStage .pagerPage {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.6s ease-in-out;
+  }
+  .scaledStage .pagerPageActive {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .scaledStage .pagerDots {
+    display: flex;
+  }
+  .scaledStage .mobileFooter {
+    display: none;
+  }
+  /* --- pattern2（§11b の ≤899px ＝ 縦 3 段 flex を 1 列化） --- */
+  .scaledStage .p2Grid {
+    overflow: hidden;
+  }
+  .scaledStage .p2Schedule {
+    flex: 46 1 0;
+    grid-template-columns: repeat(var(--schedule-cols, 3), 1fr);
+    overflow: hidden;
+  }
+  .scaledStage .p2People {
+    flex: 36 1 0;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .scaledStage .p2Status {
+    flex: 18 1 0;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .scaledStage .p2News {
+    flex: 22 1 0;
+    overflow: hidden;
+  }
+  .scaledStage .p2ScheduleDay {
+    overflow: hidden;
+  }
+  /* --- pattern4（§11d の ≤899px ＝ 縦積み・天気 4 列化） --- */
+  .scaledStage .p4Grid {
+    overflow: hidden;
+  }
+  .scaledStage .p4Grid > .card {
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+  .scaledStage .p4Grid > .card.p2News {
+    flex: 1.5 1 0;
+  }
+  .scaledStage .p4Weather {
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .scaledStage .p4Bottom {
+    flex: 1.6 1 0;
+    flex-direction: row;
+  }
+  .scaledStage .p4Bottom > .card {
+    flex: 1.9 1 0;
+  }
+  .scaledStage .p4SideStatus {
+    flex: 1 1 0;
+  }
+  .scaledStage .newsCarousel {
+    flex: 1 1 0;
+  }
+  .scaledStage .newsCarouselViewport {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  /* --- pattern5（§11e の ≤899px ＝ 2 カラム→縦積み） --- */
+  .scaledStage .p5Grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "notice schedule"
+      "foot foot";
+  }
+  .scaledStage .p5Notice {
+    overflow: hidden;
+  }
+  .scaledStage .p5Schedule {
+    overflow: hidden;
+    border-left: 1px solid var(--p5-panel-border);
+    padding-left: 1vmin;
+  }
+  .scaledStage .p5Rows {
+    container-type: size;
+    overflow: hidden;
+  }
+  .scaledStage .p5NoticeItem {
+    height: calc(100cqh / var(--p5-notice-visible));
+    padding: 0;
+  }
+  .scaledStage .p5SchItem {
+    height: calc(100cqh / var(--p5-sch-visible));
+    padding: 0;
+  }
+  /* --- pattern6（§11f の ≤899px ＝ 提出物左罫線を消す上書きを戻す） --- */
+  .scaledStage .p6Root .contentGrid > .card:last-child {
+    border-left: 1px solid var(--border-color);
+    padding-left: 1.3vmin;
+  }
+  /* --- pattern3/4/5 の大型ヘッダー（§12 の ≤899px sticky 化・--header-height:0）を戻す --- */
+  .scaledStage .signageRoot.p3Root,
+  .scaledStage .signageRoot.p4Root,
+  .scaledStage .signageRoot.p5Root {
+    --header-height: 64px;
+  }
+  .scaledStage .signageRoot.p4Root {
+    --header-height: 58px;
+  }
+  .scaledStage .p3Header {
+    position: absolute;
+    height: var(--header-height);
+    flex-wrap: nowrap;
+    gap: 0.9rem;
+    padding: 0 18px;
+  }
+  .scaledStage .p3HeaderClock {
+    margin-left: auto;
+  }
+  .scaledStage .p3HeaderBrand {
+    display: revert;
+  }
 }
 
 /* ===================== 16. 自由度基本セット（★重要 / 区切り線・設計書 PR-B） =====================
