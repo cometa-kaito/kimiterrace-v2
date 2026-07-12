@@ -1,4 +1,4 @@
-﻿# staging 環境ルート
+# staging 環境ルート
 # prod と同構成、tier だけ縮小。雛形段階は実体生成なし。
 
 terraform {

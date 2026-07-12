@@ -1,4 +1,4 @@
-﻿# prod 環境ルート
+# prod 環境ルート
 # staging（envs/staging/main.tf）と **構造（wiring）パリティ** を保った雛形。
 # 実体生成は各モジュールの enabled = true に切替後、本番 bring-up で実行する。
 #
