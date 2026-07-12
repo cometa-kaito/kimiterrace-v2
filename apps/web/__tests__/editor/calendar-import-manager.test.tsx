@@ -28,6 +28,7 @@ vi.mock("@/lib/editor/calendar-import-actions", () => ({
 }));
 
 import { CalendarImportManager } from "../../app/app/editor/calendar-import/_components/CalendarImportManager";
+import type { FileImportedEventSummary } from "../../lib/editor/calendar-import-diff";
 
 const OPEN_LABEL = "＋ ファイルから取り込む";
 const TOGGLE_CLOSE_LABEL = "取込を閉じる";
@@ -54,9 +55,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderManager() {
+function renderManager(existingFileEvents: FileImportedEventSummary[] = []) {
   return render(
-    <CalendarImportManager existingCount={0} existingFileName={null}>
+    <CalendarImportManager
+      existingFileEvents={existingFileEvents}
+      existingFileName={existingFileEvents.length > 0 ? "previous.xlsx" : null}
+    >
       <p>registered-list</p>
     </CalendarImportManager>,
   );
@@ -174,5 +178,76 @@ describe("CalendarImportManager", () => {
     expect(screen.queryByText("保存しました（前回の取込 0 件を削除し、1 件を登録）。")).toBeNull();
     expect(screen.getByLabelText("年間行事予定表ファイル")).toBeTruthy();
     expect(screen.queryByText("2. 内容を確認して保存する")).toBeNull();
+  });
+});
+
+/** 既存のファイル取込由来イベント（差分テスト用の plain 形）を組む。 */
+function exEvent(
+  summary: string,
+  startDate: string,
+  endDate: string | null = null,
+): FileImportedEventSummary {
+  return { summary, startDate, endDate, location: null };
+}
+
+/** プレビューまで進めて保存確認ダイアログを開く（draft は {@link DRAFT_OK} = 体育祭 6/10 の 1 件）。 */
+async function openConfirmDialog() {
+  await openWithDraft();
+  fireEvent.click(screen.getByRole("button", { name: "保存（前回のファイル取込を置き換え）" }));
+  expect(screen.getByText("ファイル取込を置き換えて保存しますか？")).toBeTruthy();
+}
+
+/** counts 行（span 直下に追加/継続/削除を 1 行で出す）の完全一致マッチャ。 */
+function countsLine(text: string) {
+  return screen.getByText(
+    (_, el) => el?.tagName === "SPAN" && el.textContent?.replace(/\s+/g, " ").trim() === text,
+  );
+}
+
+describe("置き換え保存の確認ダイアログの差分表示（#1259 教員 FB）", () => {
+  it("既存取込があるとき、追加/継続/削除の件数と削除される行事の一覧（日付 + 行事名）を出す", async () => {
+    renderManager([
+      exEvent("体育祭", "2026-06-10"),
+      exEvent("入学式", "2026-04-08"),
+      exEvent("文化祭", "2026-10-03", "2026-10-04"),
+    ]);
+    await openConfirmDialog();
+
+    // draft（体育祭 6/10）はキー一致 = 継続。残る 2 件が「削除される行事」として漏れなく出る。
+    expect(countsLine("追加 0 件 / 継続 1 件 / 削除される行事 2 件")).toBeTruthy();
+    expect(screen.getByText("4/8(水) 入学式")).toBeTruthy();
+    // 複数日行事は期間表記（eventDateRangeLabel 再利用）。
+    expect(screen.getByText("10/3(土)〜10/4(日) 文化祭")).toBeTruthy();
+    expect(screen.queryByText("削除される行事はありません。")).toBeNull();
+  });
+
+  it("削除 0 件（同じ内容の再取込）は「削除される行事はありません」を明示する", async () => {
+    renderManager([exEvent("体育祭", "2026-06-10")]);
+    await openConfirmDialog();
+
+    expect(countsLine("追加 0 件 / 継続 1 件 / 削除される行事 0 件")).toBeTruthy();
+    expect(screen.getByText("削除される行事はありません。")).toBeTruthy();
+  });
+
+  it("削除される行事が多い場合は先頭 20 件 + 「他 N 件」（沈黙の切り捨て禁止）", async () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      exEvent(`行事${i + 1}`, `2026-05-${String(i + 1).padStart(2, "0")}`),
+    );
+    renderManager(many);
+    await openConfirmDialog();
+
+    // 総件数は必ず出す（一覧の切り詰めと独立）。
+    expect(screen.getByText("削除される行事 25 件")).toBeTruthy();
+    expect(screen.getByText("他 5 件")).toBeTruthy();
+    // 21 件目以降は一覧に出ない（件数で補足済み）。
+    expect(screen.queryByText((_, el) => el?.textContent === "5/21(木) 行事21")).toBeNull();
+  });
+
+  it("初回取込（既存 0 件）は従来どおりのシンプルな確認のまま", async () => {
+    renderManager();
+    await openConfirmDialog();
+
+    expect(screen.getByText("1 件の行事を保存します。")).toBeTruthy();
+    expect(screen.queryByText(/削除される行事/)).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { fiscalYearWindow } from "@/lib/editor/calendar-import-core";
+import type { FileImportedEventSummary } from "@/lib/editor/calendar-import-diff";
 import { EDITOR_ROLES } from "@/lib/editor/schedule-core";
 import { FILE_IMPORT_UID_PREFIX, getCalendarEvents } from "@kimiterrace/db";
 import { tokens } from "@kimiterrace/ui";
@@ -53,9 +54,17 @@ export default async function CalendarImportPage() {
 
   // 置き換え対象の可視化（ADR-049 決定 4 の確認 UI 補助）。読みは今年度窓に限るため、過年度に取り込んだ
   // 行事は数に入らない**概算**（置き換え削除自体は `file:` 名前空間全体・replaceFileImportedEvents）。
+  // 保存確認ダイアログの差分表示（追加/継続/削除される行事・#1259 教員 FB）の existing 側にも使うので、
+  // 件数だけでなく plain な行事配列で client へ渡す（iCal 由来は置換対象外なので含めない）。
   const fileRows = rows.filter(
     (r) => r.sourceId === null && r.uid.startsWith(FILE_IMPORT_UID_PREFIX),
   );
+  const existingFileEvents: FileImportedEventSummary[] = fileRows.map((r) => ({
+    summary: r.summary,
+    startDate: r.startDate,
+    endDate: r.endDate,
+    location: r.location,
+  }));
   const raw = fileRows[0]?.raw;
   const existingFileName =
     raw !== null &&
@@ -77,7 +86,10 @@ export default async function CalendarImportPage() {
        * CalendarImportManager が持つ（教員 FB: 主役は登録済み一覧・取込は必要なときに開く）。
        * 一覧はサーバ描画のまま children で挟む。
        */}
-      <CalendarImportManager existingCount={fileRows.length} existingFileName={existingFileName}>
+      <CalendarImportManager
+        existingFileEvents={existingFileEvents}
+        existingFileName={existingFileName}
+      >
         <RegisteredEventsSection events={events} window={window} />
       </CalendarImportManager>
     </div>
