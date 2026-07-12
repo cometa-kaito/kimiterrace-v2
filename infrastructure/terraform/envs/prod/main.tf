@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=20d9d2b / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "20d9d2b" # 2026-07-12: ADR-049 年間行事ファイル取込 全4スライス（#1266 DB / #1268 AIコア / #1270 取込UI / #1269 エディタ行事パネル）+ #1267 display_settings スコープ/ロック修正。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
+  web_image_tag = "57d0a51" # 2026-07-12: #1272 年間予定表取込リンクを計画操作エリアへ常設（#1269 follow-up）。20d9d2b→57d0a51。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
