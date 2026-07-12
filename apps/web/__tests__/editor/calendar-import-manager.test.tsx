@@ -80,10 +80,10 @@ async function openWithDraft() {
   });
   // 非同期 transition を完走させる（pending 中は保存ボタンが disabled のまま）。既存 tsx テストと同作法。
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "AI で読み取る" }));
+    fireEvent.click(screen.getByRole("button", { name: "このファイルを AI で読み取る" }));
   });
-  expect(screen.getByText("2. 内容を確認して保存する")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "AI で読み取る" })).toBeTruthy();
+  expect(screen.getByText("内容を確認して保存する")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "このファイルを AI で読み取る" })).toBeTruthy();
 }
 
 describe("CalendarImportManager", () => {
@@ -140,7 +140,7 @@ describe("CalendarImportManager", () => {
     fireEvent.change(screen.getByLabelText("年間行事予定表ファイル"), {
       target: { files: [new File(["x"], "annual.xlsx")] },
     });
-    fireEvent.click(screen.getByRole("button", { name: "AI で読み取る" }));
+    fireEvent.click(screen.getByRole("button", { name: "このファイルを AI で読み取る" }));
     await screen.findByRole("button", { name: "読み取り中…" });
 
     fireEvent.click(screen.getByRole("button", { name: CLOSE_LABEL }));
@@ -163,16 +163,16 @@ describe("CalendarImportManager", () => {
     // キャンセル → プレビューは残る（モーダルも開いたまま）。
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(screen.queryByText(DISCARD_TITLE)).toBeNull();
-    expect(screen.getByText("2. 内容を確認して保存する")).toBeTruthy();
+    expect(screen.getByText("内容を確認して保存する")).toBeTruthy();
     expect(screen.getByRole("dialog")).toBeTruthy();
 
     // 確定 → 閉じられ、再度開いてもプレビューは復活しない（破棄済み）。
     fireEvent.click(screen.getByRole("button", { name: CLOSE_LABEL }));
     fireEvent.click(screen.getByRole("button", { name: "破棄して閉じる" }));
-    expect(screen.queryByText("2. 内容を確認して保存する")).toBeNull();
+    expect(screen.queryByText("内容を確認して保存する")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: OPEN_LABEL }));
-    expect(screen.queryByText("2. 内容を確認して保存する")).toBeNull();
+    expect(screen.queryByText("内容を確認して保存する")).toBeNull();
   });
 
   it("保存成功で自動的に閉じ、保存結果メッセージを一覧の上に出す", async () => {
@@ -204,7 +204,7 @@ describe("CalendarImportManager", () => {
     fireEvent.click(toggle);
     expect(screen.queryByText("保存しました（前回の取込 0 件を削除し、1 件を登録）。")).toBeNull();
     expect(screen.getByLabelText("年間行事予定表ファイル")).toBeTruthy();
-    expect(screen.queryByText("2. 内容を確認して保存する")).toBeNull();
+    expect(screen.queryByText("内容を確認して保存する")).toBeNull();
   });
 });
 
@@ -235,7 +235,7 @@ describe("モーダルの Esc（入れ子 ConfirmDialog との共存）", () => 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByText(DISCARD_TITLE)).toBeNull();
     expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("2. 内容を確認して保存する")).toBeTruthy();
+    expect(screen.getByText("内容を確認して保存する")).toBeTruthy();
   });
 
   it("保存確認ダイアログ（子 CalendarImportClient 内）が開いている間の Esc も同様にそちらへ譲る", async () => {
@@ -249,7 +249,7 @@ describe("モーダルの Esc（入れ子 ConfirmDialog との共存）", () => 
     expect(screen.queryByText("ファイル取込を置き換えて保存しますか？")).toBeNull();
     expect(screen.queryByText(DISCARD_TITLE)).toBeNull();
     expect(screen.getByRole("dialog")).toBeTruthy();
-    expect(screen.getByText("2. 内容を確認して保存する")).toBeTruthy();
+    expect(screen.getByText("内容を確認して保存する")).toBeTruthy();
 
     // 後始末: dirty なプレビューを破棄して閉じる（後続テストへ状態を残さない）。
     fireEvent.keyDown(document, { key: "Escape" });
