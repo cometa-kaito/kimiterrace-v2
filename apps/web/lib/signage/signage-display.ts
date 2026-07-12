@@ -16,6 +16,7 @@ import {
   withTenantContext,
 } from "@kimiterrace/db";
 import { getDb } from "../db";
+import { isAdSuppressedAt, parseAdSuppression } from "./ad-suppression";
 import { getClassSignageBlackout } from "./blackout";
 import {
   type EffectiveDailyData,
@@ -211,8 +212,11 @@ export async function getSignageDisplayData(
 
   // 解決した school のみを載せた匿名テナント文脈で 1 トランザクションを開き、共通ビルダーに委譲する
   // （実機の盤面と「実画面モニタの壁」が同一の payload ビルダーを使う＝単一ソース、見た目を一致させる）。
+  // `now` を渡すのは **live 経路（実機端末の初期描画/ポーリング）だけ**で、これにより授業時間中の広告停止が
+  // 効く。各リクエストで new Date() を取るのでポーリングごとに再評価され、授業終了で自動復帰する。
+  const now = new Date();
   return await withTenantContext(getDb(), { schoolId: cls.schoolId }, (tx: TenantTx) =>
-    buildSignagePayloadForClass(tx, cls.schoolId, cls.classId, date, designParam),
+    buildSignagePayloadForClass(tx, cls.schoolId, cls.classId, date, designParam, undefined, now),
   );
 }
 
@@ -237,6 +241,10 @@ export async function getSignageDisplayData(
  * @param designParam 端末別デザイン上書き（`?design=patternN` 相当）。未指定/未知は学校レベル既定→pattern1。
  * @param monitorId   （Phase5 v2-PR3）指定すると、クラス継承広告に加え当該モニタへの**直指定広告**も合成して
  *                    返す（`getEffectiveAdsForMonitor`＝追加モード）。未指定はクラス専用（従来挙動・完全互換）。
+ * @param now         **実機ライブ経路のみ**渡す現在時刻（授業時間中の広告停止判定に使う）。渡されたときだけ
+ *                    学校の授業時間帯（`display_settings.adSuppression`）に照らして広告を空にする。エディタ
+ *                    プレビュー等は**渡さない**＝抑制せず入稿済み広告をそのまま見せる（教員が「消えた」と誤認
+ *                    しない）。判定は同一 tx で 1 度読んだ `displaySettings` から行い追加クエリを増やさない。
  * @returns           クラス可視なら `SignagePayload`、不可視なら null。
  */
 export async function buildSignagePayloadForClass(
@@ -246,6 +254,7 @@ export async function buildSignagePayloadForClass(
   date: string,
   designParam?: unknown,
   monitorId?: string,
+  now?: Date,
 ): Promise<SignagePayload | null> {
   const daily = await getEffectiveDailyData(tx, classId, date);
   if (!daily) {
@@ -270,9 +279,14 @@ export async function buildSignagePayloadForClass(
     ? designParam
     : parseSignageDesignPattern(displaySettings);
   // 広告: monitorId 指定時はクラス継承 ∪ モニタ直指定（追加モード）、未指定はクラス継承のみ（従来）。
-  const ads = monitorId
+  const allAds = monitorId
     ? await getEffectiveAdsForMonitor(tx, classId, monitorId)
     : await getEffectiveAdsForClass(tx, classId);
+  // 授業時間中の広告停止（システム管理者が学校ごとに設定・display_settings.adSuppression）。**live 経路のみ**
+  // （`now` が渡されたときだけ）判定し、停止時間帯なら広告を空配列にする＝盤面の広告枠だけ空になり、他ブロック
+  // （時間割/連絡/提出物）は通常どおり出る。空広告は `AdAside` が空枠を描き、実機は次のポーリングで復帰する。
+  // インプレッションはクライアントが受け取った広告にしか計上しないので、停止中の水増しは構造的に起きない。
+  const ads = now && isAdSuppressedAt(parseAdSuppression(displaySettings), now) ? [] : allAds;
   // 予定グリッド (今後 N 平日)。表示日数（= 盤面の列数）は**パターン別**に `SIGNAGE_SCHEDULE_DAY_COUNT`
   // （design-pattern.ts）が単一ソース＝そこを変えればデータ取得日数と CSS 列数が同時に追従する。pattern1/2=3、
   // pattern3（廊下版）=5、pattern4=0（予定を描画しないので取得もしない）。`date` を起点に土日を飛ばした N 平日
@@ -379,9 +393,19 @@ export async function getSignageDisplayDataForMonitor(
     return null;
   }
   // 解決した school のみを載せた匿名テナント文脈で payload を組む（classToken 経路と同じ単一ソースの盤面ビルダー）。
+  // live 経路なので `now` を渡し、授業時間中の広告停止を効かせる（クラス所属端末・廊下 ads-only 端末とも対象）。
+  const now = new Date();
   return await withTenantContext(getDb(), { schoolId: dev.schoolId }, (tx: TenantTx) =>
     dev.classId
-      ? buildSignagePayloadForClass(tx, dev.schoolId, dev.classId, date, designParam, dev.monitorId)
+      ? buildSignagePayloadForClass(
+          tx,
+          dev.schoolId,
+          dev.classId,
+          date,
+          designParam,
+          dev.monitorId,
+          now,
+        )
       : buildSignagePayloadForMonitorOnly(
           tx,
           dev.schoolId,
@@ -389,6 +413,7 @@ export async function getSignageDisplayDataForMonitor(
           dev.label,
           date,
           designParam,
+          now,
         ),
   );
 }
@@ -411,13 +436,17 @@ async function buildSignagePayloadForMonitorOnly(
   monitorLabel: string | null,
   date: string,
   designParam?: unknown,
+  now?: Date,
 ): Promise<SignagePayload> {
   // display_settings は 1 回読んで学校既定デザインと期日表示形式の両方をパースする（classToken 版と同規約）。
   const displaySettings = await getSchoolDisplaySettings(tx);
   const designPattern: SignageDesignPattern = isSignageDesignPattern(designParam)
     ? designParam
     : parseSignageDesignPattern(displaySettings);
-  const ads = await getEffectiveAdsForMonitor(tx, null, monitorId);
+  const allAds = await getEffectiveAdsForMonitor(tx, null, monitorId);
+  // 授業時間中の広告停止（live 経路のみ）。廊下 ads-only 端末は広告が主コンテンツなので停止すると空盤面に近く
+  // なるが、学校が「授業中は広告を止める」と設定した以上その意思を尊重する（クラス端末と挙動を揃える）。
+  const ads = now && isAdSuppressedAt(parseAdSuppression(displaySettings), now) ? [] : allAds;
   // 天気は学校地域単位（クラス非依存）。fail-soft（取得失敗は null で枠だけ落とす）。
   const weather = await getSignageWeather(tx, schoolId, date).catch(() => null);
   // 鉄道/ニュースは学校横断の公開キャッシュ（read_all・クラス非依存）。パターン該当時のみ・fail-soft。

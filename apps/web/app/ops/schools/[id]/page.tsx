@@ -95,6 +95,10 @@ export default async function SystemSchoolDetailPage({
           <Link href={`/ops/schools/${school.id}/quiet-hours`} className="kt-action">
             静粛時間
           </Link>
+          {/* 授業時間（広告停止）導線: 運営がこの学校の授業時間帯を設定し、その間サイネージの広告枠を止める（学校単位）。 */}
+          <Link href={`/ops/schools/${school.id}/ad-suppression`} className="kt-action">
+            授業時間（広告停止）
+          </Link>
           {/* 生徒アクセスリンク導線 (F05): 運営がこの学校のクラスを選び、magic link を発行/失効する。 */}
           <Link href={`/ops/schools/${school.id}/magic-link`} className="kt-action">
             生徒アクセスリンク
