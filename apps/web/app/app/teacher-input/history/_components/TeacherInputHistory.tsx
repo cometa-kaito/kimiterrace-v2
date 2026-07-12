@@ -1,3 +1,4 @@
+import { tokens } from "@kimiterrace/ui";
 import { CreateDraftButton } from "../../_components/CreateDraftButton";
 
 /**
@@ -20,10 +21,10 @@ const STATUS_LABEL = {
 } as const;
 
 const STATUS_COLOR = {
-  draft: "#6b7280",
-  transcribing: "#b45309",
-  ready: "#2563eb",
-  submitted: "#15803d",
+  draft: tokens.color.neutralFg,
+  transcribing: tokens.color.warningFg,
+  ready: tokens.color.blueStrong,
+  submitted: tokens.color.successFg,
 } as const;
 
 const TYPE_LABEL = {
@@ -48,7 +49,9 @@ function formatDate(iso: string): string {
 
 export function TeacherInputHistory({ rows }: { rows: TeacherInputHistoryRow[] }) {
   if (rows.length === 0) {
-    return <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>まだ入力履歴はありません。</p>;
+    return (
+      <p style={{ color: tokens.color.muted, fontSize: "0.9rem" }}>まだ入力履歴はありません。</p>
+    );
   }
 
   return (
@@ -58,7 +61,7 @@ export function TeacherInputHistory({ rows }: { rows: TeacherInputHistoryRow[] }
           key={row.id}
           style={{
             padding: "0.6rem 0",
-            borderTop: "1px solid #e5e7eb",
+            borderTop: `1px solid ${tokens.color.border}`,
             fontSize: "0.9rem",
           }}
         >
@@ -75,13 +78,17 @@ export function TeacherInputHistory({ rows }: { rows: TeacherInputHistoryRow[] }
             >
               {STATUS_LABEL[row.status]}
             </span>
-            <span style={{ color: "#6b7280" }}>{TYPE_LABEL[row.inputType]}</span>
-            <span style={{ color: "#9ca3af", marginLeft: "auto" }}>
+            <span style={{ color: tokens.color.muted }}>{TYPE_LABEL[row.inputType]}</span>
+            <span style={{ color: tokens.color.muted, marginLeft: "auto" }}>
               {formatDate(row.createdAt)}
             </span>
           </div>
-          <p style={{ margin: "0.35rem 0 0", color: "#374151", whiteSpace: "pre-wrap" }}>
-            {row.transcriptPreview || <span style={{ color: "#9ca3af" }}>（本文なし）</span>}
+          <p
+            style={{ margin: "0.35rem 0 0", color: tokens.color.neutralFg, whiteSpace: "pre-wrap" }}
+          >
+            {row.transcriptPreview || (
+              <span style={{ color: tokens.color.muted }}>（本文なし）</span>
+            )}
           </p>
           {row.transcriptPreview && row.status !== "submitted" && (
             <div style={{ marginTop: "0.45rem" }}>

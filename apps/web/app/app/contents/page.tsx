@@ -3,6 +3,7 @@ import { PUBLISHER_ROLES, type PublishScopeValue } from "@/lib/contents/publish-
 import { scopeLabel } from "@/lib/contents/publish-view";
 import { withSession } from "@/lib/db";
 import { listContents } from "@kimiterrace/db";
+import { tokens } from "@kimiterrace/ui";
 import Link from "next/link";
 import { ContentStatusBadge } from "./_components/ContentStatusBadge";
 
@@ -61,8 +62,11 @@ const titleStyle: React.CSSProperties = {
   fontWeight: 700,
   marginBottom: "1rem",
 };
-const emptyStyle: React.CSSProperties = { color: "#6b7280" };
-const emptyLinkStyle: React.CSSProperties = { color: "#2563eb", textDecoration: "underline" };
+const emptyStyle: React.CSSProperties = { color: tokens.color.muted };
+const emptyLinkStyle: React.CSSProperties = {
+  color: tokens.color.blueStrong,
+  textDecoration: "underline",
+};
 const listStyle: React.CSSProperties = {
   listStyle: "none",
   margin: 0,

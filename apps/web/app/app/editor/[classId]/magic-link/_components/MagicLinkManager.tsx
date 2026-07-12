@@ -1,6 +1,7 @@
 "use client";
 
 import { EXPIRES_MAX_DAYS, EXPIRES_MIN_DAYS } from "@/lib/magic-link/request";
+import { tokens } from "@kimiterrace/ui";
 import { QRCodeSVG } from "qrcode.react";
 import { useState } from "react";
 
@@ -225,14 +226,14 @@ export function MagicLinkManager({
   const inputStyle = {
     width: "5rem",
     padding: "0.3rem 0.4rem",
-    border: "1px solid #d1d5db",
+    border: `1px solid ${tokens.color.border}`,
     borderRadius: "0.3rem",
   };
   const copyBtnStyle = {
     marginTop: "0.4rem",
     padding: "0.3rem 0.8rem",
     borderRadius: "0.3rem",
-    border: "1px solid #93c5fd",
+    border: `1px solid ${tokens.color.infoBorder}`,
     background: "#fff",
     cursor: "pointer",
   };
@@ -240,14 +241,14 @@ export function MagicLinkManager({
     display: "inline-block",
     padding: "0.5rem",
     background: "#fff",
-    border: "1px solid #bfdbfe",
+    border: `1px solid ${tokens.color.infoBorder}`,
     borderRadius: "0.3rem",
   };
   const sectionLabelStyle = {
     margin: "0 0 0.3rem",
     fontSize: "0.9rem",
     fontWeight: 600,
-    color: "#1e3a8a",
+    color: tokens.color.blueStrong,
   };
   const urlCodeStyle = {
     display: "block",
@@ -279,8 +280,9 @@ export function MagicLinkManager({
             padding: "0.5rem 1.1rem",
             borderRadius: "0.4rem",
             border: "none",
-            background: issuing ? "#93c5fd" : "#2563eb",
+            background: tokens.color.primary,
             color: "#fff",
+            opacity: issuing ? 0.55 : 1,
             cursor: issuing ? "default" : "pointer",
           }}
         >
@@ -289,7 +291,10 @@ export function MagicLinkManager({
       </div>
 
       {error ? (
-        <p role="alert" style={{ color: "#b91c1c", fontSize: "0.9rem", marginTop: "0.5rem" }}>
+        <p
+          role="alert"
+          style={{ color: tokens.color.dangerFg, fontSize: "0.9rem", marginTop: "0.5rem" }}
+        >
           {error}
         </p>
       ) : null}
@@ -304,7 +309,7 @@ export function MagicLinkManager({
             borderRadius: "0.4rem",
           }}
         >
-          <p style={{ margin: "0 0 0.6rem", fontWeight: 600, color: "#1e3a8a" }}>
+          <p style={{ margin: "0 0 0.6rem", fontWeight: 600, color: tokens.color.blueStrong }}>
             発行しました。以下の URL / QR は、下の「発行済みリンク」一覧から
             <strong>いつでも再表示・コピー</strong>できます。
           </p>
@@ -382,7 +387,7 @@ export function MagicLinkManager({
         <label
           style={{
             fontSize: "0.85rem",
-            color: "#374151",
+            color: tokens.color.neutralFg,
             display: "flex",
             alignItems: "center",
             gap: "0.3rem",
@@ -393,7 +398,7 @@ export function MagicLinkManager({
         </label>
       </div>
       {links.length === 0 ? (
-        <p style={{ color: "#6b7280", fontSize: "0.9rem" }}>
+        <p style={{ color: tokens.color.muted, fontSize: "0.9rem" }}>
           {showRevoked ? "リンクはありません。" : "有効なリンクはありません。"}
         </p>
       ) : (
@@ -418,14 +423,16 @@ export function MagicLinkManager({
                   justifyContent: "space-between",
                 }}
               >
-                <span style={{ color: link.revokedAt ? "#9ca3af" : "#374151" }}>
+                <span
+                  style={{ color: link.revokedAt ? tokens.color.muted : tokens.color.neutralFg }}
+                >
                   発行 {formatDate(link.createdAt)} /{" "}
                   {link.revokedAt
                     ? `失効 ${formatDate(link.revokedAt)}`
                     : formatExpiry(link.expiresAt)}
                 </span>
                 {link.revokedAt ? (
-                  <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>失効済み</span>
+                  <span style={{ fontSize: "0.8rem", color: tokens.color.muted }}>失効済み</span>
                 ) : extendingId === link.id ? (
                   <span style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
                     <input
@@ -440,7 +447,7 @@ export function MagicLinkManager({
                       style={{
                         width: "4.5rem",
                         padding: "0.3rem 0.4rem",
-                        border: "1px solid #d1d5db",
+                        border: `1px solid ${tokens.color.border}`,
                         borderRadius: "0.3rem",
                       }}
                     />
@@ -451,7 +458,7 @@ export function MagicLinkManager({
                         padding: "0.3rem 0.7rem",
                         borderRadius: "0.3rem",
                         border: "none",
-                        background: "#2563eb",
+                        background: tokens.color.primary,
                         color: "#fff",
                         cursor: "pointer",
                       }}
@@ -467,7 +474,7 @@ export function MagicLinkManager({
                       style={{
                         padding: "0.3rem 0.7rem",
                         borderRadius: "0.3rem",
-                        border: "1px solid #d1d5db",
+                        border: `1px solid ${tokens.color.border}`,
                         background: "#fff",
                         cursor: "pointer",
                       }}
@@ -497,7 +504,7 @@ export function MagicLinkManager({
                       style={{
                         padding: "0.3rem 0.7rem",
                         borderRadius: "0.3rem",
-                        border: "1px solid #d1d5db",
+                        border: `1px solid ${tokens.color.border}`,
                         background: "#fff",
                         cursor: "pointer",
                       }}
@@ -516,9 +523,9 @@ export function MagicLinkManager({
                       style={{
                         padding: "0.3rem 0.7rem",
                         borderRadius: "0.3rem",
-                        border: "1px solid #93c5fd",
+                        border: `1px solid ${tokens.color.infoBorder}`,
                         background: "#fff",
-                        color: "#1d4ed8",
+                        color: tokens.color.infoFg,
                         cursor: "pointer",
                       }}
                     >
@@ -530,9 +537,9 @@ export function MagicLinkManager({
                       style={{
                         padding: "0.3rem 0.7rem",
                         borderRadius: "0.3rem",
-                        border: "1px solid #fca5a5",
+                        border: `1px solid ${tokens.color.dangerBorder}`,
                         background: "#fff",
-                        color: "#b91c1c",
+                        color: tokens.color.dangerFg,
                         cursor: "pointer",
                       }}
                     >
@@ -599,9 +606,9 @@ export function MagicLinkManager({
                             style={{
                               padding: "0.25rem 0.6rem",
                               borderRadius: "0.3rem",
-                              border: "1px solid #93c5fd",
+                              border: `1px solid ${tokens.color.infoBorder}`,
                               background: "#fff",
-                              color: "#1d4ed8",
+                              color: tokens.color.infoFg,
                               cursor: "pointer",
                               fontSize: "0.8rem",
                             }}
@@ -613,7 +620,7 @@ export function MagicLinkManager({
                     })}
                   </div>
                 ) : (
-                  <p style={{ margin: 0, fontSize: "0.8rem", color: "#9ca3af" }}>
+                  <p style={{ margin: 0, fontSize: "0.8rem", color: tokens.color.muted }}>
                     このリンクは発行時のみ URL を表示できました（再発行すると再表示できます）。
                   </p>
                 ))}

@@ -22,7 +22,24 @@ export function ConfidenceBadge({
   }
   return (
     <output style={wrapStyle} aria-label="要確認">
-      <span style={badgeStyle}>⚠️ 要確認</span>
+      <span style={badgeStyle}>
+        <svg
+          viewBox="0 0 24 24"
+          width="1em"
+          height="1em"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          style={{ verticalAlign: "-0.15em", marginRight: "0.25rem" }}
+        >
+          <path d="M12 3 21 19H3z" />
+          <path d="M12 10v4M12 17h.01" />
+        </svg>
+        要確認
+      </span>
       <span style={textStyle}>
         AI の確信度が低いコンテンツです。公開前に内容を確認してください。
         {evidence ? <span style={evidenceStyle}>根拠: {evidence}</span> : null}

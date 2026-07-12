@@ -2,6 +2,7 @@
 
 import { publishContentAction, unpublishContentAction } from "@/lib/contents/publish-actions";
 import type { ContentStatusValue } from "@/lib/contents/publish-view";
+import { tokens } from "@kimiterrace/ui";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -135,7 +136,7 @@ const wrapStyle: React.CSSProperties = {
 };
 
 const publishStyle: React.CSSProperties = {
-  background: "#2563eb",
+  background: tokens.color.primary,
   color: "#fff",
   border: "none",
   borderRadius: "6px",
