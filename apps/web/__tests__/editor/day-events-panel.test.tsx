@@ -11,7 +11,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * - 成功で `?applied=<nonce>` 再ナビ（SeedConfirmButton と同じ確立済み手法・date 固定・scroll:false）が走ること
  * - 失敗時はナビゲーションせずエラーメッセージを出すこと
  * - パターンが該当ブロックを持たないときは追加ボタンを出さないこと（死ボタン防止）
- * - フッタに年間予定表取込（PR-C ページ）への導線契約リンクを持つこと
+ * - 取込ページ（PR-C）への導線はここには持たないこと（planActions に常設・#1269 follow-up で移設。
+ *   行事 0 件で本パネルが消えるため、ここ頼みだと未取込教員に初回導線が無い鶏と卵になる）
  */
 
 const replaceMock = vi.hoisted(() => vi.fn());
@@ -179,7 +180,7 @@ describe("DayEventsPanel（この日の行事・ワンクリック確定）", ()
     expect(screen.getByText("球技大会")).toBeTruthy();
   });
 
-  it("行のメタ（時刻 / 終日 / 期間）と場所を表示し、フッタに年間予定表取込（PR-C）への導線を持つ", () => {
+  it("行のメタ（時刻 / 終日 / 期間）と場所を表示する", () => {
     renderPanel({
       events: [
         ev({ id: "e1", summary: "球技大会", location: "体育館", timeLabel: "09:30" }),
@@ -191,7 +192,10 @@ describe("DayEventsPanel（この日の行事・ワンクリック確定）", ()
     expect(screen.getByText("＠体育館")).toBeTruthy();
     expect(screen.getByText("7/8〜7/11")).toBeTruthy();
     expect(screen.getByText("終日")).toBeTruthy();
-    const link = screen.getByRole("link", { name: "年間予定表を取り込む →" });
-    expect(link.getAttribute("href")).toBe("/app/editor/calendar-import");
+  });
+
+  it("取込ページへの導線はここには持たない（planActions へ常設・#1269 follow-up で移設）", () => {
+    renderPanel();
+    expect(screen.queryByRole("link", { name: "年間予定表を取り込む →" })).toBeNull();
   });
 });

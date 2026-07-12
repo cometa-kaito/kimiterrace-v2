@@ -2,7 +2,6 @@
 
 import { useEditorDraftSyncRef } from "@/app/app/editor/_components/EditorDraftSyncContext";
 import {
-  CALENDAR_IMPORT_PAGE_PATH,
   type EditorDayEvent,
   dayEventMetaLabel,
   dayEventToNoticeItem,
@@ -13,7 +12,6 @@ import type { NoticeItem } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
 import type { ScheduleItem } from "@/lib/editor/schedule-core";
 import { tokens } from "@kimiterrace/ui";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { errorTextStyle, secondaryBtnStyle } from "./editor-styles";
@@ -23,6 +21,8 @@ import { errorTextStyle, secondaryBtnStyle } from "./editor-styles";
  * （school_calendar_events・iCal / ファイル取込の両由来）を盤面プレビュー付近に表示し、教員が
  * ワンクリックで盤面の予定 / 連絡へ**確定挿入**できる（「AI/外部データは提案・教員が確定」の UX 原則＝
  * 基本時間割 seed の {@link SeedConfirmButton} と同型）。行事 0 件なら何も描かない（親も渡さない・二重防御）。
+ * 取込ページ（CALENDAR_IMPORT_PAGE_PATH）への導線は本パネルではなく page.tsx の planActions に常設する
+ * （行事 0 件では本パネルが消えるため、ここに置くと未取込の教員に初回導線が無い鶏と卵になる・#1269 follow-up）。
  *
  * 保存経路は既存の per-section Server Action（setScheduleAction / setNoticesAction・検証 / RLS / 監査つき）
  * への **append 挿入**＝新しい保存経路は発明しない。挿入の基底は共有 ref（{@link useEditorDraftSyncRef}）の
@@ -131,12 +131,6 @@ export function DayEventsPanel({
         ))}
       </ul>
       {error ? <output style={errorTextStyle}>{error}</output> : null}
-      {/* PR-C（年間予定表ファイル取込ページ）への導線契約（CALENDAR_IMPORT_PAGE_PATH で確定）。 */}
-      <p style={footerStyle}>
-        <Link href={CALENDAR_IMPORT_PAGE_PATH} style={footerLinkStyle}>
-          年間予定表を取り込む →
-        </Link>
-      </p>
     </section>
   );
 }
@@ -199,11 +193,4 @@ const addBtnStyle: React.CSSProperties = {
   padding: "0.15rem 0.7rem",
   fontSize: "0.8rem",
   whiteSpace: "nowrap",
-};
-const footerStyle: React.CSSProperties = {
-  margin: "0.5rem 0 0",
-};
-const footerLinkStyle: React.CSSProperties = {
-  fontSize: tokens.fontSize.xs,
-  color: tokens.color.muted,
 };
