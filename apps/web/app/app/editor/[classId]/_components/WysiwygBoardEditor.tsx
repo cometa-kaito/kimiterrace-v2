@@ -85,6 +85,7 @@ export function WysiwygBoardEditor({
   callouts = null,
   dayHeader,
   planActions,
+  dayEventsPanel,
   liveSignageUrl,
 }: {
   classId: string;
@@ -150,6 +151,14 @@ export function WysiwygBoardEditor({
    * （操作を失わない）。実体（確認ダイアログ・?copied= 再ナビ・パターン別ラベル）は各ボタンが温存して担う。
    */
   planActions?: React.ReactNode;
+  /**
+   * 「この日の行事」パネル（{@link DayEventsPanel}・ADR-049 決定 7）。planActions と同じ理由で盤面プレビュー
+   * 直下（左 sticky カラム内）に置くため親（page.tsx）から node で受け取る（行事の確認→ワンクリック確定が
+   * 盤面を見ながらスクロールゼロで完結する）。行事 0 件の日は親が渡さない（何も描かない）。プレビューが無い
+   * フォールバックでは planActions と同様に編集セクションの上へ全幅で出す（操作を失わない）。実体（既存
+   * per-section 保存への append・?applied= 再ナビ）はパネル側が担い、本コンポーネントは配置だけを与える。
+   */
+  dayEventsPanel?: React.ReactNode;
   /**
    * このクラスの実機サイネージ URL（tv_devices.signage_url）。盤面プレビュー直下の副次リンク
    * 「実機の画面を開く」に使う（主導線はアプリ内の実寸プレビュー `/app/editor/[classId]/preview`・#1257）。
@@ -393,6 +402,8 @@ export function WysiwygBoardEditor({
       {/* フォールバック（盤面プレビュー無し）でも計画操作を失わない: 編集セクションの上に全幅で出す。
           プレビューあり時は previewCol（盤面直下）が担うのでここには出さない（二重表示防止）。 */}
       {!hasPreview && planActions ? <div className={styles.planRow}>{planActions}</div> : null}
+      {/* フォールバックでも「この日の行事」を失わない（planActions と同じ規律・行事 0 件は親が渡さない）。 */}
+      {!hasPreview ? dayEventsPanel : null}
       <div className={hasPreview ? styles.layout : undefined}>
         {/* 生条件（showBoard && previewPayload）で分岐＝この中で previewPayload が非 null に絞り込まれる
             （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
@@ -459,6 +470,8 @@ export function WysiwygBoardEditor({
             </div>
             {/* 計画系の即応操作（前日/前週コピー・基本時間割）。sticky な盤面の直下＝スクロールゼロで届く。 */}
             {planActions ? <div className={styles.planRow}>{planActions}</div> : null}
+            {/* 「この日の行事」（ADR-049 決定 7）。盤面を見ながらワンクリック確定できる位置（盤面直下）。 */}
+            {dayEventsPanel}
           </div>
         ) : null}
 
