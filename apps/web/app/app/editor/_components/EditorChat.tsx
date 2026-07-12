@@ -12,6 +12,7 @@ import {
   parseSseFrames,
   rebaseDraftBeforeFirstTurn,
 } from "@/lib/editor/assistant-chat-client";
+import { MicIcon } from "@/app/_components/action-icons";
 import { useEditorDraftSyncRef } from "./EditorDraftSyncContext";
 import {
   type AssistantChatRequestBody,
@@ -738,7 +739,7 @@ export function EditorChat({
             aria-pressed={stt.listening}
             title="音声入力"
           >
-            🎤
+            <MicIcon />
           </button>
         ) : null}
         {streaming ? (

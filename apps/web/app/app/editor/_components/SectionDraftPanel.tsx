@@ -6,6 +6,7 @@ import {
   assistDraftScheduleAction,
   assistDraftScheduleFromFileAction,
 } from "@/lib/editor/assistant-actions";
+import { FileIcon, MicIcon } from "@/app/_components/action-icons";
 import { setAssignmentsAction } from "@/lib/editor/notice-assignment-actions";
 import type { AssignmentItem } from "@/lib/editor/notice-assignment-core";
 import { setScheduleAction } from "@/lib/editor/schedule-actions";
@@ -274,7 +275,13 @@ export function SectionDraftPanel<TItem>({
             onClick={toggleMic}
             disabled={busy}
           >
-            {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
+            {speech.listening ? (
+              "● 録音中（停止）"
+            ) : (
+              <>
+                <MicIcon /> 音声入力
+              </>
+            )}
           </button>
         ) : null}
         <button
@@ -283,7 +290,7 @@ export function SectionDraftPanel<TItem>({
           disabled={busy}
           onClick={() => fileInputRef.current?.click()}
         >
-          📄 ファイルから
+          <FileIcon /> ファイルから
         </button>
         <button
           type="button"

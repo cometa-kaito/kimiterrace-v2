@@ -108,7 +108,8 @@ describe("TeacherInputComposer", () => {
   it("対応ブラウザでは音声ボタンを表示し、クリックで start を呼ぶ", () => {
     mockFetch(() => okJson({ id: "x" }));
     render(<TeacherInputComposer />);
-    fireEvent.click(screen.getByRole("button", { name: "🎤 音声入力" }));
+    // マイクは装飾 SVG（aria-hidden）になったのでアクセシブル名は「音声入力」のみ。
+    fireEvent.click(screen.getByRole("button", { name: "音声入力" }));
     expect(hookState.start).toHaveBeenCalledOnce();
   });
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { AiIcon, FileIcon, MicIcon } from "@/app/_components/action-icons";
 import { assistDraftNoticesFromFileAction } from "@/lib/editor/assistant-actions";
 import type { AssistDraftResult, NoticeTone } from "@/lib/editor/assistant-core";
 import { setNoticesAction } from "@/lib/editor/notice-assignment-actions";
@@ -302,7 +303,7 @@ export function EditorAssistant({
         <section className={styles.hero} aria-label="AI でまとめて作成">
           <div className={styles.heroText}>
             <strong className={styles.heroTitle}>
-              <span aria-hidden="true">🤖</span> AI におまかせ
+              <AiIcon /> AI におまかせ
             </strong>
             <p className={styles.heroCopy}>
               話す・書く・ファイルを入れるだけ。予定・連絡・提出物の下書きを AI
@@ -318,7 +319,7 @@ export function EditorAssistant({
               setOpen(true);
             }}
           >
-            🎤 おまかせで作る
+            <MicIcon /> おまかせで作る
           </button>
         </section>
       ) : null}
@@ -331,7 +332,7 @@ export function EditorAssistant({
         onClick={() => setOpen((v) => !v)}
       >
         <span aria-hidden="true" className={styles.fabFace}>
-          🤖
+          <AiIcon />
         </span>
         AI
       </button>
@@ -431,7 +432,13 @@ export function EditorAssistant({
                     onClick={toggleMic}
                     disabled={streaming}
                   >
-                    {speech.listening ? "● 録音中（停止）" : "🎤 音声入力"}
+                    {speech.listening ? (
+                      "● 録音中（停止）"
+                    ) : (
+                      <>
+                        <MicIcon /> 音声入力
+                      </>
+                    )}
                   </button>
                 ) : null}
                 <button
@@ -440,7 +447,7 @@ export function EditorAssistant({
                   disabled={streaming}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  📄 ファイルから
+                  <FileIcon /> ファイルから
                 </button>
                 {streaming ? (
                   <button type="button" className={styles.ghost} onClick={stop}>
