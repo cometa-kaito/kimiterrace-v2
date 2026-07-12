@@ -19,7 +19,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { jstDateString, previousBusinessDay } from "../signage/rotation";
+import { jstDateString } from "../signage/rotation";
 import {
   EditorTargetNotFoundError,
   isUniqueViolation,
@@ -63,7 +63,7 @@ import { addDaysUtc, businessWeek, mondayOfWeek } from "./week-math";
 /**
  * コピー結果 1 セクション（表示ラベルはパターン別 blockLabel・件数は複製した行数）。
  * `"use server"` ファイルは async 関数しか export できない（Next の制約・他 action ファイルと同規律）ため
- * **export しない**。消費側（CopyPreviousDayButton）は action の戻り型から構造的に推論する。
+ * **export しない**。消費側（CopyFromMenu）は action の戻り型から構造的に推論する。
  */
 type CopiedSection = { block: SignageBlockKind; label: string; count: number };
 
@@ -107,6 +107,60 @@ async function auditRowCopy(
 }
 
 /**
+ * 複製元 1 日分の実セクション読み取り（{@link copyOneDay} の書込と `previewCopy*` の件数表示が共有する
+ * 単一ソース）。読み取りは各ブロック 1 回＝空判定・件数・書込が同じスナップショット。notice は固定行
+ * （pinned・§6.4・PR-C #1221）を除いた `copyableNoticeItems`（既に全日表示されており複製すると二重表示に
+ * なるため対象外。区切り線 divider はレイアウトの一部なので含める）＝**プレビューに出す件数と実際に複製
+ * される件数を一致させる**（「予定4」と出したのに 3 件しか入らない、を防ぐ）。
+ */
+type CopySource = {
+  daily: Map<"schedule" | "notice" | "assignment", unknown[]>;
+  visitors: Awaited<ReturnType<typeof getVisitorsForClass>>;
+  callouts: Awaited<ReturnType<typeof getCalloutsForClass>>;
+  countOf: (block: SignageBlockKind) => number;
+  total: number;
+};
+async function readCopySource(
+  tx: TenantTx,
+  classId: string,
+  blocks: readonly SignageBlockKind[],
+  fromDate: string,
+): Promise<CopySource> {
+  const daily = new Map<"schedule" | "notice" | "assignment", unknown[]>();
+  let visitors: Awaited<ReturnType<typeof getVisitorsForClass>> = [];
+  let callouts: Awaited<ReturnType<typeof getCalloutsForClass>> = [];
+  const counts = new Map<SignageBlockKind, number>();
+  for (const block of blocks) {
+    if (block === "schedule") {
+      const items = (await getClassSchedule(tx, classId, fromDate))?.items ?? [];
+      daily.set(block, items);
+      counts.set(block, items.length);
+    } else if (block === "notice") {
+      const items = copyableNoticeItems(
+        (await getClassNotices(tx, classId, fromDate))?.items ?? [],
+      );
+      daily.set(block, items);
+      counts.set(block, items.length);
+    } else if (block === "assignment") {
+      const items = (await getClassAssignments(tx, classId, fromDate))?.items ?? [];
+      daily.set(block, items);
+      counts.set(block, items.length);
+    } else if (block === "visitor") {
+      visitors = await getVisitorsForClass(tx, classId, fromDate);
+      counts.set(block, visitors.length);
+    } else if (block === "callout") {
+      callouts = await getCalloutsForClass(tx, classId, fromDate);
+      counts.set(block, callouts.length);
+    }
+  }
+  let total = 0;
+  for (const n of counts.values()) {
+    total += n;
+  }
+  return { daily, visitors, callouts, countOf: (b) => counts.get(b) ?? 0, total };
+}
+
+/**
  * `fromDate` の実セクション（`blocks`）を `toDate` へ置換複製する tx 内コア（前日コピー / 前週コピーが共有）。
  * 複製元が**全ブロック空**なら複製しない（`null` を返す＝対象日を誤って空に置換しない安全弁）。空でない場合は
  * 全ブロックを置換する（複製元で空のブロックは対象日も空になる＝「その日の写し」を作る従来挙動を全ブロックへ
@@ -121,36 +175,13 @@ async function copyOneDay(
   fromDate: string,
   toDate: string,
 ): Promise<CopiedSection[] | null> {
-  // 1) 複製元を全ブロック読み取り（同一 tx・RLS 自校限定）。読み取りは 1 回＝空判定と書込が同じスナップショット。
-  const daily = new Map<"schedule" | "notice" | "assignment", unknown[]>();
-  let visitors: Awaited<ReturnType<typeof getVisitorsForClass>> = [];
-  let callouts: Awaited<ReturnType<typeof getCalloutsForClass>> = [];
-  let total = 0;
-  for (const block of blocks) {
-    if (block === "schedule") {
-      const items = (await getClassSchedule(tx, target.classId, fromDate))?.items ?? [];
-      daily.set(block, items);
-      total += items.length;
-    } else if (block === "notice") {
-      // 固定行 (pinned・§6.4・PR-C #1221) はコピー対象から除外する — 既に全日表示されており、複製すると
-      // 同じ内容が二重表示になる。区切り線 (divider) はレイアウトの一部なので含める（copyableNoticeItems）。
-      const items = copyableNoticeItems(
-        (await getClassNotices(tx, target.classId, fromDate))?.items ?? [],
-      );
-      daily.set(block, items);
-      total += items.length;
-    } else if (block === "assignment") {
-      const items = (await getClassAssignments(tx, target.classId, fromDate))?.items ?? [];
-      daily.set(block, items);
-      total += items.length;
-    } else if (block === "visitor") {
-      visitors = await getVisitorsForClass(tx, target.classId, fromDate);
-      total += visitors.length;
-    } else if (block === "callout") {
-      callouts = await getCalloutsForClass(tx, target.classId, fromDate);
-      total += callouts.length;
-    }
-  }
+  // 1) 複製元を全ブロック読み取り（同一 tx・RLS 自校限定・件数表示と共有の単一ソース）。
+  const { daily, visitors, callouts, total } = await readCopySource(
+    tx,
+    target.classId,
+    blocks,
+    fromDate,
+  );
   if (total === 0) {
     return null;
   }
@@ -230,36 +261,40 @@ async function copyOneDay(
 }
 
 /**
- * 前日コピー（F3・§6.4 パターン動的化）。指定クラスの**前営業日**（{@link previousBusinessDay}・盤面の
- * 「次の N 平日」と同じ土日スキップロジックの後ろ向き版）の実セクション（実効パターンの
- * `editableBlocksForPattern`）を、対象日へ**置換保存で複製**する。
+ * 任意日コピー（統合ツール「ほかの日からコピー」の day 経路・{@link CopyFromMenu}）。指定クラスの
+ * **`fromDate`**（前営業日 / 先週の同じ曜日 / 教員が選んだ任意日＝呼び出し側が算出）の実セクション
+ * （実効パターンの `editableBlocksForPattern`）を、対象日 `toDate` へ**置換保存で複製**する。前営業日/週演算は
+ * クライアントと同じ純関数（`previousBusinessDay` / `week-math`）で呼び出し側が確定させ、本 action は
+ * 具体日付だけを受ける（コピー元がボタン上で見えている値と、実際に複製される値を一致させる）。
  *
- * - 認可（`requireRole`）→ 自校 RLS tx（`tenantScoped`）内でパターン解決 → 前営業日を読み → 対象日を置換。
- * - **前営業日に全ブロック空**なら複製しない（対象日を誤って空に置換しない安全弁＝invalid で戻す。文言は
- *   パターン別ラベルで合成）。
- * - 対象日に既存入力がある場合の**上書き確認はクライアント側**（`CopyPreviousDayButton` の confirm）。本 action
+ * - 認可（`requireRole`）→ 自校 RLS tx（`tenantScoped`）内でパターン解決 → `fromDate` を読み → `toDate` を置換。
+ * - **`fromDate` に全ブロック空**なら複製しない（対象日を誤って空に置換しない安全弁＝invalid で戻す。文言は
+ *   パターン別ラベルで合成）。同日（`fromDate === toDate`）は no-op の誤操作なので弾く。
+ * - 対象日に既存入力がある場合の**上書き確認はクライアント側**（`CopyFromMenu` の `ConfirmDialog`）。本 action
  *   は常に置換する（呼ぶ側が確認済みの前提）。
  *
  * 全ブロックを 1 tx でまとめて書くので部分適用が起きない（全て成功 or 例外で全ロールバック）。
  *
  * 注: `toScopedEditorActor(user)` を targetSchoolId 無しで呼ぶため **system_admin は常に forbidden**（fail-closed・
- * 意図的）。前日コピーは教員の日常操作で /ops 横断経路は不要（必要になったら setScheduleAction と同様に
- * 末尾引数で開ける）。
+ * 意図的）。コピーは教員の日常操作で /ops 横断経路は不要（必要になったら末尾引数で開ける）。
  */
-export async function copyPreviousDayAction(
+export async function copyDayFromAction(
   classId: unknown,
-  date: unknown,
+  fromDate: unknown,
+  toDate: unknown,
 ): Promise<ActionResult<{ fromDate: string; sections: CopiedSection[] }>> {
   const target = parseEditorTarget("class", classId);
   if (!target || target.scope !== "class") {
     return invalid("クラスの指定が不正です。");
   }
-  if (!isValidDate(date)) {
+  if (!isValidDate(fromDate)) {
+    return invalid("コピー元の日付が不正です (YYYY-MM-DD)。");
+  }
+  if (!isValidDate(toDate)) {
     return invalid("日付が不正です (YYYY-MM-DD)。");
   }
-  const fromDate = previousBusinessDay(date);
-  if (!fromDate) {
-    return invalid("前営業日を計算できませんでした。");
+  if (fromDate === toDate) {
+    return invalid("同じ日にはコピーできません。");
   }
 
   const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
@@ -275,8 +310,8 @@ export async function copyPreviousDayAction(
   try {
     const result = await withSession(
       async (tx) => {
-        // クラス可視性を確認（別テナント / 不存在は null）。旧実装は getClassSchedule の null で判定していたが、
-        // pattern4 等 schedule を持たないパターンでも成立するよう明示チェックに寄せる（前週コピーと同作法）。
+        // クラス可視性を確認（別テナント / 不存在は null）。pattern4 等 schedule を持たないパターンでも成立する
+        // よう getClassName の明示チェックで判定する（前週コピーと同作法）。
         if ((await getClassName(tx, target.classId)) === null) {
           return { kind: "not_found" as const };
         }
@@ -284,7 +319,7 @@ export async function copyPreviousDayAction(
         const pattern = await resolveClassPattern(tx, target.classId);
         const blocks = editableBlocksForPattern(pattern);
         const labelOf = (block: SignageBlockKind) => blockLabel(pattern, block);
-        const sections = await copyOneDay(tx, actor, target, blocks, labelOf, fromDate, date);
+        const sections = await copyOneDay(tx, actor, target, blocks, labelOf, fromDate, toDate);
         if (sections === null) {
           return { kind: "empty" as const, labels: blocks.map(labelOf) };
         }
@@ -298,7 +333,7 @@ export async function copyPreviousDayAction(
     }
     if (result.kind === "empty") {
       return invalid(
-        `前営業日（${fromDate}）に複製できる${result.labels.join("・")}がありません。`,
+        `コピー元（${fromDate}）に複製できる${result.labels.join("・")}がありません。`,
       );
     }
     revalidatePath(`/app/editor/${target.classId}`);
@@ -316,27 +351,91 @@ export async function copyPreviousDayAction(
 }
 
 /**
- * 前週コピー（C2・§6.4 パターン動的化）。**今週（JST 今日を含む週）の月〜金**へ、**前週の同じ曜日**の
+ * コピー元プレビュー（統合ツールが「押す前に何が入るか」を見せるための読み取り専用 action）。`fromDate` の
+ * 実セクションを件数だけ数えて返す（書込なし）。件数は複製の単一ソース {@link readCopySource} で数えるので、
+ * **プレビューに出す件数と実際に複製される件数が一致する**（notice の固定行除外なども同じ）。
+ * 空（total=0）でも `ok` で返す（呼び出し側が「複製できる内容がありません」を表示する）。
+ */
+export async function previewCopyDayAction(
+  classId: unknown,
+  fromDate: unknown,
+): Promise<
+  ActionResult<{
+    fromDate: string;
+    sections: { block: SignageBlockKind; label: string; count: number }[];
+    total: number;
+  }>
+> {
+  const target = parseEditorTarget("class", classId);
+  if (!target || target.scope !== "class") {
+    return invalid("クラスの指定が不正です。");
+  }
+  if (!isValidDate(fromDate)) {
+    return invalid("日付が不正です (YYYY-MM-DD)。");
+  }
+
+  const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
+  const actor = toScopedEditorActor(user);
+  if (!actor) {
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは編集できません。",
+    );
+  }
+
+  const result = await withSession(
+    async (tx) => {
+      if ((await getClassName(tx, target.classId)) === null) {
+        return null;
+      }
+      const pattern = await resolveClassPattern(tx, target.classId);
+      const blocks = editableBlocksForPattern(pattern);
+      const source = await readCopySource(tx, target.classId, blocks, fromDate);
+      const sections = blocks.map((block) => ({
+        block,
+        label: blockLabel(pattern, block),
+        count: source.countOf(block),
+      }));
+      return { sections, total: source.total };
+    },
+    { tenantScoped: true, schoolId: actor.schoolId },
+  );
+
+  if (!result) {
+    return invalid("クラスが見つかりません。");
+  }
+  return { ok: true, data: { fromDate, sections: result.sections, total: result.total } };
+}
+
+/**
+ * 前週コピー（C2・§6.4 パターン動的化）。**`anchorDate` を含む週の月〜金**へ、**前週の同じ曜日**の
  * 実セクション（実効パターンの `editableBlocksForPattern`）を置換複製する（週は月曜始まり・曜日対応
- * 前週月→今週月 …）。前週のその曜日が全ブロック空の日はスキップ（今週の当該日を空に置換しない安全弁）。
+ * 前週月→対象週月 …）。前週のその曜日が全ブロック空の日はスキップ（対象週の当該日を空に置換しない安全弁）。
  * 監査 created_by/updated_by は操作教員（actor）。**5 日ぶんを 1 tx でまとめて書く**ので部分適用が起きない
  * （全て成功 or 例外で全ロールバック。visitor / callout の行コピーが増えても tx 一括の方針は維持＝設計書 §11-9）。
  *
- * 今週の既存入力を上書きするため、**確認ダイアログはクライアント側で必須**（`CopyPreviousWeekButton` の
- * confirm）。本 action は常に置換する（呼ぶ側が確認済みの前提）。
+ * **対象週 = 教員がいま編集している日付（`anchorDate`）の週**にする（統合ツール {@link CopyFromMenu}）。
+ * 旧実装は常に「JST 今日を含む週」固定で、来週を計画中に押しても今週へ書き込む混乱があった（実バグ・2026-07-12
+ * ユーザー報告）。`anchorDate` 不正 / 無指定時のみ今日にフォールバックする（後方互換・fail-soft）。
+ *
+ * 対象週の既存入力を上書きするため、**確認ダイアログはクライアント側で必須**（`CopyFromMenu` の
+ * `ConfirmDialog`）。本 action は常に置換する（呼ぶ側が確認済みの前提）。
  *
  * 注: `toScopedEditorActor(user)` を targetSchoolId 無しで呼ぶため **system_admin は常に forbidden**（fail-closed・
- * 意図的・前日コピーと同判断）。前週コピーは教員の計画操作で /ops 横断経路は不要。
+ * 意図的・任意日コピーと同判断）。前週コピーは教員の計画操作で /ops 横断経路は不要。
  */
 export async function copyPreviousWeekAction(
   classId: unknown,
+  anchorDate?: unknown,
 ): Promise<ActionResult<{ fromWeekStart: string; toWeekStart: string; daysCopied: number }>> {
   const target = parseEditorTarget("class", classId);
   if (!target || target.scope !== "class") {
     return invalid("クラスの指定が不正です。");
   }
-  const today = jstDateString();
-  const toMonday = mondayOfWeek(today);
+  // 対象週は「編集中の日付」の週。不正 / 無指定は今日へフォールバック（後方互換）。
+  const anchor = isValidDate(anchorDate) ? anchorDate : jstDateString();
+  const toMonday = mondayOfWeek(anchor);
   const fromMonday = addDaysUtc(toMonday, -7);
   if (!isValidDate(toMonday) || !isValidDate(fromMonday)) {
     return invalid("週の計算に失敗しました。");
@@ -402,4 +501,68 @@ export async function copyPreviousWeekAction(
     }
     throw error;
   }
+}
+
+/**
+ * 前週コピーのプレビュー（統合ツールが「先週に何日分・何件あるか」を押す前に見せる読み取り専用 action）。
+ * `anchorDate` を含む週の前週の月〜金を数え、複製元が空でない日数と総件数を返す（書込なし・`anchorDate`
+ * 不正時は今日フォールバック）。件数は複製の単一ソース {@link readCopySource} で数える＝プレビューと実際の
+ * 複製が一致する（前週コピーがスキップする「全空の日」もここでは nonEmptyDays に数えない）。
+ */
+export async function previewCopyWeekAction(
+  classId: unknown,
+  anchorDate?: unknown,
+): Promise<
+  ActionResult<{ fromWeekStart: string; toWeekStart: string; nonEmptyDays: number; total: number }>
+> {
+  const target = parseEditorTarget("class", classId);
+  if (!target || target.scope !== "class") {
+    return invalid("クラスの指定が不正です。");
+  }
+  const anchor = isValidDate(anchorDate) ? anchorDate : jstDateString();
+  const toMonday = mondayOfWeek(anchor);
+  const fromMonday = addDaysUtc(toMonday, -7);
+  if (!isValidDate(toMonday) || !isValidDate(fromMonday)) {
+    return invalid("週の計算に失敗しました。");
+  }
+  const fromWeek = businessWeek(fromMonday);
+
+  const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
+  const actor = toScopedEditorActor(user);
+  if (!actor) {
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは編集できません。",
+    );
+  }
+
+  const result = await withSession(
+    async (tx) => {
+      if ((await getClassName(tx, target.classId)) === null) {
+        return null;
+      }
+      const pattern = await resolveClassPattern(tx, target.classId);
+      const blocks = editableBlocksForPattern(pattern);
+      let nonEmptyDays = 0;
+      let total = 0;
+      for (const from of fromWeek) {
+        if (!from) {
+          continue;
+        }
+        const source = await readCopySource(tx, target.classId, blocks, from);
+        if (source.total > 0) {
+          nonEmptyDays++;
+          total += source.total;
+        }
+      }
+      return { nonEmptyDays, total };
+    },
+    { tenantScoped: true, schoolId: actor.schoolId },
+  );
+
+  if (!result) {
+    return invalid("クラスが見つかりません。");
+  }
+  return { ok: true, data: { fromWeekStart: fromMonday, toWeekStart: toMonday, ...result } };
 }
