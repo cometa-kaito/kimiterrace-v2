@@ -26,6 +26,7 @@ const h = vi.hoisted(() => {
     requireRole: vi.fn(),
     insertValues: vi.fn(),
     replaceFileImportedEvents: vi.fn(),
+    mergeFileImportedEvents: vi.fn(),
     revalidatePath: vi.fn(),
   };
 });
@@ -52,6 +53,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@kimiterrace/db", () => ({
   auditLog: {},
   replaceFileImportedEvents: h.replaceFileImportedEvents,
+  mergeFileImportedEvents: h.mergeFileImportedEvents,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: h.revalidatePath }));
 
@@ -101,6 +103,9 @@ beforeEach(() => {
   h.extractText.mockReset().mockResolvedValue({ text: "4/20 体育祭", format: "xlsx" });
   h.insertValues.mockReset().mockResolvedValue(undefined);
   h.replaceFileImportedEvents.mockReset().mockResolvedValue({ deleted: 0, inserted: 1 });
+  h.mergeFileImportedEvents
+    .mockReset()
+    .mockResolvedValue({ ok: true, deleted: 0, inserted: 1, keptExisting: 0 });
   h.revalidatePath.mockReset();
 });
 afterEach(() => vi.clearAllMocks());
@@ -268,7 +273,7 @@ describe("saveCalendarImportAction", () => {
       // dropped の未知キー（bogus）は監査に載せない（allowlist）。
       { fileName: "annual.xlsx", dropped: { invalidDate: 1, bogus: 5 }, suspectedNameCount: 2 },
     );
-    expect(r).toEqual({ ok: true, deleted: 3, inserted: 1 });
+    expect(r).toEqual({ ok: true, mode: "replace", deleted: 3, inserted: 1, keptExisting: 0 });
 
     expect(h.replaceFileImportedEvents).toHaveBeenCalledOnce();
     const params = h.replaceFileImportedEvents.mock.calls[0]?.[1] as {
@@ -303,8 +308,10 @@ describe("saveCalendarImportAction", () => {
     expect(audit.diff).toMatchObject({
       calendarFileImport: true,
       fileName: "annual.xlsx",
+      mode: "replace",
       deleted: 3,
       inserted: 1,
+      keptExisting: 0,
       dropped: { invalidDate: 1 },
       suspectedNameCount: 2,
       fiscalYear: 2026,
@@ -313,9 +320,10 @@ describe("saveCalendarImportAction", () => {
     expect(h.revalidatePath).toHaveBeenCalledWith("/app/editor/calendar-import");
   });
 
-  it("メタ未申告でも保存できる（fileName は既定値・監査は 0 埋め）", async () => {
+  it("メタ未申告でも保存できる（fileName は既定値・監査は 0 埋め・mode 未指定 = replace）", async () => {
     const r = await saveCalendarImportAction(VALID_EVENTS, {});
-    expect(r).toEqual({ ok: true, deleted: 0, inserted: 1 });
+    expect(r).toEqual({ ok: true, mode: "replace", deleted: 0, inserted: 1, keptExisting: 0 });
+    expect(h.mergeFileImportedEvents).not.toHaveBeenCalled();
     const params = h.replaceFileImportedEvents.mock.calls[0]?.[1] as { fileName: string };
     expect(params.fileName).toBe("(不明なファイル)");
   });
@@ -325,5 +333,58 @@ describe("saveCalendarImportAction", () => {
     const r = await saveCalendarImportAction(VALID_EVENTS, {});
     expect(r).toEqual({ ok: false, reason: "error" });
     expect(h.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  // ---- 2026-07-12 追補: マージモード（既存に追加・更新する）----
+
+  it("merge モードはマージヘルパを上限つきで呼び、件数（keptExisting 含む）と監査に mode を残す", async () => {
+    h.mergeFileImportedEvents.mockResolvedValue({
+      ok: true,
+      deleted: 2,
+      inserted: 5,
+      keptExisting: 40,
+    });
+    const r = await saveCalendarImportAction(VALID_EVENTS, { fileName: "追補.xlsx" }, "merge");
+    expect(r).toEqual({ ok: true, mode: "merge", deleted: 2, inserted: 5, keptExisting: 40 });
+
+    expect(h.replaceFileImportedEvents).not.toHaveBeenCalled();
+    expect(h.mergeFileImportedEvents).toHaveBeenCalledOnce();
+    const params = h.mergeFileImportedEvents.mock.calls[0]?.[1] as {
+      schoolId: string;
+      maxTotalEvents: number;
+      events: unknown[];
+    };
+    expect(params.schoolId).toBe("s1");
+    expect(params.maxTotalEvents).toBe(2000); // MAX_FILE_IMPORT_EVENTS と同値
+    expect(params.events).toHaveLength(1);
+
+    expect(h.insertValues).toHaveBeenCalledOnce();
+    const audit = h.insertValues.mock.calls[0]?.[0] as { diff: Record<string, unknown> };
+    expect(audit.diff).toMatchObject({ mode: "merge", deleted: 2, inserted: 5, keptExisting: 40 });
+    expect(h.revalidatePath).toHaveBeenCalledWith("/app/editor/calendar-import");
+  });
+
+  it("merge の上限超過（over_cap）は invalid で案内し、監査も revalidate もしない", async () => {
+    h.mergeFileImportedEvents.mockResolvedValue({
+      ok: false,
+      reason: "over_cap",
+      keptExisting: 1999,
+      incoming: 2,
+    });
+    const r = await saveCalendarImportAction(VALID_EVENTS, {}, "merge");
+    expect(r).toMatchObject({
+      ok: false,
+      reason: "invalid",
+      issues: [{ index: -1, message: expect.stringContaining("完全に置き換える") }],
+    });
+    expect(h.insertValues).not.toHaveBeenCalled();
+    expect(h.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("未知の mode は invalid（黙って replace = 破壊的既定に倒さない・ヘルパは呼ばない）", async () => {
+    const r = await saveCalendarImportAction(VALID_EVENTS, {}, "evil-mode");
+    expect(r).toMatchObject({ ok: false, reason: "invalid" });
+    expect(h.replaceFileImportedEvents).not.toHaveBeenCalled();
+    expect(h.mergeFileImportedEvents).not.toHaveBeenCalled();
   });
 });

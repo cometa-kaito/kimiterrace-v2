@@ -5,12 +5,14 @@ import {
   asc,
   eq,
   gte,
+  inArray,
   isNull,
   like,
   lte,
   notInArray,
 } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { fileImportEventDiffKey } from "../calendar-import-key.js";
 import type { TenantTx } from "../client.js";
 import { schoolCalendarEvents } from "../schema/school-calendar-events.js";
 import { schoolCalendarSources } from "../schema/school-calendar-sources.js";
@@ -398,7 +400,6 @@ export async function replaceFileImportedEvents(
   tx: Pick<PostgresJsDatabase, "delete" | "insert">,
   params: ReplaceFileImportedEventsParams,
 ): Promise<ReplaceFileImportedEventsResult> {
-  const actor = params.actorUserId;
   // 1) 既存ファイル取込バッチの削除（source_id IS NULL AND uid LIKE 'file:%' の二重条件、ADR-049 決定 2）。
   const deletedRows = await tx
     .delete(schoolCalendarEvents)
@@ -415,7 +416,23 @@ export async function replaceFileImportedEvents(
   if (params.events.length === 0) {
     return { deleted: deletedRows.length, inserted: 0 };
   }
-  const values = params.events.map((ev, i) => ({
+  const insertedRows = await tx
+    .insert(schoolCalendarEvents)
+    .values(fileImportInsertValues(params))
+    .returning({ id: schoolCalendarEvents.id });
+  return { deleted: deletedRows.length, inserted: insertedRows.length };
+}
+
+/**
+ * ファイル取込バッチの INSERT values を組む（replace / merge 共通の単一点）。uid = `file:<batchId>:<n>`
+ * （n は 1 始まりの連番）、`sourceId = null`、`raw = { origin: "file-import", batchId, fileName, importedBy }`
+ * を保全（ADR-049 残存リスク③の追跡子）。監査（ルール1）: `createdBy` / `updatedBy` = 実行者 uid。
+ */
+function fileImportInsertValues(
+  params: ReplaceFileImportedEventsParams,
+): InferInsertModel<typeof schoolCalendarEvents>[] {
+  const actor = params.actorUserId;
+  return params.events.map((ev, i) => ({
     schoolId: params.schoolId,
     uid: `${FILE_IMPORT_UID_PREFIX}${params.batchId}:${i + 1}`,
     summary: ev.summary ?? null,
@@ -426,7 +443,7 @@ export async function replaceFileImportedEvents(
     allDay: ev.allDay ?? false,
     location: ev.location ?? null,
     sourceId: null,
-    // 取込履歴の保全（ADR-049 残存リスク③: 教員による置き換えを batchId / importedBy で追跡可能にする）。
+    // 取込履歴の保全（ADR-049 残存リスク③: 教員による置き換え/マージを batchId / importedBy で追跡可能にする）。
     raw: {
       origin: "file-import",
       batchId: params.batchId,
@@ -436,11 +453,120 @@ export async function replaceFileImportedEvents(
     createdBy: actor,
     updatedBy: actor,
   }));
+}
+
+/**
+ * {@link mergeFileImportedEvents} の入力。replace と同じ形 + マージ後合計の上限。
+ * `maxTotalEvents` は apps/web の `MAX_FILE_IMPORT_EVENTS`（= 2000）を渡す想定（値の正本は呼び出し側。
+ * ヘルパ内定数にしないのは、上限の単一ソースが取込 UI / sanitize / 保存前再検証と同じ場所にあるため）。
+ */
+export type MergeFileImportedEventsParams = ReplaceFileImportedEventsParams & {
+  /** マージ後の `file:` 名前空間合計（そのまま残る既存 + 今回挿入）の上限。超過時は一切書き込まない。 */
+  maxTotalEvents: number;
+};
+
+/** {@link mergeFileImportedEvents} の結果。over_cap はロールバック不要（書き込み前に判定・no-op）。 */
+export type MergeFileImportedEventsResult =
+  | {
+      ok: true;
+      /** キー一致で内容更新された既存行数（削除→新バッチ再挿入なので「更新件数」に等しい）。 */
+      deleted: number;
+      /** 挿入した行数（= 今回のイベント数。うち deleted 件は更新・残りが純増）。 */
+      inserted: number;
+      /** 新ファイルに無く**そのまま残った**既存ファイル取込行事の数。 */
+      keptExisting: number;
+    }
+  | {
+      ok: false;
+      reason: "over_cap";
+      keptExisting: number;
+      incoming: number;
+    };
+
+/**
+ * ADR-049 決定 1 の 2026-07-12 追補: ファイル取込由来の行事を**マージ**（追加・更新）で保存する
+ * （`replaceFileImportedEvents` と対をなす第 2 の書き込み口。テナント RLS セッション = 教員 /
+ * school_admin から呼ぶ前提）。部分的な予定表（学期別・追補分）を、既存の取込行事を消さずに足すための
+ * 意味論:
+ *
+ * - **キー = (trim(summary), startDate)**（`fileImportEventDiffKey`・#1278 の差分表示と単一ソース）。
+ * - キー一致の既存ファイル取込行事 → 新ファイルの内容で**更新**（実装は「一致した既存行を id 指定で
+ *   削除し、新バッチ行を挿入」。uid はバッチ依存（`file:<batchId>:<n>`）のため in-place UPDATE の意義がなく、
+ *   削除+挿入の方が replace と挿入経路を共有できる）。
+ * - 新規キー → 追加。新ファイルに無い既存ファイル取込行事 → **残す**（マージの目的）。
+ * - iCal 由来（`sourceId` 非 null / `ical:` uid）は従来どおり一切触れない（読みも削除も
+ *   `source_id IS NULL AND uid LIKE 'file:%'` の二重条件・ADR-049 決定 2）。
+ *
+ * キー正規化の SQL/TS ズレ防止のため、既存行を SELECT で fetch して **TS 側でキー計算 → id 指定 DELETE**
+ * する（SQL 側に trim 比較を書かない。RLS も素直: SELECT/DELETE とも tenant_isolation が自校に絞る）。
+ *
+ * 上限: マージ後の `file:` 名前空間合計（残す既存 + 挿入）が `maxTotalEvents` を超える場合は
+ * **一切書き込まず** `over_cap` を返す（同一 tx 内で既存 fetch → 判定するので TOCTOU を作らない）。
+ *
+ * RLS: 呼び出し接続の tenant_isolation（school_id 一致）が越権を弾く（他校の既存行は USING で不可視 =
+ * 触れない・他校への INSERT は WITH CHECK で拒否）。`WHERE school_id` は対象特定 + 多層防御（ルール2）。
+ *
+ * @param tx     テナントコンテキスト（教員 / school_admin）を張ったトランザクション。fetch / 削除 / 挿入を
+ *               原子化するため必ず同一 tx で呼ぶ。
+ * @param params マージ入力（replace と同形 + maxTotalEvents）。
+ */
+export async function mergeFileImportedEvents(
+  tx: Pick<PostgresJsDatabase, "select" | "delete" | "insert">,
+  params: MergeFileImportedEventsParams,
+): Promise<MergeFileImportedEventsResult> {
+  // 1) 既存のファイル取込行事を fetch（境界は replace と同じ二重条件）。キーは TS 側で計算する。
+  const existing = await tx
+    .select({
+      id: schoolCalendarEvents.id,
+      summary: schoolCalendarEvents.summary,
+      startDate: schoolCalendarEvents.startDate,
+    })
+    .from(schoolCalendarEvents)
+    .where(
+      and(
+        eq(schoolCalendarEvents.schoolId, params.schoolId),
+        isNull(schoolCalendarEvents.sourceId),
+        like(schoolCalendarEvents.uid, `${FILE_IMPORT_UID_PREFIX}%`),
+      ),
+    );
+
+  const incomingKeys = new Set(params.events.map((ev) => fileImportEventDiffKey(ev)));
+  const matchedIds = existing
+    .filter((row) => incomingKeys.has(fileImportEventDiffKey(row)))
+    .map((row) => row.id);
+  const keptExisting = existing.length - matchedIds.length;
+
+  // 2) 上限判定（書き込み前・同一 tx）。超過なら no-op で返し、呼び出し側が検証エラーとして案内する。
+  if (keptExisting + params.events.length > params.maxTotalEvents) {
+    return { ok: false, reason: "over_cap", keptExisting, incoming: params.events.length };
+  }
+
+  // 3) キー一致の既存行を削除（id 指定 + 二重条件の AND で多層防御。iCal 行は id 集合に入り得ない）。
+  let deleted = 0;
+  if (matchedIds.length > 0) {
+    const deletedRows = await tx
+      .delete(schoolCalendarEvents)
+      .where(
+        and(
+          eq(schoolCalendarEvents.schoolId, params.schoolId),
+          isNull(schoolCalendarEvents.sourceId),
+          like(schoolCalendarEvents.uid, `${FILE_IMPORT_UID_PREFIX}%`),
+          inArray(schoolCalendarEvents.id, matchedIds),
+        ),
+      )
+      .returning({ id: schoolCalendarEvents.id });
+    deleted = deletedRows.length;
+  }
+
+  // 4) 新バッチの一括 INSERT（挿入経路は replace と共有 = 単一点）。空イベントのマージは no-op。
+  if (params.events.length === 0) {
+    return { ok: true, deleted, inserted: 0, keptExisting };
+  }
   const insertedRows = await tx
     .insert(schoolCalendarEvents)
-    .values(values)
+    .values(fileImportInsertValues(params))
     .returning({ id: schoolCalendarEvents.id });
-  return { deleted: deletedRows.length, inserted: insertedRows.length };
+  return { ok: true, deleted, inserted: insertedRows.length, keptExisting };
 }
 
 /** 取得 Job が write 系で使う tx 型エイリアス（system context、insert/update/delete を含む）。 */

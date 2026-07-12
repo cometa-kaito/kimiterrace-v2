@@ -6,10 +6,14 @@
  * **何が追加され・何が削除されるか**（特に削除される行事の一覧）を保存前に見せるための計算を担う。
  * 表示専用であり、保存ロジック・保存ペイロードには一切関与しない。
  *
- * client（CalendarImportClient の確認ダイアログ）から import されるため **@kimiterrace/db を import
- * しない**（"use client" から db 値 import に到達すると next build が落ちる・#1269）。DB / React
- * 非依存で全て単体テスト可能（calendar-import-view と同方針）。
+ * client（CalendarImportClient の確認ダイアログ）から import されるため **@kimiterrace/db の
+ * メインバレルを import しない**（"use client" から db 値 import に到達すると next build が落ちる・#1269）。
+ * キー関数のみ drizzle 非依存サブパス `@kimiterrace/db/calendar-import-key` から読む（tv-schedule と同じ
+ * 流儀。マージ保存 `mergeFileImportedEvents` と同一キーの単一ソース化）。DB / React 非依存で全て
+ * 単体テスト可能（calendar-import-view と同方針）。
  */
+
+import { fileImportEventDiffKey } from "@kimiterrace/db/calendar-import-key";
 
 /**
  * 差分キーの元になる最小形。summary は DB 由来（nullable カラム）と プレビュー行（string）の両方を
@@ -30,13 +34,18 @@ export interface FileImportedEventSummary extends CalendarImportDiffKeySource {
   location: string | null;
 }
 
-/** 置き換え保存の差分（確認ダイアログの表示用・監査可能な形）。 */
+/**
+ * 置き換え保存の差分（確認ダイアログの表示用・監査可能な形）。
+ * マージ保存（2026-07-12 追補）でも同じ計算を使い、表示だけ読み替える:
+ * added = 追加 / kept = キー一致（マージでは**更新**される）/ removed = 既存のみ（マージでは
+ * 削除されず**そのまま残る**）。`mergeFileImportedEvents` と同一キーなので読み替えは正確。
+ */
 export interface CalendarImportReplaceDiff<TExisting, TNext> {
   /** 今回のプレビューにのみある行事（保存で新規追加される）。 */
   added: TNext[];
-  /** キーが既存と一致するプレビュー行の数（保存後も実質同じ行事が残る）。 */
+  /** キーが既存と一致するプレビュー行の数（置換: 実質同じ行事が残る / マージ: 更新される）。 */
   kept: number;
-  /** 既存（前回のファイル取込）にのみある行事（**保存すると消える**。ダイアログで一覧表示する）。 */
+  /** 既存（前回のファイル取込）にのみある行事（置換: **保存すると消える**・ダイアログで一覧表示する / マージ: そのまま残る）。 */
   removed: TExisting[];
 }
 
@@ -62,26 +71,17 @@ export function diffCalendarImportReplace<
   existing: readonly TExisting[],
   next: readonly TNext[],
 ): CalendarImportReplaceDiff<TExisting, TNext> {
-  const existingKeys = new Set(existing.map(diffKey));
-  const nextKeys = new Set(next.map(diffKey));
+  const existingKeys = new Set(existing.map(fileImportEventDiffKey));
+  const nextKeys = new Set(next.map(fileImportEventDiffKey));
   const added: TNext[] = [];
   let kept = 0;
   for (const ev of next) {
-    if (existingKeys.has(diffKey(ev))) {
+    if (existingKeys.has(fileImportEventDiffKey(ev))) {
       kept += 1;
     } else {
       added.push(ev);
     }
   }
-  const removed = existing.filter((ev) => !nextKeys.has(diffKey(ev)));
+  const removed = existing.filter((ev) => !nextKeys.has(fileImportEventDiffKey(ev)));
   return { added, kept, removed };
-}
-
-/**
- * (summary, startDate) の合成キー。区切りの \u0000 は summary に実質現れない
- * （sanitizeImportedEvents の dedupe キーと同作法）。summary は trim して保存時の正規化（Zod
- * `.trim()`）と揃える（null は空文字扱い）。
- */
-function diffKey(ev: CalendarImportDiffKeySource): string {
-  return `${ev.startDate}\u0000${(ev.summary ?? "").trim()}`;
 }

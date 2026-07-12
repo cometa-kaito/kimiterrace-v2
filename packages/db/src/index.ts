@@ -107,5 +107,7 @@ export * from "./queries/air-quality.js";
 export * from "./queries/signage-snippets.js";
 // ADR-045: 学校行事カレンダー iCal の設定 upsert/列挙 (取得 Job, system context) + イベント upsert/掃除/読み取り (tenant_isolation 委譲)
 export * from "./queries/school-calendar.js";
+// ADR-049: ファイル取込 (summary, startDate) キーの正本 (drizzle 非依存。client はサブパス ./calendar-import-key で読む)
+export * from "./calendar-import-key.js";
 // F14 (#128, ADR-021): 都道府県 → JMA 府県予報区コードの静的マップ (取得 Job + サイネージ読取で共有)
 export * from "./_shared/jma-area-map.js";
