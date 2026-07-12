@@ -2,6 +2,7 @@ import { clampIndex } from "@/lib/signage/rotation";
 import type { SignagePayload } from "@/lib/signage/signage-display";
 import type { EditRegionsProps } from "./BoardRegionEditButton";
 import scaler from "./ScaledSignageBoard.module.css";
+import boardStyles from "./signage.module.css";
 import { SignageBoardView } from "./SignageBoardView";
 
 /**
@@ -79,7 +80,10 @@ export function ScaledSignageBoard({
       : undefined;
   return (
     <div className={scaler.frame} style={frameStyle}>
-      <div className={scaler.stage}>
+      {/* .scaledStage: ステージ内は §12 の大型モニタプロファイル（≥1800px=×1.35 / ≥3000px=×2）を中和し
+          720p 基底プロファイルを固定する（signage.module.css §15）。これがないと職員室のフル HD 画面で
+          盤面が 1280×720 を超過し frame の overflow:hidden で見切れる。 */}
+      <div className={`${scaler.stage} ${boardStyles.scaledStage}`}>
         <SignageBoardView
           data={payload}
           ad={ad}
