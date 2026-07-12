@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=20d9d2b / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "1410410" # 2026-07-12: 年間行事取込ステップ1をドロップゾーン化(#1286 教員FB・D&D+選択済カード+infoバナー・新規色ゼロ)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
+  web_image_tag = "1b1b7eb" # 2026-07-13: 授業時間中の広告配信停止(#1293 システム管理者が学校ごとに授業時間帯を設定→display_settings.adSuppressionで広告枠だけ空に)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
