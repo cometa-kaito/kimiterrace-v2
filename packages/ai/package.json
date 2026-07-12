@@ -24,7 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/google-vertex": "^3.0.140",
+    "@ai-sdk/google-vertex": "^5.0.16",
     "@google-cloud/vision": "^5.3.6",
     "ai": "^5.0.52",
     "exceljs": "^4.4.0",
