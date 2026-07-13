@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "1b1b7eb" # 2026-07-13: 授業時間中の広告配信停止(#1293 システム管理者が学校ごとに授業時間帯を設定→display_settings.adSuppressionで広告枠だけ空に)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
+  web_image_tag = "cf1e91d" # 2026-07-13: 授業広告停止の拡張2件(#1297 時間割バリエーション+年間割当[曜日既定+特定日上書き+「止めない日」] / #1298 モニタ別の授業中広告可否[signage_url ?classAds=on])。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
 }
 
 module "network" {
