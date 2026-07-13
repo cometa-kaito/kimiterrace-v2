@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, desc, eq, gte } from "drizzle-orm";
+import { type InferSelectModel, and, desc, eq, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { AirQualitySource } from "../_shared/enums.js";
 import type { TenantTx } from "../client.js";
@@ -99,11 +99,15 @@ export async function upsertAirQuality(
       set: {
         areaName: input.areaName ?? null,
         fetchedAt: input.fetchedAt ?? new Date(),
-        pm25,
-        pm25Band,
-        oxidant,
-        uvIndex,
-        uvBand,
+        // ★ 測定値は新値が null なら既存値を保持（weather-forecasts.ts の気温と同じ対処）。
+        // そらまめが HTML フォールバック / 該当局なしで全 null に倒れる時間帯があり、非 COALESCE の
+        // 上書きだと同日先行時間帯の実測 PM2.5 を null で潰し、サイネージが残りの一日「—」になる。
+        // excluded.<col> = 今回 INSERT 値（取れなければ null）、airQualityIndex.<col> = 既存行値。
+        pm25: sql`coalesce(excluded.${sql.raw(airQualityIndex.pm25.name)}, ${airQualityIndex.pm25})`,
+        pm25Band: sql`coalesce(excluded.${sql.raw(airQualityIndex.pm25Band.name)}, ${airQualityIndex.pm25Band})`,
+        oxidant: sql`coalesce(excluded.${sql.raw(airQualityIndex.oxidant.name)}, ${airQualityIndex.oxidant})`,
+        uvIndex: sql`coalesce(excluded.${sql.raw(airQualityIndex.uvIndex.name)}, ${airQualityIndex.uvIndex})`,
+        uvBand: sql`coalesce(excluded.${sql.raw(airQualityIndex.uvBand.name)}, ${airQualityIndex.uvBand})`,
         raw: rawValue,
         // ルール1: 再取得時刻として updated_at を明示更新（created_at / created_by は初回値を保つ）。
         updatedAt: new Date(),

@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, desc, eq, gte } from "drizzle-orm";
+import { type InferSelectModel, and, desc, eq, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { HeatAlertLevel, WbgtBand } from "../_shared/enums.js";
 import type { TenantTx } from "../client.js";
@@ -89,9 +89,13 @@ export async function upsertHeatAlert(tx: TenantTx, input: UpsertHeatAlertInput)
       set: {
         areaName: input.areaName ?? null,
         fetchedAt: input.fetchedAt ?? new Date(),
+        // alertLevel は無条件更新のまま（夕方に severe→none へ正当に落ちる更新を許す）。
         alertLevel,
-        wbgtMax,
-        wbgtBand: band,
+        // ★ WBGT の数値/バンドは新値が null なら既存を保持（成功した 2xx でも該当地域行なし・
+        // WBGT 列が空だと parse が null に倒れ、非 COALESCE だと同日先行の記録ピーク WBGT を潰す）。
+        // 保存日 forecast_date が競合キーに含まれるので保持は「同日内」に限られる（翌日は別行）。
+        wbgtMax: sql`coalesce(excluded.${sql.raw(heatAlerts.wbgtMax.name)}, ${heatAlerts.wbgtMax})`,
+        wbgtBand: sql`coalesce(excluded.${sql.raw(heatAlerts.wbgtBand.name)}, ${heatAlerts.wbgtBand})`,
         raw: rawValue,
         // ルール1: 再取得時刻として updated_at を明示更新（created_at / created_by は初回値を保つ）。
         updatedAt: new Date(),
