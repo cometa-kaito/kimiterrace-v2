@@ -34,6 +34,7 @@ import styles from "./signage.module.css";
 export function SignageClient({
   basePath,
   initial,
+  adExempt = false,
 }: {
   /**
    * ポーリング/イベント送信の URL 接頭辞。`/signage/<classToken>`（クラス起点）または
@@ -42,6 +43,12 @@ export function SignageClient({
    */
   basePath: string;
   initial: SignagePayload;
+  /**
+   * このモニタが「授業中も広告を出す」（`?classAds=on`）か。true のとき poll URL にも `&classAds=on` を
+   * 引き継ぎ、**ポーリングでも授業中の広告停止免除を維持**する（引き継がないと初回ポーリングで広告が
+   * 抑制へ戻ってしまう）。ページセッション中は不変（signage_url 由来）。
+   */
+  adExempt?: boolean;
 }) {
   const [data, setData] = useState<SignagePayload>(initial);
   const [invalid, setInvalid] = useState(false);
@@ -54,6 +61,8 @@ export function SignageClient({
   // 同じデザインを引き継ぐため poll URL に転送する（転送しないと data Route が学校レベル既定/pattern1 に
   // 倒れ初回ポーリングで盤面が切替わってしまう）。ページセッション中は不変なので initial 値を固定で使う。
   const designParam = initial.designPattern;
+  // 「授業中も広告を出す」端末は poll URL にも classAds=on を引き継ぐ（初回ポーリングで抑制へ戻さない）。
+  const adExemptQuery = adExempt ? "&classAds=on" : "";
 
   // --- 自動更新ポーリング (jitter 付き再帰 setTimeout、tab 非表示時はスキップして接続節約) ---
   const poll = useCallback(async () => {
@@ -62,7 +71,7 @@ export function SignageClient({
     }
     try {
       const res = await fetch(
-        `${basePath}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}`,
+        `${basePath}/data?date=${jstDateString()}&design=${encodeURIComponent(designParam)}${adExemptQuery}`,
         { cache: "no-store" },
       );
       if (res.status === 410) {
@@ -79,7 +88,7 @@ export function SignageClient({
     } catch {
       // ネットワークエラーは握りつぶし、最後に成功した表示を維持する。
     }
-  }, [basePath, designParam]);
+  }, [basePath, designParam, adExemptQuery]);
 
   useEffect(() => {
     if (invalid) {

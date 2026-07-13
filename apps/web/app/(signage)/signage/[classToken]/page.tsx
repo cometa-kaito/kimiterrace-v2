@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { shouldApplyFitStage } from "@/lib/signage/fit-mode";
+import { isMonitorAdExempt } from "@/lib/signage/monitor-ad-mode";
 import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { SignageClient } from "./_components/SignageClient";
@@ -33,22 +34,35 @@ export default async function SignagePage({
   searchParams,
 }: {
   params: Promise<{ classToken: string }>;
-  searchParams: Promise<{ date?: string; design?: string; fit?: string | string[] }>;
+  searchParams: Promise<{
+    date?: string;
+    design?: string;
+    fit?: string | string[];
+    classAds?: string;
+  }>;
 }) {
   const { classToken } = await params;
-  const { date: dateParam, design, fit } = await searchParams;
+  const { date: dateParam, design, fit, classAds } = await searchParams;
 
   // 既定は JST の今日。?date=YYYY-MM-DD で任意日を表示可 (形式不正・無効暦日は今日へフォールバック)。
   const date = parseSignageDate(dateParam);
 
+  // ?classAds=on は「このモニタは授業中も広告を出す」（端末単位の例外・signage_url が持つ）。授業時間中の
+  // 広告停止を免除する。既定（未指定）は学校設定に従う。
+  const adExempt = isMonitorAdExempt(classAds);
+
   // ?design=patternN は端末別デザイン（TV の signage_url が持つ）。未指定/未知は学校レベル既定→pattern1。
-  const payload = await getSignageDisplayData(classToken, date, design);
+  const payload = await getSignageDisplayData(classToken, date, design, adExempt);
   if (!payload) {
     return <SignageInvalid />;
   }
 
   const board = (
-    <SignageClient basePath={`/signage/${encodeURIComponent(classToken)}`} initial={payload} />
+    <SignageClient
+      basePath={`/signage/${encodeURIComponent(classToken)}`}
+      initial={payload}
+      adExempt={adExempt}
+    />
   );
 
   // **実機サイネージ端末（tv-ble-bridge の Android WebView）は盤面を画面いっぱいに描く**べきなので fit-stage を
