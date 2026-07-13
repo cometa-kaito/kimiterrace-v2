@@ -69,15 +69,17 @@ export default async function SystemSchoolAdSuppressionPage({
 
       <h1 style={titleStyle}>授業時間（広告停止）</h1>
       <p style={subtitleStyle}>
-        設定した授業時間帯は、サイネージの広告枠だけを非表示にします（時間割・連絡・提出物などは通常どおり
-        表示され、休み時間や放課後は広告が出ます）。設定はこの学校のすべてのモニタに適用され、実機は自動で
-        追従します。
+        時間割バリエーション（通常・短縮など）を登録し、曜日ごとの既定と特定日で年間に割り当てます。割り当てた
+        授業時間帯は、サイネージの広告枠だけを非表示にします（時間割・連絡・提出物などは通常どおり表示され、
+        休み時間や放課後は広告が出ます）。「広告を止めない」を割り当てた曜日・日は終日広告が出ます。設定は
+        この学校の各モニタに適用され（モニタ個別に「授業中も広告を出す」に切り替え可）、実機は自動で追従します。
       </p>
       <AdSuppressionManager
         schoolId={school.id}
         initialEnabled={suppression.enabled}
-        initialRanges={suppression.ranges}
-        initialWeekdays={suppression.weekdays}
+        initialVariations={suppression.variations}
+        initialWeekdayMap={suppression.weekdayMap}
+        initialOverrides={suppression.overrides}
       />
     </div>
   );

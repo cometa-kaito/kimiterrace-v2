@@ -75,14 +75,15 @@ async function lockDisplaySettingsValue(tx: TenantTx): Promise<unknown | null> {
   return row ? row.value : null;
 }
 
-/** 監査 diff 用の要約。時刻・曜日のみで PII を含まない。 */
+/** 監査 diff 用の要約。時刻・曜日・日付のみで PII を含まない。 */
 function auditView(cfg: AdSuppressionConfig): Record<string, unknown> {
   return {
     adSuppression: {
       enabled: cfg.enabled,
-      rangeCount: cfg.ranges.length,
-      ranges: cfg.ranges,
-      weekdays: cfg.weekdays,
+      variations: cfg.variations.map((v) => ({ name: v.name, rangeCount: v.ranges.length })),
+      weekdayMap: cfg.weekdayMap,
+      overrideCount: Object.keys(cfg.overrides).length,
+      overrides: cfg.overrides,
     },
   };
 }
@@ -116,20 +117,22 @@ async function writeAudit(
 }
 
 /**
- * 授業時間中の広告停止設定を保存する（upsert）。`enabled=false` / 時間帯 0 件で「停止しない」に更新できる。
+ * 授業時間中の広告停止設定を保存する（upsert）。`enabled=false` / 割り当て無しで「停止しない」に更新できる。
  *
  * @param rawTargetSchoolId 対象校 id（system_admin /ops 経路で必須）。school_admin は無視され自校に固定。
  * @param rawEnabled 機能の有効/無効（boolean）。
- * @param rawRanges  広告を止める時間帯（`[{ start:"HH:MM", end:"HH:MM" }]`）。
- * @param rawWeekdays 対象曜日（0=日..6=土 の配列）。
+ * @param rawVariations 時間割バリエーション（`[{ key, name, ranges:[{start,end}] }]`）。
+ * @param rawWeekdayMap 曜日ごとの割り当て（`{ "1": key, ... }`・値はバリエーション key or "__none__"）。
+ * @param rawOverrides  特定日の割り当て（`{ "YYYY-MM-DD": key, ... }`・値は key or "__none__"）。
  */
 export async function saveAdSuppressionAction(
   rawTargetSchoolId: unknown,
   rawEnabled: unknown,
-  rawRanges: unknown,
-  rawWeekdays: unknown,
+  rawVariations: unknown,
+  rawWeekdayMap: unknown,
+  rawOverrides: unknown,
 ): Promise<ActionResult<{ id: string }>> {
-  const v = validateAdSuppression(rawEnabled, rawRanges, rawWeekdays);
+  const v = validateAdSuppression(rawEnabled, rawVariations, rawWeekdayMap, rawOverrides);
   if (!v.ok) {
     return invalid(v.message);
   }
