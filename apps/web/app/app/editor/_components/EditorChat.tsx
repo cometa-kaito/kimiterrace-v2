@@ -371,11 +371,15 @@ export function EditorChat({
       // 当日 1 日分（top-level）: 編集/削除（盤面との差分）対応の従来経路。days 同梱時は追加専用（削除抑止）。
       // 連絡の置換保存は保存先日付の pinned 行を前置き合流させて保全する（preservePinnedNotices・MEDIUM-3。
       // AI が置換できるのは非 pinned 行のみ＝「連絡を全部削除して」でも pinned 行は残る）。
+      // 当日 top-level がどのセクションを書くか（days ループの当日重複ガードにも使う）。
+      const topLevelWrites = {
+        schedules: willWriteSection("schedules", d, board, allowed, additiveCurrentDay),
+        notices: willWriteSection("notices", d, board, allowed, additiveCurrentDay),
+        assignments: willWriteSection("assignments", d, board, allowed, additiveCurrentDay),
+      };
       const ops: (ReturnType<typeof setScheduleAction> | null)[] = [
-        willWriteSection("schedules", d, board, allowed, additiveCurrentDay)
-          ? setScheduleAction(scope, targetId, date, d.schedules)
-          : null,
-        willWriteSection("notices", d, board, allowed, additiveCurrentDay)
+        topLevelWrites.schedules ? setScheduleAction(scope, targetId, date, d.schedules) : null,
+        topLevelWrites.notices
           ? setNoticesAction(
               scope,
               targetId,
@@ -383,7 +387,7 @@ export function EditorChat({
               preservePinnedNotices(pinnedNotices, date, d.notices),
             )
           : null,
-        willWriteSection("assignments", d, board, allowed, additiveCurrentDay)
+        topLevelWrites.assignments
           ? setAssignmentsAction(scope, targetId, date, d.assignments)
           : null,
       ];
@@ -391,10 +395,16 @@ export function EditorChat({
       // ショットが無いため削除検出は行わない（追加的）。許可セクション絞りは multiDayWrites 済み（meta 由来）。
       // 連絡は各日付の pinned 行も保全する（その日付に入力済みの固定行を置換で消さない）。
       for (const day of days) {
-        if (day.schedules.length > 0) {
+        // 当日（基準日）と同じ日付の days エントリは、top-level が既に書くセクションを二重に書かない。
+        // 同じ (クラス, 日付, セクション) 行への並行 replace-save は last-writer-wins になり、AI が
+        // 仕様違反で当日を top-level と days の両方に出したとき盤面が部分的に化ける。top-level が書か
+        // ないセクション（＝仕様どおり top-level 空で当日を days に入れた複数日ターン）はそのまま days
+        // が書くのでデータ欠落しない。当日以外の days エントリは従来どおり無条件で書く。
+        const isCurrentDate = day.date === date;
+        if (day.schedules.length > 0 && !(isCurrentDate && topLevelWrites.schedules)) {
           ops.push(setScheduleAction(scope, targetId, day.date, day.schedules));
         }
-        if (day.notices.length > 0) {
+        if (day.notices.length > 0 && !(isCurrentDate && topLevelWrites.notices)) {
           ops.push(
             setNoticesAction(
               scope,
@@ -404,7 +414,7 @@ export function EditorChat({
             ),
           );
         }
-        if (day.assignments.length > 0) {
+        if (day.assignments.length > 0 && !(isCurrentDate && topLevelWrites.assignments)) {
           ops.push(setAssignmentsAction(scope, targetId, day.date, day.assignments));
         }
       }
