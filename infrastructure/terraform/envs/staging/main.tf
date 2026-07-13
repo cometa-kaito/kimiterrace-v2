@@ -108,7 +108,7 @@ locals {
   # F14 (#128, ADR-021): apps/jobs（天気取得 Job 等）が使うイメージタグ。jobs.Dockerfile で build/push 済。
   # bd1c9fb: 初版だが dist が部分 emit（weather 欠落）で weather-job が MODULE_NOT_FOUND（不採用）。
   # 08e8ba5: Dockerfile に fail-fast 検証 + tsconfig incremental:false。weather-job 同梱を build 時に保証。
-  jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（他 Job は同コード=挙動不変のため次回デプロイ時に追従）。staging 実 Job image: weather=20d9d2b / 他=ea93c5f
+  jobs_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — air_quality/heat_alerts upsert に COALESCE（フィード欠損時に last-known-good を null で潰さない）+ news フィード内 URL 重複除去（ON CONFLICT 21000 の全断防止）(#1295)。schema 非変更=migration 不要。weather + news Job を apply。staging 実 Job image: weather/news=97c43ca / 他=ea93c5f
 
   # app の DATABASE_URL（DSN）を保持する Secret Manager secret ID（ルール5・値は人間投入）。
   # Cloud Run web service が DATABASE_URL env として Secret Manager から注入する。
