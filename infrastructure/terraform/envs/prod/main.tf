@@ -185,7 +185,7 @@ locals {
   jobs_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — air_quality/heat_alerts upsert に COALESCE（フィード欠損時に last-known-good を null で潰さない）+ news フィード内 URL 重複除去（ON CONFLICT 21000 の全断防止）(#1295)。schema 非変更=migration 不要。weather + news Job を apply（staging で両 Job execute 成功を確認）。prod 実 Job image: weather/news=97c43ca / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — 教員エディタ AI 反映の当日 top-level/days 二重書込みガード(#1295)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache。※本 fix は AI_ENABLED=false の prod では未到達（staging=AI ON で有効）
+  web_image_tag = "cf1e91d" # 2026-07-13: 授業広告停止の拡張2件(#1297 時間割バリエーション+年間割当[曜日既定+特定日上書き+「止めない日」] / #1298 モニタ別の授業中広告可否[signage_url ?classAds=on])。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
 }
 
 module "network" {
