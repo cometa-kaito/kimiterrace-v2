@@ -198,12 +198,16 @@ async function resolveSignageClass(
  *
  * @param classToken 公開クラストークン (magic link)。credential なのでログに出さない。
  * @param date       YYYY-MM-DD (JST)。
+ * @param designParam 端末別デザイン（`?design=patternN`）。
+ * @param adExempt   このモニタが「授業中も広告を出す」（`?classAds=on`）か。true なら授業時間中の広告停止を
+ *                   免除する（`now` を渡さない）。端末単位の例外（monitor-ad-mode.ts）。既定 false。
  * @returns          有効トークンかつクラス可視なら `SignagePayload`、無効/不可視なら null。
  */
 export async function getSignageDisplayData(
   classToken: string,
   date: string,
   designParam?: unknown,
+  adExempt = false,
 ): Promise<SignagePayload | null> {
   const cls = await resolveSignageClass(classToken);
   if (!cls) {
@@ -214,7 +218,8 @@ export async function getSignageDisplayData(
   // （実機の盤面と「実画面モニタの壁」が同一の payload ビルダーを使う＝単一ソース、見た目を一致させる）。
   // `now` を渡すのは **live 経路（実機端末の初期描画/ポーリング）だけ**で、これにより授業時間中の広告停止が
   // 効く。各リクエストで new Date() を取るのでポーリングごとに再評価され、授業終了で自動復帰する。
-  const now = new Date();
+  // ただし当該モニタが「授業中も広告を出す」（adExempt）なら `now` を渡さず＝抑制を免除する（端末単位の例外）。
+  const now = adExempt ? undefined : new Date();
   return await withTenantContext(getDb(), { schoolId: cls.schoolId }, (tx: TenantTx) =>
     buildSignagePayloadForClass(tx, cls.schoolId, cls.classId, date, designParam, undefined, now),
   );
@@ -387,6 +392,7 @@ export async function getSignageDisplayDataForMonitor(
   deviceId: string,
   date: string,
   designParam?: unknown,
+  adExempt = false,
 ): Promise<SignagePayload | null> {
   const dev = await resolveTvDeviceByDeviceId(getDb(), deviceId);
   if (!dev) {
@@ -394,7 +400,8 @@ export async function getSignageDisplayDataForMonitor(
   }
   // 解決した school のみを載せた匿名テナント文脈で payload を組む（classToken 経路と同じ単一ソースの盤面ビルダー）。
   // live 経路なので `now` を渡し、授業時間中の広告停止を効かせる（クラス所属端末・廊下 ads-only 端末とも対象）。
-  const now = new Date();
+  // ただし当該モニタが「授業中も広告を出す」（adExempt）なら `now` を渡さず＝抑制を免除する（端末単位の例外）。
+  const now = adExempt ? undefined : new Date();
   return await withTenantContext(getDb(), { schoolId: dev.schoolId }, (tx: TenantTx) =>
     dev.classId
       ? buildSignagePayloadForClass(

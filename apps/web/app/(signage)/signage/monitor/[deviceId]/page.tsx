@@ -1,3 +1,4 @@
+import { isMonitorAdExempt } from "@/lib/signage/monitor-ad-mode";
 import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayDataForMonitor } from "@/lib/signage/signage-display";
 import { SignageClient } from "../../[classToken]/_components/SignageClient";
@@ -25,16 +26,19 @@ export default async function SignageMonitorPage({
   searchParams,
 }: {
   params: Promise<{ deviceId: string }>;
-  searchParams: Promise<{ date?: string; design?: string }>;
+  searchParams: Promise<{ date?: string; design?: string; classAds?: string }>;
 }) {
   const { deviceId } = await params;
-  const { date: dateParam, design } = await searchParams;
+  const { date: dateParam, design, classAds } = await searchParams;
 
   // 既定は JST の今日。?date=YYYY-MM-DD で任意日（形式不正・無効暦日は今日へフォールバック）。
   const date = parseSignageDate(dateParam);
 
+  // ?classAds=on は「このモニタは授業中も広告を出す」（端末単位の例外）。授業中の広告停止を免除する。
+  const adExempt = isMonitorAdExempt(classAds);
+
   // ?design=patternN は端末別デザイン（TV の signage_url が持つ）。未指定/未知は学校レベル既定→pattern1。
-  const payload = await getSignageDisplayDataForMonitor(deviceId, date, design);
+  const payload = await getSignageDisplayDataForMonitor(deviceId, date, design, adExempt);
   if (!payload) {
     return <SignageInvalid />;
   }
@@ -43,6 +47,7 @@ export default async function SignageMonitorPage({
     <SignageClient
       basePath={`/signage/monitor/${encodeURIComponent(deviceId)}`}
       initial={payload}
+      adExempt={adExempt}
     />
   );
 }

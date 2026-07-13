@@ -1,3 +1,4 @@
+import { isMonitorAdExempt } from "@/lib/signage/monitor-ad-mode";
 import { parseSignageDate } from "@/lib/signage/rotation";
 import { getSignageDisplayData } from "@/lib/signage/signage-display";
 import { NextResponse } from "next/server";
@@ -24,8 +25,11 @@ export async function GET(
   const search = new URL(request.url).searchParams;
   // 形式 + 実在暦日を検証し無効は今日へフォールバック (無効暦日が pg date 比較で 500 になるのを防ぐ)。
   const date = parseSignageDate(search.get("date"));
+  // ?classAds=on（このモニタは授業中も広告を出す）を毎ポーリングで受け取り、授業中の広告停止を免除する
+  // （SignageClient が poll URL に引き継ぐ。免除がポーリングでも維持され途中で広告が戻らない）。
+  const adExempt = isMonitorAdExempt(search.get("classAds"));
   // 端末別デザイン（SignageClient が初期 designPattern を ?design で引き継ぐ）。未指定/未知は既定へ fail-soft。
-  const payload = await getSignageDisplayData(classToken, date, search.get("design"));
+  const payload = await getSignageDisplayData(classToken, date, search.get("design"), adExempt);
   if (!payload) {
     return NextResponse.json(
       { error: "gone" },

@@ -39,6 +39,14 @@ function previewLink(): HTMLAnchorElement {
   return screen.getByRole("link", { name: /プレビューを開く/ }) as HTMLAnchorElement;
 }
 
+// フォームに 2 つの select（デザイン / 授業中の広告表示）があるため、aria-label で一意化する。
+function designSelect(): HTMLSelectElement {
+  return screen.getByRole("combobox", { name: "サイネージ デザイン" }) as HTMLSelectElement;
+}
+function adModeSelect(): HTMLSelectElement {
+  return screen.getByRole("combobox", { name: "授業中の広告表示" }) as HTMLSelectElement;
+}
+
 describe("TvConfigEditForm 配信URLプレビュー（端末別デザイン）", () => {
   it("初期 pattern1: 配信 URL は素の URL（?design 無し）", () => {
     renderForm(BASE);
@@ -47,7 +55,7 @@ describe("TvConfigEditForm 配信URLプレビュー（端末別デザイン）",
 
   it("デザインを pattern2 にすると配信 URL に ?design=pattern2 が付く（保存前でも即反映）", () => {
     renderForm(BASE);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "pattern2" } });
+    fireEvent.change(designSelect(), { target: { value: "pattern2" } });
     const expected = `${BASE}?design=pattern2`;
     expect(previewLink()).toHaveAttribute("href", expected);
     // 読み取り専用の配信 URL 欄にも反映（コピー/目視できる）。
@@ -56,14 +64,29 @@ describe("TvConfigEditForm 配信URLプレビュー（端末別デザイン）",
 
   it("初期が ?design=pattern2 付き URL なら dropdown=pattern2・配信 URL も pattern2", () => {
     renderForm(`${BASE}?design=pattern2`);
-    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("pattern2");
+    expect(designSelect().value).toBe("pattern2");
     expect(previewLink()).toHaveAttribute("href", `${BASE}?design=pattern2`);
   });
 
   it("pattern2→pattern1 に戻すと ?design は外れる（後方互換）", () => {
     renderForm(`${BASE}?design=pattern2`);
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "pattern1" } });
+    fireEvent.change(designSelect(), { target: { value: "pattern1" } });
     expect(previewLink()).toHaveAttribute("href", BASE);
+  });
+
+  it("「授業中も広告を出す」を選ぶと配信 URL に ?classAds=on が付く（design と併存）", () => {
+    renderForm(`${BASE}?design=pattern2`);
+    // 初期は follow（学校設定に従う）。
+    expect(adModeSelect().value).toBe("follow");
+    fireEvent.change(adModeSelect(), { target: { value: "always" } });
+    expect(previewLink()).toHaveAttribute("href", `${BASE}?design=pattern2&classAds=on`);
+  });
+
+  it("初期が ?classAds=on 付き URL なら dropdown=always・URL 欄は素（classAds 除去）", () => {
+    renderForm(`${BASE}?classAds=on`);
+    expect(adModeSelect().value).toBe("always");
+    // 配信 URL には再合成された classAds=on が付く。
+    expect(previewLink()).toHaveAttribute("href", `${BASE}?classAds=on`);
   });
 
   it("サイネージ URL が空ならプレビュー欄は出ない", () => {

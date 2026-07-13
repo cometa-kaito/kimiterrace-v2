@@ -9,6 +9,14 @@ import {
   getDesignPatternFromUrl,
   stripDesignParam,
 } from "@/lib/signage/design-pattern";
+import {
+  MONITOR_AD_MODE_LABELS,
+  type MonitorAdMode,
+  applyMonitorAdModeToUrl,
+  getMonitorAdModeFromUrl,
+  isMonitorAdMode,
+  stripMonitorAdModeParam,
+} from "@/lib/signage/monitor-ad-mode";
 import { updateTvDeviceConfigAction } from "@/lib/tv/config-edit-actions";
 import {
   type TvScheduleFormState,
@@ -66,11 +74,16 @@ export function TvConfigEditForm({
   }
 
   const [label, setLabel] = useState(initial.label ?? "");
-  // サイネージ URL は **素の URL**（design を除いた base）をフォームに見せ、デザインは下のドロップダウンが
-  // 持つ。保存時に Server Action 側で `?design=` を base に合成する（design-pattern.ts）。
-  const [signageUrl, setSignageUrl] = useState(stripDesignParam(initial.signageUrl));
+  // サイネージ URL は **素の URL**（design / classAds を除いた base）をフォームに見せ、デザインと授業中広告
+  // モードは下のドロップダウンが持つ。保存時に Server Action 側で `?design=` / `?classAds=` を base に合成する。
+  const [signageUrl, setSignageUrl] = useState(
+    stripMonitorAdModeParam(stripDesignParam(initial.signageUrl)),
+  );
   const [design, setDesign] = useState<SignageDesignPattern>(
     getDesignPatternFromUrl(initial.signageUrl) ?? DEFAULT_SIGNAGE_DESIGN_PATTERN,
+  );
+  const [monitorAdMode, setMonitorAdMode] = useState<MonitorAdMode>(
+    getMonitorAdModeFromUrl(initial.signageUrl),
   );
   const [webhookUrl, setWebhookUrl] = useState(initial.webhookUrl ?? "");
   const [targetMac, setTargetMac] = useState(initial.targetMac ?? "");
@@ -119,7 +132,7 @@ export function TvConfigEditForm({
   // できる。これが無いと、URL 欄は design を含まない素の URL を表示するため、デザインを変えても見た目が変わらず
   // 「変更できていない」ように見えてしまう（保存前でも ?design は URL 側で効くのでプレビューで pattern2 を確認可）。
   const composedSignageUrl = signageUrl.trim()
-    ? applyDesignPatternToUrl(signageUrl.trim(), design)
+    ? applyMonitorAdModeToUrl(applyDesignPatternToUrl(signageUrl.trim(), design), monitorAdMode)
     : "";
   // クリック可能な href は **http(s) のみ**に限定する（保存時 checkEditableUrl が非 http(s) を弾くが、保存前の
   // 未検証入力が `javascript:` 等で href に載るのを防ぐ＝特権ユーザーの self-XSS 面も塞ぐ）。表示・コピーは可。
@@ -141,6 +154,7 @@ export function TvConfigEditForm({
         monitoringEnabled,
         schedule: scheduleInput,
         design,
+        monitorAdMode,
       });
       if (res.ok) {
         setMsg({ ok: true, text: `保存しました（設定版 v${res.data.version}）。` });
@@ -203,6 +217,7 @@ export function TvConfigEditForm({
           onChange={(e) => setDesign(e.target.value as SignageDesignPattern)}
           disabled={pending}
           style={inputStyle}
+          aria-label="サイネージ デザイン"
         >
           {SIGNAGE_DESIGN_PATTERNS.map((p) => (
             <option key={p} value={p}>
@@ -214,6 +229,29 @@ export function TvConfigEditForm({
           この TV デバイスの盤面デザイン。各 TV は保存後の次回ポーリング（最大 60
           秒以内）で切り替わります。 下の「配信される
           URL」で、選択中デザインのプレビューを開けます。
+        </span>
+      </label>
+
+      <label style={fieldStyle}>
+        <span style={labelTextStyle}>授業中の広告表示（このモニタ）</span>
+        <select
+          value={monitorAdMode}
+          onChange={(e) =>
+            setMonitorAdMode(isMonitorAdMode(e.target.value) ? e.target.value : monitorAdMode)
+          }
+          disabled={pending}
+          style={inputStyle}
+          aria-label="授業中の広告表示"
+        >
+          {(["follow", "always"] as const).map((m) => (
+            <option key={m} value={m}>
+              {MONITOR_AD_MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        <span style={hintStyle}>
+          学校の「授業時間（広告停止）」設定に対する、このモニタだけの例外です。「授業中も広告を出す」を選ぶと、
+          授業時間帯でもこのモニタは広告を表示し続けます（保存後の次回ポーリングで反映）。
         </span>
       </label>
 
