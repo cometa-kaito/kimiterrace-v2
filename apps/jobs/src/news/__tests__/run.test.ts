@@ -132,6 +132,32 @@ describe("runNewsFetch", () => {
     expect(summary.failedFeeds).toEqual(["jst", "mext"]);
   });
 
+  it("同一フィード内の URL 重複を除去してから saveItems に渡す（先勝ち）", async () => {
+    // 1 フィードは source が一定なので、同じ url が 2 件あると saveItems の
+    // 単一 INSERT ... ON CONFLICT (source, url) が Postgres 21000 で落ち、そのフィード全体が
+    // 無音で更新されなくなる。run 側で先勝ち dedup してから渡すことでこれを防ぐ。
+    const saveItems = vi.fn(async (items: readonly unknown[]) => items.length);
+    const dup: ParsedNewsItem = {
+      title: "記事A（重複・後勝ち破棄）",
+      url: "https://a/1", // ITEM_A と同一 url
+      publishedAt: new Date("2026-06-02T00:00:00Z"),
+      summary: null,
+    };
+    const summary = await runNewsFetch({
+      listFeeds: () => [FEED_MEXT],
+      fetchFeed: async () => [ITEM_A, ITEM_B, dup],
+      saveItems,
+    });
+
+    const passed = saveItems.mock.calls[0]?.[0] as ReadonlyArray<{ url: string; title: string }>;
+    expect(passed).toHaveLength(2); // 重複 1 件を除去
+    expect(passed.map((i) => i.url)).toEqual(["https://a/1", "https://a/2"]);
+    // 先勝ち: 最初に現れた ITEM_A（記事A）が残る。
+    expect(passed[0]?.title).toBe("記事A");
+    expect(summary.fetchedFeeds).toBe(1);
+    expect(summary.failed).toBe(0);
+  });
+
   it("空フィード取得（0 件）でも成功扱い（upsert は 0 行）", async () => {
     const saveItems = vi.fn(async () => 0);
     const summary = await runNewsFetch({

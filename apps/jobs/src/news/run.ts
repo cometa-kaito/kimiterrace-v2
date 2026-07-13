@@ -118,7 +118,7 @@ export async function runNewsFetch(deps: NewsFetchDeps): Promise<NewsFetchSummar
       // 要約は CC BY ソース（meti/mext）のみ採用。要許諾ソース（jst）は parse で取れても破棄して null に倒す
       // （ADR-043 §2026-06-20 改訂の法的 gate。DB 保存前の単一の関所）。
       const allowSummary = isSummaryAllowedSource(feed.source);
-      const items: UpsertNewsItemInput[] = parsed.map((p) => ({
+      const mapped: UpsertNewsItemInput[] = parsed.map((p) => ({
         source: feed.source,
         sourceLabel: feed.sourceLabel,
         title: p.title,
@@ -126,6 +126,16 @@ export async function runNewsFetch(deps: NewsFetchDeps): Promise<NewsFetchSummar
         summary: allowSummary ? p.summary : null,
         publishedAt: p.publishedAt,
       }));
+      // 同一フィード内で URL 重複を除去（先勝ち）。saveItems は 1 本の
+      // INSERT ... ON CONFLICT (source, url) DO UPDATE を発行するため、1 フィード（source 一定）に
+      // 同じ url が 2 件あると Postgres が 21000「ON CONFLICT DO UPDATE ... cannot affect row a
+      // second time」で失敗し、そのフィード全体の保存が無音で落ちる（ニュース源が更新されなくなる）。
+      const seenUrl = new Set<string>();
+      const items = mapped.filter((it) => {
+        if (seenUrl.has(it.url)) return false;
+        seenUrl.add(it.url);
+        return true;
+      });
       const rows = await deps.saveItems(items);
       fetchedFeeds += 1;
       rowsUpserted += rows;
