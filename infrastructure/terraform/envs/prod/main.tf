@@ -182,10 +182,10 @@ locals {
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
   # apps/jobs（天気取得 Job 等）が使うイメージタグ（jobs.Dockerfile build/push 済、F14/#128 ADR-021）。
-  jobs_image_tag = "20d9d2b" # 2026-07-12: カレンダー掃除のソーススコープ化+iCal uid の file: 名前空間リライト(#1266 ADR-049 PR-A)。schema 非変更=migration 不要。weather Job のみ apply（embedding/railway/news/tv-liveness は同コード=挙動不変のため次回デプロイ時に追従）。prod 実 Job image: weather=20d9d2b / 他=ea93c5f
+  jobs_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — air_quality/heat_alerts upsert に COALESCE（フィード欠損時に last-known-good を null で潰さない）+ news フィード内 URL 重複除去（ON CONFLICT 21000 の全断防止）(#1295)。schema 非変更=migration 不要。weather + news Job を apply（staging で両 Job execute 成功を確認）。prod 実 Job image: weather/news=97c43ca / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "1b1b7eb" # 2026-07-13: 授業時間中の広告配信停止(#1293 システム管理者が学校ごとに授業時間帯を設定→display_settings.adSuppressionで広告枠だけ空に)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache
+  web_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — 教員エディタ AI 反映の当日 top-level/days 二重書込みガード(#1295)。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache。※本 fix は AI_ENABLED=false の prod では未到達（staging=AI ON で有効）
 }
 
 module "network" {
