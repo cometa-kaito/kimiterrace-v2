@@ -50,8 +50,8 @@ export const MAX_AD_SUPPRESSION_OVERRIDES = 500;
 /** バリエーション名の最大長。 */
 export const AD_SUPPRESSION_NAME_MAX = 40;
 
-/** 既定の対象曜日（月〜金）。旧形式移行・初期値のヒントに使う（v1 の授業日 = 平日と一貫）。 */
-export const DEFAULT_AD_SUPPRESSION_WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5];
+/** 曜日キー（"0".."6"）の厳密判定（`Number("")===0` の取りこぼしを塞ぐ）。 */
+const WEEKDAY_KEY_RE = /^[0-6]$/;
 
 /** "HH:MM" 24 時間表記（00:00〜23:59）。 */
 const TIME_RE = /^([01][0-9]|2[0-3]):([0-5][0-9])$/;
@@ -163,9 +163,9 @@ function readWeekdayMap(value: unknown): Record<number, string> {
     return out;
   }
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    const day = Number(k);
-    if (Number.isInteger(day) && day >= 0 && day <= 6 && typeof v === "string" && v.trim() !== "") {
-      out[day] = v.trim();
+    // 厳密に "0".."6" のキーだけ受ける（`Number("")===0` で空キーが日曜に化けるのを防ぐ）。
+    if (WEEKDAY_KEY_RE.test(k) && typeof v === "string" && v.trim() !== "") {
+      out[Number(k)] = v.trim();
     }
   }
   return out;
@@ -226,18 +226,23 @@ export function parseAdSuppression(configValue: unknown): AdSuppressionConfig {
   if (Array.isArray(rec.ranges)) {
     const ranges = readRanges(rec.ranges);
     const legacyKey = "default";
+    const variationCreated = ranges.length > 0;
     const weekdays = Array.isArray(rec.weekdays)
       ? rec.weekdays.filter(
           (d): d is number => typeof d === "number" && Number.isInteger(d) && d >= 0 && d <= 6,
         )
       : [];
+    // バリエーションを作れた時だけ曜日割り当てを張る（時間帯 0 件だと variation が生成されないため、
+    // weekdayMap に幽霊 key を残さない＝v2 branch の参照整合と同じ規律）。
     const weekdayMap: Record<number, string> = {};
-    for (const d of weekdays) {
-      weekdayMap[d] = legacyKey;
+    if (variationCreated) {
+      for (const d of weekdays) {
+        weekdayMap[d] = legacyKey;
+      }
     }
     return {
       enabled,
-      variations: ranges.length > 0 ? [{ key: legacyKey, name: "通常時間割", ranges }] : [],
+      variations: variationCreated ? [{ key: legacyKey, name: "通常時間割", ranges }] : [],
       weekdayMap,
       overrides: {},
     };
@@ -447,14 +452,14 @@ export function validateAdSuppression(
   }
   const weekdayMap: Record<number, string> = {};
   for (const [k, v] of Object.entries(rawWeekdayMap as Record<string, unknown>)) {
-    const day = Number(k);
-    if (!Number.isInteger(day) || day < 0 || day > 6) {
+    // キーは厳密に "0".."6"（`Number("")===0` で空キーが日曜に化けるのを拒否する）。
+    if (!WEEKDAY_KEY_RE.test(k)) {
       return { ok: false, message: "曜日ごとの割り当てが不正です。" };
     }
     if (typeof v !== "string" || !validRef(v)) {
       return { ok: false, message: "曜日に存在しない時間割が割り当てられています。" };
     }
-    weekdayMap[day] = v;
+    weekdayMap[Number(k)] = v;
   }
 
   if (!rawOverrides || typeof rawOverrides !== "object" || Array.isArray(rawOverrides)) {

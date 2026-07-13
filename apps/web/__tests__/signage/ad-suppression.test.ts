@@ -65,6 +65,14 @@ describe("parseAdSuppression（defensive 解決）", () => {
     expect(Object.keys(c.weekdayMap)).toEqual(["1", "2", "3", "4", "5"]);
   });
 
+  it("v1 で ranges が空なら variation を作らず weekdayMap も張らない（幽霊 key を残さない）", () => {
+    const c = parseAdSuppression({
+      adSuppression: { enabled: true, ranges: [], weekdays: [1, 2, 3] },
+    });
+    expect(c.variations).toEqual([]);
+    expect(c.weekdayMap).toEqual({});
+  });
+
   it("幽霊 key 参照（存在しないバリエーション）を割り当てから落とす", () => {
     const c = parseAdSuppression({
       adSuppression: {
