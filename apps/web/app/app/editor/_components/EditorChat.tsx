@@ -295,6 +295,12 @@ export function EditorChat({
       } finally {
         streamingRef.current = false;
         abortRef.current = null;
+        // 注入ターン（P1 写真取込）の待ち合わせ保証: streamingRef は ref で再描画を起こさないため、
+        // ストリーミング中に注入が到着したケースは「終了後の state 変化」で effect を再評価させる必要が
+        // ある。ところが正常終了パスでは done フレーム処理後の finalize が同一参照を返し setState が
+        // ベイルアウトしうる（Reviewer MEDIUM: done と close が別イベントで届くと pending が滞留）。
+        // ref を下ろした後に必ず 1 回 state の参照を更新して再評価を保証する（内容は不変・浅い複製のみ）。
+        setState((s) => ({ ...s }));
       }
     },
     [scope, targetId],

@@ -76,4 +76,46 @@ describe("EditorChat 注入ターン（P1 写真取込）", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("ストリーミング中に到着した注入は、ターン終了後に送信される（滞留させない・Reviewer MEDIUM）", async () => {
+    // 手動 resolve できる fetch: 1 ターン目を in-flight に保ったまま 2 件目の注入を到着させる。
+    const resolvers: ((r: Response) => void)[] = [];
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const consume = vi.fn();
+    const { rerender } = render(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-07-06"
+        injectedMessage={"1件目のプリント"}
+        onInjectedMessageConsumed={consume}
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // 1 ターン目がストリーミング中のまま、2 件目の注入が到着（この時点では送信されない）。
+    rerender(
+      <EditorChat
+        scope="class"
+        targetId="c1"
+        date="2026-07-06"
+        injectedMessage={"2件目のプリント"}
+        onInjectedMessageConsumed={consume}
+      />,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // 1 ターン目を終了させると、待っていた 2 件目が自動送信される。
+    resolvers[0]?.({ ok: true, body: null } as unknown as Response);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body ?? "{}")) as {
+      messages?: { role: string; content: string }[];
+    };
+    expect(body.messages?.at(-1)?.content).toBe("2件目のプリント");
+    expect(consume).toHaveBeenCalledTimes(2);
+  });
 });
