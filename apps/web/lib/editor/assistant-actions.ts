@@ -1,29 +1,17 @@
 "use server";
 
-import { createHash } from "node:crypto";
 import {
-  AiDisabledError,
-  ExtractFailedError,
-  ExtractorNotConfiguredError,
   type ModelClient,
   type OcrClient,
   type RateLimiter,
-  UnsupportedFormatError,
-  assertAiEnabled,
-  createGeminiOcrClient,
-  createPerSchoolRateLimiter,
   createVertexModelClient,
-  extractText,
   findSuspectedPersonalNames,
   findUnmaskedPii,
   maskPII,
   unmaskPII,
 } from "@kimiterrace/ai";
 import { auditLog } from "@kimiterrace/db";
-import { createLogger } from "@kimiterrace/observability";
-import { requireRole } from "../auth/guard";
 import { withSession } from "../db";
-import { hasValidImageMagicBytes, resolveUploadType } from "../teacher-input/upload-validation";
 import {
   ALL_ASSIST_SYSTEM,
   ASSIST_INPUT_MAX,
@@ -42,15 +30,15 @@ import {
   parseNoticeProposal,
   parseScheduleProposal,
 } from "./assistant-core";
-import type { AssignmentItem, NoticeItem } from "./notice-assignment-core";
 import {
-  EDITOR_ROLES,
-  type EditorActor,
-  type EditorTarget,
-  type ScheduleItem,
-  parseEditorTarget,
-  toEditorActor,
-} from "./schedule-core";
+  auditRecordId,
+  authorizeAssist,
+  extractEditorUploadText,
+  validateEditorUpload,
+} from "./assistant-shared";
+import { editorAiRateLimiter } from "./editor-ai-rate-limiter";
+import type { AssignmentItem, NoticeItem } from "./notice-assignment-core";
+import type { EditorActor, EditorTarget, ScheduleItem } from "./schedule-core";
 
 /**
  * 段C: エディタ AI アシスタント Server Action（予定/連絡/提出物ドラフト）。教員のメモ/発話/**ファイル** →
@@ -67,11 +55,6 @@ import {
  * - 生メモ/応答本文/ファイル内容はログ・監査に出さない。本 action は DB のコンテンツを変更しない (ドラフトのみ)。
  */
 
-const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
-
-/** OCR egress 監査の best-effort 失敗等を構造化記録する（Cloud Logging・本文/PII は出さない）。 */
-const assistLogger = createLogger("editor-assist");
-
 let memoModel: ModelClient | null = null;
 /** 実 Vertex model を env から遅延生成（construct は lazy = 認証/通信なし、generate 時のみ ADC）。 */
 function getModel(): ModelClient {
@@ -80,86 +63,6 @@ function getModel(): ModelClient {
   const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
   memoModel = createVertexModelClient({ project, location });
   return memoModel;
-}
-
-let memoOcr: OcrClient | null = null;
-/**
- * 画像 OCR クライアント（Gemini マルチモーダル直送・ADR-038）を遅延生成。Vertex と同一 project/location
- * （asia-northeast1）に閉じる（NFR07 データ越境ゼロ）。construct は lazy（認証/通信なし、recognize 時のみ ADC）。
- */
-function getOcrClient(): OcrClient {
-  if (memoOcr) return memoOcr;
-  const project = process.env.GCP_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
-  const location = process.env.VERTEX_LOCATION ?? "asia-northeast1";
-  memoOcr = createGeminiOcrClient({ project, location });
-  return memoOcr;
-}
-
-/**
- * エディタのファイル入力で受理する拡張子。文書/表（pdf/docx/xlsx/csv）は egress なしのローカル抽出、
- * 画像（png/jpg）は Gemini マルチモーダル OCR（ADR-038・旧 ADR-024 決定2 Vision を supersede）で配線。
- */
-const EDITOR_FILE_EXTS = new Set(["pdf", "docx", "xlsx", "csv", "png", "jpg"]);
-
-/** 画像（OCR 外部委託が発生する）拡張子。rate 前置 + OCR egress 監査の判定に使う。 */
-const IMAGE_FILE_EXTS = new Set(["png", "jpg"]);
-
-/**
- * エディタファイル入力のサイズ上限 (10MB)。Server Action 経路ゆえ next.config の
- * `serverActions.bodySizeLimit` (12MB = 本値 + multipart 余白) と整合させる。大容量 (50MB) の
- * F01 教員アップロードは Route Handler 経路で別管理 (#695 Reviewer High-1)。
- */
-const ASSIST_FILE_MAX_BYTES = 10 * 1024 * 1024;
-
-/** 監査の record_id（対象の最も具体的な id。school scope は schoolId）。 */
-function auditRecordId(target: EditorTarget, actor: EditorActor): string {
-  switch (target.scope) {
-    case "class":
-      return target.classId;
-    case "grade":
-      return target.gradeId;
-    case "department":
-      return target.departmentId;
-    default:
-      return actor.schoolId;
-  }
-}
-
-/**
- * OCR 外部委託（画像 / スキャン PDF → Vertex Gemini, ADR-038 / 旧 ADR-024 決定2.2）の監査。素材が Vertex に
- * 送られた事実を who / school / 対象 / 素材 SHA-256 / メディア種別 / 抽出文字数で記録する
- * （**素材本体・抽出本文は残さない** = ルール4）。egress は extract 時点で発生済ゆえ、no_text / 後続 draft
- * 生成の成否に関わらず本監査を残す（fail-safe）。`mediaType` で画像 OCR と PDF OCR を監査上区別できる。
- */
-async function writeOcrEgressAudit(
-  actor: EditorActor,
-  target: EditorTarget,
-  sourceBytes: Uint8Array,
-  mediaType: string,
-  charCount: number,
-): Promise<void> {
-  // 互換のためキー名は imageSha256 を維持しつつ、PDF egress を判別できるよう mediaType を併記する。
-  const imageSha256 = createHash("sha256").update(sourceBytes).digest("hex");
-  await withSession(async (tx) => {
-    await tx.insert(auditLog).values({
-      actorUserId: actor.userId,
-      schoolId: actor.schoolId,
-      tableName: "daily_data",
-      recordId: auditRecordId(target, actor),
-      operation: "update",
-      diff: {
-        ocrEgress: true,
-        backend: "gemini",
-        mediaType,
-        imageSha256,
-        charCount,
-        scope: target.scope,
-      },
-      rowHash: "",
-      createdBy: actor.userId,
-      updatedBy: actor.userId,
-    });
-  });
 }
 
 /** テスト差し替え用の依存（既定は実 model + プロセス内 rate limiter + 実 OCR）。 */
@@ -172,35 +75,7 @@ export interface AssistDeps {
 }
 
 function defaultDeps(): AssistDeps {
-  return { model: getModel(), rateLimiter: sharedRateLimiter };
-}
-
-/** target 解決 + 認証 + AI 有効化を共通化（成功で {target, actor}、失敗で畳んだ結果）。 */
-async function authorizeAssist(
-  scope: unknown,
-  targetId: unknown,
-): Promise<
-  { ok: true; target: EditorTarget; actor: EditorActor } | { ok: false; result: AssistDraftError }
-> {
-  const target = parseEditorTarget(scope, targetId);
-  if (!target) {
-    return { ok: false, result: { ok: false, reason: "error" } };
-  }
-  const user = await requireRole(EDITOR_ROLES);
-  const actor = toEditorActor(user);
-  if (!actor) {
-    return { ok: false, result: { ok: false, reason: "forbidden" } };
-  }
-  // AI_ENABLED kill-switch（#289 / ルール4）。
-  try {
-    assertAiEnabled();
-  } catch (e) {
-    if (e instanceof AiDisabledError) {
-      return { ok: false, result: { ok: false, reason: "disabled" } };
-    }
-    throw e;
-  }
-  return { ok: true, target, actor };
+  return { model: getModel(), rateLimiter: editorAiRateLimiter };
 }
 
 /**
@@ -418,17 +293,9 @@ async function draftSectionFromFile<T>(
   opts: { acknowledgePii?: boolean },
   deps: AssistDeps,
 ): Promise<{ ok: true; items: T[] } | AssistDraftError> {
-  const file = formData?.get?.("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, reason: "empty" };
-  }
-  if (file.size > ASSIST_FILE_MAX_BYTES) {
-    return { ok: false, reason: "too_large" };
-  }
-  // MIME allowlist（ファイル名でなく MIME を一次ソース）。レガシー Office 等は弾く。
-  const uploadType = resolveUploadType(file.type);
-  if (!uploadType || !EDITOR_FILE_EXTS.has(uploadType.ext)) {
-    return { ok: false, reason: "unsupported_format" };
+  const validated = validateEditorUpload(formData);
+  if (!validated.ok) {
+    return { ok: false, reason: validated.reason };
   }
 
   const auth = await authorizeAssist(scope, targetId);
@@ -436,84 +303,21 @@ async function draftSectionFromFile<T>(
     return auth.result;
   }
 
-  const isImage = IMAGE_FILE_EXTS.has(uploadType.ext);
-  // PDF はテキストレイヤがあればローカル抽出（egress なし）、スキャン PDF はテキストレイヤが希薄で Gemini 直送
-  // OCR にフォールバックする（egress が発生しうる・ADR-038）。画像は常に OCR egress。
-  const isPdf = uploadType.ext === "pdf";
-  // 画像 / PDF は OCR egress が発生し**うる**。コスト/越境最小化のため egress の前に per-school rate を取る
-  // (NFR06)。取得済ゆえ runSectionDraft 側は再取得しない (skipRateLimit)。docx/xlsx/csv は egress なしの
-  // ローカル抽出ゆえ、従来どおり runSectionDraft 側でのみ rate を取る。
-  const mightEgress = isImage || isPdf;
-  const now = deps.nowMs ?? Date.now();
-  if (mightEgress && !(await deps.rateLimiter.tryAcquire(auth.actor.schoolId, now))) {
-    return { ok: false, reason: "rate_limited" };
+  // 検証・rate 前置・マジックバイト・抽出・OCR egress 監査は共有実装（assistant-shared.ts）。
+  // 抽出テキストは未マスク（ルール4・マスクは runSectionDraft）。上限は本経路の入力上限に合わせる。
+  const extraction = await extractEditorUploadText(validated.upload, auth.actor, auth.target, {
+    rateLimiter: deps.rateLimiter,
+    ...(deps.ocr !== undefined ? { ocr: deps.ocr } : {}),
+    ...(deps.nowMs !== undefined ? { nowMs: deps.nowMs } : {}),
+    maxChars: ASSIST_INPUT_MAX,
+  });
+  if (!extraction.ok) {
+    return { ok: false, reason: extraction.reason };
   }
 
-  let text: string;
-  let bytes: Uint8Array;
-  let ocrUsed = false;
-  try {
-    bytes = new Uint8Array(await file.arrayBuffer());
-    // 画像は OCR が画素を読むだけで形式検証をしないため、**egress の前に**宣言 MIME と先頭マジックバイトの整合を
-    // 検査する（upload route と同一不変条件 `hasValidImageMagicBytes`）。偽装/非画像バイト（image/png を名乗る
-    // 任意バイト列等）を Vertex Gemini に直送しない＝外部委託の境界（ルール4）。PDF/Office は抽出器パースが
-    // fail-close（422）で内容を検証するので対象外（非画像 MIME は常に true で素通り）。
-    if (isImage && !hasValidImageMagicBytes(bytes, file.type)) {
-      return { ok: false, reason: "unsupported_format" };
-    }
-    // 画像 / PDF は OCR クライアントを注入 (ADR-038 Gemini 直送)。PDF はテキストレイヤがあれば OCR を使わず
-    // ローカル抽出のまま（フォールバックはスキャン PDF のみ）。docx/xlsx/csv は egress なしのローカル抽出。
-    // 抽出テキストは未マスク（ルール4・マスクは runSectionDraft）。
-    const extracted = await extractText(
-      { bytes, mimeType: file.type, filename: file.name },
-      mightEgress ? { ocr: deps.ocr ?? getOcrClient() } : {},
-    );
-    text = extracted.text.trim().slice(0, ASSIST_INPUT_MAX);
-    // 実際に OCR を通したか（画像は常に true、PDF はスキャン時のみ true）。egress 監査の判定に使う。
-    ocrUsed = extracted.meta?.ocrUsed === true;
-  } catch (e) {
-    // 形式未対応/未配線は unsupported、パース失敗（破損/暗号化）は extract_failed。
-    if (e instanceof UnsupportedFormatError || e instanceof ExtractorNotConfiguredError) {
-      return { ok: false, reason: "unsupported_format" };
-    }
-    if (e instanceof ExtractFailedError) {
-      return { ok: false, reason: "extract_failed" };
-    }
-    return { ok: false, reason: "extract_failed" };
-  }
-
-  // OCR egress 監査 (ADR-024 決定2.2 / ADR-038)。実際に OCR を通した時だけ記録する（テキスト PDF は
-  // egress なし＝ocrUsed=false で監査しない）。egress は上の extract で発生済ゆえ、no_text や後続 draft の
-  // 成否に関わらず残す (fail-safe・本文は残さず画像/PDF ハッシュ+文字数のみ)。
-  if (ocrUsed) {
-    // egress は上の extract で発生済。監査 INSERT が一時 DB 障害で失敗しても **本処理は止めない**（fail-safe）。
-    // egress 済のまま 500 で教員をブロックしても egress は取り消せず最悪（外部委託は完了済・ユーザーは詰まる・
-    // 監査も残らない）。失敗時は egress 完了の痕跡を構造化ログ（Cloud Logging で検知可能・PII/本文は出さない）に
-    // 残してから degrade する。これが docstring の「fail-safe（egress を必ず記録しようとする）」の本来の意図。
-    try {
-      await writeOcrEgressAudit(auth.actor, auth.target, bytes, file.type, text.length);
-    } catch (auditError) {
-      assistLogger.error(
-        {
-          // 「誰の egress が未監査か」を追跡できるよう actor を残す（uid は stable ID・ルール4 安全代替）。
-          actorUserId: auth.actor.userId,
-          scope: auth.target.scope,
-          schoolId: auth.actor.schoolId,
-          mediaType: file.type,
-          charCount: text.length,
-          error: auditError instanceof Error ? auditError.message : String(auditError),
-        },
-        "OCR egress audit write failed after egress occurred",
-      );
-    }
-  }
-
-  if (text.length === 0) {
-    return { ok: false, reason: "no_text" };
-  }
-
-  return runSectionDraft(spec, auth.target, auth.actor, text, opts, deps, "file", {
-    skipRateLimit: mightEgress,
+  // OCR egress が発生しうる入力は共有実装が rate を取得済ゆえ二重取得しない (skipRateLimit・NFR06)。
+  return runSectionDraft(spec, auth.target, auth.actor, extraction.text, opts, deps, "file", {
+    skipRateLimit: extraction.mightEgress,
   });
 }
 

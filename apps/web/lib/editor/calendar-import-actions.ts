@@ -11,7 +11,6 @@ import {
   UnsupportedFormatError,
   assertAiEnabled,
   createGeminiOcrClient,
-  createPerSchoolRateLimiter,
   createVertexModelClient,
   extractText,
 } from "@kimiterrace/ai";
@@ -36,6 +35,7 @@ import {
   type CalendarImportSaveIssue,
   validateCalendarImportSave,
 } from "./calendar-import-save-core";
+import { editorAiRateLimiter } from "./editor-ai-rate-limiter";
 import { EDITOR_ROLES, type EditorActor, toEditorActor } from "./schedule-core";
 
 /**
@@ -74,13 +74,6 @@ const CALENDAR_IMPORT_FILE_MAX_BYTES = 10 * 1024 * 1024;
 /** OCR egress 監査の best-effort 失敗等を構造化記録する（Cloud Logging・本文/PII は出さない）。 */
 const importLogger = createLogger("calendar-import");
 
-/**
- * per-school レート制限（プロセス内・エディタ AI と同じ `createPerSchoolRateLimiter` 流儀）。
- * `assistant-actions.ts` の limiter はモジュール私有（"use server" は非 async の export 不可）のため
- * インスタンスは共有できず、本経路は独立トークンで数える（学校あたりの上限は同水準に保たれる）。
- */
-const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
-
 let memoModel: ModelClient | null = null;
 /** 実 Vertex model を env から遅延生成（assistant-actions と同作法。construct は lazy・generate 時のみ ADC）。 */
 function getModel(): ModelClient {
@@ -111,7 +104,7 @@ export interface CalendarImportActionDeps {
 }
 
 function defaultDeps(): CalendarImportActionDeps {
-  return { model: getModel(), rateLimiter: sharedRateLimiter };
+  return { model: getModel(), rateLimiter: editorAiRateLimiter };
 }
 
 /** 取込ドラフト action の結果。ok はプレビュー用データ（保存しない）。エラーはすべて reason に畳む。 */
