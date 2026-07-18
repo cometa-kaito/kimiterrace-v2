@@ -7,6 +7,7 @@ import type { AssignmentDeadlineFormat } from "@/lib/signage/assignment-deadline
 import type { SignageDesignPattern } from "@/lib/signage/design-pattern";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
+import { usePhotoImport } from "./photo-import-context";
 
 /**
  * クラスエディタ用の {@link EditorChat} 薄ラッパー。**反映（全件成功）後に `?applied=<nonce>` を付けて
@@ -59,6 +60,10 @@ export function ClassEditorChat({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [router, pathname, searchParams, date]);
 
+  // P1 写真取込（D5）: ゾーン1 導線が積んだ OCR 済みターンを EditorChat へ注入する（Provider 外や
+  // scope エディタでは context が null ＝従来挙動）。consume は EditorChat が送信着手時に呼ぶ。
+  const photoImport = usePhotoImport();
+
   return (
     <EditorChat
       scope="class"
@@ -70,6 +75,8 @@ export function ClassEditorChat({
       pinnedNotices={pinnedNotices}
       variant="floating"
       onApplied={onApplied}
+      injectedMessage={photoImport?.pendingMessage ?? null}
+      onInjectedMessageConsumed={photoImport?.consumePhotoMessage}
     />
   );
 }

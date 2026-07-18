@@ -1,0 +1,66 @@
+/*
+ * P1 写真取込のゾーン1 導線（planActions 内・#1286 カレンダー取込ドロップゾーンと同作法の小型版）。
+ * 実体は <button>（クリック/Enter/Space でファイル選択 or カメラ）で、PC のドラッグ＆ドロップは
+ * エンハンス。色は globals.css の --brand-* を参照（新規色ゼロ）。:hover / :focus-visible /
+ * drag-over はインライン style で書けないため module 化。
+ */
+.zone {
+  display: grid;
+  justify-items: center;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  text-align: center;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1.5px dashed var(--brand-border);
+  border-radius: 0.6rem;
+  background: var(--brand-bg-soft);
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.zone:hover {
+  border-color: var(--brand-blue);
+  background: #fff; /* tokens.color.surface */
+}
+.zone:focus-visible {
+  outline: 2px solid var(--brand-blue-strong);
+  outline-offset: 2px;
+}
+.zone:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* drag-over 中（React の dragOver state からクラス付与）。色だけに頼らず主文言も切り替える（NFR05）。 */
+.zoneActive,
+.zoneActive:hover {
+  border-color: var(--brand-blue-strong);
+  background: #fff;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--brand-muted);
+}
+
+/* PC のみの補足文言（ドロップ案内）はポインタが hover 可能な環境だけに出す。 */
+@media (hover: none) {
+  .dropHint {
+    display: none;
+  }
+}
+
+.error {
+  font-size: 0.8rem;
+  color: #b91c1c; /* tokens.color.danger 相当（既存 status 色・新規色ではない） */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zone {
+    transition: none;
+  }
+}
