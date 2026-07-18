@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import styles from "./FloatingAiChat.module.css";
+import { usePhotoImport } from "./photo-import-context";
 
 /** 依存ゼロのインライン SVG 吹き出しアイコン（currentColor 継承・`.fabIcon` の 1.2rem に追従）。 */
 function ChatIcon() {
@@ -88,6 +89,15 @@ export function FloatingAiChat({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // P1 写真取込（D5/D6）: ゾーン1 の導線が OCR 済みターンを積んだら、閉じたままでも送信の様子が見える
+  // ようパネルを自動で開く（consume は EditorChat 側の責務・本体は開閉だけを担う既存の役割分担を保つ）。
+  const photoImport = usePhotoImport();
+  const pendingPhotoMessage = photoImport?.pendingMessage ?? null;
+  useEffect(() => {
+    if (pendingPhotoMessage !== null) {
+      setOpen(true);
+    }
+  }, [pendingPhotoMessage]);
   const panelId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);

@@ -109,6 +109,8 @@ export function EditorChat({
   assignmentDeadlineFormat = DEFAULT_ASSIGNMENT_DEADLINE_FORMAT,
   variant = "page",
   onApplied,
+  injectedMessage,
+  onInjectedMessageConsumed,
 }: {
   scope: string;
   targetId: string;
@@ -151,6 +153,15 @@ export function EditorChat({
    * 何もしない（従来挙動）。
    */
   onApplied?: () => void;
+  /**
+   * P1 写真取込（設計 D5）: 外部（ゾーン1 導線）で OCR 済みの user ターン本文。非 null になったら通常の
+   * 送信経路（PII soft-gate / マスク / days 振り分け含む）で自動送信する。クラスエディタのみ
+   * {@link "../[classId]/_components/ClassEditorChat"} が photo-import-context から注入する（scope
+   * エディタ・テストは未指定＝従来挙動）。
+   */
+  injectedMessage?: string | null;
+  /** 注入ターンの送信に着手した直後に呼ぶ（親が pending を破棄する。二重送信防止）。 */
+  onInjectedMessageConsumed?: () => void;
 }) {
   // 入力欄の操作ヒント（Enter=送信 / Shift+Enter=改行）を aria-describedby で textarea に紐付けるための安定 id。
   // title だけだと SR/タッチ/キーボード利用者に確実に露出しないため、常時表示の控えめなヒント行も併設する（uo8 補完）。
@@ -284,38 +295,68 @@ export function EditorChat({
       } finally {
         streamingRef.current = false;
         abortRef.current = null;
+        // 注入ターン（P1 写真取込）の待ち合わせ保証: streamingRef は ref で再描画を起こさないため、
+        // ストリーミング中に注入が到着したケースは「終了後の state 変化」で effect を再評価させる必要が
+        // ある。ところが正常終了パスでは done フレーム処理後の finalize が同一参照を返し setState が
+        // ベイルアウトしうる（Reviewer MEDIUM: done と close が別イベントで届くと pending が滞留）。
+        // ref を下ろした後に必ず 1 回 state の参照を更新して再評価を保証する（内容は不変・浅い複製のみ）。
+        setState((s) => ({ ...s }));
       }
     },
     [scope, targetId],
   );
 
-  /** 新規送信: user ターンを積んで stream。新しいターンなので前の確認カードは再表示可に戻す。 */
+  /**
+   * 送信本体（入力欄からの {@link onSend} と写真取込の注入ターンが共有）: user ターンを積んで stream。
+   * 新しいターンなので前の確認カードは再表示可に戻す。呼び出し側で streamingRef を立ててから呼ぶこと。
+   */
+  const sendContent = useCallback(
+    (content: string) => {
+      setSaveMsg(null);
+      setConfirmHidden(false);
+      setFixHint(false);
+      // 会話開始（最初の送信）なら、下書きの基底をフォームの現在値へ再シードする（P1 是正）。initialDraft は
+      // ページロード時のスナップショットで、ロード後の手入力（自動保存済み）を含まない＝そのまま基底にすると
+      // AI の「完全な目標状態」から手入力が抜け、反映（置換保存）が手入力を消す。pinned はシードと同じ土俵で
+      // 剥がす（stripPinnedFromDraft・反映時に preservePinnedNotices が合流）。差分基準（board）も同時に揃える。
+      const current = syncRef?.current
+        ? stripPinnedFromDraft({
+            schedules: [...syncRef.current.schedules],
+            notices: [...syncRef.current.notices],
+            assignments: [...syncRef.current.assignments],
+          })
+        : undefined;
+      const rebased = rebaseDraftBeforeFirstTurn(state, current ?? null);
+      if (rebased !== state) {
+        setBoard(rebased.draft);
+      }
+      const base = beginUserTurn(rebased, content);
+      void stream(base, false);
+    },
+    [state, stream, syncRef],
+  );
+
+  /** 新規送信（入力欄）。 */
   const onSend = useCallback(() => {
     const content = input.trim();
     if (streamingRef.current || !content) return;
     streamingRef.current = true;
-    setSaveMsg(null);
-    setConfirmHidden(false);
-    setFixHint(false);
-    // 会話開始（最初の送信）なら、下書きの基底をフォームの現在値へ再シードする（P1 是正）。initialDraft は
-    // ページロード時のスナップショットで、ロード後の手入力（自動保存済み）を含まない＝そのまま基底にすると
-    // AI の「完全な目標状態」から手入力が抜け、反映（置換保存）が手入力を消す。pinned はシードと同じ土俵で
-    // 剥がす（stripPinnedFromDraft・反映時に preservePinnedNotices が合流）。差分基準（board）も同時に揃える。
-    const current = syncRef?.current
-      ? stripPinnedFromDraft({
-          schedules: [...syncRef.current.schedules],
-          notices: [...syncRef.current.notices],
-          assignments: [...syncRef.current.assignments],
-        })
-      : undefined;
-    const rebased = rebaseDraftBeforeFirstTurn(state, current ?? null);
-    if (rebased !== state) {
-      setBoard(rebased.draft);
-    }
-    const base = beginUserTurn(rebased, content);
     setInput("");
-    void stream(base, false);
-  }, [input, state, stream, syncRef]);
+    sendContent(content);
+  }, [input, sendContent]);
+
+  // P1 写真取込（D5）: 親（ClassEditorChat）から注入された OCR 済みターンを、通常の user ターンとして
+  // 自動送信する。送信ガード（streamingRef/fileBusy）を先に取り、consume（pending 破棄）してから送る
+  // （StrictMode の効果二重実行では 2 回目が streamingRef で弾かれ、二重送信・二重 consume にならない）。
+  useEffect(() => {
+    if (!injectedMessage) return;
+    if (streamingRef.current || fileBusy) return;
+    streamingRef.current = true;
+    onInjectedMessageConsumed?.();
+    sendContent(injectedMessage);
+    // ストリーミング終了時の再評価は sendContent の依存（state）変化で起きる（streamingRef 自体は
+    // ref で再描画を起こさないが、stream 完了は必ず state 更新を伴う）。
+  }, [injectedMessage, fileBusy, onInjectedMessageConsumed, sendContent]);
 
   /** PII 警告の「承知して送信」: 直近の messages をそのまま acknowledgePii=true で再送（user ターンは積まない）。 */
   const onAcknowledge = useCallback(() => {

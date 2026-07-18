@@ -1,4 +1,5 @@
 import { EditorDraftSyncProvider } from "@/app/app/editor/_components/EditorDraftSyncContext";
+import { isAiEnabled } from "@/lib/ai/ai-enabled";
 import { isRoleAllowed, requireRole } from "@/lib/auth/guard";
 import { withSession } from "@/lib/db";
 import { resolveClassBoardForDate, resolveEditorTargetDate } from "@/lib/editor/board-context";
@@ -50,6 +51,8 @@ import { DayEventsPanel } from "./_components/DayEventsPanel";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
+import { PhotoImportProvider } from "./_components/photo-import-context";
+import { PhotoImportZone } from "./_components/PhotoImportZone";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { SeedConfirmButton } from "./_components/SeedConfirmButton";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
@@ -245,33 +248,37 @@ export default async function ClassEditorPage({
     // 共有する ref ブリッジ（DOM は生やさない）。AI の下書き基底をロード時スナップショットでなく会話開始時の
     // フォーム現在値にする（P1: ロード後の手入力を AI が知らず反映で消す穴の是正・EditorDraftSyncContext 参照）。
     <EditorDraftSyncProvider>
-      {/* CopyUndoProvider は key 付き WysiwygBoardEditor の**外側**に置く＝コピー成功時の ?copied ソフトナビで
+      {/* PhotoImportProvider: ゾーン1 の写真取込導線（planActions 内・PhotoImportZone）と右下の浮遊チャット
+          （FloatingAiChat + ClassEditorChat）は別サブツリーのため、OCR 済みチャットターンを context で橋渡し
+          する（P1 写真取込・設計 D5/D6）。AI 無効環境では導線自体を出さない（下の aiEnabled ゲート・D7）。 */}
+      <PhotoImportProvider>
+        {/* CopyUndoProvider は key 付き WysiwygBoardEditor の**外側**に置く＝コピー成功時の ?copied ソフトナビで
           配下が再マウントされても「元に戻す」スナップショットがメモリに残る（CopyUndoContext 参照）。 */}
-      <CopyUndoProvider>
-        {/* 画面付随物（戻る + クラス名）は小さく薄いパンくず＝主役（盤面エディタ）に視線が向くようにする。
+        <CopyUndoProvider>
+          {/* 画面付随物（戻る + クラス名）は小さく薄いパンくず＝主役（盤面エディタ）に視線が向くようにする。
           クラス名は h1 を保ち見出し階層は崩さず、視覚的にのみ控えめにする。
           ?stay=1 は単一クラス teacher の自動直行（着地）とのループ防止。 */}
-        <nav aria-label="パンくず" style={breadcrumbRowStyle}>
-          <Link href="/app/editor?stay=1" style={breadcrumbBackStyle}>
-            <span aria-hidden="true">‹</span> 戻る
-          </Link>
-          <span aria-hidden="true" style={breadcrumbSepStyle}>
-            ／
-          </span>
-          <h1 style={classTitleStyle}>{schedule.className}</h1>
-        </nav>
+          <nav aria-label="パンくず" style={breadcrumbRowStyle}>
+            <Link href="/app/editor?stay=1" style={breadcrumbBackStyle}>
+              <span aria-hidden="true">‹</span> 戻る
+            </Link>
+            <span aria-hidden="true" style={breadcrumbSepStyle}>
+              ／
+            </span>
+            <h1 style={classTitleStyle}>{schedule.className}</h1>
+          </nav>
 
-        {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
+          {/* ─ ゾーン1: 毎日の編集（§3.1）─ 対象日セグメント → 「編集中: ◯月◯日」 → 盤面 WYSIWYG → 編集セクション。
           編集スタックは常に 1 つで、セグメント切替（?date= ソフトナビ）で全体がその日に追随する。
           id=EDITOR_STACK_ANCHOR_ID: 月カレンダーで日付を選んだ後の「編集エリアへ戻る」スクロール先。
           旧来はセグメント nav に付いていたが、#1237 で nav が sticky バー内に入り「常に視界内」となって
           scrollIntoView が空振りしていた（2026-07-06 実画面監査で実証）。非 sticky のゾーン先頭へ移設。 */}
-        <section aria-labelledby="zone-daily-heading" id={EDITOR_STACK_ANCHOR_ID}>
-          {/* key={date}:{copied}:{applied}: 対象日変更・コピー・AI 反映時に再マウントして新データで初期化する。これが
+          <section aria-labelledby="zone-daily-heading" id={EDITOR_STACK_ANCHOR_ID}>
+            {/* key={date}:{copied}:{applied}: 対象日変更・コピー・AI 反映時に再マウントして新データで初期化する。これが
             無いと配下エディタの useState(initial...) が再初期化されず、旧日付の入力が残ったまま保存され「中身が
             変更先の日付に移る」混線バグ（ユーザー報告 2026-06-16・設計書 §11-1）や、AI 反映後の古いフォームの
             自動保存が反映分を上書き消去するデータ消失（2026-07-06 実証 P1）になる。 */}
-          {/* 単一の盤面エディタが「盤面プレビュー（左・sticky）＋ 編集セクション（右・独立スクロール）」の 2 カラム
+            {/* 単一の盤面エディタが「盤面プレビュー（左・sticky）＋ 編集セクション（右・独立スクロール）」の 2 カラム
             （配置最適化 2026-07-05・user-observed）を担う。来校者 / 呼び出し（pattern2/3・`patternIncludesBlock`
             駆動）も編集カラムに同居させ、盤面プレビューを見失わずに編集できる。含むパターンのときだけ出す（死
             セクション防止・将来パターン追加にも単一ソースで自動追従）。対象日ソフトナビ（?date=）時の複製/押し出し
@@ -280,212 +287,217 @@ export default async function ClassEditorPage({
             dayHeader（日付タブ+「毎日の編集」見出し+「編集中」）は盤面と同じ左パネル（sticky）に入れて一体で固定する
             ため node で渡す（ちらつき解消 2026-07-05・user #1: 日付タブが static でスクロール消失し盤面だけ残る差分が
             ちらつきの原因だった）。 */}
-          <WysiwygBoardEditor
-            key={`${date}:${copied}:${applied}`}
-            classId={classId}
-            date={date}
-            base={boardBase}
-            initialSchedules={seed.items}
-            initialNotices={notices.items}
-            initialAssignments={assignments.items}
-            pinnedNotices={pinnedNotices}
-            previewPinnedNotices={previewPinnedNotices}
-            previewCarryover={previewCarryover}
-            showVisitors={showVisitors}
-            showCallouts={showCallouts}
-            visitors={board?.visitors ?? null}
-            callouts={board?.callouts ?? null}
-            // 実物サイネージへの直結リンク（盤面直下・本物一致の確認動線）。未設置クラスは undefined＝出さない。
-            liveSignageUrl={liveSignageUrl}
-            // 計画系の即応操作（FHD 配置最適化 2026-07-06）: コピーツール・基本時間割リンクを盤面直下（左
-            // sticky カラム）へ常駐させる。「昨日と同じ＋1ヶ所変更」の最頻ワークフローがスクロールゼロで完結する
-            // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。前日/前週の 2 ボタンは
-            // 「ほかの日からコピー」統合ツール（CopyFromMenu・2026-07-12）に集約＝コピー元選択＋プレビュー＋上書き
-            // 明示確認＋対象日/週追随を 1 つのポップオーバーで担う（実体＝上書き確認・?copied= 再ナビ・パターン別
-            // ラベルは Server Action / ツール側が従来どおり担う）。
-            // 「年間予定表を取り込む →」も年 1 回の設定操作（基本時間割設定と同型）＝ここに常設し、行事が 1 件も
-            // 無い教員にも初回導線を保証する（DayEventsPanel は行事 0 件で非表示＝そこ頼みだと鶏と卵になる・
-            // #1269 follow-up）。取込ページと同じ EDITOR_ROLES ゲートなので死/forbidden リンクにならない。
-            planActions={
-              <>
-                <CopyFromMenu
-                  classId={classId}
-                  date={date}
-                  hasExistingData={
-                    (patternIncludesBlock(pattern, "schedule") && schedule.items.length > 0) ||
-                    (patternIncludesBlock(pattern, "notice") && notices.items.length > 0) ||
-                    (patternIncludesBlock(pattern, "assignment") && assignments.items.length > 0) ||
-                    (board?.visitors?.length ?? 0) > 0 ||
-                    (board?.callouts?.length ?? 0) > 0
-                  }
-                  sectionsLabel={editableBlocksForPattern(pattern)
-                    .map((block) => blockLabel(pattern, block))
-                    .join("・")}
-                />
-                {periodSchedule ? (
-                  <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
-                    基本時間割を設定 →
+            <WysiwygBoardEditor
+              key={`${date}:${copied}:${applied}`}
+              classId={classId}
+              date={date}
+              base={boardBase}
+              initialSchedules={seed.items}
+              initialNotices={notices.items}
+              initialAssignments={assignments.items}
+              pinnedNotices={pinnedNotices}
+              previewPinnedNotices={previewPinnedNotices}
+              previewCarryover={previewCarryover}
+              showVisitors={showVisitors}
+              showCallouts={showCallouts}
+              visitors={board?.visitors ?? null}
+              callouts={board?.callouts ?? null}
+              // 実物サイネージへの直結リンク（盤面直下・本物一致の確認動線）。未設置クラスは undefined＝出さない。
+              liveSignageUrl={liveSignageUrl}
+              // 計画系の即応操作（FHD 配置最適化 2026-07-06）: コピーツール・基本時間割リンクを盤面直下（左
+              // sticky カラム）へ常駐させる。「昨日と同じ＋1ヶ所変更」の最頻ワークフローがスクロールゼロで完結する
+              // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。前日/前週の 2 ボタンは
+              // 「ほかの日からコピー」統合ツール（CopyFromMenu・2026-07-12）に集約＝コピー元選択＋プレビュー＋上書き
+              // 明示確認＋対象日/週追随を 1 つのポップオーバーで担う（実体＝上書き確認・?copied= 再ナビ・パターン別
+              // ラベルは Server Action / ツール側が従来どおり担う）。
+              // 「年間予定表を取り込む →」も年 1 回の設定操作（基本時間割設定と同型）＝ここに常設し、行事が 1 件も
+              // 無い教員にも初回導線を保証する（DayEventsPanel は行事 0 件で非表示＝そこ頼みだと鶏と卵になる・
+              // #1269 follow-up）。取込ページと同じ EDITOR_ROLES ゲートなので死/forbidden リンクにならない。
+              planActions={
+                <>
+                  <CopyFromMenu
+                    classId={classId}
+                    date={date}
+                    hasExistingData={
+                      (patternIncludesBlock(pattern, "schedule") && schedule.items.length > 0) ||
+                      (patternIncludesBlock(pattern, "notice") && notices.items.length > 0) ||
+                      (patternIncludesBlock(pattern, "assignment") &&
+                        assignments.items.length > 0) ||
+                      (board?.visitors?.length ?? 0) > 0 ||
+                      (board?.callouts?.length ?? 0) > 0
+                    }
+                    sectionsLabel={editableBlocksForPattern(pattern)
+                      .map((block) => blockLabel(pattern, block))
+                      .join("・")}
+                  />
+                  {periodSchedule ? (
+                    <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
+                      基本時間割を設定 →
+                    </Link>
+                  ) : null}
+                  <Link href={CALENDAR_IMPORT_PAGE_PATH} style={{ fontSize: "0.9rem" }}>
+                    年間予定表を取り込む →
                   </Link>
-                ) : null}
-                <Link href={CALENDAR_IMPORT_PAGE_PATH} style={{ fontSize: "0.9rem" }}>
-                  年間予定表を取り込む →
-                </Link>
-              </>
-            }
-            // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付の学校行事をワンクリックで予定 / 連絡へ確定
-            // 挿入するパネル（盤面直下）。行事 0 件の日は渡さない（非表示）。挿入基底の fail-soft（共有 ref
-            // 未確立時）はフォームの初期値（seed 済み予定 / 連絡）と同一値＝盤面に見えているものが基底になる。
-            // 「予定へ追加 / 連絡へ追加」は実効パターンが該当ブロックを持つときだけ出す（死ボタン防止・
-            // patternIncludesBlock 単一ソース駆動）。
-            dayEventsPanel={
-              dayEvents.length > 0 ? (
-                <DayEventsPanel
-                  classId={classId}
-                  date={date}
-                  events={dayEvents}
-                  canAddSchedule={patternIncludesBlock(pattern, "schedule")}
-                  canAddNotice={patternIncludesBlock(pattern, "notice")}
-                  fallbackSchedules={seed.items}
-                  fallbackNotices={notices.items}
-                />
-              ) : null
-            }
-            dayHeader={
-              <>
-                {/* 「毎日の編集」ラベルは視覚的に隠す（sr-only）＝画面から消して縦を節約するが、section の
+                  {/* P1 写真取込（設計 D6/D7）: 紙のプリント写真 → OCR → AI チャット合流。AI 無効環境
+                    （AI_ENABLED=false・prod 既定）では導線自体を出さない。 */}
+                  {isAiEnabled() ? <PhotoImportZone classId={classId} /> : null}
+                </>
+              }
+              // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付の学校行事をワンクリックで予定 / 連絡へ確定
+              // 挿入するパネル（盤面直下）。行事 0 件の日は渡さない（非表示）。挿入基底の fail-soft（共有 ref
+              // 未確立時）はフォームの初期値（seed 済み予定 / 連絡）と同一値＝盤面に見えているものが基底になる。
+              // 「予定へ追加 / 連絡へ追加」は実効パターンが該当ブロックを持つときだけ出す（死ボタン防止・
+              // patternIncludesBlock 単一ソース駆動）。
+              dayEventsPanel={
+                dayEvents.length > 0 ? (
+                  <DayEventsPanel
+                    classId={classId}
+                    date={date}
+                    events={dayEvents}
+                    canAddSchedule={patternIncludesBlock(pattern, "schedule")}
+                    canAddNotice={patternIncludesBlock(pattern, "notice")}
+                    fallbackSchedules={seed.items}
+                    fallbackNotices={notices.items}
+                  />
+                ) : null
+              }
+              dayHeader={
+                <>
+                  {/* 「毎日の編集」ラベルは視覚的に隠す（sr-only）＝画面から消して縦を節約するが、section の
                   aria-labelledby 参照とスクリーンリーダ向けの節ラベルは維持（引き算 2026-07-05 user 要望
                   「ヘッダーが領域を取りすぎ」。日付タブが自明なので視覚ラベルは不要）。 */}
-                <h2 id="zone-daily-heading" style={srOnlyStyle}>
-                  毎日の編集
-                </h2>
-                <EditorDateSegments
-                  classId={classId}
-                  today={today}
-                  selectedDate={date}
-                  segmentDates={segmentDates}
-                />
-                {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
-                <p style={editingHeadingStyle}>
-                  編集中: {jpDateLabel(date)}
-                  {date === today ? "（今日）" : ""}
-                </p>
-                {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ出す。プレビューには出るが保存する
+                  <h2 id="zone-daily-heading" style={srOnlyStyle}>
+                    毎日の編集
+                  </h2>
+                  <EditorDateSegments
+                    classId={classId}
+                    today={today}
+                    selectedDate={date}
+                    segmentDates={segmentDates}
+                  />
+                  {/* 編集中の対象日の明示（受入基準 PR-A-1）。セグメントの選択強調と二重で伝える（色だけに頼らない）。 */}
+                  <p style={editingHeadingStyle}>
+                    編集中: {jpDateLabel(date)}
+                    {date === today ? "（今日）" : ""}
+                  </p>
+                  {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ出す。プレビューには出るが保存する
                   まで実サイネージには出ないため、状態を明文化し**ワンクリック確定**（SeedConfirmButton＝既存の
                   保存経路 + ?applied= 再マウント）を添える（忠実度 2026-07-06: 「もう実機にも出ている」誤認と
                   「確定手段がどこかを1ヶ所編集するだけ」の分かりにくさの是正）。 */}
-                {seed.seeded && seed.items.length > 0 ? (
-                  <p style={seedNoteStyle}>
-                    基本時間割から下書き表示中（まだ実際の盤面には出ていません）{" "}
-                    <SeedConfirmButton classId={classId} date={date} items={seed.items} />
-                  </p>
-                ) : null}
-              </>
-            }
-          />
-        </section>
+                  {seed.seeded && seed.items.length > 0 ? (
+                    <p style={seedNoteStyle}>
+                      基本時間割から下書き表示中（まだ実際の盤面には出ていません）{" "}
+                      <SeedConfirmButton classId={classId} date={date} items={seed.items} />
+                    </p>
+                  ) : null}
+                </>
+              }
+            />
+          </section>
 
-        {/* ─ ゾーン2: 計画（§3.1）─ 月カレンダー（任意日の選択）。前日/前週コピー・基本時間割リンクは
+          {/* ─ ゾーン2: 計画（§3.1）─ 月カレンダー（任意日の選択）。前日/前週コピー・基本時間割リンクは
           FHD 配置最適化（2026-07-06）で盤面直下（WysiwygBoardEditor の planActions・上記）へ常駐化し、
           このゾーンはカレンダーに純化した。 */}
-        <section aria-labelledby="zone-plan-heading" style={zoneSectionStyle}>
-          <h2 id="zone-plan-heading" style={zoneLabelStyle}>
-            計画
-          </h2>
-          {/* 月カレンダー: 対象日そのものを選ぶ（?date= 一本化・旧 ?plan の第 2 スタックは廃止）。セグメントの
+          <section aria-labelledby="zone-plan-heading" style={zoneSectionStyle}>
+            <h2 id="zone-plan-heading" style={zoneLabelStyle}>
+              計画
+            </h2>
+            {/* 月カレンダー: 対象日そのものを選ぶ（?date= 一本化・旧 ?plan の第 2 スタックは廃止）。セグメントの
             「📅 ほかの日」がここへスクロールして開く。選択後はゾーン1先頭（EDITOR_STACK_ANCHOR_ID）へ戻す。 */}
-          <EditorDateCalendar
-            classId={classId}
-            today={today}
-            selectedDate={date}
-            contentDates={contentDates}
-          />
-        </section>
+            <EditorDateCalendar
+              classId={classId}
+              today={today}
+              selectedDate={date}
+              contentDates={contentDates}
+            />
+          </section>
 
-        {/* ─ ゾーン3: このモニタ（§3.1）─ 実機サイネージへの導線・黒画面・school_admin の per-class 管理導線。 */}
-        <section aria-labelledby="zone-monitor-heading" style={zoneSectionStyle}>
-          <h2 id="zone-monitor-heading" style={zoneLabelStyle}>
-            このモニタ
-          </h2>
-          {/* 主導線は実寸サイネージプレビュー（アプリ内・#1257）: スマホでも 16:9 実寸比・任意日も見られる。
+          {/* ─ ゾーン3: このモニタ（§3.1）─ 実機サイネージへの導線・黒画面・school_admin の per-class 管理導線。 */}
+          <section aria-labelledby="zone-monitor-heading" style={zoneSectionStyle}>
+            <h2 id="zone-monitor-heading" style={zoneLabelStyle}>
+              このモニタ
+            </h2>
+            {/* 主導線は実寸サイネージプレビュー（アプリ内・#1257）: スマホでも 16:9 実寸比・任意日も見られる。
             現在編集中の日付を引き継ぎ、編集を失わないよう別タブで開く。 */}
-          <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
-            <Link
-              href={editorPreviewPath(classId, date)}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
-            >
-              サイネージのプレビューを開く →
-            </Link>
-            {/* 副次導線: TV が実際に開いている公開サイネージサイト（tv_devices.signage_url）。別 host/別 origin に
-              なりうる絶対 URL なので素の <a>（prefetch 回避）。未設置クラスは出さない（死リンク防止）。 */}
-            {liveSignageUrl ? (
-              <a
-                href={liveSignageUrl}
+            <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
+              <Link
+                href={editorPreviewPath(classId, date)}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontSize: "0.85rem", color: tokens.color.muted }}
+                style={{ fontSize: "0.9rem", fontWeight: 600, color: tokens.color.primaryHover }}
               >
-                実機の画面を開く ↗
-              </a>
-            ) : null}
-          </p>
-          {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線（端末系＝このモニタへ集約・§3.1）。
-            teacher には出さない（死リンク防止）。 */}
-          {canManageAds || canManageQuietHours ? (
-            <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
-              {canManageAds ? (
-                <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
-                  広告管理 →
-                </Link>
-              ) : null}
-              {canManageQuietHours ? (
-                <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
-                  静粛時間 →
-                </Link>
+                サイネージのプレビューを開く →
+              </Link>
+              {/* 副次導線: TV が実際に開いている公開サイネージサイト（tv_devices.signage_url）。別 host/別 origin に
+              なりうる絶対 URL なので素の <a>（prefetch 回避）。未設置クラスは出さない（死リンク防止）。 */}
+              {liveSignageUrl ? (
+                <a
+                  href={liveSignageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: "0.85rem", color: tokens.color.muted }}
+                >
+                  実機の画面を開く ↗
+                </a>
               ) : null}
             </p>
-          ) : null}
-          {/* 黒画面トグル（per-class 運用）。実教室のサイネージを一時的に真っ黒にする / 解除する。
+            {/* 広告管理 / 静粛時間は school_admin の per-class 管理導線（端末系＝このモニタへ集約・§3.1）。
+            teacher には出さない（死リンク防止）。 */}
+            {canManageAds || canManageQuietHours ? (
+              <p style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "0 0 0.75rem" }}>
+                {canManageAds ? (
+                  <Link href={`/app/editor/${classId}/ads`} style={{ fontSize: "0.9rem" }}>
+                    広告管理 →
+                  </Link>
+                ) : null}
+                {canManageQuietHours ? (
+                  <Link href={`/app/editor/${classId}/quiet-hours`} style={{ fontSize: "0.9rem" }}>
+                    静粛時間 →
+                  </Link>
+                ) : null}
+              </p>
+            ) : null}
+            {/* 黒画面トグル（per-class 運用）。実教室のサイネージを一時的に真っ黒にする / 解除する。
             実画面に即時影響するので押下時に確認を挟む（BlackoutToggle 側）。 */}
-          <section aria-labelledby="blackout-heading" style={blackoutSectionStyle}>
-            <h3 id="blackout-heading" style={blackoutHeadingStyle}>
-              サイネージを黒画面にする
-            </h3>
-            <BlackoutToggle classId={classId} initialBlackout={board?.blackout ?? false} />
+            <section aria-labelledby="blackout-heading" style={blackoutSectionStyle}>
+              <h3 id="blackout-heading" style={blackoutHeadingStyle}>
+                サイネージを黒画面にする
+              </h3>
+              <BlackoutToggle classId={classId} initialBlackout={board?.blackout ?? false} />
+            </section>
           </section>
-        </section>
 
-        <RememberLastClass classId={classId} />
+          <RememberLastClass classId={classId} />
 
-        {/* AI は右下に浮く支援チャット。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。対象日に追随する。
+          {/* AI は右下に浮く支援チャット。FAB → パネルで開閉。会話・保存・SSE は EditorChat が温存。対象日に追随する。
           key: 対象日変更で再マウントし新日付の下書きで初期化する（key 無しだと旧日付の中身が残り保存で混線する）。
           copied（前日/前週コピーの nonce）も含める＝コピー直後に AI の下書きシードがコピー前の盤面のまま残り、
           AI 経由の反映でコピー結果を巻き戻す穴を塞ぐ（各エディタ key と同じ理由・設計書 §11-1）。
           **applied はここには含めない**（反映後も会話・パネル状態を保つ。チャット自身の差分基準は onApply 内で
           更新済み・フォーム側の key にだけ含めて再マウントする）。 */}
-        <FloatingAiChat>
-          <ClassEditorChat
-            key={`${date}:${copied}`}
-            classId={classId}
-            date={date}
-            assignmentDeadlineFormat={deadlineFormat}
-            // 歓迎文をこのクラスの実効パターンの実セクションで合成する（§6.4・v2-ed47-5 の根治）。許可セクション
-            // 自体はサーバ（chat route）が別途解決＝この prop は表示文言のみ。
-            pattern={pattern}
-            initialDraft={{
-              // 盤面エディタと同じ seed 済み初期値（F5）。AI の下書きが seed を知らないと、per-section 置換保存で
-              // seed 内容を消しうるため一致させる（設計書 §11-6）。
-              schedules: seed.items,
-              notices: notices.items,
-              assignments: assignments.items,
-            }}
-            // 固定行（pinned）の保全（MEDIUM-3）: AI の per-date 置換保存が保存先日付の「ずっと」を消さない
-            // よう、クラス直の固定行を渡す（EditorChat が反映時に preservePinnedNotices で前置き合流させる）。
-            pinnedNotices={pinnedNotices}
-          />
-        </FloatingAiChat>
-      </CopyUndoProvider>
+          <FloatingAiChat>
+            <ClassEditorChat
+              key={`${date}:${copied}`}
+              classId={classId}
+              date={date}
+              assignmentDeadlineFormat={deadlineFormat}
+              // 歓迎文をこのクラスの実効パターンの実セクションで合成する（§6.4・v2-ed47-5 の根治）。許可セクション
+              // 自体はサーバ（chat route）が別途解決＝この prop は表示文言のみ。
+              pattern={pattern}
+              initialDraft={{
+                // 盤面エディタと同じ seed 済み初期値（F5）。AI の下書きが seed を知らないと、per-section 置換保存で
+                // seed 内容を消しうるため一致させる（設計書 §11-6）。
+                schedules: seed.items,
+                notices: notices.items,
+                assignments: assignments.items,
+              }}
+              // 固定行（pinned）の保全（MEDIUM-3）: AI の per-date 置換保存が保存先日付の「ずっと」を消さない
+              // よう、クラス直の固定行を渡す（EditorChat が反映時に preservePinnedNotices で前置き合流させる）。
+              pinnedNotices={pinnedNotices}
+            />
+          </FloatingAiChat>
+        </CopyUndoProvider>
+      </PhotoImportProvider>
     </EditorDraftSyncProvider>
   );
 }
