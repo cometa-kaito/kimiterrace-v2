@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "eefb016" # 写真取込 P1〜P3（#1300 eval 基盤/#1303 OCR→チャット合流+rate一本化/#1306 ゾーン1導線）+ #1301 朝ドラフト純関数。schema・secret 無変更=migrate 不要。/api/health 200・/login private,no-cache 確認済
+  web_image_tag = "396a6c6" # 2026-07-18: 朝ドラフトP0完成（#1305 confirmMorningDraftAction + #1308 MorningDraftカード。合成核#1301はeefb016に既載）＝空授業日を開くと基本時間割+年間行事から今日の下書きが組み上がり1クリック確定・undo完全復元・AI不使用。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
