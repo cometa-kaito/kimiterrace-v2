@@ -128,4 +128,63 @@ describe("NoticeEditor 並べ替え（ドラッグ / ↑↓キー・上下ボタ
     expect(screen.getByRole("button", { name: "2 件目を並べ替え" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "3 件目を並べ替え" })).toBeNull();
   });
+
+  // #1175 と同型のバグ: 事前生成（盤面の規定枠ぶん）の空行があると、最後の実入力行で ↓ を押したとき
+  // useRowReorder.move が `to < count`(=空行込み rows.length) しか境界チェックしないため、行き先が末尾の
+  // 空行スロットでも moveItem が実入力行をそこへ swap し、実入力行どうしの間に空行が挟まって「行間が空いて
+  // 盤面が崩れて見える」見た目バグになっていた。moveRow の空行ドロップ先ガードで no-op になることを固定する。
+  it("末尾の実入力行で ↓ を押しても空行へ移らず順序不変（事前生成の空行へ落とさない）", () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡A" }, { text: "連絡B" }]}
+        prefillRows={5}
+      />,
+    );
+    const textAt = (row: number) =>
+      (screen.getByLabelText(`${row} 件目の連絡事項`) as HTMLInputElement).value;
+    // 2 件入力 + 空行 3 行（事前生成 5 枠）。最後の実入力行（2 件目 = 連絡B）のグリップで ↓。
+    // ポインタ D&D は jsdom 非対応なので同じ並べ替え経路をキーボードで叩く（↓ は move(1, 2) を呼ぶ）。
+    act(() => {
+      fireEvent.keyDown(screen.getByRole("button", { name: "2 件目を並べ替え" }), {
+        key: "ArrowDown",
+      });
+    });
+    // 行き先（3 行目）は空行 → no-op。実入力行は [連絡A, 連絡B] のまま（間に空行が挟まらない）。
+    expect(textAt(1)).toBe("連絡A");
+    expect(textAt(2)).toBe("連絡B");
+    expect(textAt(3)).toBe("");
+  });
+
+  // #1177 レビュー指摘の退行ガード（空枠判定を text だけで見ると起きる回帰）: 空ラベルの区切り線
+  // （§5.3・kind:"divider"・text:""）は **実体行**なのでドロップ先に許可されねばならない。moveRow の空枠ガードが
+  // text 空だけを見ていると、区切り線を「事前生成の空行」と取り違え、連絡を空ラベル区切り線の上/下へ動かせなく
+  // なる（no-op）。isRealNoticeRow で filledRows / complete / ガードを単一ソース化したことを固定する。
+  // 退行時は moveRow が参照同一で返り serialized 不変＝自動保存が一度も走らない（= 本テストが赤くなる）。
+  it("空ラベルの区切り線をまたいで連絡を並べ替えできる（区切り線を空行と誤判定しない）", async () => {
+    render(
+      <NoticeEditor
+        classId={CLASS_ID}
+        date={DATE}
+        initialItems={[{ text: "連絡A" }, { text: "", kind: "divider" }, { text: "連絡B" }]}
+      />,
+    );
+    // 3 実体行（区切り線含む）→ reorderable。1 件目（連絡A）のグリップで ↓ = move(0, 1)。
+    // 行き先は空ラベル区切り線。修正前はここで no-op になり順序が変わらず保存も走らない。
+    act(() => {
+      fireEvent.keyDown(screen.getByRole("button", { name: "1 件目を並べ替え" }), {
+        key: "ArrowDown",
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    // 修正後は区切り線が先頭・連絡A が 2 番目へ（[区切り, 連絡A, 連絡B]）で自動保存される。
+    expect(h.setNoticesAction).toHaveBeenCalled();
+    const lastCall = h.setNoticesAction.mock.calls.at(-1) as unknown[];
+    const saved = lastCall[3] as { text: string; kind?: string }[];
+    expect(saved.map((n) => n.text)).toEqual(["", "連絡A", "連絡B"]);
+    expect(saved[0]?.kind).toBe("divider");
+  });
 });

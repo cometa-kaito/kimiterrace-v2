@@ -64,6 +64,16 @@ type Row = {
   pinned: boolean;
 };
 
+/**
+ * 「実体行」判定の単一ソース（§5.3）。区切り線はラベルが空でも実体行（教員が意図した罫線）、通常行は本文が
+ * 入っていれば実体行。事前生成した空行（本文空・非区切り）だけが「空枠」＝保存ペイロード・complete・並べ替えの
+ * ドロップ先から除外される。**この述語を moveRow のドロップ先ガードと filledRows / complete で共有**し、区切り線を
+ * 「空行」と取り違えて並べ替えを無音で拒否する退行（連絡を空ラベル区切り線の上へ動かせない）を防ぐ。
+ */
+function isRealNoticeRow(r: Row): boolean {
+  return r.kind === "divider" || r.text.trim().length > 0;
+}
+
 /** 表示日数のプリセット (入力日を起点に N 日間)。これ以外は「カスタム」で 1..14 を直接指定。 */
 const DISPLAY_DAYS_PRESETS = [
   { value: 1, label: "今日のみ" },
@@ -278,7 +288,7 @@ export function NoticeEditor({
   // 事前生成した空行（本文が空）は保存ペイロード・complete・並べ替え対象から除外する（空枠で保存をブロックせず、
   // 空の連絡を保存しない／空行を掴ませない）。教員が埋めた行だけが盤面・保存に反映される。
   // **区切り線はラベルが空でも実体行**（教員が意図して挿入した罫線・§5.3）＝保存・並べ替えの対象に残す。
-  const filledRows = rows.filter((r) => r.kind === "divider" || r.text.trim().length > 0);
+  const filledRows = rows.filter(isRealNoticeRow);
   // 並べ替えハンドルは**本文の入った行が 2 件以上**のときだけ各実入力行に出す（空行には出さない・1 件では並べ替え不要）。
   const reorderable = filledRows.length > 1;
   const items = toNoticeItems(filledRows);
@@ -290,7 +300,7 @@ export function NoticeEditor({
   }, [serialized, onItemsChange]);
   // 本文の入った行はそれ自体で有効（連絡は本文のみ必須）＝埋まった行があれば自動保存する。
   // 区切り線はラベル空でも有効（本文必須なし・§5.3）。
-  const complete = filledRows.every((r) => r.kind === "divider" || r.text.trim().length > 0);
+  const complete = filledRows.every(isRealNoticeRow);
   const auto = useAutoSaveSection({
     serialized,
     items,
@@ -331,8 +341,21 @@ export function NoticeEditor({
   }
   // 並べ替え（D 群）: 行を from→to へ移す。並べ替え後の配列順がそのまま保存ペイロード順になり、
   // 既存の自動保存（dirty 判定 = serialized 変化）が走って保存・盤面反映される（順序のみ変更）。
+  // **事前生成の空行をドロップ先にしない**: ハンドルは実入力行にしか出ない（= from は実入力行）が、`to` は
+  // ↑↓ キー / ポインタのヒットテストで末尾の空行スロットを指しうる（useRowReorder.move は `to < count`(=空行込み)
+  // しか境界チェックしない）。実入力行を空行スロットへ落とすと実入力行どうしの間に空行が挟まり「行間が空いて
+  // 盤面が崩れて見える」（順序は実入力行のみで保存され無害だが見た目バグ）。行き先が空枠なら no-op（参照同一で
+  // 返し再描画も増やさない・useRowReorder の範囲外チェックと同作法・来校者/呼び出しエディタと同じ対処）。
+  // **空枠判定は {@link isRealNoticeRow} で共有**: 空ラベルの区切り線は「実体行」なのでドロップ先に許可する
+  // （text 空だけを見ると空ラベル区切り線を空枠扱いし、連絡をその上へ動かせない退行になる）。
   function moveRow(from: number, to: number) {
-    setRows((prev) => moveItem(prev, from, to));
+    setRows((prev) => {
+      const dest = prev[to];
+      if (!dest || !isRealNoticeRow(dest)) {
+        return prev;
+      }
+      return moveItem(prev, from, to);
+    });
   }
   const rowReorder = useRowReorder(rows.length, moveRow);
   // Tab 縦移動（スプレッドシート風・共有フック {@link useGridTabNavigation}）。連絡は本文 1 列なので col 0 のみ
