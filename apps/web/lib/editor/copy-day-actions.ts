@@ -27,9 +27,11 @@ import {
   isUniqueViolation,
   upsertDailySectionForTarget,
 } from "./daily-data-write";
+import { preservePinnedNotices } from "./assistant-chat-core";
 import { validateCalloutItems } from "./callouts-core";
 import {
   copyableNoticeItems,
+  type NoticeItem,
   validateAssignmentItems,
   validateNoticeItems,
 } from "./notice-assignment-core";
@@ -228,6 +230,10 @@ async function readTargetRawSnapshot(
  * 全ブロックを置換する（複製元で空のブロックは対象日も空になる＝「その日の写し」を作る従来挙動を全ブロックへ
  * 一般化）。**上書き前に対象日の {@link DaySnapshot} を控えて返す**（undo 用）。クラス可視性は呼び出し側が
  * 確認済みの前提。
+ *
+ * **連絡の固定行（pinned・§5.4「ずっと」表示）は対象日ぶんを保全する**（{@link preservePinnedNotices}・AI 反映と
+ * 対称）: コピーは対象日の連絡列を全置換するため、対象日に教員が置いた固定連絡がそのまま消えないよう複製内容の
+ * 前へ合流させる。複製元の pinned は既にコピー対象外（copyableNoticeItems）なので二重掲示にはならない。
  */
 async function copyOneDay(
   tx: TenantTx,
@@ -258,7 +264,22 @@ async function copyOneDay(
       const items = daily.get(block) ?? [];
       const field =
         block === "schedule" ? "schedules" : block === "notice" ? "notices" : "assignments";
-      await upsertDailySectionForTarget(tx, actor, target, toDate, field, items);
+      // 連絡は対象日（toDate）に教員が入力済みの固定行（pinned・§5.4「ずっと」表示）を前置き合流させて保全する
+      // （AI 反映の {@link preservePinnedNotices} と対称・2026-07-18 #1289 レビュー指摘）。コピーは対象日の
+      // 連絡列を全置換するため、これが無いと対象日に置いた固定連絡が複製で静かに消える（undo で復旧は可能だが
+      // 教員が気づけない）。複製元の pinned は readCopySource の copyableNoticeItems で既に除外済み＝二重掲示に
+      // ならない。before は上書き前の RAW スナップショット（pinned 含む）なのでそのまま流用する。
+      const toWrite =
+        block === "notice"
+          ? preservePinnedNotices(
+              [{ date: toDate, items: (before.notice ?? []) as NoticeItem[] }],
+              toDate,
+              items as NoticeItem[],
+            )
+          : items;
+      await upsertDailySectionForTarget(tx, actor, target, toDate, field, toWrite);
+      // count は「複製した件数」＝複製元由来の件数（items.length）のまま。プレビュー（copyableNoticeItems 件数）と
+      // 「複製しました」表示を一致させる（保全した pinned は複製ではないので数に含めない）。
       count = items.length;
     } else if (block === "visitor") {
       const replaced = await replaceClassVisitors(tx, {
