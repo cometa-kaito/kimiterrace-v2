@@ -86,6 +86,7 @@ export function WysiwygBoardEditor({
   dayHeader,
   planActions,
   dayEventsPanel,
+  morningDraftCard,
   liveSignageUrl,
 }: {
   classId: string;
@@ -159,6 +160,12 @@ export function WysiwygBoardEditor({
    * per-section 保存への append・?applied= 再ナビ）はパネル側が担い、本コンポーネントは配置だけを与える。
    */
   dayEventsPanel?: React.ReactNode;
+  /**
+   * 朝ドラフトカード（{@link MorningDraftCard}・P0・§3.1）。合成できる下書きがある日だけ親（page.tsx）が
+   * 渡す。dayEventsPanel と同じ理由で盤面プレビューの**直上**（左 sticky カラム内）／フォールバックでは編集
+   * セクションの上へ置く。カードを出す日は親が seed 注記と dayEventsPanel を吸収して渡さない（露出を 1 箇所へ）。
+   */
+  morningDraftCard?: React.ReactNode;
   /**
    * このクラスの実機サイネージ URL（tv_devices.signage_url）。盤面プレビュー直下の副次リンク
    * 「実機の画面を開く」に使う（主導線はアプリ内の実寸プレビュー `/app/editor/[classId]/preview`・#1257）。
@@ -401,6 +408,9 @@ export function WysiwygBoardEditor({
       </div>
       {/* フォールバック（盤面プレビュー無し）でも計画操作を失わない: 編集セクションの上に全幅で出す。
           プレビューあり時は previewCol（盤面直下）が担うのでここには出さない（二重表示防止）。 */}
+      {/* 朝ドラフトカード（§3.1）: フォールバック（盤面プレビュー無し）では編集セクションの直上に全幅で置く。
+          カードを出す日は親が dayEventsPanel を吸収して渡さない（二重露出防止）。 */}
+      {!hasPreview ? morningDraftCard : null}
       {!hasPreview && planActions ? <div className={styles.planRow}>{planActions}</div> : null}
       {/* フォールバックでも「この日の行事」を失わない（planActions と同じ規律・行事 0 件は親が渡さない）。 */}
       {!hasPreview ? dayEventsPanel : null}
@@ -409,6 +419,9 @@ export function WysiwygBoardEditor({
             （hasPreview 定数だと TS が絞り込めず ScaledSignageBoard の payload が null 可能になる）。 */}
         {showBoard && previewPayload ? (
           <div className={styles.previewCol}>
+            {/* 朝ドラフトカード（§3.1）: 盤面プレビューの**直上**に置く（合成できる下書きがある日だけ親が渡す）。
+                sticky な盤面の上で「開いた瞬間に下書きができている→1 クリック確定」を最短導線にする。 */}
+            {morningDraftCard}
             {/* 上段: 実機と同一レイアウトのライブプレビュー（≤899px では非表示）。クリック対象は盤面の**実セクション
               そのもの**（Approach A）。`editRegions` を渡すと `SignageBoardView` が予定 / 連絡 / 提出物の実 `<section>` を
               `position:relative` 化して `inset:0` の編集ボタンを内側に敷く＝実描画要素を覆うので％近似のズレが原理的に
