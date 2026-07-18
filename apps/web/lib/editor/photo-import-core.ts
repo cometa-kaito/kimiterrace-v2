@@ -39,6 +39,12 @@ const PHOTO_IMPORT_HEADER = [
  */
 export function buildPhotoImportChatMessage(ocrText: string): string {
   const budget = Math.max(0, CHAT_MESSAGE_MAX - PHOTO_IMPORT_HEADER.length - 1);
-  const body = ocrText.trim().slice(0, budget);
+  let body = ocrText.trim().slice(0, budget);
+  // 切り詰め境界がサロゲートペアを割ると末尾に lone surrogate が残る（絵文字等の astral 文字のみ）。
+  // 高位サロゲート単独で終わるときはその 1 code unit を落として文字境界に揃える。
+  const lastCode = body.charCodeAt(body.length - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    body = body.slice(0, -1);
+  }
   return `${PHOTO_IMPORT_HEADER}\n${body}`;
 }

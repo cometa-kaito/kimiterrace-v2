@@ -72,4 +72,12 @@ describe("buildPhotoImportChatMessage", () => {
     expect(message.length).toBeLessThanOrEqual(CHAT_MESSAGE_MAX);
     expect(message).toContain("【プリント本文】");
   });
+
+  it("切り詰め境界でサロゲートペアを割らない（lone surrogate を残さない）", () => {
+    // 絵文字（astral・2 code units）だけの長文で、あらゆる切り詰め位置がペア境界に当たるようにする。
+    const message = buildPhotoImportChatMessage("😀".repeat(CHAT_MESSAGE_MAX));
+    expect(message.length).toBeLessThanOrEqual(CHAT_MESSAGE_MAX);
+    // 正しく文字境界で切れていれば UTF-8 round-trip が同一（lone surrogate は U+FFFD に化ける）。
+    expect(new TextDecoder().decode(new TextEncoder().encode(message))).toBe(message);
+  });
 });

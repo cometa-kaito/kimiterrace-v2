@@ -99,7 +99,11 @@ export const PHOTO_FIXTURES: Record<PhotoFixtureId, { title: string; html: strin
   },
 };
 
-/** HTML から可視テキストを取り出す（PII 回帰検査・レビュー用。style/タグを落とすだけの素朴実装）。 */
+/**
+ * HTML から可視テキストを取り出す（PII 回帰検査・レビュー用。style/タグを落とすだけの素朴実装）。
+ * ⚠ HTML エンティティ（&amp;amp; 等）は復号しない。フィクスチャ本文にエンティティ表記を使うと
+ * PII 検査対象のテキストが画像の見た目と食い違うため、フィクスチャは生文字で書くこと。
+ */
 export function photoFixtureText(id: PhotoFixtureId): string {
   return PHOTO_FIXTURES[id].html
     .replace(/<style>[\s\S]*?<\/style>/g, " ")
