@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "cf1e91d" # 2026-07-13: 授業広告停止の拡張2件(#1297 時間割バリエーション+年間割当[曜日既定+特定日上書き+「止めない日」] / #1298 モニタ別の授業中広告可否[signage_url ?classAds=on])。schema・secret 無変更=migrate 不要。疎通 /api/health=200・cache-control=private,no-cache
+  web_image_tag = "557e23d" # 2026-07-18: 教員エディタ出荷 Phase1 — #1289 前日/前週コピーを「ほかの日からコピー」統合 + #1292 コピー undo + #1177 連絡並べ替えの空枠ガード（区切り線対応fix含む）。＋#1300 写真取込P1 eval基盤が同乗（UIなし・RUN_AI_EVAL=1ゲート内のみ＝実行時無影響）。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）。prod は G1 判断待ちで未反映（cf1e91d のまま）
 }
 
 module "network" {
