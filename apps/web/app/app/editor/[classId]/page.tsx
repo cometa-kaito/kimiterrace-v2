@@ -43,9 +43,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { ClassEditorChat } from "./_components/ClassEditorChat";
-import { CopyPreviousDayButton } from "./_components/CopyPreviousDayButton";
+import { CopyFromMenu } from "./_components/CopyFromMenu";
 import { EDITOR_STACK_ANCHOR_ID } from "./_components/editor-anchors";
-import { CopyPreviousWeekButton } from "./_components/CopyPreviousWeekButton";
 import { DayEventsPanel } from "./_components/DayEventsPanel";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
@@ -102,7 +101,7 @@ export default async function ClassEditorPage({
   if (planRedirect) {
     redirect(planRedirect);
   }
-  // 前日/前週コピー成功時の再マウント nonce（CopyPreviousDayButton が ?copied=<ts> を付けて再ナビゲート）。
+  // 前日/前週コピー成功時の再マウント nonce（CopyFromMenu が ?copied=<ts> を付けて再ナビゲート）。
   // エディタ key に含めることで、同一日付への複製でも配下エディタの useState(initial…) を複製後データで
   // 確実に再初期化する（key={date} だけでは同じ日への操作で再マウントされない）。値は key 用の不透明文字列
   // なので形式検証は長さ制限のみ（fail-soft）。
@@ -294,16 +293,18 @@ export default async function ClassEditorPage({
           callouts={board?.callouts ?? null}
           // 実物サイネージへの直結リンク（盤面直下・本物一致の確認動線）。未設置クラスは undefined＝出さない。
           liveSignageUrl={liveSignageUrl}
-          // 計画系の即応操作（FHD 配置最適化 2026-07-06）: 前日/前週コピー・基本時間割リンクを盤面直下（左
+          // 計画系の即応操作（FHD 配置最適化 2026-07-06）: コピーツール・基本時間割リンクを盤面直下（左
           // sticky カラム）へ常駐させる。「昨日と同じ＋1ヶ所変更」の最頻ワークフローがスクロールゼロで完結する
-          // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。実体（上書き確認・
-          // ?copied= 再ナビ・パターン別ラベル・対象日追随）は各ボタンが従来どおり担う＝配置のみの変更。
+          // （旧: ページ最下部のゾーン2まで往復）。ゾーン2は月カレンダー（任意日選択）に純化。前日/前週の 2 ボタンは
+          // 「ほかの日からコピー」統合ツール（CopyFromMenu・2026-07-12）に集約＝コピー元選択＋プレビュー＋上書き
+          // 明示確認＋対象日/週追随を 1 つのポップオーバーで担う（実体＝上書き確認・?copied= 再ナビ・パターン別
+          // ラベルは Server Action / ツール側が従来どおり担う）。
           // 「年間予定表を取り込む →」も年 1 回の設定操作（基本時間割設定と同型）＝ここに常設し、行事が 1 件も
           // 無い教員にも初回導線を保証する（DayEventsPanel は行事 0 件で非表示＝そこ頼みだと鶏と卵になる・
           // #1269 follow-up）。取込ページと同じ EDITOR_ROLES ゲートなので死/forbidden リンクにならない。
           planActions={
             <>
-              <CopyPreviousDayButton
+              <CopyFromMenu
                 classId={classId}
                 date={date}
                 hasExistingData={
@@ -317,7 +318,6 @@ export default async function ClassEditorPage({
                   .map((block) => blockLabel(pattern, block))
                   .join("・")}
               />
-              <CopyPreviousWeekButton classId={classId} />
               {periodSchedule ? (
                 <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
                   基本時間割を設定 →

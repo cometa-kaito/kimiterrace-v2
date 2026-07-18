@@ -11,8 +11,8 @@ import { useCallback } from "react";
 /**
  * クラスエディタ用の {@link EditorChat} 薄ラッパー。**反映（全件成功）後に `?applied=<nonce>` を付けて
  * 再ナビゲート**し、page.tsx がフォーム側（WysiwygBoardEditor）の key に nonce を含めることで、
- * 各セクション編集器を**反映後データで確実に再マウント**する（前日コピーの `?copied=` と同じ確立済み手法・
- * CopyPreviousDayButton の docstring 参照）。
+ * 各セクション編集器を**反映後データで確実に再マウント**する（コピーの `?copied=` と同じ確立済み手法・
+ * CopyFromMenu の docstring 参照）。
  *
  * ## なぜ必要か（2026-07-06 P1・本番で実証したデータ消失）
  * AI の反映は Server Action（置換保存）だが、フォーム（ScheduleEditor 等）の `useState(initial…)` は
@@ -52,7 +52,7 @@ export function ClassEditorChat({
   const onApplied = useCallback(() => {
     const params = new URLSearchParams(searchParams);
     // 反映を適用した対象日を明示して固定する（?date 無指定のまま cutover（下校時刻）を跨ぐと既定対象日が
-    // 翌授業日へ再解決され「反映が消えた」ように見える・CopyPreviousDayButton と同じ理由）。
+    // 翌授業日へ再解決され「反映が消えた」ように見える・CopyFromMenu と同じ理由）。
     params.set("date", date);
     params.set("applied", String(Date.now()));
     // scroll: false = 画面位置を保つ（チャットパネルを開いたまま反映結果が盤面・フォームに現れる）。
