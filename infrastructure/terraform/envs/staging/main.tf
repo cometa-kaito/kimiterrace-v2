@@ -234,7 +234,7 @@ locals {
   #          AR push 済。★この deploy で staging-provision-agent-secret を初投入（terraform secret_manager
   #          apply で container 作成 + 値投入）。新 secret ゆえ初回 revision が IAM 伝播レースで
   #          SecretsAccessCheckFailed → google_cloud_run_v2_service.web を -replace し再 revision で解消。
-  web_image_tag = "557e23d" # 2026-07-18: 教員エディタ出荷 Phase1 — #1289 前日/前週コピーを「ほかの日からコピー」統合 + #1292 コピー undo + #1177 連絡並べ替えの空枠ガード（区切り線対応fix含む）。＋#1300 写真取込P1 eval基盤が同乗（UIなし・RUN_AI_EVAL=1ゲート内のみ＝実行時無影響）。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）。prod は G1 判断待ちで未反映（cf1e91d のまま）
+  web_image_tag = "eefb016" # 写真取込 P1〜P3（#1300 eval 基盤/#1303 OCR→チャット合流+rate一本化/#1306 ゾーン1導線）+ #1301 朝ドラフト純関数。schema・secret 無変更=migrate 不要。/api/health 200・/login private,no-cache 確認済
 }
 
 module "network" {
