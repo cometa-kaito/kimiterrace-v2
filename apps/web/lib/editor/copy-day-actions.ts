@@ -8,6 +8,8 @@ import {
   editableBlocksForPattern,
 } from "@/lib/signage/pattern-blocks";
 import {
+  type ClassVisitorInput,
+  type StudentCalloutInput,
   type TenantTx,
   auditLog,
   getCalloutsForClass,
@@ -25,7 +27,12 @@ import {
   isUniqueViolation,
   upsertDailySectionForTarget,
 } from "./daily-data-write";
-import { copyableNoticeItems } from "./notice-assignment-core";
+import { validateCalloutItems } from "./callouts-core";
+import {
+  copyableNoticeItems,
+  validateAssignmentItems,
+  validateNoticeItems,
+} from "./notice-assignment-core";
 import { getClassAssignments, getClassNotices } from "./notice-assignment-queries";
 import {
   type ActionResult,
@@ -38,7 +45,9 @@ import {
   isValidDate,
   parseEditorTarget,
   toScopedEditorActor,
+  validateScheduleItems,
 } from "./schedule-core";
+import { validateVisitorItems } from "./visitors-core";
 import { getClassName, getClassSchedule } from "./schedule-queries";
 import { addDaysUtc, businessWeek, mondayOfWeek } from "./week-math";
 
@@ -161,10 +170,64 @@ async function readCopySource(
 }
 
 /**
+ * コピー先 1 日分の**コピー前スナップショット**（undo「元に戻す」用）。コピーは対象ブロックを全置換するため、
+ * 上書き前の対象日の内容をそのまま控える。**RAW で読む**（notice は固定行 pinned / 区切り divider も含む＝
+ * `readCopySource` の copyable フィルタは使わない）＝復元で元通りにする。含むキーはコピーが触ったブロックだけ。
+ * `"use server"` は型を export できないため、消費側（CopyFromMenu / restoreCopySnapshotAction）は構造推論する。
+ * visitor / callout は保存コア（replace*）とバリデータ（validate*Items）が受ける Input 形へ写像して控える。
+ */
+type DaySnapshot = {
+  date: string;
+  schedule?: unknown[];
+  notice?: unknown[];
+  assignment?: unknown[];
+  visitors?: unknown[];
+  callouts?: unknown[];
+};
+async function readTargetRawSnapshot(
+  tx: TenantTx,
+  classId: string,
+  blocks: readonly SignageBlockKind[],
+  date: string,
+): Promise<DaySnapshot> {
+  const snap: DaySnapshot = { date };
+  for (const block of blocks) {
+    if (block === "schedule") {
+      snap.schedule = (await getClassSchedule(tx, classId, date))?.items ?? [];
+    } else if (block === "notice") {
+      // RAW（固定行・区切り線も含む）で控える＝復元で元の掲示状態を完全に戻す。
+      snap.notice = (await getClassNotices(tx, classId, date))?.items ?? [];
+    } else if (block === "assignment") {
+      snap.assignment = (await getClassAssignments(tx, classId, date))?.items ?? [];
+    } else if (block === "visitor") {
+      snap.visitors = (await getVisitorsForClass(tx, classId, date)).map((v) => ({
+        visitorName: v.visitorName,
+        affiliation: v.affiliation,
+        scheduledTime: v.scheduledTime,
+        purpose: v.purpose,
+        host: v.host,
+        note: v.note,
+        isHighlight: v.isHighlight === true,
+      }));
+    } else if (block === "callout") {
+      snap.callouts = (await getCalloutsForClass(tx, classId, date)).map((c) => ({
+        studentName: c.studentName,
+        location: c.location,
+        reason: c.reason,
+        scheduledTime: c.scheduledTime,
+        isHighlight: c.isHighlight === true,
+      }));
+    }
+  }
+  return snap;
+}
+
+/**
  * `fromDate` の実セクション（`blocks`）を `toDate` へ置換複製する tx 内コア（前日コピー / 前週コピーが共有）。
  * 複製元が**全ブロック空**なら複製しない（`null` を返す＝対象日を誤って空に置換しない安全弁）。空でない場合は
  * 全ブロックを置換する（複製元で空のブロックは対象日も空になる＝「その日の写し」を作る従来挙動を全ブロックへ
- * 一般化）。クラス可視性は呼び出し側が確認済みの前提。
+ * 一般化）。**上書き前に対象日の {@link DaySnapshot} を控えて返す**（undo 用）。クラス可視性は呼び出し側が
+ * 確認済みの前提。
  */
 async function copyOneDay(
   tx: TenantTx,
@@ -174,7 +237,7 @@ async function copyOneDay(
   labelOf: (block: SignageBlockKind) => string,
   fromDate: string,
   toDate: string,
-): Promise<CopiedSection[] | null> {
+): Promise<{ sections: CopiedSection[]; before: DaySnapshot } | null> {
   // 1) 複製元を全ブロック読み取り（同一 tx・RLS 自校限定・件数表示と共有の単一ソース）。
   const { daily, visitors, callouts, total } = await readCopySource(
     tx,
@@ -185,6 +248,8 @@ async function copyOneDay(
   if (total === 0) {
     return null;
   }
+  // 1.5) 上書き前に対象日の内容を控える（undo「元に戻す」用・RAW）。読み取りは書込と同一 tx スナップショット。
+  const before = await readTargetRawSnapshot(tx, target.classId, blocks, toDate);
   // 2) 対象日へ置換保存（全ブロック同一 tx＝部分適用なし。複製元で空のブロックも空へ置換＝「その日の写し」）。
   const copied: CopiedSection[] = [];
   for (const block of blocks) {
@@ -257,7 +322,7 @@ async function copyOneDay(
     }
     copied.push({ block, label: labelOf(block), count });
   }
-  return copied;
+  return { sections: copied, before };
 }
 
 /**
@@ -282,7 +347,7 @@ export async function copyDayFromAction(
   classId: unknown,
   fromDate: unknown,
   toDate: unknown,
-): Promise<ActionResult<{ fromDate: string; sections: CopiedSection[] }>> {
+): Promise<ActionResult<{ fromDate: string; sections: CopiedSection[]; undo: DaySnapshot }>> {
   const target = parseEditorTarget("class", classId);
   if (!target || target.scope !== "class") {
     return invalid("クラスの指定が不正です。");
@@ -319,11 +384,11 @@ export async function copyDayFromAction(
         const pattern = await resolveClassPattern(tx, target.classId);
         const blocks = editableBlocksForPattern(pattern);
         const labelOf = (block: SignageBlockKind) => blockLabel(pattern, block);
-        const sections = await copyOneDay(tx, actor, target, blocks, labelOf, fromDate, toDate);
-        if (sections === null) {
+        const copied = await copyOneDay(tx, actor, target, blocks, labelOf, fromDate, toDate);
+        if (copied === null) {
           return { kind: "empty" as const, labels: blocks.map(labelOf) };
         }
-        return { kind: "ok" as const, sections };
+        return { kind: "ok" as const, sections: copied.sections, undo: copied.before };
       },
       { tenantScoped: true, schoolId: actor.schoolId },
     );
@@ -338,7 +403,7 @@ export async function copyDayFromAction(
     }
     revalidatePath(`/app/editor/${target.classId}`);
     revalidatePath("/app/signage-preview/[classId]", "page");
-    return { ok: true, data: { fromDate, sections: result.sections } };
+    return { ok: true, data: { fromDate, sections: result.sections, undo: result.undo } };
   } catch (error) {
     if (error instanceof EditorTargetNotFoundError) {
       return invalid("編集対象が見つかりません。");
@@ -428,7 +493,14 @@ export async function previewCopyDayAction(
 export async function copyPreviousWeekAction(
   classId: unknown,
   anchorDate?: unknown,
-): Promise<ActionResult<{ fromWeekStart: string; toWeekStart: string; daysCopied: number }>> {
+): Promise<
+  ActionResult<{
+    fromWeekStart: string;
+    toWeekStart: string;
+    daysCopied: number;
+    undo: DaySnapshot[];
+  }>
+> {
   const target = parseEditorTarget("class", classId);
   if (!target || target.scope !== "class") {
     return invalid("クラスの指定が不正です。");
@@ -466,14 +538,20 @@ export async function copyPreviousWeekAction(
         const blocks = editableBlocksForPattern(pattern);
         const labelOf = (block: SignageBlockKind) => blockLabel(pattern, block);
         let daysCopied = 0;
+        const undo: DaySnapshot[] = [];
         for (let i = 0; i < 5; i++) {
           const from = fromWeek[i];
           const to = toWeek[i];
-          if (from && to && (await copyOneDay(tx, actor, target, blocks, labelOf, from, to))) {
-            daysCopied++;
+          if (from && to) {
+            const copied = await copyOneDay(tx, actor, target, blocks, labelOf, from, to);
+            if (copied) {
+              daysCopied++;
+              // undo は「実際に上書きした日」だけ控える（空日はスキップ＝対象日を触っていない）。
+              undo.push(copied.before);
+            }
           }
         }
-        return { kind: "ok" as const, daysCopied, labels: blocks.map(labelOf) };
+        return { kind: "ok" as const, daysCopied, undo, labels: blocks.map(labelOf) };
       },
       { tenantScoped: true, schoolId: actor.schoolId },
     );
@@ -490,7 +568,12 @@ export async function copyPreviousWeekAction(
     revalidatePath("/app/signage-preview/[classId]", "page");
     return {
       ok: true,
-      data: { fromWeekStart: fromMonday, toWeekStart: toMonday, daysCopied: result.daysCopied },
+      data: {
+        fromWeekStart: fromMonday,
+        toWeekStart: toMonday,
+        daysCopied: result.daysCopied,
+        undo: result.undo,
+      },
     };
   } catch (error) {
     if (error instanceof EditorTargetNotFoundError) {
@@ -565,4 +648,188 @@ export async function previewCopyWeekAction(
     return invalid("クラスが見つかりません。");
   }
   return { ok: true, data: { fromWeekStart: fromMonday, toWeekStart: toMonday, ...result } };
+}
+
+/**
+ * コピーの「元に戻す」（undo）。コピー/前週コピーが返した {@link DaySnapshot}[]（＝上書き前の対象日内容）を
+ * その日付へ書き戻して、コピー直前の状態に復元する。統合ツール {@link CopyFromMenu} の「元に戻す」から呼ぶ。
+ *
+ * **client 由来のデータを書くため、書込前に全日・全ブロックをエディタ保存と同じバリデータ
+ * （`validate*Items`）で再検証する**（`upsertDailySectionForTarget` は無検証で書くので、ここで fail-closed に
+ * 弾かないと任意 JSON 注入経路になる）。1 つでも不正なら**何も書かず**全体を拒否する（検証は tx の外＝
+ * 部分適用ゼロ）。書込は全日を 1 tx でまとめる（コピーと同じ atomic 方針）。認可・RLS・監査（ルール1/2）は
+ * コピー系 action と同一（system_admin fail-closed・tenantScoped・visitor/callout は auditRowCopy）。
+ */
+export async function restoreCopySnapshotAction(
+  classId: unknown,
+  snapshots: unknown,
+): Promise<ActionResult<{ daysRestored: number }>> {
+  const target = parseEditorTarget("class", classId);
+  if (!target || target.scope !== "class") {
+    return invalid("クラスの指定が不正です。");
+  }
+  if (!Array.isArray(snapshots) || snapshots.length === 0) {
+    return invalid("元に戻すデータがありません。");
+  }
+
+  // 書込前に全日・全ブロックを保存と同じバリデータで再検証（fail-closed・部分適用ゼロ）。
+  type RestoreDay = {
+    date: string;
+    schedules?: unknown;
+    notices?: unknown;
+    assignments?: unknown;
+    visitors?: ClassVisitorInput[];
+    callouts?: StudentCalloutInput[];
+  };
+  const parsed: RestoreDay[] = [];
+  for (const raw of snapshots) {
+    if (typeof raw !== "object" || raw === null) {
+      return invalid("元に戻すデータの形式が不正です。");
+    }
+    const day = raw as Record<string, unknown>;
+    if (!isValidDate(day.date)) {
+      return invalid("元に戻すデータの日付が不正です。");
+    }
+    const entry: RestoreDay = { date: day.date };
+    if (day.schedule !== undefined) {
+      const v = validateScheduleItems(day.schedule);
+      if (!v.ok) {
+        return invalid(v.message);
+      }
+      entry.schedules = v.value;
+    }
+    if (day.notice !== undefined) {
+      const v = validateNoticeItems(day.notice);
+      if (!v.ok) {
+        return invalid(v.message);
+      }
+      entry.notices = v.value;
+    }
+    if (day.assignment !== undefined) {
+      const v = validateAssignmentItems(day.assignment);
+      if (!v.ok) {
+        return invalid(v.message);
+      }
+      entry.assignments = v.value;
+    }
+    if (day.visitors !== undefined) {
+      const v = validateVisitorItems(day.visitors);
+      if (!v.ok) {
+        return invalid(v.message);
+      }
+      entry.visitors = v.value;
+    }
+    if (day.callouts !== undefined) {
+      const v = validateCalloutItems(day.callouts);
+      if (!v.ok) {
+        return invalid(v.message);
+      }
+      entry.callouts = v.value;
+    }
+    parsed.push(entry);
+  }
+
+  const user = await requireRole(DAILY_DATA_EDITOR_ROLES);
+  const actor = toScopedEditorActor(user);
+  if (!actor) {
+    return forbidden(
+      user.role === "system_admin"
+        ? "対象の学校が指定されていません。"
+        : "学校に属さないユーザーは編集できません。",
+    );
+  }
+
+  try {
+    const result = await withSession(
+      async (tx) => {
+        if ((await getClassName(tx, target.classId)) === null) {
+          return { kind: "not_found" as const };
+        }
+        for (const day of parsed) {
+          if (day.schedules !== undefined) {
+            await upsertDailySectionForTarget(
+              tx,
+              actor,
+              target,
+              day.date,
+              "schedules",
+              day.schedules,
+            );
+          }
+          if (day.notices !== undefined) {
+            await upsertDailySectionForTarget(tx, actor, target, day.date, "notices", day.notices);
+          }
+          if (day.assignments !== undefined) {
+            await upsertDailySectionForTarget(
+              tx,
+              actor,
+              target,
+              day.date,
+              "assignments",
+              day.assignments,
+            );
+          }
+          if (day.visitors !== undefined) {
+            const replaced = await replaceClassVisitors(tx, {
+              schoolId: actor.schoolId,
+              classId: target.classId,
+              date: day.date,
+              items: day.visitors,
+              actorUserId: actor.actorUserId,
+            });
+            if (replaced === null) {
+              throw new EditorTargetNotFoundError();
+            }
+            await auditRowCopy(
+              tx,
+              actor,
+              "class_visitors",
+              target.classId,
+              day.date,
+              day.date,
+              day.visitors.length,
+            );
+          }
+          if (day.callouts !== undefined) {
+            const replaced = await replaceStudentCallouts(tx, {
+              schoolId: actor.schoolId,
+              classId: target.classId,
+              date: day.date,
+              items: day.callouts,
+              actorUserId: actor.actorUserId,
+            });
+            if (replaced === null) {
+              throw new EditorTargetNotFoundError();
+            }
+            await auditRowCopy(
+              tx,
+              actor,
+              "student_callouts",
+              target.classId,
+              day.date,
+              day.date,
+              day.callouts.length,
+            );
+          }
+        }
+        return { kind: "ok" as const, daysRestored: parsed.length };
+      },
+      { tenantScoped: true, schoolId: actor.schoolId },
+    );
+
+    if (result.kind === "not_found") {
+      return invalid("クラスが見つかりません。");
+    }
+    revalidatePath(`/app/editor/${target.classId}`);
+    revalidatePath("/app/signage-preview/[classId]", "page");
+    return { ok: true, data: { daysRestored: result.daysRestored } };
+  } catch (error) {
+    if (error instanceof EditorTargetNotFoundError) {
+      return invalid("編集対象が見つかりません。");
+    }
+    if (isUniqueViolation(error)) {
+      return conflict("他の操作と競合しました。最新の内容を読み込み直してください。");
+    }
+    throw error;
+  }
 }
