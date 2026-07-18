@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db";
 import {
   type RateLimiter,
   type VertexAssistantChatClient,
-  createPerSchoolRateLimiter,
   createVertexAssistantChatClient,
   findSuspectedPersonalNames,
   findUnmaskedPii,
@@ -27,6 +26,7 @@ import {
   sanitizeDraft,
 } from "./assistant-chat-core";
 import { buildAssistantChatSystem, buildAssistantChatUser } from "./assistant-chat-prompt";
+import { editorAiRateLimiter } from "./editor-ai-rate-limiter";
 import type { EditorActor, EditorTarget } from "./schedule-core";
 
 /**
@@ -110,8 +110,6 @@ export interface AssistantChatDeps {
   streamStallMs?: number;
 }
 
-const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
-
 let memoStreamClient: VertexAssistantChatClient | null = null;
 /** 実 Vertex stream client を env から遅延生成（construct は lazy = 認証/通信なし、generate 時のみ ADC）。 */
 function getStreamClient(): VertexAssistantChatClient {
@@ -125,7 +123,7 @@ function getStreamClient(): VertexAssistantChatClient {
 }
 
 function defaultDeps(): AssistantChatDeps {
-  return { streamClient: getStreamClient(), rateLimiter: sharedRateLimiter };
+  return { streamClient: getStreamClient(), rateLimiter: editorAiRateLimiter };
 }
 
 /** {@link respondWithAssistantChat} の引数。認証・target/actor/context・許可セクション解決は route の責務。 */

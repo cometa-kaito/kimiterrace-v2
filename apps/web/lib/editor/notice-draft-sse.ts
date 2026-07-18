@@ -4,7 +4,6 @@ import { getDb } from "@/lib/db";
 import {
   type RateLimiter,
   type VertexNoticeStreamClient,
-  createPerSchoolRateLimiter,
   createVertexNoticeStreamClient,
   findSuspectedPersonalNames,
   findUnmaskedPii,
@@ -22,6 +21,7 @@ import {
   jstDateLabel,
   parseNoticeTone,
 } from "./assistant-core";
+import { editorAiRateLimiter } from "./editor-ai-rate-limiter";
 import type { EditorActor, EditorTarget } from "./schedule-core";
 
 /**
@@ -98,8 +98,6 @@ export interface NoticeDraftDeps {
   streamStallMs?: number;
 }
 
-const sharedRateLimiter: RateLimiter = createPerSchoolRateLimiter();
-
 let memoStreamClient: VertexNoticeStreamClient | null = null;
 /** 実 Vertex stream client を env から遅延生成（construct は lazy = 認証/通信なし、generate 時のみ ADC）。 */
 function getStreamClient(): VertexNoticeStreamClient {
@@ -113,7 +111,7 @@ function getStreamClient(): VertexNoticeStreamClient {
 }
 
 function defaultDeps(): NoticeDraftDeps {
-  return { streamClient: getStreamClient(), rateLimiter: sharedRateLimiter };
+  return { streamClient: getStreamClient(), rateLimiter: editorAiRateLimiter };
 }
 
 /** {@link respondWithNoticeDraftStream} の引数。認証・target/actor/context 解決は route の責務。 */
