@@ -13,6 +13,7 @@ import {
   planRedirectPath,
 } from "@/lib/editor/default-date";
 import type { EditorBoardBase } from "@/lib/editor/editor-board-preview";
+import { buildMorningDraft } from "@/lib/editor/morning-draft-core";
 import {
   getClassAssignments,
   getClassCarryoverDailyRows,
@@ -51,6 +52,7 @@ import { DayEventsPanel } from "./_components/DayEventsPanel";
 import { EditorDateCalendar } from "./_components/EditorDateCalendar";
 import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
+import { MorningDraftCard } from "./_components/MorningDraftCard";
 import { PhotoImportProvider } from "./_components/photo-import-context";
 import { PhotoImportZone } from "./_components/PhotoImportZone";
 import { RememberLastClass } from "./_components/RememberLastClass";
@@ -230,6 +232,23 @@ export default async function ClassEditorPage({
     ? seedSchedulesForDate(date, schedule.items, weeklyTimetable)
     : { items: schedule.items, seeded: false };
 
+  // 朝ドラフト（P0・§3.1）: 空の編集ブロックを基本時間割 seed + 年間行事から server で合成する（AI 不使用・
+  // 決定論）。非空（合成できる下書きがある）のときだけカードを出し、その日は基本時間割 seed の確定
+  // （SeedConfirmButton）と「この日の行事」（DayEventsPanel）のワンクリック挿入をカードに吸収する
+  // （露出を 1 箇所へ・§3.1）。確定は confirmMorningDraftAction がサーバ再合成で行う（D4）。
+  const morningDraft = buildMorningDraft({
+    date,
+    pattern,
+    existing: {
+      schedules: schedule.items,
+      notices: notices.items,
+      assignments: assignments.items,
+    },
+    weeklyTimetable,
+    dayEvents,
+  });
+  const showMorningDraftCard = !morningDraft.isEmpty;
+
   // WYSIWYG のライブプレビュー基底スナップショット。`board` は実機 `buildSignagePayloadForClass` の出力
   // （`SignagePayload`）で、`EditorBoardBase` はその表示用フィールドの `Pick` なのでそのまま渡せる。
   const boardBase: EditorBoardBase | null = board;
@@ -348,8 +367,22 @@ export default async function ClassEditorPage({
               // 未確立時）はフォームの初期値（seed 済み予定 / 連絡）と同一値＝盤面に見えているものが基底になる。
               // 「予定へ追加 / 連絡へ追加」は実効パターンが該当ブロックを持つときだけ出す（死ボタン防止・
               // patternIncludesBlock 単一ソース駆動）。
+              // 朝ドラフト（P0・§3.1）: 合成できる下書きがある日は「今日の下書きができています」カードを盤面
+              // プレビュー直上に出し 1 クリックで確定する。カードを出す日は基本時間割 seed 確定と DayEventsPanel の
+              // 個別挿入を本カードに吸収する（露出を 1 箇所へ）。出さない日（全ブロック入力済み等）は従来どおり
+              // DayEventsPanel の個別追加を残す。
+              morningDraftCard={
+                showMorningDraftCard ? (
+                  <MorningDraftCard
+                    classId={classId}
+                    date={date}
+                    pattern={pattern}
+                    draft={morningDraft}
+                  />
+                ) : null
+              }
               dayEventsPanel={
-                dayEvents.length > 0 ? (
+                !showMorningDraftCard && dayEvents.length > 0 ? (
                   <DayEventsPanel
                     classId={classId}
                     date={date}
@@ -383,8 +416,10 @@ export default async function ClassEditorPage({
                   {/* 基本時間割からの seed 注記（F5）: seed が効いている日だけ出す。プレビューには出るが保存する
                   まで実サイネージには出ないため、状態を明文化し**ワンクリック確定**（SeedConfirmButton＝既存の
                   保存経路 + ?applied= 再マウント）を添える（忠実度 2026-07-06: 「もう実機にも出ている」誤認と
-                  「確定手段がどこかを1ヶ所編集するだけ」の分かりにくさの是正）。 */}
-                  {seed.seeded && seed.items.length > 0 ? (
+                  「確定手段がどこかを1ヶ所編集するだけ」の分かりにくさの是正）。
+                  朝ドラフトカードを出す日は seed 確定を本カードに吸収するため注記は出さない（露出を 1 箇所へ・
+                  §3.1）。seed が効く日は必ずカードも出る（合成が非空）ので、この注記が出るのはカード非表示日のみ。 */}
+                  {seed.seeded && seed.items.length > 0 && !showMorningDraftCard ? (
                     <p style={seedNoteStyle}>
                       基本時間割から下書き表示中（まだ実際の盤面には出ていません）{" "}
                       <SeedConfirmButton classId={classId} date={date} items={seed.items} />
