@@ -120,7 +120,8 @@ export function classifyCalloutText(raw: string): CalloutClass {
 
 /**
  * dry-run 表示用の PII セーフなヒント。**text 行の生内容は出さない**（実名の恐れ・ログに残さない）。
- * divider ラベルはダッシュ包みなので実名ではありえず、運用者が「校訓」を確認するために表示する。
+ * divider ラベルは運用者が「校訓」を確認するために表示する。氏名は通常ダッシュで囲まれないため実名がラベルに
+ * 出ることはまず無いが、両端がダッシュ類の稀な入力は理論上ラベルに乗りうる（＝必ず dry-run で人間が確認する）。
  */
 export function calloutHint(studentName: string, selected: boolean): string {
   const cls = classifyCalloutText(studentName);

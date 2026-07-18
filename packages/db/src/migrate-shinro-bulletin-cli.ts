@@ -34,6 +34,14 @@ import { hashToken } from "./seed-ginan-signage.js";
  * signage_url・トークン・DATABASE_URL・callout の生テキストは **stdout に出さない**。stdout は識別子・件数・
  * 分類ヒント（長さのみ）だけ。削除する callout の全文は **バックアップファイル**（運用者ディスク）にのみ書く
  * （実名を含みうる＝保持ポリシーに従い取り扱う）。書込の created_by/updated_by は null（システム作成規約・ルール1）。
+ * エラーは `err.message` のみ出す（porsager の `.query`/`.parameters`（校訓本文・UUID を含みうる）はダンプしない）。
+ *
+ * ## 監査（ルール1）— 一回性 CLI のため app 層 audit_log は書かない
+ * seed-ginan-*-cli と同じくシステム bootstrap 扱いで `audit_log` 行は挿入しない（`audit_log` は hash-chain +
+ * append-only トリガ保護で、一回性 CLI からの部分書込は連鎖を壊すリスクがある）。**この migration の監査証跡は
+ * (1) `--backup-file`（削除した callout の全文＋アンカー日の変更前 notices）と (2) stdout の
+ * `migrate.shinro.bulletin.applied` 決定論レコード（対象 class・件数・削除 callout ID・backupFile パス）**で構成する。
+ * 人間ゲート（§4-G2）で実行者が確定するため、正式な `audit_log` 行が必要なら follow-up で足す。
  */
 
 type Args = {
@@ -401,7 +409,9 @@ async function main(): Promise<void> {
       );
     });
   } catch (err) {
-    console.error(err);
+    // porsager の PostgresError は `.query`/`.parameters`（校訓本文・UUID を含みうる）を持つため object 全体を
+    // ダンプしない。DB メッセージ（列名・制約名など）のみ出す（トークン/実名/DSN は message には乗らない）。
+    console.error(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     exitCode = 1;
   } finally {
     await sql.end({ timeout: 5 });
