@@ -55,7 +55,7 @@
 |---|---|---|
 | [#1177](https://github.com/cometa-kaito/kimiterrace-v2/pull/1177) 連絡並べ替えの空行落ちガード | **rebase → merge** | merge 済み #1175（来校者/呼び出し）と同型・40 行・テスト付き fix。rebase して CI 緑なら #1289 群と同じデプロイに同乗させる |
 | [#1182](https://github.com/cometa-kaito/kimiterrace-v2/pull/1182) 科目だけで保存・カレンダー初期展開 | **close（コメント付き）** | 6/23 起票。UI 前提が #1237（日付タブ化）/#1248 で消滅（「カレンダー初期展開」は対象 UI 自体が変わった）。生き残る価値がある「時限の自動採番」は監査 ed47-7 と同根で、③朝ドラフト（§3.1）が時間割 seed でより根本的に解決する。close 時に「ed47-7 は §3.1 で解決」と明記 |
-| [#1122](https://github.com/cometa-kaito/kimiterrace-v2/pull/1122) 盤面の 50 インチ縮小表示 | **close** | 同目的の実装が別 PR で本番 LIVE 済み（/signage ≥900px 縮小 = `d9aff6e`、＋ #1263 実寸プレビュー `/app/editor/[classId]/preview`）。完全に superseded |
+| [#1122](https://github.com/cometa-kaito/kimiterrace-v2/pull/1122) 盤面の 50 インチ縮小表示 | **close** | 同目的の実装が別 PR で本番 LIVE 済み: #1263（MERGED）実寸プレビュー `/app/editor/[classId]/preview` ＋ 縮小忠実度修正 #1288/#1291（ともに MERGED）。完全に superseded（※旧記載の SHA `d9aff6e` は実機確認で別コミット（pattern3 ニュース）と判明・訂正済み。2026-07-18 close 実施） |
 | #1203（tv-liveness）・#1200/#923-928（deps） | 対象外 | エディタレーン外。触らない |
 
 ---
@@ -162,8 +162,8 @@ buildMorningDraft(input: {
 
 **PR-E（進路指導室前→pattern5 一括移行）**: 仕様は設計書 §8 が正本（ダッシュ行→divider / 校訓→pinned お知らせ / 実呼び出しは移行しない / dry-run→人間確認→--apply→pattern5 切替→目視→ロールバック）。本調査での追加事項:
 
-- 変換 CLI `migrate-shinro-bulletin-cli.ts` は**未作成**（リポジトリに存在しないことを find で確認済み）。実装はこの CLI + dry-run 出力までが Claude の範囲。**本番 DB への適用と切替は人間専任**（設計書どおり）。
-- ⚠ **プリフライト必須（調査で発見した不整合）**: 設計書は「岐阜工業・進路指導室前 = class `7a18ca87-…`・pattern3」とするが、tv-ble-bridge 側 runbook（`dist/APK-MANIFEST.md:106-107`）は物理端末 `ef315334-…` のトークンが**テスト校 1年1組・pattern2 を解決する**と注記している。どちらかの文書が stale。**CLI 実行前に prod の tv_devices を照会し「実機が今どのトークン/クラスを開いているか」を確定**してから対象 class を確認する（誤った class への変換を防ぐ）。結果は本書とtv-ble-bridge runbook の両方に反映。
+- 変換 CLI `packages/db/src/migrate-shinro-bulletin-cli.ts` ＋ 純ロジック `migrate-shinro-bulletin.ts` ＋ 単体テストは**実装済（2026-07-18）**。dry-run 出力までが Claude の範囲。**本番 DB への適用と切替は人間専任**（設計書 §4-G2）。
+- ⚠ **プリフライト必須（調査で発見した不整合）→ CLI の dry-run で解消する設計にした**: 設計書は「進路指導室前 = class `7a18ca87-…`・pattern3」とするが、tv-ble-bridge 側 runbook（`dist/APK-MANIFEST.md:107`）は物理端末「進路指導室前」（device `73f65bf0-…`。プロンプトの `ef315334-…` は当該 runbook に無く要現地確認）のトークンが**テスト校 1年1組・pattern2 を解決する**と注記しており食い違う。どちらが stale かコードからは決められない。**CLI は端末を起点に**（`signage_url` トークン→`magic_links.token_hash`→`class_id`）実機が今表示しているクラスと現行 `?design=` を解決し、dry-run 先頭にその解決チェーンを出す（＝プリフライトそのもの）。`--expect-class`（既定 7a18ca87）と食い違えば `DISCREPANCY` 警告＋apply fail-closed 拒否。**設計時の実装環境には prod DB アクセスが無く、この dry-run＝tv_devices 照会は未実行**。確定は人間が prod で dry-run を回して行い、結果を設計書 §8.0 と `dist/APK-MANIFEST.md:107` の両方に追記する（誤った class への変換防止）。
 
 ---
 

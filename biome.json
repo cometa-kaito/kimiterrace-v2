@@ -106,6 +106,7 @@
         "**/packages/db/src/seed-ginan-signage-cli.ts",
         "**/packages/db/src/seed-signage-snippets-cli.ts",
         "**/packages/db/src/backfill-presence-cli.ts",
+        "**/packages/db/src/migrate-shinro-bulletin-cli.ts",
         "**/*.config.ts",
         "**/*.config.mts",
         "**/*.config.js",
