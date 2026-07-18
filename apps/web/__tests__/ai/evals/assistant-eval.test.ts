@@ -9,7 +9,9 @@ import {
   buildAssistantChatUser,
 } from "@/lib/editor/assistant-chat-prompt";
 import { jstDateLabel, jstUpcomingDateTable } from "@/lib/editor/assistant-core";
+import { buildPhotoImportChatMessage } from "@/lib/editor/photo-import-core";
 import {
+  createGeminiOcrClient,
   createVertexAssistantChatClient,
   createVertexModelClient,
   structureContent,
@@ -17,6 +19,8 @@ import {
 import { describe, expect, it } from "vitest";
 import { ASSISTANT_EVAL_CASES, type AssistantEvalCase, FIXED_NOW_MS } from "./cases-assistant";
 import { EXTRACTION_EVAL_CASES } from "./cases-extraction";
+import { PHOTO_EVAL_CASES, type PhotoEvalCase } from "./cases-photo-extraction";
+import { type PhotoFixtureRenderer, createPhotoFixtureRenderer } from "./photo-fixtures";
 import { type Check, caseScore, scoreAssistantTurn, scoreExtraction } from "./score";
 
 /**
@@ -69,6 +73,8 @@ type CaseResult = {
   raw?: unknown;
   /** 実際に送った system/user の SHA-256 先頭 12 桁（プロンプト差分の突き合わせ用・本文は残さない）。 */
   promptHash?: string;
+  /** 写真ケースのみ: OCR 書き起こし（フィクスチャは合成・PII ゼロゆえレポートに残してよい。原因追跡用）。 */
+  ocrText?: string;
 };
 
 function promptHash(system: string, user: string): string {
@@ -127,11 +133,11 @@ function summarize(title: string, results: readonly CaseResult[]): string {
 }
 
 /** report を JSON で保存し、パスを返す（reports/ は gitignore）。 */
-function writeReport(payload: unknown): string {
+function writeReport(payload: unknown, prefix = "eval"): string {
   const dir = join(dirname(fileURLToPath(import.meta.url)), "reports");
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const file = join(dir, `eval-${stamp}.json`);
+  const file = join(dir, `${prefix}-${stamp}.json`);
   writeFileSync(file, JSON.stringify(payload, null, 2), "utf-8");
   return file;
 }
@@ -194,6 +200,80 @@ async function runAssistantCase(evalCase: AssistantEvalCase): Promise<CaseResult
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * P1 写真取込の 1 ケース実行（設計 D5/D8）: 合成画像レンダリング → 実 Gemini OCR（本番と同一
+ * クライアント）→ buildPhotoImportChatMessage（本番と同一の注入形式・単一ソース）→ 会話型
+ * アシスタント → sanitizeDraft → 採点。会話部分は {@link runAssistantCase} と同一サーフェス。
+ */
+async function runPhotoCase(
+  renderer: PhotoFixtureRenderer,
+  evalCase: PhotoEvalCase,
+): Promise<CaseResult> {
+  const { modelId, tuning } = resolveEditorModelConfig();
+  const client = createVertexAssistantChatClient({ project, location, modelId, tuning });
+  const ocr = createGeminiOcrClient({ project, location });
+  const startedAt = performance.now();
+  let ocrText = "";
+  try {
+    const png = await renderer.render(evalCase.fixtureId);
+    ocrText = (await ocr.recognize(png, "image/png")).text.trim();
+    const system = buildAssistantChatSystem(
+      DRAFT_SECTION_KINDS,
+      jstDateLabel(FIXED_NOW_MS),
+      [],
+      jstUpcomingDateTable(FIXED_NOW_MS),
+    );
+    const user = buildAssistantChatUser(
+      [{ role: "user", content: buildPhotoImportChatMessage(ocrText) }],
+      { ...EMPTY_DRAFT },
+      DRAFT_SECTION_KINDS,
+    );
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CASE_TIMEOUT_MS);
+    try {
+      const result = client.stream({ system, user, signal: controller.signal });
+      let last: unknown = {};
+      for await (const partial of result.partialStream) {
+        last = partial;
+      }
+      const { tokenCount } = await result.done;
+      const partial = last as { reply?: unknown };
+      const reply = typeof partial.reply === "string" ? partial.reply : "";
+      const draft = sanitizeDraft(last);
+      const checks = scoreAssistantTurn(evalCase.expected, { reply, draft });
+      return {
+        id: evalCase.id,
+        category: evalCase.category,
+        score: caseScore(checks),
+        ms: Math.round(performance.now() - startedAt),
+        outputTokens: tokenCount,
+        checks,
+        reply,
+        draft,
+        raw: last,
+        promptHash: promptHash(system, user),
+        ocrText,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    // レンダリング/OCR/生成いずれの失敗も期待チェック全滅の 0 点（測定は続行・throw しない）。
+    const checks = scoreAssistantTurn(evalCase.expected, { reply: "", draft: { ...EMPTY_DRAFT } });
+    return {
+      id: evalCase.id,
+      category: evalCase.category,
+      score: 0,
+      ms: Math.round(performance.now() - startedAt),
+      outputTokens: 0,
+      error: err instanceof Error ? err.message : String(err),
+      checks: checks.map((c) => ({ ...c, pass: false })),
+      ocrText,
+    };
   }
 }
 
@@ -271,6 +351,50 @@ describeOrSkip("AI eval (RUN_AI_EVAL=1)", () => {
       // 測定が目的（確率的な出力に固定閾値を課さない）。全ケースが実行されたことのみ契約とする。
       expect(assistant).toHaveLength(ASSISTANT_EVAL_CASES.length);
       expect(extraction).toHaveLength(EXTRACTION_EVAL_CASES.length);
+    },
+    SUITE_TIMEOUT_MS,
+  );
+
+  it(
+    "P1 写真取込（合成画像 → OCR → チャット合流）のゴールデンセットを実 Vertex で測定しレポートを出す",
+    async () => {
+      const { modelId, tuning } = resolveEditorModelConfig();
+      // 1 ケース = ブラウザレンダリング + OCR + 会話生成の 3 段。ブラウザは 1 つを使い回し、
+      // Vertex 呼び出しが直列 2 回/ケースと重いので直列実行する（quota/flake 保護・3 ケースのみ）。
+      const renderer = await createPhotoFixtureRenderer();
+      const photo: CaseResult[] = [];
+      try {
+        for (const evalCase of PHOTO_EVAL_CASES) {
+          photo.push(await runPhotoCase(renderer, evalCase));
+        }
+      } finally {
+        await renderer.close();
+      }
+
+      const payload = {
+        ranAt: new Date().toISOString(),
+        config: {
+          project,
+          location,
+          modelId: modelId ?? "gemini-2.5-flash (client default)",
+          thinkingBudget: tuning?.thinkingBudget ?? "SDK default (dynamic)",
+          ocrModelId: "gemini-2.5-flash (OCR client default)",
+        },
+        photo: { ...aggregate(photo), cases: photo },
+      };
+      const file = writeReport(payload, "eval-photo");
+
+      console.log(
+        [
+          "",
+          `# P1 写真取込 eval report → ${file}`,
+          `model=${payload.config.modelId} thinkingBudget=${payload.config.thinkingBudget}`,
+          summarize("写真取込", photo),
+          "",
+        ].join("\n"),
+      );
+
+      expect(photo).toHaveLength(PHOTO_EVAL_CASES.length);
     },
     SUITE_TIMEOUT_MS,
   );
