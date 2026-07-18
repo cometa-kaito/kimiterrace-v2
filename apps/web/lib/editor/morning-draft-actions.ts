@@ -13,8 +13,7 @@ import {
   upsertDailySectionForTarget,
 } from "./daily-data-write";
 import { getEditorDayEvents } from "./day-events-queries";
-import { buildMorningDraft } from "./morning-draft-core";
-import { validateNoticeItems } from "./notice-assignment-core";
+import { buildMorningDraft, planMorningDraftWrite } from "./morning-draft-core";
 import { getClassAssignments, getClassNotices } from "./notice-assignment-queries";
 import {
   type ActionResult,
@@ -27,7 +26,6 @@ import {
   isValidDate,
   parseEditorTarget,
   toScopedEditorActor,
-  validateScheduleItems,
 } from "./schedule-core";
 import { getClassName, getClassSchedule } from "./schedule-queries";
 import { getClassWeeklyTimetable } from "./weekly-timetable-queries";
@@ -46,9 +44,10 @@ import { getClassWeeklyTimetable } from "./weekly-timetable-queries";
  * - **D4: 確定はサーバで再合成**。client が組んだ items は信用せず、`{classId, date, excluded}` だけ受け取り、
  *   サーバで素材（実効パターン・現 daily_data・基本時間割・年間行事）を読み直して `buildMorningDraft` を
  *   **再実行**する（`restoreCopySnapshotAction` の fail-closed 再検証をより強くした形）。
- * - 保存前に合成結果を既存バリデータ（{@link validateScheduleItems} / {@link validateNoticeItems}）へ通す
- *   （`upsertDailySectionForTarget` は無検証で書くため・防御）。1 つでも不正なら**何も書かず**全体を拒否する
- *   （検証は tx 内・失敗は kind を返して全ロールバック＝部分適用ゼロ）。
+ * - 保存前に合成結果を `planMorningDraftWrite`（両セクションまとめて `validate*Items`・core）へ通す
+ *   （`upsertDailySectionForTarget` は無検証で書くため・防御）。**どのセクションも書く前に全検証**し、1 つでも
+ *   不正なら 1 件も書かずに拒否する＝部分適用を構造的に防ぐ（write 途中で検証失敗しても既書込が commit される
+ *   `withTenantContext`（正常 return は commit）の穴を作らない）。
  *
  * 注: `toScopedEditorActor(user)` を targetSchoolId 無しで呼ぶため **system_admin は常に forbidden**
  * （fail-closed・コピー系と同判断＝朝ドラフトは教員の日常操作で /ops 横断経路は不要）。
@@ -186,33 +185,34 @@ async function confirmInTx(
     return { kind: "empty" };
   }
 
+  // 書く前に**両セクションまとめて検証**する（部分適用防止。write を挟むと `withTenantContext` は正常 return を
+  // commit するため、途中の検証失敗で既書込が残る）。1 つでも不正なら 1 件も書かずに拒否。
+  const plan = planMorningDraftWrite(draft);
+  if (!plan.ok) {
+    return { kind: "invalid_items", message: plan.message };
+  }
+
   // 書込前スナップショット（undo）。空セクションのみ合成するので実質空配列だが、コピー系と同じく「書込前の
   // 状態」を控えて完全復元を保証する。書いたセクションだけ含める。
   const undo: MorningDraftUndo = { date };
   const sections: ConfirmedSection[] = [];
-
-  // 保存前に合成結果を保存と同じバリデータへ通す（防御・失敗は全ロールバック）。
-  if (draft.sections.schedules) {
-    const v = validateScheduleItems(draft.sections.schedules.map((entry) => entry.item));
-    if (!v.ok) {
-      return { kind: "invalid_items", message: v.message };
-    }
+  if (plan.schedules) {
     undo.schedule = existingSchedules;
-    await upsertDailySectionForTarget(tx, actor, target, date, "schedules", v.value);
+    await upsertDailySectionForTarget(tx, actor, target, date, "schedules", plan.schedules);
     sections.push({
       block: "schedule",
       label: blockLabel(pattern, "schedule"),
-      count: v.value.length,
+      count: plan.schedules.length,
     });
   }
-  if (draft.sections.notices) {
-    const v = validateNoticeItems(draft.sections.notices.map((entry) => entry.item));
-    if (!v.ok) {
-      return { kind: "invalid_items", message: v.message };
-    }
+  if (plan.notices) {
     undo.notice = existingNotices;
-    await upsertDailySectionForTarget(tx, actor, target, date, "notices", v.value);
-    sections.push({ block: "notice", label: blockLabel(pattern, "notice"), count: v.value.length });
+    await upsertDailySectionForTarget(tx, actor, target, date, "notices", plan.notices);
+    sections.push({
+      block: "notice",
+      label: blockLabel(pattern, "notice"),
+      count: plan.notices.length,
+    });
   }
 
   return { kind: "ok", sections, undo };

@@ -4,7 +4,12 @@ import {
   dayEventToNoticeItem,
   dayEventToScheduleItem,
 } from "../../lib/editor/day-events";
-import { type MorningDraftInput, buildMorningDraft } from "../../lib/editor/morning-draft-core";
+import {
+  type MorningDraft,
+  type MorningDraftInput,
+  buildMorningDraft,
+  planMorningDraftWrite,
+} from "../../lib/editor/morning-draft-core";
 import type { NoticeItem } from "../../lib/editor/notice-assignment-core";
 import type { ScheduleItem } from "../../lib/editor/schedule-core";
 import { seedSchedulesForDate } from "../../lib/editor/weekly-timetable-core";
@@ -221,5 +226,53 @@ describe("buildMorningDraft: provenance フラット一覧は sections の射影
     const draft = buildMorningDraft(input({ date: SATURDAY, weeklyTimetable: null }));
     expect(draft.provenance).toEqual([]);
     expect(draft.isEmpty).toBe(true);
+  });
+});
+
+describe("planMorningDraftWrite（保存前の両セクション検証・fail-closed）", () => {
+  it("正常な合成は検証済み items を返す（予定 + 連絡）", () => {
+    const plan = planMorningDraftWrite(buildMorningDraft(input({ dayEvents: [ev({ id: "e1" })] })));
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.schedules?.length).toBeGreaterThan(0);
+      expect(plan.notices?.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("予定に不正項目（空科目）があれば連絡が妥当でも全体を ok:false（＝1件も書かない＝部分適用防止）", () => {
+    const draft: MorningDraft = {
+      sections: {
+        schedules: [{ key: "schedules:event:x", provenance: "年間行事", item: { subject: "" } }],
+        notices: [{ key: "notices:event:x", provenance: "年間行事", item: { text: "終業式" } }],
+      },
+      provenance: [
+        { section: "schedules", key: "schedules:event:x", provenance: "年間行事" },
+        { section: "notices", key: "notices:event:x", provenance: "年間行事" },
+      ],
+      isEmpty: false,
+    };
+    expect(planMorningDraftWrite(draft).ok).toBe(false);
+  });
+
+  it("連絡に不正項目（空本文）があれば ok:false", () => {
+    const draft: MorningDraft = {
+      sections: {
+        notices: [{ key: "notices:event:x", provenance: "年間行事", item: { text: "" } }],
+      },
+      provenance: [{ section: "notices", key: "notices:event:x", provenance: "年間行事" }],
+      isEmpty: false,
+    };
+    expect(planMorningDraftWrite(draft).ok).toBe(false);
+  });
+
+  it("空セクションは plan に含めない（pattern4 = 連絡のみ）", () => {
+    const plan = planMorningDraftWrite(
+      buildMorningDraft(input({ pattern: "pattern4", dayEvents: [ev({ id: "e1" })] })),
+    );
+    expect(plan.ok).toBe(true);
+    if (plan.ok) {
+      expect(plan.schedules).toBeUndefined();
+      expect(plan.notices?.length).toBe(1);
+    }
   });
 });

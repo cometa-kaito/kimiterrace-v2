@@ -1,8 +1,12 @@
 import type { SignageDesignPattern } from "../signage/design-pattern";
 import { editableBlocksForPattern, scheduleInputVariant } from "../signage/pattern-blocks";
 import { type EditorDayEvent, dayEventToNoticeItem, dayEventToScheduleItem } from "./day-events";
-import type { AssignmentItem, NoticeItem } from "./notice-assignment-core";
-import type { ScheduleItem } from "./schedule-core";
+import {
+  type AssignmentItem,
+  type NoticeItem,
+  validateNoticeItems,
+} from "./notice-assignment-core";
+import { type ScheduleItem, validateScheduleItems } from "./schedule-core";
 import { type WeeklyTimetable, seedSchedulesForDate } from "./weekly-timetable-core";
 
 /**
@@ -190,4 +194,38 @@ export function buildMorningDraft(input: MorningDraftInput): MorningDraft {
     provenance,
     isEmpty: keptSchedule.length === 0 && keptNotice.length === 0,
   };
+}
+
+/**
+ * 確定書込のための**検証済みプラン**（{@link planMorningDraftWrite} の結果）。書く予定 / 連絡の検証済み items
+ * を持つ（空セクションはキーごと省略＝書かない）。
+ */
+export type MorningDraftWritePlan =
+  | { ok: true; schedules?: ScheduleItem[]; notices?: NoticeItem[] }
+  | { ok: false; message: string };
+
+/**
+ * 合成結果を保存前に**両セクションまとめて検証**する（確定 Server Action の fail-closed 防壁・純関数）。予定 /
+ * 連絡それぞれ非空なら {@link validateScheduleItems} / {@link validateNoticeItems} を通す。1 つでも不正なら
+ * `{ok:false}` を返し、**呼び出し側はどのセクションも書かない**（＝書込前に全検証＝部分適用を構造的に防ぐ。
+ * 「予定を書いた後に連絡が検証失敗して部分コミット」を起こさない）。合成された items は既に妥当な純関数由来
+ * だが、`upsertDailySectionForTarget` が無検証で書くため防御として必ず通す。
+ */
+export function planMorningDraftWrite(draft: MorningDraft): MorningDraftWritePlan {
+  const plan: { schedules?: ScheduleItem[]; notices?: NoticeItem[] } = {};
+  if (draft.sections.schedules) {
+    const v = validateScheduleItems(draft.sections.schedules.map((entry) => entry.item));
+    if (!v.ok) {
+      return { ok: false, message: v.message };
+    }
+    plan.schedules = v.value;
+  }
+  if (draft.sections.notices) {
+    const v = validateNoticeItems(draft.sections.notices.map((entry) => entry.item));
+    if (!v.ok) {
+      return { ok: false, message: v.message };
+    }
+    plan.notices = v.value;
+  }
+  return { ok: true, ...plan };
 }
