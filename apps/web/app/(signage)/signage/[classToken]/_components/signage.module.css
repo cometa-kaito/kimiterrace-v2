@@ -2437,8 +2437,9 @@
    - **ビューポート基準ブレークポイントの中和**: ステージ内では `@media (min-width:1800px)` 等が**実デバイスの**
      ビューポートで評価されるため、小さめのノート PC では `--scale-factor` 等が実機（1080p）と食い違う。1080p 機に
      合わせて `--scale-factor:1.35` / `--content-gap:12px` / `--header-height:46px`（= 12 章の min-width:1800 プロファイル）を
-     ステージ内で固定し、どのデバイスで開いても **1080p モニタと同じ相対サイズ**で描く。pattern3 は専用ヘッダー高
-     （58px）を持つので header-height の固定対象から外す（`:not(.p3Root)`）。
+     ステージ内で固定し、どのデバイスで開いても **1080p モニタと同じ相対サイズ**で描く。pattern3/4/5 は専用ヘッダー高
+     （p3=64 / p4=58 / p5=64px・クラス直指定でメディアクエリより優先）を持つので header-height の固定対象から外す
+     （`:not(.p3Root):not(.p4Root):not(.p5Root)`。外さないと p5 の 64px ヘッダーが 46px へ潰れて忠実性が崩れる。§15 と同型）。
    - **新クラスのみ追加**: 既存 `.signageRoot` 等のルールは触らない（実機経路・サムネ・エディタの ScaledSignageBoard は
      無改修）。本ラッパは公開ルートの page.tsx だけが巻く。 */
 .fitViewport,
@@ -2481,8 +2482,9 @@
     --scale-factor: 1.35;
     --content-gap: 12px;
   }
-  /* header-height は pattern3 が専用値（58px）を持つので、それ以外（pattern1/2）だけ 1080p 値に固定する。 */
-  .fitStage .signageRoot:not(.p3Root) {
+  /* header-height は pattern3/4/5 が専用値（p3=64 / p4=58 / p5=64px）を持つので、それ以外（pattern1/2/6）だけ
+     1080p 値に固定する（§15 の scaledStage 中和と同じ除外・値だけ 720p→1080p 違い）。 */
+  .fitStage .signageRoot:not(.p3Root):not(.p4Root):not(.p5Root) {
     --header-height: 46px;
   }
 }
