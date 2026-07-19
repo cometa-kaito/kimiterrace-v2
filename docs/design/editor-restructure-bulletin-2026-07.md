@@ -389,33 +389,66 @@ export function blockLabel(pattern: SignageDesignPattern, kind: SignageBlockKind
 
 ## 8. 進路指導室前の一括移行（オーナー決定 4・PR-E）
 
-対象: `class_id = 7a18ca87-4bcf-4fa7-bb21-bd2cb8231df3`（岐阜工業・進路指導室前・本番 pattern3 LIVE）。
+対象（設計時の想定）: `class_id = 7a18ca87-4bcf-4fa7-bb21-bd2cb8231df3`（岐阜工業・進路指導室前・pattern3 LIVE）。
+**ただし実対象クラスは実行時に端末から解決する**（§8.0）。7a18ca87 は照合用の `--expect-class` 既定値として扱い、
+CLI がハードコードで書き換えることはしない。
+
+### 8.0 プリフライト（必須・食い違いの解消 / 2026-07-18 実装スレッドで追記）
+
+**⚠ 不整合**: 本設計書は対象を「進路指導室前 = class `7a18ca87…`・pattern3」とするが、TV ブリッジ端末リポジトリの
+運用記録（`tv-ble-bridge/dist/APK-MANIFEST.md:107`）は、**物理端末「進路指導室前」（device `73f65bf0…`）の
+`signage_url` トークンが解決する盤面表示は「1年1組（テスト校）」・pattern2** と注記しており食い違う（教員が
+編集していた 7a18ca87 と、実機が実際に表示しているクラスが乖離している可能性）。どちらの文書が stale かは
+コードからは決められない（この端末のパターンは pattern2→pattern4→pattern3 と記録上も揺れている
+— memory `ref_editor_monitor_class_binding_via_token` 参照）。
+
+**解消策 = CLI の dry-run 自体をプリフライトにする**。変換 CLI は**端末を起点に**（`signage_url` トークン →
+`magic_links.token_hash` → `class_id`。これが表示クラスの権威。`tv_devices.class_id` 列は手貼り端末で NULL）
+実機が今表示しているクラスと現行 `?design=` を解決し、dry-run 出力の先頭にその解決チェーンを出す。
+これにより「変換するデータ」＝「進路指導室前モニタが実際に映しているクラス」が常に一致する（7a18ca87 を盲信しない）。
+`--expect-class`（既定 7a18ca87）と解決結果が食い違えば dry-run が `DISCREPANCY` 警告を出し、`--apply` は
+fail-closed で中止する（`--allow-class-mismatch` で明示上書き）。**本番 tv_devices の照会（＝この dry-run）は
+人間が prod DB アクセスありで実行して確定する**（設計時の実装環境には prod DB アクセスが無く、Claude は未実行）。
+結果が判明したら本 §8.0 と APK-MANIFEST.md:107 の両方に確定クラスを追記すること。
 
 ### 8.1 変換内容（監査で確証した実データ→新語彙）
 
 | 現状（ハック） | 移行先 |
 |---|---|
-| `daily_data.schedules`（scope=class）の subject が全てダッシュ類（`/^[-‐−–—ー―_＿=＝\s]+$/`）の行 | 区切り線行 `{ kind: "divider" }`（ラベル無し） |
-| `student_callouts` の「------ 校訓 ------」行 | お知らせの区切り線行（ラベル「校訓」）＋固定 |
-| `student_callouts` の校訓本文（「礼儀正しく 勤労を尊び…」等・呼び出しではない行全部） | お知らせの**固定行** `{ text, pinned: true }` |
-| 実在の呼び出し（あれば・氏名を含む行） | 移行しない（pattern5 に呼び出し枠は無い。切替前に現地確認し、必要なら通常のお知らせに手動転記） |
+| `daily_data.schedules`（scope=class）の subject が全てダッシュ類（`/^[-‐−–—ー―_＿=＝\s]+$/`）の行 | 区切り線行 `{ kind: "divider", subject: "" }`（ラベル無し・**自動検知**） |
+| `student_callouts` の「------ 校訓 ------」（ダッシュ包み見出し）行 | お知らせの固定区切り線 `{ kind: "divider", text: "校訓", pinned: true }`（**自動検知**） |
+| `student_callouts` の校訓本文（「礼儀正しく 勤労を尊び…」等） | お知らせの**固定行** `{ text, pinned: true }`（**運用者が dry-run を見て `--pin-callout-ids` で ID 明示選択**） |
+| 実在の呼び出し（あれば・氏名を含む行） | 移行しない（pattern5 に呼び出し枠は無い。残置＝pattern5 では非表示。必要なら通常のお知らせに手動転記） |
+
+**⚠ 分類の安全設計（CLAUDE.md ルール4=PII）**: `student_callouts` の表示テキストは**単一列 `student_name`（varchar100）**に入り、
+校訓本文と生徒実名が同居する。内容で「校訓本文 vs 氏名」を自動判別すると誤って実名を恒久掲示しかねないため、
+**自動変換はダッシュ包みの区切り線（決定論的に検知可能）に限定**し、校訓本文の固定化は**運用者が明示選択した ID だけ**を対象にする。
+未選択の text 行は残置し削除もしない（dry-run はヒントに文字数のみ出し、生テキストはログに出さない）。
 
 ### 8.2 手順（切替日に一括・人間ゲート付き）
 
-1. **事前（いつでも可）**: 変換スクリプトを dry-run で流し、変換対象行の一覧を出力して**人間が確認**する。
-   スクリプトは `packages/db/src/` の seed-* CLI 前例（`seed-ginan-signage-cli.ts` 等）に倣った一回性 CLI
-   （案: `migrate-shinro-bulletin-cli.ts`）。書込は daily_data / student_callouts のみ・監査カラムは
-   システム作成規約（created_by/updated_by=null）・RLS は system_admin コンテキスト。
-   dry-run 既定・`--apply` で実書込（creative-orphan-cleanup cron と同じ fail-safe 作法）。
+1. **事前（いつでも可）**: 変換 CLI **`packages/db/src/migrate-shinro-bulletin-cli.ts`（実装済 2026-07-18）**を
+   dry-run で流し、①端末→トークン→クラスの解決チェーン（§8.0 プリフライト）②予定ダッシュ行の日別件数
+   ③callout 分類（区切り線／未分類）を出力して**人間が確認**する。CLI は seed-* CLI 前例
+   （`seed-ginan-signage-cli.ts` 等）に倣った一回性・生 SQL（schema barrel 非 import）。書込は daily_data /
+   student_callouts のみ・監査カラムはシステム作成規約（created_by/updated_by=null）・RLS は system_admin
+   コンテキスト。dry-run 既定・`--apply` で実書込。トークン/PII/DATABASE_URL は stdout に出さない。
+   実行例（prod は Cloud Run Job の command 上書きで migrate と同一イメージから）:
+   `DATABASE_URL=... node dist/migrate-shinro-bulletin-cli.js --device-label 進路指導室前`
 2. **切替（授業時間外に実施）**:
-   a. スクリプト `--apply`（daily_data の予定ダッシュ行→divider・callouts→pinned お知らせ・元 callout 行削除）
+   a. 校訓本文の ID を dry-run 出力から選び `--pin-callout-ids <uuid,…>` に指定して `--apply`
+      （daily_data の予定ダッシュ行→divider・区切り線＋選択本文 callout→pinned お知らせ・**変換した callout のみ削除**。
+      未分類/実在呼び出しは残置。削除前に `--backup-file` へ全文 JSON バックアップ）
    b. TV 設定編集 UI（管理画面のデザインパターン ドロップダウン）で当該端末を pattern5 に変更
       （内部は `applyDesignPatternToUrl` — design-pattern.ts:147-158 — が `signage_url` に
       `?design=pattern5` を合成。端末は config ポーリングで自動追従・APK 無改修）
    c. 実機盤面を目視（お知らせ主役で校訓・区切り線・時刻付き予定が出ること）
 3. **ロールバック**: b を pattern3 に戻すだけで盤面は旧表示に戻る（データ変換は非破壊方向:
    divider/pinned は pattern3 盤面でも「空行/通常連絡」として fail-soft 表示される。呼び出し行の削除だけは
-   戻らないため、スクリプトが削除前に JSON バックアップを stdout/ファイルへ吐くこと）。
+   戻らないため、CLI は削除前に `--backup-file`（既定 `./shinro-bulletin-backup-<JST日付>.json`）へ callout 全文と
+   アンカー日の変更前 notices を書く。**バックアップは実名を含みうる＝保持ポリシーに従い取り扱う**。復元は
+   バックアップから callout を再 INSERT し、アンカー日の notices を戻す）。冪等: 再 dry-run/再 apply は収束（ダッシュ行は
+   divider 化済み→対象ゼロ、校訓 callout は削除済み→対象ゼロ、固定お知らせは同一 signature 追記なし）。
 - **本番 DB への適用は人間専任**（CLAUDE.md の migration 規律に準ずる運用。スキーマ変更ではないが
   本番 LIVE 盤面への不可逆データ操作のため同じゲートを踏む）。
 
