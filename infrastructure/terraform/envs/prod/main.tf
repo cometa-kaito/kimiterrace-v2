@@ -178,6 +178,10 @@ locals {
   # 岐南 電子工学科 PoC の実契約サイネージ広告を登録する seed Job のイメージタグ。
   seed_ginan_ads_image_tag = "17449d2" # bring-up: migrate イメージ（全 seed-cli 同梱）を流用
 
+  # 岐南 電子工学科 PoC に USJC 1 社だけを surgical 追加する seed Job のイメージタグ。
+  # 全社 seed (seed_ginan_ads) と別 CLI（既存 5 社と停止中の日本クロージャーに触れない）。
+  seed_ginan_usjc_image_tag = "9c40657e" # 2026-07-21: USJC 追加 CLI 同梱 migrate イメージ
+
   # PoC 本番(LP/Turso motion_events)の来場検知履歴を v2 events(type='presence')へ取り込む backfill Job のタグ。
   backfill_presence_image_tag = "REPLACE_AT_BRINGUP" # TODO(bring-up ①)
 
@@ -354,6 +358,26 @@ module "cloud_run_job_seed_ginan_ads" {
   image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_ads_image_tag}"
   command                = ["node", "dist/seed-ginan-ads-cli.js"] # 岐南 広告 seed を起動
   database_url_secret_id = local.db_url_migrator_secret_id        # migrator DSN（system_admin context で seed）
+  vpc_connector          = module.network.vpc_connector_id
+}
+
+# 岐南 電子工学科 PoC に USJC 1 社だけを追加する on-demand seed Job（surgical add）。
+# 全社 seed（seed_ginan_ads）と分ける理由: 全社 seed は advertisers を毎回 active 強制上書きし、/ops で
+# 停止した広告主（日本クロージャー）を復活させる。本 Job は USJC の 2 行しか触らず既存 5 社・停止広告主に非破壊。
+# command 上書きで `dist/seed-ginan-add-usjc-cli.js` を起動。固定 UUID(0007) 冪等 upsert・再実行安全。
+# 実行: `gcloud run jobs execute kimiterrace-seed-ginan-usjc --region asia-northeast1 --project signage-v2-prod`。
+# 前提: 岐南テナント既存（無ければ fail-loud）+ ad_media バケットに usjc.png upload 済（2026-07-21 済）。
+module "cloud_run_job_seed_ginan_usjc" {
+  source                 = "../../modules/cloud_run_job_migrate"
+  project_id             = var.project_id
+  region                 = var.region
+  env                    = local.env
+  enabled                = true  # 2026-07-21 有効化（岐南 USJC 追加 seed）
+  deletion_protection    = false # 使い捨て seed runner（データ非保持）
+  job_name               = "kimiterrace-seed-ginan-usjc"
+  image                  = "${module.artifact_registry.image_repo_url}/migrate:${local.seed_ginan_usjc_image_tag}"
+  command                = ["node", "dist/seed-ginan-add-usjc-cli.js"] # 岐南 USJC 追加 seed を起動
+  database_url_secret_id = local.db_url_migrator_secret_id             # migrator DSN（system_admin context で seed）
   vpc_connector          = module.network.vpc_connector_id
 }
 
