@@ -80,7 +80,8 @@ describe("RBAC: /ops 配下のページは system_admin に絞られている (f
    * 委譲先 (ClassPickerPage) が SYSTEM_ADMIN_ROLES でガードすることは別 it で固定する。
    */
   const DELEGATED_TO_GUARDED_WRAPPER: Record<string, string> = {
-    [`${OPS_PREFIX}schools/[id]/ads/page.tsx`]: "ClassPickerPage",
+    // ads/page.tsx は掲載先ピッカー刷新 (学校/学科/学年/クラスの一括掲載) で ClassPickerPage 委譲をやめ、
+    // ページ本体で直接 SYSTEM_ADMIN_ROLES をガードするようになった (既定の直接ガード期待に合流)。
     [`${OPS_PREFIX}schools/[id]/editor/page.tsx`]: "ClassPickerPage",
     [`${OPS_PREFIX}schools/[id]/magic-link/page.tsx`]: "ClassPickerPage",
     [`${OPS_PREFIX}schools/[id]/quiet-hours/page.tsx`]: "ClassPickerPage",
