@@ -14,7 +14,9 @@
   padding: 0.5rem 0.5rem;
   border-radius: 0.4rem;
   font-size: 0.85rem;
-  color: var(--brand-blue);
+  /* テキストは --brand-blue-strong（白地 7.1:1・AA/AAA）。--brand-blue(#6fa8c7) は白地 2.59:1 で本文リンクには
+     不足（AA 4.5:1 未達）＝退行になるため使わない。globals.css の二次アクション chip と同じテキスト色。 */
+  color: var(--brand-blue-strong);
   text-decoration: none;
 }
 .item:hover,
