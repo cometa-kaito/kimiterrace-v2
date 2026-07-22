@@ -189,7 +189,7 @@ locals {
   jobs_image_tag = "97c43ca" # 2026-07-13: バグ探索スイープ2 — air_quality/heat_alerts upsert に COALESCE（フィード欠損時に last-known-good を null で潰さない）+ news フィード内 URL 重複除去（ON CONFLICT 21000 の全断防止）(#1295)。schema 非変更=migration 不要。weather + news Job を apply（staging で両 Job execute 成功を確認）。prod 実 Job image: weather/news=97c43ca / 他=ea93c5f
 
   # Cloud Run web service（B5）が使う app イメージタグ（build/push 済・実 Firebase config 込み）。
-  web_image_tag = "5ef0776" # 2026-07-22: 教員エディタ 日付バーとヘッダ間の白い間を解消 #1316（.admin-main の sticky スクロールコンテナ上パディングを日付バー .dayBar で打ち消しヘッダ直下へ密着・CSS のみ）。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
+  web_image_tag = "7030c49" # 2026-07-22: 教員エディタ 日付バーとヘッダ間に控えめな余白(0.5rem)を残す #1319（#1316 の 0 密着が本番で詰まって見えた指摘対応・--day-bar-top-gap で dayBar/previewCol を同量下げる・CSS のみ）。schema・secret 無変更=migrate 不要。疎通 /api/health=200・/login cache-control=private,no-cache（s-maxage 退行なし）
 }
 
 module "network" {
