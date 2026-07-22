@@ -1,0 +1,38 @@
+/*
+ * 「設定・取り込み」メニュー（PlanToolsMenu）のメニュー項目行。盤面直下 planActions の頻度の低い
+ * 3 操作（基本時間割 / 年間予定表 / 写真取込）を 1 つのポップオーバーに畳む（段階的開示・2026-07-22）。
+ * トリガー / パネル外枠は CopyFromMenu と同じ inline tokens で描く（視覚言語の一致）。項目行だけは
+ * :hover / :focus-visible をインライン style で書けないため module 化する（PhotoImportZone と同作法）。
+ * 色は globals.css の --brand-* を参照（新規色ゼロ）。
+ */
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.5rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+  /* テキストは --brand-blue-strong（白地 7.1:1・AA/AAA）。--brand-blue(#6fa8c7) は白地 2.59:1 で本文リンクには
+     不足（AA 4.5:1 未達）＝退行になるため使わない。globals.css の二次アクション chip と同じテキスト色。 */
+  color: var(--brand-blue-strong);
+  text-decoration: none;
+}
+.item:hover,
+.item:focus-visible {
+  background: var(--brand-bg-soft);
+  outline: none;
+}
+
+/* 遷移を示す矢印（→）。本文より一段控えめに（muted）＝主役はラベル。 */
+.arrow {
+  color: var(--brand-muted);
+}
+
+/* 写真取込（ドロップゾーン）はナビ 2 リンクと性質が違う（その場取込）ので、細い区切りで一段下げる。 */
+.photoWrap {
+  margin-top: 0.4rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--brand-border);
+}
