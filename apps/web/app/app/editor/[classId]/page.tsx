@@ -46,6 +46,7 @@ import { notFound, redirect } from "next/navigation";
 import { BlackoutToggle } from "./_components/BlackoutToggle";
 import { ClassEditorChat } from "./_components/ClassEditorChat";
 import { CopyFromMenu } from "./_components/CopyFromMenu";
+import { PlanToolsMenu } from "./_components/PlanToolsMenu";
 import { CopyUndoProvider } from "./_components/CopyUndoContext";
 import { EDITOR_STACK_ANCHOR_ID } from "./_components/editor-anchors";
 import { DayEventsPanel } from "./_components/DayEventsPanel";
@@ -54,7 +55,6 @@ import { EditorDateSegments } from "./_components/EditorDateSegments";
 import { FloatingAiChat } from "./_components/FloatingAiChat";
 import { MorningDraftCard } from "./_components/MorningDraftCard";
 import { PhotoImportProvider } from "./_components/photo-import-context";
-import { PhotoImportZone } from "./_components/PhotoImportZone";
 import { RememberLastClass } from "./_components/RememberLastClass";
 import { SeedConfirmButton } from "./_components/SeedConfirmButton";
 import { WysiwygBoardEditor } from "./_components/WysiwygBoardEditor";
@@ -349,17 +349,17 @@ export default async function ClassEditorPage({
                       .map((block) => blockLabel(pattern, block))
                       .join("・")}
                   />
-                  {periodSchedule ? (
-                    <Link href={`/app/editor/${classId}/timetable`} style={{ fontSize: "0.9rem" }}>
-                      基本時間割を設定 →
-                    </Link>
-                  ) : null}
-                  <Link href={CALENDAR_IMPORT_PAGE_PATH} style={{ fontSize: "0.9rem" }}>
-                    年間予定表を取り込む →
-                  </Link>
-                  {/* P1 写真取込（設計 D6/D7）: 紙のプリント写真 → OCR → AI チャット合流。AI 無効環境
-                    （AI_ENABLED=false・prod 既定）では導線自体を出さない。 */}
-                  {isAiEnabled() ? <PhotoImportZone classId={classId} /> : null}
+                  {/* 頻度の低い 3 操作は「設定・取り込み」メニューに畳む（2026-07-22 ユーザー要望・盤面
+                    直下の情報過多／上級者向け機能の混在を解消）。毎日使うコピーだけを表に残し、年 1 回の
+                    初期設定（基本時間割・年間予定表）とたまの写真取込は 1 つのポップオーバーから開く
+                    （頻度による段階的開示）。表示条件（週次時間割の有無・AI 有効）はここ（server）で判定し
+                    真のものだけ渡す＝死リンク防止・写真取込の AI 無効ゲート（設計 D7）は不変。 */}
+                  <PlanToolsMenu
+                    classId={classId}
+                    showTimetableLink={Boolean(periodSchedule)}
+                    calendarImportPath={CALENDAR_IMPORT_PAGE_PATH}
+                    showPhotoImport={isAiEnabled()}
+                  />
                 </>
               }
               // 「この日の行事」（ADR-049 決定 7・PR-D）: 編集中日付の学校行事をワンクリックで予定 / 連絡へ確定
