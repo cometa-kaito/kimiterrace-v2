@@ -11,6 +11,10 @@
  */
 
 .root {
+  /* 全幅日付バー（.dayBar）をヘッダ直下に貼り付ける際に残す控えめな上余白（≥769px）。0 密着だと詰まって
+     見える（ユーザー実機確認 2026-07-22）ので、少しだけ空ける。値はここ 1 箇所を単一ソースにして .dayBar と
+     盤面 .previewCol（バー直下に続く sticky）の両方が継承参照する＝相対間隔を保ったまま一緒に下げる。 */
+  --day-bar-top-gap: 0.5rem;
   display: grid;
   gap: 1.25rem;
 }
@@ -61,10 +65,12 @@
    ではなくパディング分下でピン留めされ、スクロール後もヘッダとバーの間に白い間が残る（ユーザー指摘
    2026-07-22: パンくずが消えても間が消えない）。負の top でパディング分を打ち消し、バーをヘッダ直下へ
    密着させる（値はスクロールコンテナ側の単一ソース＝globals.css の --admin-main-pad-top を継承参照）。
+   完全な 0 密着は詰まって見えるため、--day-bar-top-gap（.root 定義）ぶんだけヘッダとの間に控えめな余白を残す
+   （ユーザー実機確認 2026-07-22）。実効の貼り付き位置＝ヘッダ下 `--day-bar-top-gap`。
    ≤768px は本文がページ全体スクロール＝バーはビューポート上端に留まり間は生じないので top:0 のまま。 */
 @media (min-width: 769px) {
   .dayBar {
-    top: calc(-1 * var(--admin-main-pad-top, 1.5rem));
+    top: calc(var(--day-bar-top-gap, 0.5rem) - var(--admin-main-pad-top, 1.5rem));
   }
 }
 
@@ -82,12 +88,16 @@
      引き伸ばされて sticky が効かない。top は上の全幅日付バーの**実測高さ**（--day-bar-h・JS が ResizeObserver で
      設定）ぶん下げてバーと重ならないようにする（バー高さは日付タブ1行＋「編集中」＋seed 注記で可変なので magic
      number でなく実測。計測前の初期値は 4.5rem）。
-     日付バーは ≥769px でスクロールコンテナの上パディング分（--admin-main-pad-top）だけ上に密着させている
-     （上の #dayBar override）。sticky の貼り付き基準はどちらも .admin-main のコンテンツ辺なので、盤面も同じ
-     パディング分を引いてバー直下 0.5rem を保つ（引かないとバーとの間が padding 分ぶん開く）。 */
+     日付バーは ≥769px でスクロールコンテナの上パディング分（--admin-main-pad-top）を打ち消しつつ
+     --day-bar-top-gap だけヘッダ下に空けてピン留めしている（上の #dayBar override）。sticky の貼り付き基準は
+     どちらも .admin-main のコンテンツ辺なので、盤面も同じ「-パディング分 + gap」を効かせてバー直下 0.5rem を
+     保つ（gap を足さないとバーだけ下がって盤面との間が gap ぶん開く）。 */
   .previewCol {
     position: sticky;
-    top: calc(var(--day-bar-h, 4.5rem) + 0.5rem - var(--admin-main-pad-top, 1.5rem));
+    top: calc(
+      var(--day-bar-h, 4.5rem) + 0.5rem - var(--admin-main-pad-top, 1.5rem) +
+        var(--day-bar-top-gap, 0.5rem)
+    );
     align-self: start;
   }
 }
