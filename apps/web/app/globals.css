@@ -271,8 +271,15 @@ body {
  * （実機 prod で html scrollH 1182→575・本文スクロールは温存を確認）。z-index は付けない＝スタッキング
  * 文脈は作らず浮遊 AI チャット(fixed)等の重なり順に干渉しない。 */
 .admin-main {
+  /* 本文スクロールコンテナの上パディング。≥769px では .admin-main 自身が overflow-y:auto の
+     スクロールコンテナになるため、この上パディングが子の position:sticky（エディタの日付バー
+     WysiwygBoardEditor .dayBar）の貼り付き基準（＝コンテンツ辺）になる。sticky top:0 だと
+     ヘッダ直下ではなくこのパディング分（1.5rem）下でピン留めされ、ヘッダとバーの間に白い間が
+     残る（ユーザー指摘 2026-07-22）。日付バー側でこの値を打ち消してヘッダ直下へ密着させるため、
+     二重管理を避けて単一ソースとして変数化する（子は継承で参照する）。 */
+  --admin-main-pad-top: 1.5rem;
   position: relative;
-  padding: 1.5rem;
+  padding: var(--admin-main-pad-top) 1.5rem 1.5rem;
 }
 
 /* ---- デスクトップ: シェルをビューポート高に固定し、メニューと本文を独立スクロール ----
@@ -454,7 +461,10 @@ body {
     border-top: 1px solid var(--brand-border);
   }
   .admin-main {
-    padding: 1rem;
+    /* モバイルは本文がページ全体スクロール（ヘッダも一緒に流れる）＝日付バーはビューポート上端に
+       ピン留めされ間は生じないので、上パディング変数は本文の実値（1rem）に合わせておくだけでよい。 */
+    --admin-main-pad-top: 1rem;
+    padding: var(--admin-main-pad-top) 1rem 1rem;
   }
 }
 
