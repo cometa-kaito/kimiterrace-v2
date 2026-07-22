@@ -65,12 +65,16 @@
    ではなくパディング分下でピン留めされ、スクロール後もヘッダとバーの間に白い間が残る（ユーザー指摘
    2026-07-22: パンくずが消えても間が消えない）。負の top でパディング分を打ち消し、バーをヘッダ直下へ
    密着させる（値はスクロールコンテナ側の単一ソース＝globals.css の --admin-main-pad-top を継承参照）。
-   完全な 0 密着は詰まって見えるため、--day-bar-top-gap（.root 定義）ぶんだけヘッダとの間に控えめな余白を残す
-   （ユーザー実機確認 2026-07-22）。実効の貼り付き位置＝ヘッダ下 `--day-bar-top-gap`。
-   ≤768px は本文がページ全体スクロール＝バーはビューポート上端に留まり間は生じないので top:0 のまま。 */
+   完全な 0 密着は詰まって見えるため、ヘッダとの間に --day-bar-top-gap（.root 定義）ぶんの控えめな余白を残す
+   （ユーザー実機確認 2026-07-22）。**余白は透明な隙間ではなくバー自身の padding-top として持たせる**＝バーは
+   ヘッダ直下にフラッシュで貼り付け（負の top で padding を打ち消し）、白背景がその余白ぶんも覆う。こうしないと
+   ヘッダ↔バーの隙間が透明のままで、その下を流れる本文が覗いて「チラチラ」見える（ユーザー指摘 2026-07-22）。
+   日付タブの見た目位置（ヘッダ下 --day-bar-top-gap）は隙間方式と同じで、隙間だけが透明→不透明になる。
+   ≤768px は本文がページ全体スクロール＝バーはビューポート上端に留まり間は生じないので top:0・padding-top 無し。 */
 @media (min-width: 769px) {
   .dayBar {
-    top: calc(var(--day-bar-top-gap, 0.5rem) - var(--admin-main-pad-top, 1.5rem));
+    top: calc(-1 * var(--admin-main-pad-top, 1.5rem));
+    padding-top: var(--day-bar-top-gap, 0.5rem);
   }
 }
 
@@ -88,18 +92,12 @@
      引き伸ばされて sticky が効かない。top は上の全幅日付バーの**実測高さ**（--day-bar-h・JS が ResizeObserver で
      設定）ぶん下げてバーと重ならないようにする（バー高さは日付タブ1行＋「編集中」＋seed 注記で可変なので magic
      number でなく実測。計測前の初期値は 4.5rem）。
-     日付バーは ≥769px でスクロールコンテナの上パディング分（--admin-main-pad-top）を打ち消しつつ
-     --day-bar-top-gap だけヘッダ下に空けてピン留めしている（上の #dayBar override）。sticky の貼り付き基準は
-     どちらも .admin-main のコンテンツ辺なので、盤面も同じ「-パディング分 + gap」を効かせてバー直下 0.5rem を
-     保つ（gap を足さないとバーだけ下がって盤面との間が gap ぶん開く）。 */
+     日付バーは ≥769px でヘッダ直下にフラッシュ貼り付け（-パディング分）＋余白は自身の padding-top で持つ
+     （上の #dayBar override）。その余白は --day-bar-h（ResizeObserver が測る offsetHeight＝padding 込み）に
+     自動で含まれるので、盤面はパディング分だけ引けばバー直下 0.5rem を保てる（余白ぶんを別途足す必要はない）。 */
   .previewCol {
     position: sticky;
-    top: calc(
-      var(--day-bar-h, 4.5rem) +
-      0.5rem -
-      var(--admin-main-pad-top, 1.5rem) +
-      var(--day-bar-top-gap, 0.5rem)
-    );
+    top: calc(var(--day-bar-h, 4.5rem) + 0.5rem - var(--admin-main-pad-top, 1.5rem));
     align-self: start;
   }
 }
