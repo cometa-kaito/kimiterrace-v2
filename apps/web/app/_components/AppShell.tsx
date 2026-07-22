@@ -51,8 +51,17 @@ export async function AppShell({ user, children }: { user: AuthUser; children: R
       <AdminMenuProvider>
         {/* admin-header--has-menu: ハンバーガーを持つロールのみ、モバイルでヘッダの操作群/バッジを
             畳む（操作群は menuFooter 経由でハンバーガー内に出る）。教員（メニュー無し）には付けない
-            ＝ヘッダにログアウトが残り、メニュー外で操作不能にならない。 */}
-        <header className={showSidebar ? "admin-header admin-header--has-menu" : "admin-header"}>
+            ＝ヘッダにログアウトが残り、メニュー外で操作不能にならない。
+            admin-header--compact: メニュー無し＝教員シェル（＝エディタ画面）だけに付ける。教員に
+            とってこのブランドバーは編集面の余白でしかないため高さを約 3/4 に詰め、盤面編集の縦領域を
+            稼ぐ（ユーザー要望 2026-07-22）。サイドバーを持つ管理コンソールのヘッダは意図した設計ゆえ触らない。 */}
+        <header
+          className={
+            showSidebar
+              ? "admin-header admin-header--has-menu"
+              : "admin-header admin-header--compact"
+          }
+        >
           {/* ブランドのワードマーク（キミテラス）。 */}
           <img src="/brand/logo-wordmark.png" alt="キミテラス" className="admin-header__logo" />
           {/* UIUX-03 (統一入口): ここが「キミテラス配信管理」(プロダクト側コンソール) であることを

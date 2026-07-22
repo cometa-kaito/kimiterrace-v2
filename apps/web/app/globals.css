@@ -381,6 +381,19 @@ body {
   max-width: 16rem;
 }
 
+/*
+ * 教員エディタ用のコンパクトヘッダ（`admin-header--compact`）。教員はナビが「エディタ」1 項目のみで、
+ * このブランドバーは編集面にとって余白でしかない（ユーザー要望 2026-07-22「ヘッダが高すぎる・無駄」）。
+ * 高さ規定要素（上下 padding + logo）を約 3/4 に詰め、盤面編集の縦領域を稼ぐ。横 padding は据え置き。
+ * サイドバーを持つ管理コンソール（school_admin / system_admin）のヘッダは意図した設計なので触らない。
+ */
+.admin-header--compact {
+  padding: 0.45rem 1.25rem;
+}
+.admin-header--compact .admin-header__logo {
+  height: 1.3rem;
+}
+
 @media (max-width: 640px) {
   /* 狭幅: ブランドはロゴで伝わるのでラベルを畳み、logo + role + ログアウト を 1 行に収める。 */
   .admin-header {
@@ -398,6 +411,13 @@ body {
   }
   .admin-header__email {
     display: none;
+  }
+  /* 狭幅でも教員ヘッダは同じ比率（約 3/4）で詰める。base より後に置き同特異度で確実に上書きする。 */
+  .admin-header--compact {
+    padding: 0.38rem 0.85rem;
+  }
+  .admin-header--compact .admin-header__logo {
+    height: 1.05rem;
   }
 }
 
