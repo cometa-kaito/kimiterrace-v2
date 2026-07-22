@@ -95,8 +95,10 @@
   .previewCol {
     position: sticky;
     top: calc(
-      var(--day-bar-h, 4.5rem) + 0.5rem - var(--admin-main-pad-top, 1.5rem) +
-        var(--day-bar-top-gap, 0.5rem)
+      var(--day-bar-h, 4.5rem) +
+      0.5rem -
+      var(--admin-main-pad-top, 1.5rem) +
+      var(--day-bar-top-gap, 0.5rem)
     );
     align-self: start;
   }
