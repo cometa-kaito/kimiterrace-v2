@@ -17,6 +17,7 @@ import { type ListParams, parseListParams } from "../../app/_components/datalist
  *  4. `params.filters` のうち `selects` に無いキーは**自動で** hidden になる（ページ側の書き忘れ防止）。
  *  5. `selects` が持つキーは自動 hidden にしない（select と二重に送らない）。
  *  6. 同名キーは `hidden` prop が自動温存に優先する（空文字での抑止も含む）。
+ *  7. フォーム自身が送る予約キー（q/sort/dir/page/from/to）は自動温存しない（二重送信を作らない）。
  */
 
 /** テスト用の ListParams（parseListParams を通して実物と同じ正規化経路で作る）。 */
@@ -130,6 +131,28 @@ describe("DataListControls の filters 自動温存", () => {
       <DataListControls basePath="/ops/tv-devices" params={params} hidden={{ status: "never" }} />,
     );
     expect(hiddenInputs(overridden.container)).toEqual({ status: "never" });
+  });
+
+  it("フォーム自身が送る予約キーは自動温存しない（二重送信で利用者の入力が負けるのを防ぐ）", () => {
+    // `from` を filterKeys に宣言すると params.from と params.filters.from に二重に載る。ここで
+    // 自動温存すると hidden が日付入力より DOM 上で先に出るため、`first()` が先勝ちで hidden を拾い、
+    // 利用者が入れ直した日付が黙って無視される。予約キーはフォーム側に任せる。
+    const params = makeParams({ from: "2026-07-01" }, "", [], ["from"]);
+    const { container } = render(
+      <DataListControls basePath="/ops/events" params={params} dateRange />,
+    );
+    expect(hiddenInputs(container)).toEqual({});
+    // 日付入力は通常どおり値を持ち、送信時はこちらだけが `from` を送る。
+    expect(container.querySelector('input[name="from"][type="date"]')).not.toBeNull();
+    expect(container.querySelectorAll('[name="from"]')).toHaveLength(1);
+  });
+
+  it("prototype 由来の名前のフィルタでも取りこぼさない（`in` ではなく hasOwn で判定する）", () => {
+    // `"toString" in {}` は true なので、素の `in` 判定だと「hidden prop が持っている」と誤判定して
+    // 温存を丸ごと捨てていた。Object.hasOwn なら実際に渡された分だけを見る。
+    const params = makeParams({ toString: "x" }, "", [], ["toString"]);
+    const { container } = render(<DataListControls basePath="/ops/events" params={params} />);
+    expect(hiddenInputs(container)).toEqual({ toString: "x" });
   });
 
   it("/ops/dashboard の ?axis= が期間絞り込みで消えない（回帰: axis は selects を持たない）", () => {
