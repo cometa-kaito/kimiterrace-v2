@@ -92,9 +92,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   //    （署名 URL = 短命だが秘匿、ルール5 の精神）。
   const rehost = getAssetRehost();
   const rehostedAds: DeliveryAdInput[] = [];
+  // 複数校ファンアウト（portal 0076/0093）では、同一 placement の N 件が **同じ素材・同じ保存キー**
+  // （ads/partner/<portalPlacementId>）を指す。素直に回すと同じオブジェクトを N 回ダウンロード＆
+  // アップロードし、短命署名 URL と呼び出し側の 8 秒タイムアウトの下で失敗確率を N 倍にする。
+  // キーは placement で決まる（決定的）ので、1回ぶんの結果を使い回す。
+  const rehostedByPlacement = new Map<string, string>();
   for (const a of parsed.value.ads) {
     try {
-      const mediaUrl = await rehost.rehost(a.assetFetchUrl, a.portalPlacementId);
+      let mediaUrl = rehostedByPlacement.get(a.portalPlacementId);
+      if (mediaUrl === undefined) {
+        mediaUrl = await rehost.rehost(a.assetFetchUrl, a.portalPlacementId);
+        rehostedByPlacement.set(a.portalPlacementId, mediaUrl);
+      }
       rehostedAds.push({
         portalPlacementId: a.portalPlacementId,
         v2SchoolId: a.v2SchoolId,
