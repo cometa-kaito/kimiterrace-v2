@@ -156,6 +156,36 @@ describe("DataListControls の filters 自動温存", () => {
     expect(container.querySelectorAll('[name="from"]')).toHaveLength(1);
   });
 
+  it("q の所有は searchPlaceholder の有無で切り替わる（描画したときだけフォームが送る）", () => {
+    const params = makeParams({ q: "abc" }, "", [], ["q"]);
+
+    // 検索欄なし → 誰も送らないので自動温存する。
+    const without = render(<DataListControls basePath="/ops/events" params={params} />);
+    expect(hiddenInputs(without.container)).toEqual({ q: "abc" });
+    expect(without.container.querySelectorAll('[name="q"]')).toHaveLength(1);
+
+    // 検索欄あり → フォームが送るので hidden は出さない（二重送信にしない）。
+    const withSearch = render(
+      <DataListControls basePath="/ops/events" params={params} searchPlaceholder="検索" />,
+    );
+    expect(hiddenInputs(withSearch.container)).toEqual({});
+    expect(withSearch.container.querySelectorAll('[name="q"]')).toHaveLength(1);
+  });
+
+  it("sort/dir の所有は sortKeys の有無で切り替わる（ソート UI が無い一覧では自動温存）", () => {
+    // ソート UI 無し（sortKeys 空 → params.sort ""）。form は sort/dir を出さないので自動温存が拾う。
+    const noSortUi = makeParams({ sort: "name" }, "", [], ["sort"]);
+    const without = render(<DataListControls basePath="/ops/events" params={noSortUi} />);
+    expect(hiddenInputs(without.container)).toEqual({ sort: "name" });
+    expect(without.container.querySelectorAll('[name="sort"]')).toHaveLength(1);
+
+    // ソート UI あり → form 自身の hidden が送るので自動温存は出さない。
+    const withSortUi = makeParams({ sort: "name" }, "prefecture", ["name"], ["sort"]);
+    const withSort = render(<DataListControls basePath="/ops/events" params={withSortUi} />);
+    expect(hiddenInputs(withSort.container)).toEqual({ sort: "name", dir: "desc" });
+    expect(withSort.container.querySelectorAll('[name="sort"]')).toHaveLength(1);
+  });
+
   it("prototype 由来の名前のフィルタでも取りこぼさない（`in` ではなく hasOwn で判定する）", () => {
     // `"toString" in {}` は true なので、素の `in` 判定だと「hidden prop が持っている」と誤判定して
     // 温存を丸ごと捨てていた。Object.hasOwn なら実際に渡された分だけを見る。

@@ -29,7 +29,8 @@ const { color, fontSize, radius, space } = tokens;
  * 自動温存が守るのは **`params.filters` に載る条件** (= `filterKeys` に宣言したもの) だけである。
  * `q` / `from` / `to` は対応するコントロールを描画したページでのみ往復する (本フォームの既存挙動)。
  *
- * ⚠ **`q`/`sort`/`dir`/`page`/`from`/`to` を `filterKeys` に宣言しない**。これらは `filterKeys` と
+ * ⚠ **`q`/`sort`/`dir`/`page`/`from`/`to` を `filterKeys` に宣言しない** (`selects` の `name` にも
+ * 使わない)。これらは `filterKeys` と
  * 無関係に `parseListParams` が専用フィールドへ解析する ({@link parseListParams})。宣言すると 1 つの
  * URL パラメータに「検証済みの専用フィールド」と「`filters` の生値」の 2 解釈が同時に載り、
  * どちらを送っても他方の意図を壊す。この衝突は本コンポーネントに届く前に成立しているので
