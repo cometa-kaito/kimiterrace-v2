@@ -50,15 +50,23 @@ export const ads = pgTable(
     captionFontScale: real("caption_font_scale").notNull().default(1),
     displayOrder: integer("display_order").notNull().default(0),
     // Partner API K3（partner-api-contract §3）の冪等キー。portal 側 placement の UUID を保持し、
-    // POST /api/partner/delivery が portal_placement_id を競合キーに upsert する。portal 由来 ID の
-    // 外部参照（v2 テーブルへの FK ではない）。学校作成のクラス広告など portal 非経由の行は null。
-    // nullable + unique（NULL は複数行可）。
+    // POST /api/partner/delivery が (portal_placement_id, school_id) を競合キーに upsert する。
+    // portal 由来 ID の外部参照（v2 テーブルへの FK ではない）。学校作成のクラス広告など
+    // portal 非経由の行は null。nullable + unique（NULL は複数行可）。
+    //
+    // ⚠ 一意性は **school_id との複合**（20260724_multi_school_ads）。portal の複数校ループ
+    //   （1申込＝N校同時配信）は 1 placement から **校ごとに1広告行**を生むため、単独 unique だと
+    //   ON CONFLICT DO UPDATE が順に上書きし、エラーも出さずに最後の1校だけが残る（黙って1校配信）。
     portalPlacementId: uuid("portal_placement_id"),
     ...auditColumns,
   },
   (t) => ({
     ixTargetOrder: index("ix_ads_target_order").on(t.schoolId, t.scope, t.displayOrder),
-    uxPortalPlacementId: uniqueIndex("ux_ads_portal_placement_id").on(t.portalPlacementId),
+    // 1 placement × 1 学校 = 1 広告行（複数校ループの同時配信を成立させる複合キー）。
+    uxPortalPlacementSchool: uniqueIndex("ux_ads_portal_placement_school").on(
+      t.portalPlacementId,
+      t.schoolId,
+    ),
     ckScope: check(
       "ck_ads_scope",
       sql`(
