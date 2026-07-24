@@ -15,5 +15,8 @@ if ! command -v gitleaks >/dev/null 2>&1; then
 	exit 1
 fi
 
-# --redact: 検出値そのものを端末ログに残さない（ルール5「ログに secret を出力しない」）
-gitleaks git --pre-commit --staged --redact --no-banner
+# --staged: index の内容（= 実際にコミットされるもの）を走査する。**外すと未 stage の差分を見に行き、
+#           stage 済みの秘密を取りこぼす**ので消さないこと。
+# --redact : 検出値そのものを端末ログに残さない（ルール5「ログに secret を出力しない」）
+# --verbose: 検出時に file / line / RuleID を出す（--redact 併用なので値は REDACTED のまま）
+gitleaks git --pre-commit --staged --redact --verbose --no-banner
