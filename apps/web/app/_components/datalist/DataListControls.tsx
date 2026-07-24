@@ -23,11 +23,20 @@ const { color, fontSize, radius, space } = tokens;
  *  2. **`params.filters` の外にある条件は {@link DataListControls} の `hidden` で明示する**
  *     (例: `/ops/tv-devices` の `?status=` タブは自前で解析していて `filterKeys` に無い)。
  *
- * 同名キーは `selects` > {@link FORM_OWNED_PARAMS} > `hidden` > 自動温存 の優先順。`hidden` にキーが
+ * 同名キーは `selects` > フォーム自身が送るキー > `hidden` > 自動温存 の優先順。`hidden` にキーが
  * あれば値が空文字でも自動温存は行わない (ページ側が「あえて出さない」を表現できる)。
  *
  * 自動温存が守るのは **`params.filters` に載る条件** (= `filterKeys` に宣言したもの) だけである。
  * `q` / `from` / `to` は対応するコントロールを描画したページでのみ往復する (本フォームの既存挙動)。
+ *
+ * ⚠ **`q`/`sort`/`dir`/`page`/`from`/`to` を `filterKeys` に宣言しない**。これらは `filterKeys` と
+ * 無関係に `parseListParams` が専用フィールドへ解析する ({@link parseListParams})。宣言すると 1 つの
+ * URL パラメータに「検証済みの専用フィールド」と「`filters` の生値」の 2 解釈が同時に載り、
+ * どちらを送っても他方の意図を壊す。この衝突は本コンポーネントに届く前に成立しているので
+ * ここでは解けない。**同名の条件を別の意味で持ちたいなら別名を使う**
+ * (`?from=` ではなく `?since=` 等)。`hidden` prop での回避も勧められない: 描画済みコントロールと
+ * 二重送信になり、先勝ちの `first()` では hidden が勝って**利用者の入力のほうが無視される**
+ * (`from`/`q`)、あるいは form 側の hidden に負けて黙って効かない (`sort`/`dir`)。
  */
 
 export type DataListSelect = {
@@ -35,16 +44,6 @@ export type DataListSelect = {
   label: string;
   options: readonly { value: string; label: string }[];
 };
-
-/**
- * 本フォームが自前で描画・送信する予約キー。自動温存の対象から外す。
- *
- * これらを hidden で二重に出すと `?from=a&from=b` になり、`parseListParams` の `first()` は**先勝ち**
- * なので DOM 上で先に出る hidden が勝ち、**利用者が入れ直した日付のほうが黙って無視される**。
- * `page` は「フィルタ変更で 1 に戻す」ため意図的に送らない。予約キー名の条件をフォーム外で
- * 温存したいページは `hidden` prop で明示する (自動温存より後に適用され、意図が call site に残る)。
- */
-const FORM_OWNED_PARAMS: ReadonlySet<string> = new Set(["q", "sort", "dir", "page", "from", "to"]);
 
 export function DataListControls({
   basePath,
@@ -69,16 +68,32 @@ export function DataListControls({
    */
   hidden?: Readonly<Record<string, string>>;
 }) {
-  // 送信時に温存する hidden を組み立てる。フォーム自身が送るキー (セレクト / 予約キー) は
-  // 対象外にする — 二重送信になり、先勝ちの `first()` では利用者の入力のほうが負ける。
-  // Map で持つのは `toString` や `__proto__` のようなキー名でも取りこぼさないため
-  // (素のオブジェクトだと prototype 由来の名前が誤検知・代入無視を起こす)。
-  const selectNames = new Set(selects.map((sel) => sel.name));
+  // このフォームが自分で送るキー。**実際に描画する分だけ**を数える (所有は描画条件と同じ) —
+  // 無条件に除外すると、コントロールを出していないページで誰も送らず黙って消える。
+  // 二重に出すと `?from=a&from=b` になり、先勝ちの `first()` では利用者の入力のほうが負ける。
+  // `page` は「フィルタ変更で 1 に戻す」ため常に送らない = 常に所有。
+  const emittedByForm = new Set<string>(["page"]);
+  if (params.sort !== "") {
+    emittedByForm.add("sort").add("dir");
+  }
+  if (searchPlaceholder !== undefined) {
+    emittedByForm.add("q");
+  }
+  if (dateRange) {
+    emittedByForm.add("from").add("to");
+  }
+  for (const sel of selects) {
+    emittedByForm.add(sel.name);
+  }
+
+  // 送信時に温存する hidden を組み立てる。`in` でなく Object.hasOwn で判定するのが要点
+  // (`"toString" in {}` は true なので、`in` だと hidden prop が持っていると誤判定して温存を捨てる)。
+  // 器が Map なのは素のオブジェクトの特殊キー (`__proto__` 等) を持ち込まないための衛生で、
+  // 実際には params.filters 側が既に素オブジェクトなので現状そこまでの値は届かない。
   const explicitHidden = hidden ?? {};
   const preserved = new Map<string, string>();
   for (const [name, value] of Object.entries(params.filters)) {
-    const emittedByForm = selectNames.has(name) || FORM_OWNED_PARAMS.has(name);
-    if (!emittedByForm && !Object.hasOwn(explicitHidden, name)) {
+    if (!emittedByForm.has(name) && !Object.hasOwn(explicitHidden, name)) {
       preserved.set(name, value);
     }
   }

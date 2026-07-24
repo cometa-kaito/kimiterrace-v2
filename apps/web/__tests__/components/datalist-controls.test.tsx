@@ -147,6 +147,15 @@ describe("DataListControls の filters 自動温存", () => {
     expect(container.querySelectorAll('[name="from"]')).toHaveLength(1);
   });
 
+  it("予約キーでもコントロール未描画なら自動温存する（所有は描画条件と一致させる）", () => {
+    // 予約キーを無条件に除外すると、日付ピッカーを出していないページでは誰も `from` を送らず
+    // 黙って消える。「フォームが所有するのは描画したときだけ」を守る。
+    const params = makeParams({ from: "2026-07-01" }, "", [], ["from"]);
+    const { container } = render(<DataListControls basePath="/ops/events" params={params} />);
+    expect(hiddenInputs(container)).toEqual({ from: "2026-07-01" });
+    expect(container.querySelectorAll('[name="from"]')).toHaveLength(1);
+  });
+
   it("prototype 由来の名前のフィルタでも取りこぼさない（`in` ではなく hasOwn で判定する）", () => {
     // `"toString" in {}` は true なので、素の `in` 判定だと「hidden prop が持っている」と誤判定して
     // 温存を丸ごと捨てていた。Object.hasOwn なら実際に渡された分だけを見る。
