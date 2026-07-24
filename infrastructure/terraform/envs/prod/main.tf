@@ -166,7 +166,7 @@ locals {
   #   ★ 本番に実値を出さないため、いずれも意図的な placeholder のまま commit する（authoring 段階）。
 
   # migration Job が使うイメージタグ（migrate-cli + 全 seed-cli を同梱した migrate イメージ）。
-  migrate_image_tag = "bdcab46d" # 0037 is_highlight 列追加（class_visitors/student_callouts・#1218・additive・IF NOT EXISTS 冪等・resolve_magic_link 無関係）。エディタ再構成 PR-A〜D（#1216〜#1223）の唯一の migration。prod Job 実行=人間（apply-migration）
+  migrate_image_tag = "ba6791f0" # 20260724075009 ads 冪等キー複合化（ux_ads_portal_placement_id → ux_ads_portal_placement_school・#1327・単独UNIQUE→複合UNIQUE＝制約の緩和・resolve_magic_link 無関係）。bdcab46d 以降で唯一の migration。portal の複数校ループ配信の前提。prod Job 実行=人間（apply-migration）
 
   # app 層 E2E 用テストフィクスチャ seed Job のイメージタグ（migrate イメージ + seed-staging-cli）。
   # prod では本番テナント seed を別途行うため通常は使わない（雛形のみ・enabled=false）。
