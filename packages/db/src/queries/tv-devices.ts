@@ -239,8 +239,11 @@ export async function resolveTvDeviceByDeviceId(
 /**
  * 管理一覧: TV デバイスを **所属校名つき**で取得する。可視範囲は RLS が決める
  * （system_admin=全校 / テナント=自校のみ）。ソフトデリート済（`deleted_at IS NOT NULL`）は一覧から除外する。
- * **校名 → ラベル → device_id** の順で決定的に並べ、同名ラベル（「進路指導室前」等）が学校ごとに
- * まとまるようにする（同一校・同一ラベルでも device_id で順序が安定）。
+ * **校名 → school_id → ラベル → device_id** の順で決定的に並べ、同名ラベル（「進路指導室前」等）が
+ * 学校ごとにまとまるようにする（同一校・同一ラベルでも device_id で順序が安定）。`schools.name` は
+ * 一意でないため（listSchools も同じ理由で id をタイブレークに使う）、**同名校の行が混ざらないよう
+ * school_id を第 2 キーに置く** — さもないと同名校 2 つのデバイスがラベル順で interleave し、
+ * 「同名を学校ごとにまとめる」という本メソッドの目的が同名校で崩れる。
  *
  * `WHERE deleted_at IS NULL` は対象絞り込みであってテナント境界ではない（越境は RLS が弾く、schools.ts
  * の方針参照）。**`school_id` の WHERE は書かない** — 学校での絞り込みは呼び出し側 UI の検索条件であって
@@ -271,7 +274,12 @@ export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> 
     .from(tvDevices)
     .innerJoin(schools, eq(tvDevices.schoolId, schools.id))
     .where(isNull(tvDevices.deletedAt))
-    .orderBy(asc(schools.name), asc(tvDevices.label), asc(tvDevices.deviceId));
+    .orderBy(
+      asc(schools.name),
+      asc(tvDevices.schoolId),
+      asc(tvDevices.label),
+      asc(tvDevices.deviceId),
+    );
 }
 
 /**

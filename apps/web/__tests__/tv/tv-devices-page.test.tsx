@@ -195,6 +195,8 @@ describe("TvDevicesPage 学校の列と絞り込み（?school=）", () => {
     listMock.mockResolvedValue([GINAN, KAKAMI] as never);
     render(await TvDevicesPage(pageProps()));
     expect(screen.getByRole("columnheader", { name: "学校" })).toBeInTheDocument();
+    // 学校セレクトも出る（単一校ケースの否定アサーションに対する肯定側）。
+    expect(screen.getByLabelText("学校")).toBeInTheDocument();
     // 同名ラベルが 2 行、校名は行ごとに異なる（= 区別できる）。
     expect(screen.getAllByText("進路指導室前")).toHaveLength(2);
     expect(screen.getByText("岐阜県立岐南工業高等学校")).toBeInTheDocument();
@@ -218,6 +220,20 @@ describe("TvDevicesPage 学校の列と絞り込み（?school=）", () => {
     render(await TvDevicesPage(pageProps({ school: SCHOOL_B })));
     expect(screen.getByText("岐阜県立各務原高等学校")).toBeInTheDocument();
     expect(screen.queryByText("岐阜県立岐南工業高等学校")).toBeNull();
+  });
+
+  it("TV が 0 台の学校を選ぶと『この学校に登録されている TV はありません』を出す（学校未登録の empty と区別）", async () => {
+    // 学校は登録済みだが TV は未設置（各務原の先行登録パターン）。ステータス側の empty 文言と
+    // 取り違えないこと・復帰リンクが学校スコープを外すことを pin する。
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN] as never);
+    render(await TvDevicesPage(pageProps({ school: SCHOOL_B })));
+    expect(screen.getByText(/この学校に登録されている TV はありません/)).toBeInTheDocument();
+    expect(screen.queryByText(/この稼働ステータスに該当する TV はありません/)).toBeNull();
+    expect(screen.getByRole("link", { name: "すべて表示" })).toHaveAttribute(
+      "href",
+      "/ops/tv-devices",
+    );
   });
 
   it("不可視・不正な school は全件表示にフォールバックする（URL 改竄耐性。境界は RLS）", async () => {
