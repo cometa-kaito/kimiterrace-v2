@@ -12,9 +12,32 @@ const { color, fontSize, radius, space } = tokens;
  * hidden で温存し、フィルタ変更時は page を 1 に戻す (page を form に含めない)。
  * 「クリア」は basePath への素のリンク (全条件リセット)。
  *
- * **本フォーム外の URL 状態は {@link DataListControls} の `hidden` で温存する**: GET フォームの送信は
- * URL を丸ごと置き換えるため、フォームに含めない条件 (例: `/ops/tv-devices` の `?status=` タブ) は
- * hidden を渡さないと絞り込みのたびに黙って消える。sort/dir と同じ理由の仕組み。
+ * **本フォーム外の URL 状態は hidden で温存する**: GET フォームの送信は URL を丸ごと置き換えるため、
+ * フォームに含めない条件は hidden にしないと絞り込みのたびに黙って消える。sort/dir と同じ理由の仕組み。
+ * 温存対象は 2 系統ある:
+ *
+ *  1. **`params.filters` のうちセレクトを持たないキーは自動で hidden にする**。`filterKeys` に宣言した
+ *     のに `selects` に出さない (タブ / リンクで切替える類の) 条件は、ページ側が hidden を書き忘れると
+ *     症状なく消える。宣言済みフィルタは常に往復する不変条件をこの chokepoint で機械的に守り、
+ *     ページごとの書き忘れという罠のクラスごと潰す (実害: `/ops/dashboard` の `?axis=`)。
+ *  2. **`params.filters` の外にある条件は {@link DataListControls} の `hidden` で明示する**
+ *     (例: `/ops/tv-devices` の `?status=` タブは自前で解析していて `filterKeys` に無い)。
+ *
+ * 同名キーは `selects` > フォーム自身が送るキー > `hidden` > 自動温存 の優先順。`hidden` にキーが
+ * あれば値が空文字でも自動温存は行わない (ページ側が「あえて出さない」を表現できる)。
+ *
+ * 自動温存が守るのは **`params.filters` に載る条件** (= `filterKeys` に宣言したもの) だけである。
+ * `q` / `from` / `to` は対応するコントロールを描画したページでのみ往復する (本フォームの既存挙動)。
+ *
+ * ⚠ **`q`/`sort`/`dir`/`page`/`from`/`to` を `filterKeys` に宣言しない** (`selects` の `name` にも
+ * 使わない)。これらは `filterKeys` と
+ * 無関係に `parseListParams` が専用フィールドへ解析する ({@link parseListParams})。宣言すると 1 つの
+ * URL パラメータに「検証済みの専用フィールド」と「`filters` の生値」の 2 解釈が同時に載り、
+ * どちらを送っても他方の意図を壊す。この衝突は本コンポーネントに届く前に成立しているので
+ * ここでは解けない。**同名の条件を別の意味で持ちたいなら別名を使う**
+ * (`?from=` ではなく `?since=` 等)。`hidden` prop での回避も勧められない: 描画済みコントロールと
+ * 二重送信になり、先勝ちの `first()` では hidden が勝って**利用者の入力のほうが無視される**
+ * (`from`/`q`)、あるいは form 側の hidden に負けて黙って効かない (`sort`/`dir`)。
  */
 
 export type DataListSelect = {
@@ -40,11 +63,46 @@ export function DataListControls({
   dateRange?: boolean;
   dateRangeLabel?: string;
   /**
-   * フォーム外で持っている URL 条件を送信時に温存する追加 hidden (例: `{ status: "down" }`)。
-   * 値が空文字のキーは出さない (空パラメータで URL を汚さない)。
+   * `params.filters` の外で持っている URL 条件を送信時に温存する追加 hidden (例: `{ status: "down" }`)。
+   * 値が空文字のキーは出さない (空パラメータで URL を汚さない)。`params.filters` にあるキーを指定した
+   * 場合は自動温存より優先される。
    */
   hidden?: Readonly<Record<string, string>>;
 }) {
+  // このフォームが自分で送るキー。**実際に描画する分だけ**を数える (所有は描画条件と同じ) —
+  // 無条件に除外すると、コントロールを出していないページで誰も送らず黙って消える。
+  // 二重に出すと `?from=a&from=b` になり、先勝ちの `first()` では利用者の入力のほうが負ける。
+  // `page` は「フィルタ変更で 1 に戻す」ため常に送らない = 常に所有。
+  const emittedByForm = new Set<string>(["page"]);
+  if (params.sort !== "") {
+    emittedByForm.add("sort").add("dir");
+  }
+  if (searchPlaceholder !== undefined) {
+    emittedByForm.add("q");
+  }
+  if (dateRange) {
+    emittedByForm.add("from").add("to");
+  }
+  for (const sel of selects) {
+    emittedByForm.add(sel.name);
+  }
+
+  // 送信時に温存する hidden を組み立てる。`in` でなく Object.hasOwn で判定するのが要点
+  // (`"toString" in {}` は true なので、`in` だと hidden prop が持っていると誤判定して温存を捨てる)。
+  // 器が Map なのは素のオブジェクトの特殊キー (`__proto__` 等) を持ち込まないための衛生で、
+  // 実際には params.filters 側が既に素オブジェクトなので現状そこまでの値は届かない。
+  const explicitHidden = hidden ?? {};
+  const preserved = new Map<string, string>();
+  for (const [name, value] of Object.entries(params.filters)) {
+    if (!emittedByForm.has(name) && !Object.hasOwn(explicitHidden, name)) {
+      preserved.set(name, value);
+    }
+  }
+  // 明示指定はページ側の意図なので最後に上書きする (空文字での抑止も含めてそのまま通す)。
+  for (const [name, value] of Object.entries(explicitHidden)) {
+    preserved.set(name, value);
+  }
+
   return (
     <form method="get" action={basePath} style={formStyle}>
       {/* ソート UI を持たない一覧 (sortKeys 空 → sort "") では sort/dir を URL に出さない。 */}
@@ -54,7 +112,7 @@ export function DataListControls({
           <input type="hidden" name="dir" value={params.dir} />
         </>
       )}
-      {Object.entries(hidden ?? {}).map(([name, value]) =>
+      {[...preserved].map(([name, value]) =>
         value === "" ? null : <input key={name} type="hidden" name={name} value={value} />,
       )}
 

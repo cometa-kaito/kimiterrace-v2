@@ -139,6 +139,9 @@ export default async function SystemDashboardPage({
         期間: {fromLabel}〜{toLabel}（未指定時は直近30日）・全校横断の反応
       </p>
 
+      {/* 軸 (`?axis=`) はセレクトではなく下の軸タブで切替えるが、GET フォームの送信は URL を丸ごと
+          置き換えるため温存が要る。DataListControls が params.filters の未カバーキーを自動で hidden
+          にするので、ここでは何も渡さなくてよい (期間だけ絞っても選択中の軸は保たれる)。 */}
       <DataListControls basePath={BASE_PATH} params={params} dateRange dateRangeLabel="期間" />
 
       <div style={cardsStyle}>
