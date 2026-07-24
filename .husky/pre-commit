@@ -1,2 +1,22 @@
 #!/usr/bin/env sh
 pnpm exec lint-staged
+
+# CLAUDE.md ルール5（シークレットは Secret Manager のみ）のローカル検知層。
+# CI 側 .github/workflows/security.yml の "Secret Scan (gitleaks)" と合わせて二層で守る。
+# lint-staged の後に置き、**実際にコミットされる staged 内容そのもの**を走査する。
+#
+# gitleaks 不在時に素通りさせると「検知しているつもりで無検知」になる（秘密が手元で commit される）ため、
+# 静かに skip せず fail-closed でコミットを止める。
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "husky/pre-commit: gitleaks が見つからないため secret scan を実行できません（CLAUDE.md ルール5）。" >&2
+	echo "  macOS      : brew install gitleaks" >&2
+	echo "  その他 OS  : https://github.com/gitleaks/gitleaks#installing" >&2
+	echo "  緊急回避時 : git commit --no-verify（CI の Secret Scan は push 後に必ず検知します）" >&2
+	exit 1
+fi
+
+# --staged: index の内容（= 実際にコミットされるもの）を走査する。**外すと未 stage の差分を見に行き、
+#           stage 済みの秘密を取りこぼす**ので消さないこと。
+# --redact : 検出値そのものを端末ログに残さない（ルール5「ログに secret を出力しない」）
+# --verbose: 検出時に file / line / RuleID を出す（--redact 併用なので値は REDACTED のまま）
+gitleaks git --pre-commit --staged --redact --verbose --no-banner
