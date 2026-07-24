@@ -81,12 +81,12 @@ describeOrSkip("Partner K3 schema: portal_*_id 冪等キー列 + UNIQUE (RLS)", 
       WHERE indexname IN (
         'ux_advertisers_portal_company_id',
         'ux_contracts_portal_contract_id',
-        'ux_ads_portal_placement_id'
+        'ux_ads_portal_placement_school'
       )
     `;
     // ASCII 昇順: "ux_ads_" < "ux_advertisers_"（5 文字目 's' < 'v'）< "ux_contracts_"。
     expect(idx.map((r) => r.indexname).sort()).toEqual([
-      "ux_ads_portal_placement_id",
+      "ux_ads_portal_placement_school",
       "ux_advertisers_portal_company_id",
       "ux_contracts_portal_contract_id",
     ]);
@@ -124,7 +124,7 @@ describeOrSkip("Partner K3 schema: portal_*_id 冪等キー列 + UNIQUE (RLS)", 
     ).rejects.toThrow(/duplicate key value|ux_contracts_portal_contract_id/i);
   });
 
-  it("ads.portal_placement_id: 同一値の 2 行目は UNIQUE 違反", async () => {
+  it("ads.(portal_placement_id, school_id): 同一校の 2 行目は UNIQUE 違反", async () => {
     // ads は school スコープ（hierarchy id 全 null）の最小行で検証。ads は学校テナント表だが
     // system_admin context は system_admin_full_access policy で全校に書ける（運営入稿広告の経路）。
     await asSystemAdmin(async (tx) => {
@@ -140,7 +140,27 @@ describeOrSkip("Partner K3 schema: portal_*_id 冪等キー列 + UNIQUE (RLS)", 
           VALUES (${fx.schoolA}, 'school', 'https://x/2.png', 'image', ${PORTAL_PLACEMENT})
         `;
       }),
-    ).rejects.toThrow(/duplicate key value|ux_ads_portal_placement_id/i);
+    ).rejects.toThrow(/duplicate key value|ux_ads_portal_placement_school/i);
+  });
+
+  it("ads: 同一 placement でも **学校が違えば** 並立できる（複数校ループの同時配信）", async () => {
+    // portal の「1申込＝N校 同時配信」（複数校ループ）は、1 placement から校ごとに1広告行を生む。
+    // 冪等キーが placement 単独だった頃はここで 2 行目が 1 行目を上書きし、エラーも出さずに
+    // **最後の1校だけ**が残った（＝3校に出ていると誤認したまま1校配信）。複合キーでこれを解く。
+    await asSystemAdmin(async (tx) => {
+      await tx`
+        INSERT INTO ads (school_id, scope, media_url, media_type, portal_placement_id)
+        VALUES (${fx.schoolA}, 'school', 'https://x/1.png', 'image', ${PORTAL_PLACEMENT})
+      `;
+      await tx`
+        INSERT INTO ads (school_id, scope, media_url, media_type, portal_placement_id)
+        VALUES (${fx.schoolB}, 'school', 'https://x/1.png', 'image', ${PORTAL_PLACEMENT})
+      `;
+    });
+    const [{ n }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM ads WHERE portal_placement_id = ${PORTAL_PLACEMENT}
+    `;
+    expect(n).toBe(2);
   });
 
   it("NULL は複数行で許容される（既存行・portal 非経由行）", async () => {

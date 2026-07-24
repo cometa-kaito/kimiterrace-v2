@@ -1,4 +1,4 @@
-import { type InferSelectModel, and, eq, inArray, isNull } from "drizzle-orm";
+import { type InferSelectModel, and, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import type { TenantTx } from "../client.js";
 import { adTargetMonitors } from "../schema/ad-target-monitors.js";
 import { ads } from "../schema/ads.js";
@@ -353,7 +353,10 @@ export async function applyPartnerDelivery(
         updatedBy: null,
       })
       .onConflictDoUpdate({
-        target: ads.portalPlacementId,
+        // 冪等キーは **(portal_placement_id, school_id) の複合**（20260724075009_multi_school_ads）。
+        // portal の複数校ループは 1 placement から校ごとに1広告行を生むため、単独キーだと
+        // 2 校目以降が 1 行目を上書きし、エラーも出さずに最後の1校だけが残る。
+        target: [ads.portalPlacementId, ads.schoolId],
         set: {
           schoolId: a.v2SchoolId,
           scope: a.scope,
@@ -390,6 +393,23 @@ export async function applyPartnerDelivery(
       );
     }
     adsApplied += 1;
+  }
+
+  // 4. 今回送られてこなかった校の広告行を掃除する（複数校ループの対象校が減ったときの取り残し防止）。
+  //    upsert だけでは「3校 → 2校」に変えた再送で 3 校目が残り続け、契約が終わった学校に映り続ける。
+  //    冪等キーが placement 単独だった頃は 1 行しか存在し得ず不要だった掃除で、複合キー化の対と対。
+  //    ad_target_monitors は ad_id の ON DELETE CASCADE で一緒に消える。
+  const schoolsByPlacement = new Map<string, string[]>();
+  for (const a of input.ads) {
+    schoolsByPlacement.set(a.portalPlacementId, [
+      ...(schoolsByPlacement.get(a.portalPlacementId) ?? []),
+      a.v2SchoolId,
+    ]);
+  }
+  for (const [placementId, schoolIds] of schoolsByPlacement) {
+    await tx
+      .delete(ads)
+      .where(and(eq(ads.portalPlacementId, placementId), notInArray(ads.schoolId, schoolIds)));
   }
 
   return {

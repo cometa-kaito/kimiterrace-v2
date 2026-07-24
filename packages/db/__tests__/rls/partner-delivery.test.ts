@@ -220,6 +220,48 @@ describeOrSkip("Partner K3 delivery: applyPartnerDelivery 冪等 upsert (RLS)", 
     expect(c.target_schools).toEqual([fx.schoolA, fx.schoolB]);
   });
 
+  // ── 複数校ループの同時配信（portal 0076/0092 × 複合冪等キー 20260724075009） ──
+  //   portal の「1申込＝N校」は **同一 portal_placement_id で校ごとに1広告行**を送ってくる。
+  //   冪等キーが placement 単独だった頃は 2 校目が 1 校目を上書きし、エラーも出さずに最後の1校
+  //   だけが残った（＝3校に出ていると誤認したまま1校配信）。ここが解けていることを pin する。
+  describe("同一 placement の複数校ファンアウト", () => {
+    function twoSchools() {
+      const input = baseInput();
+      input.ads.push({
+        ...input.ads[0],
+        v2SchoolId: fx.schoolB, // portalPlacementId は 1 件目と**同じ**
+      });
+      // biome-ignore lint/style/noNonNullAssertion: baseInput は contract 非 null
+      input.contract!.targetV2SchoolIds = [fx.schoolA, fx.schoolB];
+      return input;
+    }
+
+    it("同一 placement を2校ぶん送ると 2 行できる（上書きされない）", async () => {
+      const res = await deliver(twoSchools());
+      expect(res.applied).toEqual({ advertisers: 1, contracts: 1, ads: 2 });
+      const rows = await sql<{ school_id: string }[]>`
+        SELECT school_id FROM ads WHERE portal_placement_id = ${PORTAL_PLACEMENT} ORDER BY school_id
+      `;
+      expect(rows.map((r) => r.school_id).sort()).toEqual([fx.schoolA, fx.schoolB].sort());
+    });
+
+    it("冪等: 2校ぶんを再送しても 2 行のまま", async () => {
+      await deliver(twoSchools());
+      await deliver(twoSchools());
+      expect(await counts()).toEqual({ advertisers: 1, contracts: 1, ads: 2 });
+    });
+
+    it("対象校を減らして再送すると、外れた校の広告行は掃除される", async () => {
+      await deliver(twoSchools());
+      // 2校 → 1校（schoolA のみ）へ。掃除が無いと schoolB に映り続ける＝契約が終わった学校への配信。
+      await deliver(baseInput());
+      const rows = await sql<{ school_id: string }[]>`
+        SELECT school_id FROM ads WHERE portal_placement_id = ${PORTAL_PLACEMENT}
+      `;
+      expect(rows.map((r) => r.school_id)).toEqual([fx.schoolA]);
+    });
+  });
+
   // ── Phase4 §0b: 非 school スコープの名前解決（学校内で department/grade/class 名 → id） ──
   describe("scope 名前解決（Phase4 §0b）", () => {
     let deptId: string;
