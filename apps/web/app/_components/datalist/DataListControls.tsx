@@ -11,6 +11,10 @@ const { color, fontSize, radius, space } = tokens;
  * 反映する (JS 不要・リロード型。管理者向けは網羅性 > 滑らかさ)。ソート状態 (`sort`/`dir`) は
  * hidden で温存し、フィルタ変更時は page を 1 に戻す (page を form に含めない)。
  * 「クリア」は basePath への素のリンク (全条件リセット)。
+ *
+ * **本フォーム外の URL 状態は {@link DataListControls} の `hidden` で温存する**: GET フォームの送信は
+ * URL を丸ごと置き換えるため、フォームに含めない条件 (例: `/ops/tv-devices` の `?status=` タブ) は
+ * hidden を渡さないと絞り込みのたびに黙って消える。sort/dir と同じ理由の仕組み。
  */
 
 export type DataListSelect = {
@@ -26,6 +30,7 @@ export function DataListControls({
   selects = [],
   dateRange = false,
   dateRangeLabel = "期間",
+  hidden,
 }: {
   basePath: string;
   params: ListParams;
@@ -34,11 +39,24 @@ export function DataListControls({
   selects?: readonly DataListSelect[];
   dateRange?: boolean;
   dateRangeLabel?: string;
+  /**
+   * フォーム外で持っている URL 条件を送信時に温存する追加 hidden (例: `{ status: "down" }`)。
+   * 値が空文字のキーは出さない (空パラメータで URL を汚さない)。
+   */
+  hidden?: Readonly<Record<string, string>>;
 }) {
   return (
     <form method="get" action={basePath} style={formStyle}>
-      <input type="hidden" name="sort" value={params.sort} />
-      <input type="hidden" name="dir" value={params.dir} />
+      {/* ソート UI を持たない一覧 (sortKeys 空 → sort "") では sort/dir を URL に出さない。 */}
+      {params.sort !== "" && (
+        <>
+          <input type="hidden" name="sort" value={params.sort} />
+          <input type="hidden" name="dir" value={params.dir} />
+        </>
+      )}
+      {Object.entries(hidden ?? {}).map(([name, value]) =>
+        value === "" ? null : <input key={name} type="hidden" name={name} value={value} />,
+      )}
 
       {searchPlaceholder !== undefined && (
         <label style={fieldStyle}>

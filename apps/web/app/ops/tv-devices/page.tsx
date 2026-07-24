@@ -11,8 +11,10 @@ import {
   maskMac,
   shortDeviceId,
 } from "@/lib/tv/status";
-import { type TvDeviceSummary, listTvDevices } from "@kimiterrace/db";
+import { type TvDeviceSummary, listSchools, listTvDevices } from "@kimiterrace/db";
 import Link from "next/link";
+import { DataListControls } from "../../_components/datalist/DataListControls";
+import { type RawSearchParams, parseListParams } from "../../_components/datalist/list-params";
 
 /**
  * F15 §4.1 / F16 §5 (ADR-022/ADR-023): TV デバイス一覧（`/ops/tv-devices`）。**Server Component**。
@@ -33,23 +35,50 @@ import Link from "next/link";
  * **稼働ステータス**は `lib/tv/status.ts`（サーバ側純関数）で `last_seen_at` の鮮度から判定し、
  * **色 + テキストの両方**で示す（NFR05 / WCAG 2.2 AA、色のみに依存しない）。`target_mac` は末尾 4 桁
  * のみ表示（F15 §5、フル値は将来の system_admin 詳細画面のみ）。device_id も先頭のみ短縮表示。
+ *
+ * **学校の次元**: `label` は設置場所の自由文字列で、学校をまたぐと容易に重複する（「進路指導室前」が
+ * 各務原 3 校 + 岐南工業に並ぶ）。全校を見る運用者が行を identify できるよう、**学校列**（`listTvDevices`
+ * が `schools` を JOIN 解決）と **学校セレクト**（`?school=<uuid>`、共通 DataList 基盤のフィルタバー）を
+ * 出す。既定の並びも校名 → ラベルなので同名ラベルが学校ごとにまとまる。どちらも**自校しか見えない
+ * 閲覧者には出さない**（全行同じ値・選択肢 1 個でノイズになるため、可視学校数から導く）。学校絞り込みは
+ * 検索条件であってテナント境界ではない — 境界は RLS が DB レベルで守る（ルール2、/ops/tv-downtime と同方針）。
  */
 /** 稼働ステータス絞り込みのタブ順。「応答なし→未接続」を先頭寄りにして要対応を素早く拾えるようにする。 */
 const STATUS_FILTERS = ["all", "down", "never", "quiet", "online"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
+const BASE_PATH = "/ops/tv-devices";
+
 /** searchParams の `status` を既知のステータスへ正規化する（不正値・undefined は "all" に倒す）。
- *  許可集合は STATUS_FILTERS を単一ソースにして、将来ステータスが増えても取りこぼさない。 */
-function parseStatusFilter(raw: string | undefined): StatusFilter {
-  return (STATUS_FILTERS as readonly string[]).includes(raw ?? "") ? (raw as StatusFilter) : "all";
+ *  許可集合は STATUS_FILTERS を単一ソースにして、将来ステータスが増えても取りこぼさない。
+ *  `?status=a&status=b` のような配列（Next.js が渡しうる）は先頭だけ見る。 */
+function parseStatusFilter(raw: string | string[] | undefined): StatusFilter {
+  const value = (Array.isArray(raw) ? raw[0] : raw) ?? "";
+  return (STATUS_FILTERS as readonly string[]).includes(value) ? (value as StatusFilter) : "all";
+}
+
+/**
+ * 学校スコープを保ったまま稼働ステータスのタブを切り替える href を組む。
+ * `?school=` は全タブで温存し（学校を選び直させない）、既定値（status=all）はクエリに出さない。
+ */
+function tvDevicesHref(school: string | null, status: StatusFilter): string {
+  const sp = new URLSearchParams();
+  if (school !== null) {
+    sp.set("school", school);
+  }
+  if (status !== "all") {
+    sp.set("status", status);
+  }
+  const query = sp.toString();
+  return query === "" ? BASE_PATH : `${BASE_PATH}?${query}`;
 }
 
 export default async function TvDevicesPage({
   searchParams,
 }: {
-  // `?status=down|never|quiet|online` で稼働状況による絞り込み（既定 = 全件）。Server Component の
-  // まま URL クエリで状態を持つ（クライアント JS 不要・ブックマーク/共有可能）。
-  searchParams: Promise<{ status?: string }>;
+  // `?school=<uuid>` で学校、`?status=down|never|quiet|online` で稼働状況を絞り込む（既定 = 全件）。
+  // Server Component のまま URL クエリで状態を持つ（クライアント JS 不要・ブックマーク/共有可能）。
+  searchParams: Promise<RawSearchParams>;
 }) {
   const user = await requireRole(ADMIN_ROLES);
   // 設定編集は school_admin / system_admin 限定。teacher には 403 に終わる「編集」リンクを出さない
@@ -58,10 +87,37 @@ export default async function TvDevicesPage({
   // 新規登録（オンボーディング、F15 §4.3）は cross-tenant 操作のため system_admin 限定。teacher /
   // school_admin には登録リンクを出さない（死リンク防止、実体の認可は /new ページの requireRole）。
   const canOnboard = isRoleAllowed(user.role, ONBOARDING_ROLES);
-  const devices = await withSession((tx) => listTvDevices(tx));
+
+  const raw = await searchParams;
+  // 学校セレクトは共通 DataList 基盤の作法（`?school=<uuid>`）に合わせる（/ops/tv-downtime と同じ）。
+  // 本ページは列ソート UI を持たないので sortKeys は空 = sort/dir を URL に出さない。
+  const params = parseListParams(raw, { sortKeys: [], defaultSort: "", filterKeys: ["school"] });
+
+  // 一覧と学校セレクトの選択肢を同一 RLS context で読む。どちらも可視範囲は RLS が決める
+  // （school_admin=自校 / system_admin=全校）。WHERE に school 条件は書かない（ルール2）。
+  const { devices, schoolOptions } = await withSession(async (tx) => {
+    const [devices, schoolOptions] = await Promise.all([listTvDevices(tx), listSchools(tx)]);
+    return { devices, schoolOptions };
+  });
+
+  // 複数校が見える閲覧者（実質 system_admin）にだけ「学校」の次元を出す。自校しか見えない
+  // school_admin / teacher には全行同じ値の列と選択肢 1 個のセレクトにしかならず、ノイズになる。
+  // role ではなく可視データから導く（RLS が決めた可視範囲と定義上ズレない）。
+  const multiSchool = schoolOptions.length > 1;
+  // 不正・不可視な school は黙って「すべて」に倒す（URL は外部入力、status と同じフォールバック規律）。
+  // これは**検索条件**の検証であってテナント境界ではない（越境は RLS が弾く。可視な学校だけを
+  // 突き合わせ先にしているので、他校の uuid を打ち込んでも 0 件ではなく全件表示に落ちる）。
+  const schoolParam = params.filters.school;
+  const school =
+    schoolParam !== undefined && schoolOptions.some((s) => s.id === schoolParam)
+      ? schoolParam
+      : null;
+
+  // 学校で絞ってから稼働ステータスの件数を数える（「この学校で応答なしは何台？」が読めるように）。
+  const scoped = school === null ? devices : devices.filter((d) => d.schoolId === school);
   // 判定基準時刻はリクエスト時刻で固定し、全行を同一 now で判定する（行ごとの揺れを避ける）。
   const now = new Date();
-  const rows = devices.map((d) => ({
+  const rows = scoped.map((d) => ({
     device: d,
     status: classifyTvLiveness(d.lastSeenAt, now),
   }));
@@ -72,7 +128,7 @@ export default async function TvDevicesPage({
     down: rows.filter((r) => r.status === "down").length,
     never: rows.filter((r) => r.status === "never").length,
   };
-  const selected = parseStatusFilter((await searchParams).status);
+  const selected = parseStatusFilter(raw.status);
   // 選択中ステータスだけに絞る（"all" は全件）。運用者の「いま応答なしの TV はどれ？」を 1 クリックで。
   const visibleRows = selected === "all" ? rows : rows.filter((r) => r.status === selected);
 
@@ -81,8 +137,9 @@ export default async function TvDevicesPage({
       <header style={headerStyle}>
         <h1 style={titleStyle}>TV デバイス</h1>
         <span style={headerRightStyle}>
+          {/* 件数は選択中の学校スコープ内の集計（学校未選択なら可視全校）。 */}
           <span style={countStyle}>
-            稼働中 {counts.online} / 応答なし {counts.down} / 全 {devices.length} 台
+            稼働中 {counts.online} / 応答なし {counts.down} / 全 {rows.length} 台
           </span>
           {canOnboard && (
             <Link href="/ops/tv-devices/provision" style={onboardLinkStyle}>
@@ -100,18 +157,40 @@ export default async function TvDevicesPage({
         各 TV は 60 秒ごとにサーバへ設定を取りに来ます。最終ポーリング時刻から稼働状況を判定します。
       </p>
 
+      {/* 学校で絞り込むセレクト（共通 DataList 基盤のフィルタバー。/ops/schools・/ops/tv-downtime と
+          同じ作法）。設置場所ラベルは学校をまたぐと重複する（「進路指導室前」が各校にある）ため、
+          全校を見る運用者が学校で切れるようにする。選択中の稼働ステータスは hidden で温存する
+          （GET フォーム送信で `?status=` が消えないように）。自校しか見えない閲覧者には出さない。 */}
+      {multiSchool && (
+        <DataListControls
+          basePath={BASE_PATH}
+          params={params}
+          selects={[
+            {
+              name: "school",
+              label: "学校",
+              options: schoolOptions.map((s) => ({
+                value: s.id,
+                label: `${s.name}（${s.prefecture}）`,
+              })),
+            },
+          ]}
+          hidden={{ status: selected === "all" ? "" : selected }}
+        />
+      )}
+
       {/* 稼働ステータスで絞り込むタブ（Server Component のまま `?status=` で状態を持つ）。要対応
-          （応答なし / 未接続）を素早く拾えるよう先頭寄りに並べる。件数 0 のタブも出して全体像を保つ。 */}
-      {devices.length > 0 ? (
+          （応答なし / 未接続）を素早く拾えるよう先頭寄りに並べる。件数 0 のタブも出して全体像を保つ。
+          件数・遷移先はいずれも選択中の学校スコープ内（`?school=` を保持する）。 */}
+      {rows.length > 0 ? (
         <nav aria-label="稼働ステータスで絞り込み" style={filterRowStyle}>
           {STATUS_FILTERS.map((s) => {
             const isActive = s === selected;
             const label = s === "all" ? "すべて" : `${TV_STATUS_ICON[s]} ${TV_STATUS_LABEL[s]}`;
-            const href = s === "all" ? "/ops/tv-devices" : `/ops/tv-devices?status=${s}`;
             return (
               <Link
                 key={s}
-                href={href}
+                href={tvDevicesHref(school, s)}
                 aria-current={isActive ? "page" : undefined}
                 style={isActive ? chipActiveStyle : chipStyle}
               >
@@ -124,10 +203,21 @@ export default async function TvDevicesPage({
 
       {devices.length === 0 ? (
         <p style={emptyStyle}>登録されている TV デバイスがありません。</p>
+      ) : rows.length === 0 ? (
+        <p style={emptyStyle}>
+          この学校に登録されている TV はありません。
+          <Link href={BASE_PATH} style={{ marginLeft: "0.5rem", ...editLinkStyle }}>
+            すべて表示
+          </Link>
+        </p>
       ) : visibleRows.length === 0 ? (
         <p style={emptyStyle}>
           この稼働ステータスに該当する TV はありません。
-          <Link href="/ops/tv-devices" style={{ marginLeft: "0.5rem", ...editLinkStyle }}>
+          {/* 学校スコープは保ったままステータス条件だけ外す（選び直させない）。 */}
+          <Link
+            href={tvDevicesHref(school, "all")}
+            style={{ marginLeft: "0.5rem", ...editLinkStyle }}
+          >
             すべて表示
           </Link>
         </p>
@@ -139,6 +229,12 @@ export default async function TvDevicesPage({
               <th scope="col" style={thLeftStyle}>
                 教室ラベル
               </th>
+              {/* 学校列は複数校が見える閲覧者にだけ出す（自校のみの閲覧者には全行同じ値でノイズ）。 */}
+              {multiSchool && (
+                <th scope="col" style={thLeftStyle}>
+                  学校
+                </th>
+              )}
               <th scope="col" style={thLeftStyle}>
                 端末ID
               </th>
@@ -169,6 +265,7 @@ export default async function TvDevicesPage({
                 device={device}
                 status={status}
                 canEditConfig={canEditConfig}
+                showSchool={multiSchool}
               />
             ))}
           </tbody>
@@ -182,10 +279,13 @@ function DeviceRow({
   device,
   status,
   canEditConfig,
+  showSchool,
 }: {
   device: TvDeviceSummary;
   status: TvLivenessStatus;
   canEditConfig: boolean;
+  /** 学校列を出すか（複数校が見える閲覧者のみ true。ヘッダ側の出し分けと同一条件）。 */
+  showSchool: boolean;
 }) {
   return (
     <tr>
@@ -197,6 +297,7 @@ function DeviceRow({
           </span>
         )}
       </th>
+      {showSchool && <td style={tdLeftStyle}>{device.schoolName}</td>}
       <td style={tdMonoStyle}>{shortDeviceId(device.deviceId)}</td>
       <td style={tdMonoStyle}>{maskMac(device.targetMac)}</td>
       <td style={tdNumStyle}>v{device.version}</td>
