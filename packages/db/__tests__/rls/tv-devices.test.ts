@@ -151,6 +151,32 @@ describeOrSkip("RLS: F15/F16 tv_devices", () => {
     expect(rows.length).toBe(2);
   });
 
+  it("listTvDevices: 所属校名を JOIN 解決し、校名 → ラベル順で並ぶ（同名ラベルが学校ごとにまとまる）", async () => {
+    const rows = await withTenantContext(
+      db,
+      { role: "system_admin" },
+      (tx) => listTvDevices(tx),
+      APP,
+    );
+    // schools への innerJoin が行を落としていない（2 校ぶん揃う）。
+    expect(rows.map((r) => r.schoolName)).toEqual(["テスト高校 A", "テスト高校 B"]);
+    // school_id と校名が行ごとに対応している（取り違えない）。
+    expect(rows.find((r) => r.deviceId === DEV_A)?.schoolName).toBe("テスト高校 A");
+    expect(rows.find((r) => r.deviceId === DEV_B)?.schoolName).toBe("テスト高校 B");
+  });
+
+  it("listTvDevices: テナント context でも校名が解決する（schools.tenant_self_read で自校は可視）", async () => {
+    // innerJoin が RLS で行を落とすと一覧が空になる（回帰しやすいので pin する）。
+    const rows = await withTenantContext(
+      db,
+      { schoolId: fx.schoolA, role: "school_admin" },
+      (tx) => listTvDevices(tx),
+      APP,
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].schoolName).toBe("テスト高校 A");
+  });
+
   it("pollTvConfig: device_id で cross-tenant 解決 + last_seen 更新（appRole 降格で RLS 実効）", async () => {
     const before = await sql<{ last_seen_at: string | null }[]>`
       SELECT last_seen_at FROM tv_devices WHERE device_id = ${DEV_A}

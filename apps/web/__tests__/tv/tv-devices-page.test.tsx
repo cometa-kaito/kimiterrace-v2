@@ -23,9 +23,9 @@ vi.mock("../../lib/auth/guard", () => ({
   isRoleAllowed: (role: string, allowed: readonly string[]) => allowed.includes(role),
 }));
 vi.mock("../../lib/db", () => ({ withSession: vi.fn() }));
-vi.mock("@kimiterrace/db", () => ({ listTvDevices: vi.fn() }));
+vi.mock("@kimiterrace/db", () => ({ listTvDevices: vi.fn(), listSchools: vi.fn() }));
 
-import { listTvDevices } from "@kimiterrace/db";
+import { listSchools, listTvDevices } from "@kimiterrace/db";
 import TvDevicesPage from "../../app/ops/tv-devices/page";
 import { requireRole } from "../../lib/auth/guard";
 import { withSession } from "../../lib/db";
@@ -35,12 +35,18 @@ import { TV_CONFIG_EDIT_ROLES } from "../../lib/tv/config-edit-core";
 const requireRoleMock = vi.mocked(requireRole);
 const withSessionMock = vi.mocked(withSession);
 const listMock = vi.mocked(listTvDevices);
+const listSchoolsMock = vi.mocked(listSchools);
+
+const SCHOOL_A = "aaaaaaaa-0000-4000-8000-000000000001";
+const SCHOOL_B = "bbbbbbbb-0000-4000-8000-000000000002";
 
 // 一覧 1 行ぶんの最小 fixture。label は編集リンクの aria-label に使われる。
 const DEVICE = {
   id: "00000000-0000-0000-0000-000000000001",
   label: "1年A組",
   deviceId: "dev-abcdef",
+  schoolId: SCHOOL_A,
+  schoolName: "岐阜県立岐南工業高等学校",
   targetMac: "AA:BB:CC:DD:EE:FF",
   version: 3,
   lastSeenAt: null,
@@ -49,20 +55,28 @@ const DEVICE = {
 const EDIT_LINK_NAME = "1年A組 の設定を編集";
 const HISTORY_LINK_NAME = "1年A組 の稼働履歴を表示";
 
+/** 学校セレクトの選択肢（listSchools の射影のうち本ページが使う分）。 */
+const SCHOOLS = [
+  { id: SCHOOL_A, name: "岐阜県立岐南工業高等学校", prefecture: "岐阜県" },
+  { id: SCHOOL_B, name: "岐阜県立各務原高等学校", prefecture: "岐阜県" },
+];
+
 function arrangeRole(role: string) {
   requireRoleMock.mockResolvedValue({ uid: "u1", role, schoolId: "s1" } as never);
   withSessionMock.mockImplementation(((fn: (tx: unknown, user: unknown) => unknown) =>
     Promise.resolve(fn({}, { uid: "u1", role, schoolId: "s1" }))) as typeof withSession);
 }
 
-/** ページの props（Server Component が受ける searchParams Promise）。status 未指定 = 絞り込みなし。 */
-function pageProps(status?: string) {
-  return { searchParams: Promise.resolve(status === undefined ? {} : { status }) };
+/** ページの props（Server Component が受ける searchParams Promise）。未指定 = 絞り込みなし。 */
+function pageProps(search: Record<string, string | string[]> = {}) {
+  return { searchParams: Promise.resolve(search) };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   listMock.mockResolvedValue([DEVICE] as never);
+  // 既定は複数校が見える閲覧者（system_admin 相当）= 学校列・学校セレクトが出る条件。
+  listSchoolsMock.mockResolvedValue(SCHOOLS as never);
 });
 
 describe("TvDevicesPage 操作列リンクの role 出し分け", () => {
@@ -127,7 +141,7 @@ describe("TvDevicesPage 稼働ステータス絞り込み（?status=）", () => 
   it("?status=down は応答なしの端末だけ表示する", async () => {
     arrangeRole("system_admin");
     listMock.mockResolvedValue([DEVICE, DOWN, ONLINE] as never);
-    render(await TvDevicesPage(pageProps("down")));
+    render(await TvDevicesPage(pageProps({ status: "down" })));
     expect(screen.getByText("応答なし組")).toBeInTheDocument();
     expect(screen.queryByText("稼働中組")).toBeNull();
     expect(screen.queryByText("1年A組")).toBeNull(); // never は対象外
@@ -145,9 +159,95 @@ describe("TvDevicesPage 稼働ステータス絞り込み（?status=）", () => 
   it("不正な status は全件表示にフォールバックする（CWE-20 防御・URL 改竄耐性）", async () => {
     arrangeRole("system_admin");
     listMock.mockResolvedValue([DEVICE, DOWN, ONLINE] as never);
-    render(await TvDevicesPage(pageProps("garbage")));
+    render(await TvDevicesPage(pageProps({ status: "garbage" })));
     expect(screen.getByText("応答なし組")).toBeInTheDocument();
     expect(screen.getByText("稼働中組")).toBeInTheDocument();
     expect(screen.getByText("1年A組")).toBeInTheDocument();
+  });
+});
+
+/**
+ * 学校の次元（列 + `?school=` セレクト）。`label` は設置場所の自由文字列で学校をまたぐと重複する
+ * （「進路指導室前」が各務原 3 校 + 岐南工業に並ぶ）ため、全校を見る運用者が行を identify できることを pin する。
+ * 出し分けは role ではなく**可視学校数**から導く（RLS が決めた可視範囲と定義上ズレない）。
+ */
+describe("TvDevicesPage 学校の列と絞り込み（?school=）", () => {
+  // 同名ラベルが 2 校に並ぶ実データの再現（本機能の動機そのもの）。
+  const GINAN = {
+    ...DEVICE,
+    id: "00000000-0000-0000-0000-000000000011",
+    label: "進路指導室前",
+    deviceId: "dev-ginan",
+    schoolId: SCHOOL_A,
+    schoolName: "岐阜県立岐南工業高等学校",
+  };
+  const KAKAMI = {
+    ...DEVICE,
+    id: "00000000-0000-0000-0000-000000000012",
+    label: "進路指導室前",
+    deviceId: "dev-kakami",
+    schoolId: SCHOOL_B,
+    schoolName: "岐阜県立各務原高等学校",
+  };
+
+  it("複数校が見える閲覧者には学校列を出し、同名ラベルを校名で区別できる", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN, KAKAMI] as never);
+    render(await TvDevicesPage(pageProps()));
+    expect(screen.getByRole("columnheader", { name: "学校" })).toBeInTheDocument();
+    // 同名ラベルが 2 行、校名は行ごとに異なる（= 区別できる）。
+    expect(screen.getAllByText("進路指導室前")).toHaveLength(2);
+    expect(screen.getByText("岐阜県立岐南工業高等学校")).toBeInTheDocument();
+    expect(screen.getByText("岐阜県立各務原高等学校")).toBeInTheDocument();
+  });
+
+  it("自校しか見えない閲覧者には学校列・学校セレクトを出さない（全行同じ値のノイズを避ける）", async () => {
+    arrangeRole("school_admin");
+    listSchoolsMock.mockResolvedValue([SCHOOLS[0]] as never);
+    listMock.mockResolvedValue([GINAN] as never);
+    render(await TvDevicesPage(pageProps()));
+    expect(screen.queryByRole("columnheader", { name: "学校" })).toBeNull();
+    expect(screen.queryByLabelText("学校")).toBeNull();
+    // 行自体は従来どおり見える。
+    expect(screen.getByText("進路指導室前")).toBeInTheDocument();
+  });
+
+  it("?school= は指定校の端末だけ表示する", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN, KAKAMI] as never);
+    render(await TvDevicesPage(pageProps({ school: SCHOOL_B })));
+    expect(screen.getByText("岐阜県立各務原高等学校")).toBeInTheDocument();
+    expect(screen.queryByText("岐阜県立岐南工業高等学校")).toBeNull();
+  });
+
+  it("不可視・不正な school は全件表示にフォールバックする（URL 改竄耐性。境界は RLS）", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN, KAKAMI] as never);
+    render(await TvDevicesPage(pageProps({ school: "cccccccc-0000-4000-8000-000000000009" })));
+    expect(screen.getByText("岐阜県立岐南工業高等学校")).toBeInTheDocument();
+    expect(screen.getByText("岐阜県立各務原高等学校")).toBeInTheDocument();
+  });
+
+  it("学校セレクトを出すとき、選択中の稼働ステータスを hidden で温存する（絞り込みで status が消えない）", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN, KAKAMI] as never);
+    const { container } = render(
+      await TvDevicesPage(pageProps({ school: SCHOOL_B, status: "never" })),
+    );
+    const hidden = container.querySelector('input[type="hidden"][name="status"]');
+    expect(hidden).toHaveAttribute("value", "never");
+    // ソート UI を持たないページなので sort/dir は URL に出さない。
+    expect(container.querySelector('input[type="hidden"][name="sort"]')).toBeNull();
+  });
+
+  it("稼働ステータスのタブは学校スコープを保つ（?school= を落とさない）", async () => {
+    arrangeRole("system_admin");
+    listMock.mockResolvedValue([GINAN, KAKAMI] as never);
+    render(await TvDevicesPage(pageProps({ school: SCHOOL_B })));
+    // 「すべて」タブ = status 無し + school 保持。
+    expect(screen.getByRole("link", { name: /^すべて（/ })).toHaveAttribute(
+      "href",
+      `/ops/tv-devices?school=${SCHOOL_B}`,
+    );
   });
 });

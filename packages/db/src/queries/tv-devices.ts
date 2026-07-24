@@ -14,6 +14,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { KimiterraceDb } from "../client.js";
 import { withTenantContext } from "../client.js";
 import { magicLinks } from "../schema/magic-links.js";
+import { schools } from "../schema/schools.js";
 import { type TvSchedule, tvDevices } from "../schema/tv-devices.js";
 
 /**
@@ -35,6 +36,7 @@ import { type TvSchedule, tvDevices } from "../schema/tv-devices.js";
  */
 
 type TvDeviceRow = InferSelectModel<typeof tvDevices>;
+type SchoolRow = InferSelectModel<typeof schools>;
 
 /** SELECT だけできれば良い（Drizzle db / トランザクションの両方を受ける）。 */
 type Selectable = Pick<PostgresJsDatabase, "select">;
@@ -61,7 +63,14 @@ export type TvDeviceSummary = Pick<
   | "lastBootAt"
   | "monitoringEnabled"
   | "alertState"
->;
+> & {
+  /**
+   * 所属校名（`schools.name` を JOIN 解決）。`label` は「進路指導室前」のような**設置場所ラベル**で、
+   * 学校をまたぐと容易に重複する（各務原 3 校 + 岐南工業に同名モニタが並ぶ）。全校横断で見る
+   * system_admin が行を identify するには校名が要るため、一覧の射影に含める。型は schema 由来（ルール3）。
+   */
+  schoolName: SchoolRow["name"];
+};
 
 /**
  * ポーリング応答（ADR-022 §レスポンス）。TV 側 ConfigPoller がこの形を解釈する。
@@ -228,12 +237,21 @@ export async function resolveTvDeviceByDeviceId(
 }
 
 /**
- * 管理一覧: TV デバイスを取得する。可視範囲は RLS が決める（system_admin=全校 / テナント=自校のみ）。
- * ソフトデリート済（`deleted_at IS NOT NULL`）は一覧から除外する。ラベル → device_id の順で決定的に
- * 並べる（同一ラベルでも順序が安定）。
+ * 管理一覧: TV デバイスを **所属校名つき**で取得する。可視範囲は RLS が決める
+ * （system_admin=全校 / テナント=自校のみ）。ソフトデリート済（`deleted_at IS NOT NULL`）は一覧から除外する。
+ * **校名 → ラベル → device_id** の順で決定的に並べ、同名ラベル（「進路指導室前」等）が学校ごとに
+ * まとまるようにする（同一校・同一ラベルでも device_id で順序が安定）。
  *
  * `WHERE deleted_at IS NULL` は対象絞り込みであってテナント境界ではない（越境は RLS が弾く、schools.ts
- * の方針参照）。呼び出し側は RLS をバイパスしない接続ロール（kimiterrace_app）を使うこと。
+ * の方針参照）。**`school_id` の WHERE は書かない** — 学校での絞り込みは呼び出し側 UI の検索条件であって
+ * 境界ではなく、境界は RLS が DB レベルで守る（ルール2）。呼び出し側は RLS をバイパスしない接続ロール
+ * （kimiterrace_app）を使うこと。
+ *
+ * **JOIN の件数安全性**: `schools` への innerJoin は `school_id` NOT NULL + FK（restrict）で常に親が
+ * 存在し、行を増やさない（PK 結合）。RLS 上も行を落とさない — `tv_devices` が可視なのは
+ * `tenant_isolation`（school_id = current_school_id）か `system_admin_full_access` のときで、
+ * `schools` 側にはそれぞれ対応する `tenant_self_read`（id = current_school_id、role 非依存）と
+ * `system_admin_full_access` があるため（migrations/0002）、可視な TV の親校は必ず可視。
  */
 export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> {
   return db
@@ -242,6 +260,7 @@ export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> 
       deviceId: tvDevices.deviceId,
       label: tvDevices.label,
       schoolId: tvDevices.schoolId,
+      schoolName: schools.name,
       targetMac: tvDevices.targetMac,
       version: tvDevices.version,
       lastSeenAt: tvDevices.lastSeenAt,
@@ -250,8 +269,9 @@ export async function listTvDevices(db: Selectable): Promise<TvDeviceSummary[]> 
       alertState: tvDevices.alertState,
     })
     .from(tvDevices)
+    .innerJoin(schools, eq(tvDevices.schoolId, schools.id))
     .where(isNull(tvDevices.deletedAt))
-    .orderBy(asc(tvDevices.label), asc(tvDevices.deviceId));
+    .orderBy(asc(schools.name), asc(tvDevices.label), asc(tvDevices.deviceId));
 }
 
 /**
