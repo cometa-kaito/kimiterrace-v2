@@ -12,9 +12,19 @@ const { color, fontSize, radius, space } = tokens;
  * hidden で温存し、フィルタ変更時は page を 1 に戻す (page を form に含めない)。
  * 「クリア」は basePath への素のリンク (全条件リセット)。
  *
- * **本フォーム外の URL 状態は {@link DataListControls} の `hidden` で温存する**: GET フォームの送信は
- * URL を丸ごと置き換えるため、フォームに含めない条件 (例: `/ops/tv-devices` の `?status=` タブ) は
- * hidden を渡さないと絞り込みのたびに黙って消える。sort/dir と同じ理由の仕組み。
+ * **本フォーム外の URL 状態は hidden で温存する**: GET フォームの送信は URL を丸ごと置き換えるため、
+ * フォームに含めない条件は hidden にしないと絞り込みのたびに黙って消える。sort/dir と同じ理由の仕組み。
+ * 温存対象は 2 系統ある:
+ *
+ *  1. **`params.filters` のうちセレクトを持たないキーは自動で hidden にする**。`filterKeys` に宣言した
+ *     のに `selects` に出さない (タブ / リンクで切替える類の) 条件は、ページ側が hidden を書き忘れると
+ *     症状なく消える。宣言済みフィルタは常に往復する不変条件をこの chokepoint で機械的に守り、
+ *     ページごとの書き忘れという罠のクラスごと潰す (実害: `/ops/dashboard` の `?axis=`)。
+ *  2. **`params.filters` の外にある条件は {@link DataListControls} の `hidden` で明示する**
+ *     (例: `/ops/tv-devices` の `?status=` タブは自前で解析していて `filterKeys` に無い)。
+ *
+ * 同名キーは `selects` > `hidden` > 自動温存 の優先順。`hidden` にキーがあれば値が空文字でも自動温存は
+ * 行わない (ページ側が「あえて出さない」を表現できる)。
  */
 
 export type DataListSelect = {
@@ -40,11 +50,24 @@ export function DataListControls({
   dateRange?: boolean;
   dateRangeLabel?: string;
   /**
-   * フォーム外で持っている URL 条件を送信時に温存する追加 hidden (例: `{ status: "down" }`)。
-   * 値が空文字のキーは出さない (空パラメータで URL を汚さない)。
+   * `params.filters` の外で持っている URL 条件を送信時に温存する追加 hidden (例: `{ status: "down" }`)。
+   * 値が空文字のキーは出さない (空パラメータで URL を汚さない)。`params.filters` にあるキーを指定した
+   * 場合は自動温存より優先される。
    */
   hidden?: Readonly<Record<string, string>>;
 }) {
+  // 送信時に温存する hidden を組み立てる。セレクトが自分で送るキーは対象外 (二重送信になる)。
+  const selectNames = new Set(selects.map((sel) => sel.name));
+  const explicitHidden = hidden ?? {};
+  const preserved: Record<string, string> = {};
+  for (const [name, value] of Object.entries(params.filters)) {
+    if (!selectNames.has(name) && !(name in explicitHidden)) {
+      preserved[name] = value;
+    }
+  }
+  // 明示指定はページ側の意図なので最後に上書きする (空文字での抑止も含めてそのまま通す)。
+  Object.assign(preserved, explicitHidden);
+
   return (
     <form method="get" action={basePath} style={formStyle}>
       {/* ソート UI を持たない一覧 (sortKeys 空 → sort "") では sort/dir を URL に出さない。 */}
@@ -54,7 +77,7 @@ export function DataListControls({
           <input type="hidden" name="dir" value={params.dir} />
         </>
       )}
-      {Object.entries(hidden ?? {}).map(([name, value]) =>
+      {Object.entries(preserved).map(([name, value]) =>
         value === "" ? null : <input key={name} type="hidden" name={name} value={value} />,
       )}
 
